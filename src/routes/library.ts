@@ -5,7 +5,7 @@ import type {LibraryJson} from '@fuzdev/fuz_util/library_json.js';
 export const library_json: LibraryJson = {
 	package_json: {
 		name: '@fuzdev/fuz_gitops',
-		version: '0.57.0',
+		version: '0.58.0',
 		description: 'a tool for managing many repos',
 		glyph: '🪄',
 		logo: 'logo.svg',
@@ -103,7 +103,7 @@ export const library_json: LibraryJson = {
 	},
 	source_json: {
 		name: '@fuzdev/fuz_gitops',
-		version: '0.57.0',
+		version: '0.58.0',
 		modules: [
 			{
 				path: 'changeset_generator.ts',

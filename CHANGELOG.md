@@ -1,5 +1,11 @@
 # @fuzdev/fuz_gitops
 
+## 0.58.0
+
+### Minor Changes
+
+- migrate to fuzdev ([#42](https://github.com/fuzdev/fuz_gitops/pull/42))
+
 ## 0.57.0
 
 ### Minor Changes
