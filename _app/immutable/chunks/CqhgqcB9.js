@@ -1,0 +1,1 @@
+import{k as c,i as _,j as o,E as d,J as y,K as E,L as T,z as b,B as g,y as i}from"./D3he-c0g.js";function p(t,f,u=!1){_&&o();var r=new g(t),h=u?d:0;function n(a,s){if(_){const l=y(t)===E;if(a===l){var e=T();b(e),r.anchor=e,i(!1),r.ensure(a,s),i(!0);return}}r.ensure(a,s)}c(()=>{var a=!1;f((s,e=!0)=>{a=!0,n(e,s)}),a||n(!1,null)},h)}export{p as i};
