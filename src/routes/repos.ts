@@ -7,7 +7,7 @@ export const repos_json: Array<RepoJson> = [
 		library_json: {
 			package_json: {
 				name: '@fuzdev/fuz_css',
-				version: '0.39.0',
+				version: '0.41.0',
 				description: 'CSS framework and design system',
 				motto: 'magical organic stylesheets',
 				glyph: '🌿',
@@ -15,7 +15,7 @@ export const repos_json: Array<RepoJson> = [
 				logo_alt: 'a fuzzy tuft of green moss',
 				public: true,
 				license: 'MIT',
-				homepage: 'https://moss.ryanatkn.com/',
+				homepage: 'https://css.fuz.dev/',
 				repository: 'https://github.com/fuzdev/fuz_css',
 				author: {
 					name: 'Ryan Atkinson',
@@ -37,28 +37,36 @@ export const repos_json: Array<RepoJson> = [
 				engines: {
 					node: '>=22.15',
 				},
+				peerDependencies: {
+					'@fuzdev/fuz_util': '>=0.42.0',
+				},
+				peerDependenciesMeta: {
+					'@fuzdev/fuz_util': {
+						optional: true,
+					},
+				},
 				devDependencies: {
 					'@changesets/changelog-git': '^0.2.1',
-					'@fuzdev/fuz_util': '^0.40.0',
+					'@fuzdev/fuz_code': '^0.38.0',
+					'@fuzdev/fuz_ui': '^0.170.0',
+					'@fuzdev/fuz_util': '^0.42.0',
 					'@ryanatkn/eslint-config': '^0.9.0',
-					'@fuzdev/fuz_ui': '^0.165.0',
-					'@fuzdev/fuz_code': '^0.36.0',
-					'@ryanatkn/gro': '^0.179.0',
+					'@ryanatkn/gro': '^0.181.0',
 					'@sveltejs/adapter-static': '^3.0.10',
-					'@sveltejs/kit': '^2.49.0',
-					'@sveltejs/package': '^2.5.6',
+					'@sveltejs/kit': '^2.49.1',
+					'@sveltejs/package': '^2.5.7',
 					'@sveltejs/vite-plugin-svelte': '^6.2.1',
 					'@types/node': '^24.10.1',
 					eslint: '^9.39.1',
-					'eslint-plugin-svelte': '^3.13.0',
-					prettier: '^3.6.2',
+					'eslint-plugin-svelte': '^3.13.1',
+					prettier: '^3.7.4',
 					'prettier-plugin-svelte': '^3.4.0',
-					svelte: '^5.44.0',
+					svelte: '^5.45.6',
 					'svelte-check': '^4.3.4',
 					tslib: '^2.8.1',
 					typescript: '^5.9.3',
-					'typescript-eslint': '^8.48.0',
-					vitest: '^4.0.14',
+					'typescript-eslint': '^8.48.1',
+					vitest: '^4.0.15',
 					zod: '^4.1.13',
 				},
 				prettier: {
@@ -95,7 +103,7 @@ export const repos_json: Array<RepoJson> = [
 			},
 			source_json: {
 				name: '@fuzdev/fuz_css',
-				version: '0.39.0',
+				version: '0.41.0',
 				modules: [
 					{
 						path: 'css_class_composites.ts',
@@ -155,14 +163,12 @@ export const repos_json: Array<RepoJson> = [
 									{
 										name: 'template',
 										type: 'ClassTemplateFn<T1, T2, T3>',
-										optional: false,
 										description:
 											'- Function that generates CSS from values, can return null to skip',
 									},
 									{
 										name: 'values',
 										type: 'Iterable<T1>',
-										optional: false,
 										description: '- Primary iterable of values',
 									},
 									{
@@ -226,7 +232,6 @@ export const repos_json: Array<RepoJson> = [
 									{
 										name: 'str',
 										type: 'string',
-										optional: false,
 									},
 								],
 							},
@@ -240,7 +245,6 @@ export const repos_json: Array<RepoJson> = [
 									{
 										name: 'str',
 										type: 'string',
-										optional: false,
 									},
 								],
 							},
@@ -254,7 +258,6 @@ export const repos_json: Array<RepoJson> = [
 									{
 										name: 'property',
 										type: 'string',
-										optional: false,
 									},
 								],
 							},
@@ -270,7 +273,6 @@ export const repos_json: Array<RepoJson> = [
 									{
 										name: 'value',
 										type: 'string',
-										optional: false,
 									},
 								],
 							},
@@ -286,7 +288,6 @@ export const repos_json: Array<RepoJson> = [
 									{
 										name: 'value',
 										type: 'string',
-										optional: false,
 									},
 								],
 							},
@@ -303,13 +304,11 @@ export const repos_json: Array<RepoJson> = [
 									{
 										name: 'property',
 										type: 'string',
-										optional: false,
 										description: "- The CSS property name (e.g. 'display', 'gap')",
 									},
 									{
 										name: 'values',
 										type: 'Iterable<string>',
-										optional: false,
 										description: '- The values to generate classes for',
 									},
 									{
@@ -322,7 +321,6 @@ export const repos_json: Array<RepoJson> = [
 									{
 										name: 'prefix',
 										type: 'string',
-										optional: false,
 										description:
 											'- Optional class name prefix (defaults to property with dashes replaced by underscores)',
 										default_value: 'to_variable_name(property)',
@@ -342,13 +340,11 @@ export const repos_json: Array<RepoJson> = [
 									{
 										name: 'property',
 										type: 'string',
-										optional: false,
 										description: "- The base CSS property name (e.g. 'margin', 'padding')",
 									},
 									{
 										name: 'values',
 										type: 'Iterable<string>',
-										optional: false,
 										description: '- The values to generate classes for',
 									},
 									{
@@ -372,13 +368,11 @@ export const repos_json: Array<RepoJson> = [
 									{
 										name: 'property',
 										type: 'string',
-										optional: false,
 										description: "- The base CSS property name (e.g. 'overflow')",
 									},
 									{
 										name: 'values',
 										type: 'Iterable<string>',
-										optional: false,
 										description: '- The values to generate classes for',
 									},
 								],
@@ -396,7 +390,6 @@ export const repos_json: Array<RepoJson> = [
 									{
 										name: 'values',
 										type: 'Iterable<string>',
-										optional: false,
 										description: '- The values to generate classes for',
 									},
 									{
@@ -420,13 +413,11 @@ export const repos_json: Array<RepoJson> = [
 									{
 										name: 'sizes',
 										type: 'Iterable<string>',
-										optional: false,
 										description: '- The shadow size variants (xs, sm, md, lg, xl)',
 									},
 									{
 										name: 'alpha_mapping',
 										type: 'Record<string, string>',
-										optional: false,
 										description: '- Mapping of sizes to alpha numbers (1-5)',
 									},
 								],
@@ -467,12 +458,10 @@ export const repos_json: Array<RepoJson> = [
 									{
 										name: 'contents',
 										type: 'string',
-										optional: false,
 									},
 									{
 										name: 'extractors',
 										type: 'CssExtractor[]',
-										optional: false,
 										default_value: 'CSS_CLASS_EXTRACTORS',
 									},
 								],
@@ -495,7 +484,6 @@ export const repos_json: Array<RepoJson> = [
 											{
 												name: 'include_classes',
 												type: 'Set<string> | null',
-												optional: false,
 												default_value: 'null',
 											},
 										],
@@ -509,12 +497,10 @@ export const repos_json: Array<RepoJson> = [
 											{
 												name: 'id',
 												type: 'string',
-												optional: false,
 											},
 											{
 												name: 'classes',
 												type: 'Set<string>',
-												optional: false,
 											},
 										],
 									},
@@ -527,7 +513,6 @@ export const repos_json: Array<RepoJson> = [
 											{
 												name: 'id',
 												type: 'string',
-												optional: false,
 											},
 										],
 									},
@@ -617,17 +602,14 @@ export const repos_json: Array<RepoJson> = [
 									{
 										name: 'classes',
 										type: 'Iterable<string>',
-										optional: false,
 									},
 									{
 										name: 'classes_by_name',
 										type: 'Record<string, CssClassDeclaration | undefined>',
-										optional: false,
 									},
 									{
 										name: 'interpreters',
 										type: 'CssClassDeclarationInterpreter[]',
-										optional: false,
 									},
 									{
 										name: 'log',
@@ -753,7 +735,6 @@ export const repos_json: Array<RepoJson> = [
 									{
 										name: 'options',
 										type: 'GenMossCssOptions',
-										optional: false,
 										default_value: '{}',
 									},
 								],
@@ -841,12 +822,10 @@ export const repos_json: Array<RepoJson> = [
 									{
 										name: 'theme',
 										type: 'Theme',
-										optional: false,
 									},
 									{
 										name: 'options',
 										type: 'RenderThemeStyleOptions',
-										optional: false,
 										default_value: '{}',
 									},
 								],
@@ -862,18 +841,15 @@ export const repos_json: Array<RepoJson> = [
 									{
 										name: 'variable',
 										type: 'StyleVariable',
-										optional: false,
 									},
 									{
 										name: 'dark',
 										type: 'boolean',
-										optional: false,
 										default_value: 'false',
 									},
 									{
 										name: 'comments',
 										type: 'boolean',
-										optional: false,
 										default_value: 'true',
 									},
 								],
@@ -1368,7 +1344,6 @@ export const repos_json: Array<RepoJson> = [
 									{
 										name: 'name',
 										type: 'string',
-										optional: false,
 									},
 								],
 							},
@@ -3402,9 +3377,9 @@ export const repos_json: Array<RepoJson> = [
 				],
 			},
 			name: '@fuzdev/fuz_css',
-			repo_name: 'moss',
+			repo_name: 'fuz_css',
 			repo_url: 'https://github.com/fuzdev/fuz_css',
-			owner_name: 'ryanatkn',
+			owner_name: 'fuzdev',
 			homepage_url: 'https://css.fuz.dev/',
 			logo_url: 'https://css.fuz.dev/logo.svg',
 			logo_alt: 'a fuzzy tuft of green moss',
@@ -3422,7 +3397,7 @@ export const repos_json: Array<RepoJson> = [
 		library_json: {
 			package_json: {
 				name: '@fuzdev/fuz_ui',
-				version: '0.168.0',
+				version: '0.170.0',
 				description: 'Svelte UI library',
 				motto: 'friendly user zystem',
 				glyph: '🧶',
@@ -3456,10 +3431,10 @@ export const repos_json: Array<RepoJson> = [
 					node: '>=22.15',
 				},
 				peerDependencies: {
-					'@fuzdev/fuz_util': '>=0.41.1',
-					'@fuzdev/fuz_code': '>=0.36.0',
+					'@fuzdev/fuz_code': '>=0.37.0',
+					'@fuzdev/fuz_css': '>=0.40.0',
+					'@fuzdev/fuz_util': '>=0.42.0',
 					'@ryanatkn/gro': '>=0.180.0',
-					'@fuzdev/fuz_css': '>=0.39.0',
 					'@sveltejs/kit': '^2.47.3',
 					'esm-env': '^1',
 					svelte: '^5',
@@ -3479,29 +3454,29 @@ export const repos_json: Array<RepoJson> = [
 				},
 				devDependencies: {
 					'@changesets/changelog-git': '^0.2.1',
-					'@fuzdev/fuz_util': '^0.41.1',
+					'@fuzdev/fuz_code': '^0.38.0',
+					'@fuzdev/fuz_css': '^0.41.0',
+					'@fuzdev/fuz_util': '^0.42.0',
 					'@ryanatkn/eslint-config': '^0.9.0',
-					'@fuzdev/fuz_code': '^0.36.0',
-					'@ryanatkn/gro': '^0.180.0',
-					'@fuzdev/fuz_css': '^0.39.0',
+					'@ryanatkn/gro': '^0.181.0',
 					'@sveltejs/adapter-static': '^3.0.10',
-					'@sveltejs/kit': '^2.49.0',
+					'@sveltejs/kit': '^2.49.1',
 					'@sveltejs/package': '^2.5.7',
 					'@sveltejs/vite-plugin-svelte': '^6.2.1',
 					'@types/node': '^24.10.1',
 					eslint: '^9.39.1',
-					'eslint-plugin-svelte': '^3.13.0',
+					'eslint-plugin-svelte': '^3.13.1',
 					'esm-env': '^1.2.2',
 					jsdom: '^27.2.0',
 					prettier: '^3.6.2',
 					'prettier-plugin-svelte': '^3.4.0',
-					svelte: '^5.45.2',
+					svelte: '^5.45.6',
 					'svelte-check': '^4.3.4',
 					svelte2tsx: '^0.7.45',
 					tslib: '^2.8.1',
 					typescript: '^5.9.3',
-					'typescript-eslint': '^8.48.0',
-					vitest: '^4.0.14',
+					'typescript-eslint': '^8.48.1',
+					vitest: '^4.0.15',
 					zod: '^4.1.13',
 				},
 				prettier: {
@@ -3540,7 +3515,7 @@ export const repos_json: Array<RepoJson> = [
 			},
 			source_json: {
 				name: '@fuzdev/fuz_ui',
-				version: '0.168.0',
+				version: '0.170.0',
 				modules: [
 					{
 						path: 'Alert.svelte',
@@ -5581,13 +5556,7 @@ export const repos_json: Array<RepoJson> = [
 								source_line: 1,
 							},
 						],
-						dependencies: [
-							'Details.svelte',
-							'Mdz.svelte',
-							'ModuleLink.svelte',
-							'TypeLink.svelte',
-							'_code/Code.svelte.ts',
-						],
+						dependencies: ['Details.svelte', 'Mdz.svelte', 'ModuleLink.svelte', 'TypeLink.svelte'],
 						dependents: ['ApiDeclarationList.svelte'],
 					},
 					{
@@ -8089,12 +8058,7 @@ export const repos_json: Array<RepoJson> = [
 								source_line: 1,
 							},
 						],
-						dependencies: [
-							'DocsLink.svelte',
-							'MdzNodeView.svelte',
-							'_code/Code.svelte.ts',
-							'mdz_components.ts',
-						],
+						dependencies: ['DocsLink.svelte', 'MdzNodeView.svelte', 'mdz_components.ts'],
 						dependents: ['Mdz.svelte', 'MdzNodeView.svelte'],
 					},
 					{
@@ -9770,15 +9734,15 @@ export const repos_json: Array<RepoJson> = [
 								source_line: 1,
 							},
 						],
-						dependencies: ['DeclarationLink.svelte', '_code/Code.svelte.ts', 'library.svelte.ts'],
+						dependencies: ['DeclarationLink.svelte', 'library.svelte.ts'],
 						dependents: ['DeclarationDetail.svelte'],
 					},
 				],
 			},
 			name: '@fuzdev/fuz_ui',
-			repo_name: 'fuz',
+			repo_name: 'fuz_ui',
 			repo_url: 'https://github.com/fuzdev/fuz_ui',
-			owner_name: 'ryanatkn',
+			owner_name: 'fuzdev',
 			homepage_url: 'https://ui.fuz.dev/',
 			logo_url: 'https://ui.fuz.dev/logo.svg',
 			logo_alt: 'a friendly brown spider facing you',
@@ -9805,7 +9769,7 @@ export const repos_json: Array<RepoJson> = [
 		library_json: {
 			package_json: {
 				name: '@ryanatkn/gro',
-				version: '0.180.0',
+				version: '0.181.0',
 				description: 'task runner and toolkit extending SvelteKit',
 				motto: 'generate, run, optimize',
 				glyph: '🌰',
@@ -9867,7 +9831,7 @@ export const repos_json: Array<RepoJson> = [
 					zod: '^4.1.13',
 				},
 				peerDependencies: {
-					'@fuzdev/fuz_util': '>=0.41.1',
+					'@fuzdev/fuz_util': '>=0.42.0',
 					'@sveltejs/kit': '^2',
 					esbuild: '^0.27.0',
 					svelte: '^5',
@@ -9888,24 +9852,24 @@ export const repos_json: Array<RepoJson> = [
 				devDependencies: {
 					'@changesets/changelog-git': '^0.2.1',
 					'@changesets/types': '^6.1.0',
-					'@fuzdev/fuz_util': '^0.41.1',
+					'@fuzdev/fuz_code': '^0.38.0',
+					'@fuzdev/fuz_css': '^0.41.0',
+					'@fuzdev/fuz_ui': '^0.170.0',
+					'@fuzdev/fuz_util': '^0.42.0',
 					'@ryanatkn/eslint-config': '^0.9.0',
-					'@fuzdev/fuz_ui': '^0.168.0',
-					'@fuzdev/fuz_code': '^0.36.0',
-					'@fuzdev/fuz_css': '^0.39.0',
 					'@sveltejs/adapter-static': '^3.0.10',
-					'@sveltejs/kit': '^2.49.0',
+					'@sveltejs/kit': '^2.49.1',
 					'@sveltejs/package': '^2.5.7',
 					'@sveltejs/vite-plugin-svelte': '^6.2.1',
 					'@types/node': '^24.10.1',
-					esbuild: '^0.27.0',
+					esbuild: '^0.27.1',
 					eslint: '^9.39.1',
-					'eslint-plugin-svelte': '^3.13.0',
-					svelte: '^5.45.2',
+					'eslint-plugin-svelte': '^3.13.1',
+					svelte: '^5.45.6',
 					'svelte-check': '^4.3.4',
 					typescript: '^5.9.3',
-					'typescript-eslint': '^8.48.0',
-					vitest: '^4.0.14',
+					'typescript-eslint': '^8.48.1',
+					vitest: '^4.0.15',
 				},
 				prettier: {
 					plugins: ['prettier-plugin-svelte'],
@@ -9942,7 +9906,7 @@ export const repos_json: Array<RepoJson> = [
 			},
 			source_json: {
 				name: '@ryanatkn/gro',
-				version: '0.180.0',
+				version: '0.181.0',
 				modules: [
 					{
 						path: 'args.ts',
@@ -16319,13 +16283,22 @@ export const repos_json: Array<RepoJson> = [
 			status: 'completed',
 			conclusion: 'success',
 		},
-		pull_requests: [],
+		pull_requests: [
+			{
+				number: 584,
+				title: 'migrate deps to fuzdev',
+				user: {
+					login: 'ryanatkn',
+				},
+				draft: false,
+			},
+		],
 	},
 	{
 		library_json: {
 			package_json: {
 				name: '@fuzdev/fuz_util',
-				version: '0.41.1',
+				version: '0.42.0',
 				description: 'utility belt for JS',
 				glyph: '🦕',
 				logo: 'logo.svg',
@@ -16382,29 +16355,29 @@ export const repos_json: Array<RepoJson> = [
 				},
 				devDependencies: {
 					'@changesets/changelog-git': '^0.2.1',
+					'@fuzdev/fuz_code': '^0.38.0',
+					'@fuzdev/fuz_css': '^0.41.0',
+					'@fuzdev/fuz_ui': '^0.170.0',
 					'@ryanatkn/eslint-config': '^0.9.0',
-					'@fuzdev/fuz_ui': '^0.167.0',
-					'@fuzdev/fuz_code': '^0.36.0',
-					'@ryanatkn/gro': '^0.179.0',
-					'@fuzdev/fuz_css': '^0.39.0',
+					'@ryanatkn/gro': '^0.181.0',
 					'@sveltejs/adapter-static': '^3.0.10',
-					'@sveltejs/kit': '^2.49.0',
-					'@sveltejs/package': '^2.5.6',
+					'@sveltejs/kit': '^2.49.1',
+					'@sveltejs/package': '^2.5.7',
 					'@sveltejs/vite-plugin-svelte': '^6.2.1',
 					'@types/node': '^24.10.1',
 					dequal: '^2.0.3',
 					eslint: '^9.39.1',
-					'eslint-plugin-svelte': '^3.13.0',
+					'eslint-plugin-svelte': '^3.13.1',
 					'esm-env': '^1.2.2',
-					prettier: '^3.6.2',
+					prettier: '^3.7.4',
 					'prettier-plugin-svelte': '^3.4.0',
-					svelte: '^5.44.1',
+					svelte: '^5.45.6',
 					'svelte-check': '^4.3.4',
 					tinybench: '^5.1.0',
 					tslib: '^2.8.1',
 					typescript: '^5.9.3',
-					'typescript-eslint': '^8.48.0',
-					vitest: '^4.0.14',
+					'typescript-eslint': '^8.48.1',
+					vitest: '^4.0.15',
 					zod: '^4.1.13',
 				},
 				prettier: {
@@ -16438,7 +16411,7 @@ export const repos_json: Array<RepoJson> = [
 			},
 			source_json: {
 				name: '@fuzdev/fuz_util',
-				version: '0.41.1',
+				version: '0.42.0',
 				modules: [
 					{
 						path: 'array.ts',
@@ -20831,9 +20804,9 @@ export const repos_json: Array<RepoJson> = [
 				],
 			},
 			name: '@fuzdev/fuz_util',
-			repo_name: 'belt',
+			repo_name: 'fuz_util',
 			repo_url: 'https://github.com/fuzdev/fuz_util',
-			owner_name: 'ryanatkn',
+			owner_name: 'fuzdev',
 			homepage_url: 'https://util.fuz.dev/',
 			logo_url: 'https://util.fuz.dev/logo.svg',
 			logo_alt: 'a green sauropod wearing a brown utility belt',
@@ -20874,24 +20847,24 @@ export const repos_json: Array<RepoJson> = [
 					node: '>=22.15',
 				},
 				devDependencies: {
-					'@fuzdev/fuz_util': '^0.40.0',
+					'@fuzdev/fuz_css': '^0.41.0',
+					'@fuzdev/fuz_ui': '^0.170.0',
+					'@fuzdev/fuz_util': '^0.42.0',
 					'@ryanatkn/eslint-config': '^0.9.0',
-					'@fuzdev/fuz_ui': '^0.165.0',
-					'@ryanatkn/gro': '^0.179.0',
-					'@fuzdev/fuz_css': '^0.39.0',
+					'@ryanatkn/gro': '^0.181.0',
 					'@sveltejs/adapter-static': '^3.0.10',
-					'@sveltejs/kit': '^2.49.0',
+					'@sveltejs/kit': '^2.49.1',
 					'@sveltejs/vite-plugin-svelte': '^6.2.1',
 					eslint: '^9.39.1',
-					'eslint-plugin-svelte': '^3.13.0',
+					'eslint-plugin-svelte': '^3.13.1',
 					prettier: '^3.6.2',
 					'prettier-plugin-svelte': '^3.4.0',
-					svelte: '^5.44.1',
+					svelte: '^5.45.6',
 					'svelte-check': '^4.3.4',
 					tslib: '^2.8.1',
 					typescript: '^5.9.3',
-					'typescript-eslint': '^8.48.0',
-					vitest: '^4.0.14',
+					'typescript-eslint': '^8.48.1',
+					vitest: '^4.0.15',
 				},
 				prettier: {
 					plugins: ['prettier-plugin-svelte'],
@@ -20919,7 +20892,7 @@ export const repos_json: Array<RepoJson> = [
 			name: '@fuzdev/fuz_template',
 			repo_name: 'fuz_template',
 			repo_url: 'https://github.com/fuzdev/fuz_template',
-			owner_name: 'ryanatkn',
+			owner_name: 'fuzdev',
 			homepage_url: 'https://template.fuz.dev/',
 			logo_url: 'https://template.fuz.dev/logo.svg',
 			logo_alt: 'a friendly pixelated spider facing you',
@@ -20937,7 +20910,7 @@ export const repos_json: Array<RepoJson> = [
 		library_json: {
 			package_json: {
 				name: '@fuzdev/fuz_blog',
-				version: '0.19.0',
+				version: '0.20.0',
 				description: 'blog software from scratch with SvelteKit',
 				glyph: '🖊️',
 				logo: 'logo.svg',
@@ -20959,40 +20932,40 @@ export const repos_json: Array<RepoJson> = [
 					node: '>=22.15',
 				},
 				peerDependencies: {
-					'@fuzdev/fuz_util': '>=0.41.1',
-					'@fuzdev/fuz_ui': '>=0.168.0',
-					'@fuzdev/fuz_mastodon': '>=0.36.0',
-					'@ryanatkn/gro': '>=0.180.0',
-					'@fuzdev/fuz_css': '>=0.39.0',
+					'@fuzdev/fuz_css': '>=0.40.0',
+					'@fuzdev/fuz_mastodon': '>=0.37.0',
+					'@fuzdev/fuz_ui': '>=0.169.0',
+					'@fuzdev/fuz_util': '>=0.42.0',
+					'@ryanatkn/gro': '>=0.181.0',
 					'@sveltejs/kit': '^2',
 					'date-fns': '^4',
 					svelte: '^5',
 				},
 				devDependencies: {
 					'@changesets/changelog-git': '^0.2.1',
-					'@fuzdev/fuz_util': '^0.41.1',
+					'@fuzdev/fuz_code': '^0.38.0',
+					'@fuzdev/fuz_css': '^0.41.0',
+					'@fuzdev/fuz_mastodon': '^0.37.0',
+					'@fuzdev/fuz_ui': '^0.170.0',
+					'@fuzdev/fuz_util': '^0.42.0',
 					'@ryanatkn/eslint-config': '^0.9.0',
-					'@fuzdev/fuz_ui': '^0.168.0',
-					'@fuzdev/fuz_code': '^0.36.0',
-					'@fuzdev/fuz_mastodon': '^0.36.0',
-					'@ryanatkn/gro': '^0.180.0',
-					'@fuzdev/fuz_css': '^0.39.0',
+					'@ryanatkn/gro': '^0.181.0',
 					'@sveltejs/adapter-static': '^3.0.10',
-					'@sveltejs/kit': '^2.49.0',
+					'@sveltejs/kit': '^2.49.1',
 					'@sveltejs/package': '^2.5.7',
 					'@sveltejs/vite-plugin-svelte': '^6.2.1',
 					'@types/node': '^24.10.1',
 					'date-fns': '^4.1.0',
 					eslint: '^9.39.1',
-					'eslint-plugin-svelte': '^3.13.0',
-					prettier: '^3.6.2',
+					'eslint-plugin-svelte': '^3.13.1',
+					prettier: '^3.7.4',
 					'prettier-plugin-svelte': '^3.4.0',
-					svelte: '^5.45.2',
+					svelte: '^5.45.6',
 					'svelte-check': '^4.3.4',
 					tslib: '^2.8.1',
 					typescript: '^5.9.3',
-					'typescript-eslint': '^8.48.0',
-					vitest: '^4.0.14',
+					'typescript-eslint': '^8.48.1',
+					vitest: '^4.0.15',
 				},
 				prettier: {
 					plugins: ['prettier-plugin-svelte'],
@@ -21030,7 +21003,7 @@ export const repos_json: Array<RepoJson> = [
 			},
 			source_json: {
 				name: '@fuzdev/fuz_blog',
-				version: '0.19.0',
+				version: '0.20.0',
 				modules: [
 					{
 						path: 'blog_helpers.ts',
@@ -21558,7 +21531,7 @@ export const repos_json: Array<RepoJson> = [
 			name: '@fuzdev/fuz_blog',
 			repo_name: 'fuz_blog',
 			repo_url: 'https://github.com/fuzdev/fuz_blog',
-			owner_name: 'ryanatkn',
+			owner_name: 'fuzdev',
 			homepage_url: 'https://blog.fuz.dev/',
 			logo_url: 'https://blog.fuz.dev/logo.svg',
 			logo_alt: 'a friendly yellow spider facing you',
@@ -21576,7 +21549,7 @@ export const repos_json: Array<RepoJson> = [
 		library_json: {
 			package_json: {
 				name: '@fuzdev/fuz_mastodon',
-				version: '0.36.0',
+				version: '0.37.0',
 				description: 'Mastodon components and helpers for Svelte, SvelteKit, and Fuz',
 				glyph: '🦣',
 				logo: 'logo.svg',
@@ -21606,9 +21579,9 @@ export const repos_json: Array<RepoJson> = [
 					node: '>=22.15',
 				},
 				peerDependencies: {
-					'@fuzdev/fuz_util': '>=0.39.0',
-					'@fuzdev/fuz_ui': '>=0.162.0',
-					'@fuzdev/fuz_css': '>=0.39.0',
+					'@fuzdev/fuz_css': '>=0.40.0',
+					'@fuzdev/fuz_ui': '>=0.169.0',
+					'@fuzdev/fuz_util': '>=0.42.0',
 					'@sveltejs/kit': '^2',
 					'date-fns': '^4',
 					'esm-env': '^1',
@@ -21616,28 +21589,28 @@ export const repos_json: Array<RepoJson> = [
 				},
 				devDependencies: {
 					'@changesets/changelog-git': '^0.2.1',
-					'@fuzdev/fuz_util': '^0.40.0',
+					'@fuzdev/fuz_code': '^0.38.0',
+					'@fuzdev/fuz_css': '^0.41.0',
+					'@fuzdev/fuz_ui': '^0.170.0',
+					'@fuzdev/fuz_util': '^0.42.0',
 					'@ryanatkn/eslint-config': '^0.9.0',
-					'@fuzdev/fuz_ui': '^0.165.0',
-					'@fuzdev/fuz_code': '^0.36.0',
-					'@ryanatkn/gro': '^0.179.0',
-					'@fuzdev/fuz_css': '^0.39.0',
+					'@ryanatkn/gro': '^0.181.0',
 					'@sveltejs/adapter-static': '^3.0.10',
-					'@sveltejs/kit': '^2.49.0',
-					'@sveltejs/package': '^2.5.6',
+					'@sveltejs/kit': '^2.49.1',
+					'@sveltejs/package': '^2.5.7',
 					'@sveltejs/vite-plugin-svelte': '^6.2.1',
 					'date-fns': '^4.1.0',
 					eslint: '^9.39.1',
-					'eslint-plugin-svelte': '^3.13.0',
+					'eslint-plugin-svelte': '^3.13.1',
 					'esm-env': '^1.2.2',
-					prettier: '^3.6.2',
+					prettier: '^3.7.4',
 					'prettier-plugin-svelte': '^3.4.0',
-					svelte: '^5.44.1',
+					svelte: '^5.45.6',
 					'svelte-check': '^4.3.4',
 					tslib: '^2.8.1',
 					typescript: '^5.9.3',
-					'typescript-eslint': '^8.48.0',
-					vitest: '^4.0.14',
+					'typescript-eslint': '^8.48.1',
+					vitest: '^4.0.15',
 				},
 				prettier: {
 					plugins: ['prettier-plugin-svelte'],
@@ -21675,7 +21648,7 @@ export const repos_json: Array<RepoJson> = [
 			},
 			source_json: {
 				name: '@fuzdev/fuz_mastodon',
-				version: '0.36.0',
+				version: '0.37.0',
 				modules: [
 					{
 						path: 'mastodon_cache.svelte.ts',
@@ -21706,12 +21679,10 @@ export const repos_json: Array<RepoJson> = [
 											{
 												name: 'load_data',
 												type: '() => Promise<[Url, { key: string; url: string; params: any; value: any; etag: string | null; last_modified: string | null; }][] | null>',
-												optional: false,
 											},
 											{
 												name: 'load_on_mount',
 												type: 'boolean',
-												optional: false,
 												default_value: 'true',
 											},
 										],
@@ -21744,12 +21715,10 @@ export const repos_json: Array<RepoJson> = [
 									{
 										name: 'host',
 										type: 'string',
-										optional: false,
 									},
 									{
 										name: 'id',
 										type: 'string',
-										optional: false,
 									},
 								],
 							},
@@ -21763,17 +21732,14 @@ export const repos_json: Array<RepoJson> = [
 									{
 										name: 'host',
 										type: 'string',
-										optional: false,
 									},
 									{
 										name: 'id',
 										type: 'string',
-										optional: false,
 									},
 									{
 										name: 'author',
 										type: 'string',
-										optional: false,
 									},
 								],
 							},
@@ -21788,17 +21754,14 @@ export const repos_json: Array<RepoJson> = [
 									{
 										name: 'host',
 										type: 'string',
-										optional: false,
 									},
 									{
 										name: 'id',
 										type: 'string',
-										optional: false,
 									},
 									{
 										name: 'author',
 										type: 'string',
-										optional: false,
 									},
 								],
 							},
@@ -21812,12 +21775,10 @@ export const repos_json: Array<RepoJson> = [
 									{
 										name: 'host',
 										type: 'string',
-										optional: false,
 									},
 									{
 										name: 'id',
 										type: 'string',
-										optional: false,
 									},
 								],
 							},
@@ -21831,12 +21792,10 @@ export const repos_json: Array<RepoJson> = [
 									{
 										name: 'host',
 										type: 'string',
-										optional: false,
 									},
 									{
 										name: 'id',
 										type: 'string',
-										optional: false,
 									},
 								],
 							},
@@ -21850,12 +21809,10 @@ export const repos_json: Array<RepoJson> = [
 									{
 										name: 'host',
 										type: 'string',
-										optional: false,
 									},
 									{
 										name: 'id',
 										type: 'string',
-										optional: false,
 									},
 								],
 							},
@@ -21900,7 +21857,6 @@ export const repos_json: Array<RepoJson> = [
 									{
 										name: 'url',
 										type: 'string',
-										optional: false,
 									},
 								],
 							},
@@ -21915,12 +21871,10 @@ export const repos_json: Array<RepoJson> = [
 									{
 										name: 'host',
 										type: 'string',
-										optional: false,
 									},
 									{
 										name: 'id',
 										type: 'string',
-										optional: false,
 									},
 									{
 										name: 'cache',
@@ -21960,12 +21914,10 @@ export const repos_json: Array<RepoJson> = [
 									{
 										name: 'host',
 										type: 'string',
-										optional: false,
 									},
 									{
 										name: 'id',
 										type: 'string',
-										optional: false,
 									},
 									{
 										name: 'cache',
@@ -22005,12 +21957,10 @@ export const repos_json: Array<RepoJson> = [
 									{
 										name: 'host',
 										type: 'string',
-										optional: false,
 									},
 									{
 										name: 'status_id',
 										type: 'string',
-										optional: false,
 									},
 									{
 										name: 'cache',
@@ -22404,27 +22354,22 @@ export const repos_json: Array<RepoJson> = [
 									{
 										name: 'root_status',
 										type: 'MastodonStatus',
-										optional: false,
 									},
 									{
 										name: 'status_context',
 										type: 'MastodonStatusContext',
-										optional: false,
 									},
 									{
 										name: 'reply_filter',
 										type: 'ReplyFilter | ReplyFilter[] | null',
-										optional: false,
 									},
 									{
 										name: 'cache',
 										type: 'Map<string, { key: string; url: string; params: any; value: any; etag: string | null; last_modified: string | null; }> | null | undefined',
-										optional: false,
 									},
 									{
 										name: 'log',
 										type: 'Logger | undefined',
-										optional: false,
 									},
 								],
 							},
@@ -22441,7 +22386,6 @@ export const repos_json: Array<RepoJson> = [
 									{
 										name: 'item',
 										type: 'MastodonStatus',
-										optional: false,
 									},
 								],
 								source_line: 1,
@@ -22459,12 +22403,10 @@ export const repos_json: Array<RepoJson> = [
 									{
 										name: 'item',
 										type: 'MastodonStatus',
-										optional: false,
 									},
 									{
 										name: 'items',
 										type: 'Array<MastodonStatus>',
-										optional: false,
 									},
 								],
 								source_line: 1,
@@ -22489,12 +22431,10 @@ export const repos_json: Array<RepoJson> = [
 									{
 										name: 'key',
 										type: 'string',
-										optional: false,
 									},
 									{
 										name: 'to_default_value',
 										type: '() => T',
-										optional: false,
 									},
 									{
 										name: 'validate',
@@ -22515,12 +22455,10 @@ export const repos_json: Array<RepoJson> = [
 									{
 										name: 'key',
 										type: 'string',
-										optional: false,
 									},
 									{
 										name: 'value',
 										type: 'any',
-										optional: false,
 									},
 								],
 							},
@@ -22537,7 +22475,6 @@ export const repos_json: Array<RepoJson> = [
 									{
 										name: 'url',
 										type: 'string',
-										optional: false,
 									},
 									{
 										name: 'updated_url',
@@ -22658,7 +22595,6 @@ export const repos_json: Array<RepoJson> = [
 									{
 										name: 'url',
 										type: 'string',
-										optional: false,
 										bindable: true,
 									},
 									{
@@ -22683,13 +22619,11 @@ export const repos_json: Array<RepoJson> = [
 									{
 										name: 'host',
 										type: 'string | null',
-										optional: false,
 										description: "The host part of the url, like `'mastodon.ryanatkn.com'`.",
 									},
 									{
 										name: 'id',
 										type: 'string | null',
-										optional: false,
 										description: "The status id to fetch, like `'110702983310017651'`.",
 									},
 									{
@@ -22758,7 +22692,6 @@ export const repos_json: Array<RepoJson> = [
 									{
 										name: 'children',
 										type: 'Snippet<\n\t\t\t[\n\t\t\t\t{\n\t\t\t\t\t/**\n\t\t\t\t\t * `null` here is a failed loading condition.\n\t\t\t\t\t */\n\t\t\t\t\titem: MastodonStatus | null | undefined;\n\t\t\t\t\t/**\n\t\t\t\t\t * `null` here is a failed loading condition.\n\t\t\t\t\t */\n\t\t\t\t\tstatus_context: MastodonStatusContext | null | undefined;\n\t\t\t\t\t/**\n\t\t\t\t\t * `null` here is a failed loading condition for `item` or `status_context`.\n\t\t\t\t\t */\n\t\t\t\t\treplies: Array<MastodonStatus> | null | undefined;\n\t\t\t\t\tload: () => Promise<void>;\n\t\t\t\t\tloading: boolean | undefined;\n\t\t\t\t\tload_time: number | undefined;\n\t\t\t\t},\n\t\t\t]\n\t\t>',
-										optional: false,
 									},
 								],
 								source_line: 1,
@@ -22772,7 +22705,7 @@ export const repos_json: Array<RepoJson> = [
 			name: '@fuzdev/fuz_mastodon',
 			repo_name: 'fuz_mastodon',
 			repo_url: 'https://github.com/fuzdev/fuz_mastodon',
-			owner_name: 'ryanatkn',
+			owner_name: 'fuzdev',
 			homepage_url: 'https://mastodon.fuz.dev/',
 			logo_url: 'https://mastodon.fuz.dev/logo.svg',
 			logo_alt: 'a friendly purple spider facing you',
@@ -22790,7 +22723,7 @@ export const repos_json: Array<RepoJson> = [
 		library_json: {
 			package_json: {
 				name: '@fuzdev/fuz_code',
-				version: '0.36.0',
+				version: '0.38.0',
 				description: 'syntax styling utilities and components for TypeScript, Svelte, and Markdown',
 				glyph: '🎨',
 				logo: 'logo.svg',
@@ -22823,7 +22756,7 @@ export const repos_json: Array<RepoJson> = [
 					node: '>=22.15',
 				},
 				peerDependencies: {
-					'@fuzdev/fuz_css': '>=0.39.0',
+					'@fuzdev/fuz_css': '>=0.41.0',
 					svelte: '^5',
 				},
 				peerDependenciesMeta: {
@@ -22836,28 +22769,28 @@ export const repos_json: Array<RepoJson> = [
 				},
 				devDependencies: {
 					'@changesets/changelog-git': '^0.2.1',
-					'@fuzdev/fuz_util': '^0.41.1',
+					'@fuzdev/fuz_css': '^0.41.0',
+					'@fuzdev/fuz_ui': '^0.170.0',
+					'@fuzdev/fuz_util': '^0.42.0',
 					'@ryanatkn/eslint-config': '^0.9.0',
-					'@fuzdev/fuz_ui': '^0.165.0',
-					'@ryanatkn/gro': '^0.179.0',
-					'@fuzdev/fuz_css': '^0.39.0',
+					'@ryanatkn/gro': '^0.181.0',
 					'@sveltejs/adapter-static': '^3.0.10',
-					'@sveltejs/kit': '^2.49.0',
-					'@sveltejs/package': '^2.5.6',
+					'@sveltejs/kit': '^2.49.1',
+					'@sveltejs/package': '^2.5.7',
 					'@sveltejs/vite-plugin-svelte': '^6.2.1',
 					'@types/node': '^24.10.1',
 					eslint: '^9.39.1',
-					'eslint-plugin-svelte': '^3.13.0',
+					'eslint-plugin-svelte': '^3.13.1',
 					'esm-env': '^1.2.2',
-					prettier: '^3.6.2',
+					prettier: '^3.7.4',
 					'prettier-plugin-svelte': '^3.4.0',
-					svelte: '^5.44.1',
+					svelte: '^5.45.6',
 					'svelte-check': '^4.3.4',
-					tinybench: '^5.1.0',
+					tinybench: '^6.0.0',
 					tslib: '^2.8.1',
 					typescript: '^5.9.3',
-					'typescript-eslint': '^8.48.0',
-					vitest: '^4.0.14',
+					'typescript-eslint': '^8.48.1',
+					vitest: '^4.0.15',
 				},
 				prettier: {
 					plugins: ['prettier-plugin-svelte'],
@@ -22898,7 +22831,7 @@ export const repos_json: Array<RepoJson> = [
 			},
 			source_json: {
 				name: '@fuzdev/fuz_code',
-				version: '0.36.0',
+				version: '0.38.0',
 				modules: [
 					{
 						path: 'code_sample.ts',
@@ -22950,7 +22883,6 @@ export const repos_json: Array<RepoJson> = [
 									{
 										name: 'content',
 										type: 'string',
-										optional: false,
 										description: 'The source code to syntax highlight.',
 									},
 									{
@@ -23011,7 +22943,6 @@ export const repos_json: Array<RepoJson> = [
 									{
 										name: 'content',
 										type: 'string',
-										optional: false,
 										description: 'The source code to syntax highlight.',
 									},
 									{
@@ -23091,7 +23022,6 @@ export const repos_json: Array<RepoJson> = [
 									{
 										name: 'syntax_styler',
 										type: 'SyntaxStyler',
-										optional: false,
 									},
 								],
 							},
@@ -23114,7 +23044,6 @@ export const repos_json: Array<RepoJson> = [
 									{
 										name: 'syntax_styler',
 										type: 'SyntaxStyler',
-										optional: false,
 									},
 								],
 							},
@@ -23138,7 +23067,6 @@ export const repos_json: Array<RepoJson> = [
 									{
 										name: 'syntax_styler',
 										type: 'SyntaxStyler',
-										optional: false,
 									},
 								],
 							},
@@ -23162,7 +23090,6 @@ export const repos_json: Array<RepoJson> = [
 									{
 										name: 'syntax_styler',
 										type: 'SyntaxStyler',
-										optional: false,
 									},
 								],
 							},
@@ -23184,7 +23111,6 @@ export const repos_json: Array<RepoJson> = [
 									{
 										name: 'syntax_styler',
 										type: 'SyntaxStyler',
-										optional: false,
 									},
 								],
 							},
@@ -23207,7 +23133,6 @@ export const repos_json: Array<RepoJson> = [
 									{
 										name: 'syntax_styler',
 										type: 'SyntaxStyler',
-										optional: false,
 									},
 								],
 							},
@@ -23224,25 +23149,21 @@ export const repos_json: Array<RepoJson> = [
 									{
 										name: 'syntax_styler',
 										type: 'SyntaxStyler',
-										optional: false,
 									},
 									{
 										name: 'tag_name',
 										type: 'string',
-										optional: false,
 										description:
 											'- The name of the tag that contains the inlined language. This name will be treated as\ncase insensitive.',
 									},
 									{
 										name: 'lang',
 										type: 'string',
-										optional: false,
 										description: '- The language key.',
 									},
 									{
 										name: 'inside_lang',
 										type: 'string',
-										optional: false,
 										default_value: "'markup'",
 									},
 								],
@@ -23260,19 +23181,16 @@ export const repos_json: Array<RepoJson> = [
 									{
 										name: 'syntax_styler',
 										type: 'SyntaxStyler',
-										optional: false,
 									},
 									{
 										name: 'attr_name',
 										type: 'string',
-										optional: false,
 										description:
 											'- The name of the tag that contains the inlined language. This name will be treated as\ncase insensitive.',
 									},
 									{
 										name: 'lang',
 										type: 'string',
-										optional: false,
 										description: '- The language key.',
 									},
 								],
@@ -23301,7 +23219,6 @@ export const repos_json: Array<RepoJson> = [
 									{
 										name: 'syntax_styler',
 										type: 'SyntaxStyler',
-										optional: false,
 									},
 								],
 							},
@@ -23316,17 +23233,14 @@ export const repos_json: Array<RepoJson> = [
 									{
 										name: 'syntax_styler',
 										type: 'SyntaxStyler',
-										optional: false,
 									},
 									{
 										name: 'tag_name',
 										type: 'string',
-										optional: false,
 									},
 									{
 										name: 'lang',
 										type: 'string',
-										optional: false,
 									},
 								],
 							},
@@ -23350,7 +23264,6 @@ export const repos_json: Array<RepoJson> = [
 									{
 										name: 'syntax_styler',
 										type: 'SyntaxStyler',
-										optional: false,
 									},
 								],
 							},
@@ -23404,12 +23317,10 @@ export const repos_json: Array<RepoJson> = [
 											{
 												name: 'element',
 												type: 'Element',
-												optional: false,
 											},
 											{
 												name: 'tokens',
 												type: 'SyntaxTokenStream',
-												optional: false,
 											},
 										],
 									},
@@ -23511,12 +23422,10 @@ export const repos_json: Array<RepoJson> = [
 											{
 												name: 'id',
 												type: 'string',
-												optional: false,
 											},
 											{
 												name: 'grammar',
 												type: 'SyntaxGrammarRaw',
-												optional: false,
 											},
 											{
 												name: 'aliases',
@@ -23535,17 +23444,14 @@ export const repos_json: Array<RepoJson> = [
 											{
 												name: 'base_id',
 												type: 'string',
-												optional: false,
 											},
 											{
 												name: 'extension_id',
 												type: 'string',
-												optional: false,
 											},
 											{
 												name: 'extension',
 												type: 'SyntaxGrammarRaw',
-												optional: false,
 											},
 											{
 												name: 'aliases',
@@ -23563,7 +23469,6 @@ export const repos_json: Array<RepoJson> = [
 											{
 												name: 'id',
 												type: 'string',
-												optional: false,
 											},
 										],
 									},
@@ -23581,20 +23486,17 @@ export const repos_json: Array<RepoJson> = [
 											{
 												name: 'text',
 												type: 'string',
-												optional: false,
 												description: '- The source code to syntax highlight.',
 											},
 											{
 												name: 'lang',
 												type: 'string',
-												optional: false,
 												description:
 													"- Language identifier (e.g., 'ts', 'css', 'html'). Used for:\n- Grammar lookup when `grammar` is undefined\n- Hook context (`lang` field passed to hooks)\n- Language identification in output",
 											},
 											{
 												name: 'grammar',
 												type: 'SyntaxGrammar | undefined',
-												optional: false,
 												description:
 													'- Optional custom grammar object. When undefined, automatically\nlooks up the grammar via `this.get_lang(lang)`. Provide this to use a custom\nor modified grammar instead of the registered one.',
 												default_value: 'this.get_lang(lang)',
@@ -23614,26 +23516,22 @@ export const repos_json: Array<RepoJson> = [
 											{
 												name: 'inside',
 												type: 'string',
-												optional: false,
 												description:
 													'- The property of `root` (e.g. a language id in `syntax_styler.langs`) that contains the\nobject to be modified.',
 											},
 											{
 												name: 'before',
 												type: 'string',
-												optional: false,
 												description: '- The key to insert before.',
 											},
 											{
 												name: 'insert',
 												type: 'SyntaxGrammarRaw',
-												optional: false,
 												description: '- An object containing the key-value pairs to be inserted.',
 											},
 											{
 												name: 'root',
 												type: 'Record<string, any>',
-												optional: false,
 												description:
 													'- The object containing `inside`, i.e. the object that contains the\nobject to be modified.\n\nDefaults to `syntax_styler.langs`.',
 												default_value: 'this.langs',
@@ -23653,13 +23551,11 @@ export const repos_json: Array<RepoJson> = [
 											{
 												name: 'o',
 												type: 'string | SyntaxTokenStream | SyntaxToken',
-												optional: false,
 												description: '- The token or token stream to be converted.',
 											},
 											{
 												name: 'lang',
 												type: 'string',
-												optional: false,
 												description: '- The name of current language.',
 											},
 										],
@@ -23676,14 +23572,12 @@ export const repos_json: Array<RepoJson> = [
 											{
 												name: 'base_id',
 												type: 'string',
-												optional: false,
 												description:
 													'- The id of the language to extend. This has to be a key in `syntax_styler.langs`.',
 											},
 											{
 												name: 'extension',
 												type: 'SyntaxGrammarRaw',
-												optional: false,
 												description: '- The new tokens to append.',
 											},
 										],
@@ -23701,12 +23595,10 @@ export const repos_json: Array<RepoJson> = [
 											{
 												name: 'pattern',
 												type: 'RegExp | SyntaxGrammarTokenRaw',
-												optional: false,
 											},
 											{
 												name: 'visited',
 												type: 'Set<number>',
-												optional: false,
 											},
 										],
 									},
@@ -23722,12 +23614,10 @@ export const repos_json: Array<RepoJson> = [
 											{
 												name: 'grammar',
 												type: 'SyntaxGrammarRaw',
-												optional: false,
 											},
 											{
 												name: 'visited',
 												type: 'Set<number>',
-												optional: false,
 												description:
 													'- Set of grammar object IDs already normalized (for circular references)',
 											},
@@ -23762,7 +23652,6 @@ export const repos_json: Array<RepoJson> = [
 											{
 												name: 'cb',
 												type: 'HookBeforeTokenizeCallback',
-												optional: false,
 											},
 										],
 									},
@@ -23775,7 +23664,6 @@ export const repos_json: Array<RepoJson> = [
 											{
 												name: 'cb',
 												type: 'HookAfterTokenizeCallback',
-												optional: false,
 											},
 										],
 									},
@@ -23788,7 +23676,6 @@ export const repos_json: Array<RepoJson> = [
 											{
 												name: 'cb',
 												type: 'HookWrapCallback',
-												optional: false,
 											},
 										],
 									},
@@ -23801,7 +23688,6 @@ export const repos_json: Array<RepoJson> = [
 											{
 												name: 'ctx',
 												type: 'HookBeforeTokenizeCallbackContext',
-												optional: false,
 											},
 										],
 									},
@@ -23814,7 +23700,6 @@ export const repos_json: Array<RepoJson> = [
 											{
 												name: 'ctx',
 												type: 'HookAfterTokenizeCallbackContext',
-												optional: false,
 											},
 										],
 									},
@@ -23827,7 +23712,6 @@ export const repos_json: Array<RepoJson> = [
 											{
 												name: 'ctx',
 												type: 'HookWrapCallbackContext',
-												optional: false,
 											},
 										],
 									},
@@ -24088,22 +23972,18 @@ export const repos_json: Array<RepoJson> = [
 											{
 												name: 'type',
 												type: 'string',
-												optional: false,
 											},
 											{
 												name: 'content',
 												type: 'string | SyntaxTokenStream',
-												optional: false,
 											},
 											{
 												name: 'alias',
 												type: 'string | string[] | undefined',
-												optional: false,
 											},
 											{
 												name: 'matched_str',
 												type: 'string',
-												optional: false,
 												default_value: "''",
 											},
 										],
@@ -24140,13 +24020,11 @@ export const repos_json: Array<RepoJson> = [
 									{
 										name: 'text',
 										type: 'string',
-										optional: false,
 										description: '- a string with the code to be styled',
 									},
 									{
 										name: 'grammar',
 										type: 'SyntaxGrammar',
-										optional: false,
 										description:
 											"- an object containing the tokens to use\n\nUsually a language definition like `syntax_styler.get_lang('markup')`.",
 									},
@@ -24161,7 +24039,7 @@ export const repos_json: Array<RepoJson> = [
 			name: '@fuzdev/fuz_code',
 			repo_name: 'fuz_code',
 			repo_url: 'https://github.com/fuzdev/fuz_code',
-			owner_name: 'ryanatkn',
+			owner_name: 'fuzdev',
 			homepage_url: 'https://code.fuz.dev/',
 			logo_url: 'https://code.fuz.dev/logo.svg',
 			logo_alt: 'a friendly pink spider facing you',
@@ -24179,7 +24057,7 @@ export const repos_json: Array<RepoJson> = [
 		library_json: {
 			package_json: {
 				name: '@fuzdev/fuz_gitops',
-				version: '0.56.0',
+				version: '0.58.0',
 				description: 'a tool for managing many repos',
 				glyph: '🪄',
 				logo: 'logo.svg',
@@ -24209,37 +24087,37 @@ export const repos_json: Array<RepoJson> = [
 					node: '>=22.15',
 				},
 				peerDependencies: {
-					'@fuzdev/fuz_util': '>=0.41.1',
-					'@fuzdev/fuz_ui': '>=0.168.0',
-					'@ryanatkn/gro': '>=0.180.0',
-					'@fuzdev/fuz_css': '>=0.39.0',
+					'@fuzdev/fuz_css': '>=0.40.0',
+					'@fuzdev/fuz_ui': '>=0.169.0',
+					'@fuzdev/fuz_util': '>=0.42.0',
+					'@ryanatkn/gro': '>=0.181.0',
 					'@sveltejs/kit': '^2',
 					svelte: '^5',
 					zod: '^4.1.13',
 				},
 				devDependencies: {
 					'@changesets/changelog-git': '^0.2.1',
-					'@fuzdev/fuz_util': '^0.41.1',
+					'@fuzdev/fuz_code': '^0.38.0',
+					'@fuzdev/fuz_css': '^0.41.0',
+					'@fuzdev/fuz_ui': '^0.170.0',
+					'@fuzdev/fuz_util': '^0.42.0',
 					'@ryanatkn/eslint-config': '^0.9.0',
-					'@fuzdev/fuz_ui': '^0.168.0',
-					'@fuzdev/fuz_code': '^0.36.0',
-					'@ryanatkn/gro': '^0.180.0',
-					'@fuzdev/fuz_css': '^0.39.0',
+					'@ryanatkn/gro': '^0.181.0',
 					'@sveltejs/adapter-static': '^3.0.10',
-					'@sveltejs/kit': '^2.49.0',
+					'@sveltejs/kit': '^2.49.1',
 					'@sveltejs/package': '^2.5.7',
 					'@sveltejs/vite-plugin-svelte': '^6.2.1',
 					'@types/node': '^24.10.1',
 					eslint: '^9.39.1',
-					'eslint-plugin-svelte': '^3.13.0',
+					'eslint-plugin-svelte': '^3.13.1',
 					prettier: '^3.6.2',
 					'prettier-plugin-svelte': '^3.4.0',
-					svelte: '^5.45.2',
+					svelte: '^5.45.6',
 					'svelte-check': '^4.3.4',
 					tslib: '^2.8.1',
 					typescript: '^5.9.3',
-					'typescript-eslint': '^8.48.0',
-					vitest: '^4.0.14',
+					'typescript-eslint': '^8.48.1',
+					vitest: '^4.0.15',
 				},
 				prettier: {
 					plugins: ['prettier-plugin-svelte'],
@@ -24277,7 +24155,7 @@ export const repos_json: Array<RepoJson> = [
 			},
 			source_json: {
 				name: '@fuzdev/fuz_gitops',
-				version: '0.56.0',
+				version: '0.58.0',
 				modules: [
 					{
 						path: 'changeset_generator.ts',
@@ -28924,7 +28802,7 @@ export const repos_json: Array<RepoJson> = [
 			name: '@fuzdev/fuz_gitops',
 			repo_name: 'fuz_gitops',
 			repo_url: 'https://github.com/fuzdev/fuz_gitops',
-			owner_name: 'ryanatkn',
+			owner_name: 'fuzdev',
 			homepage_url: 'https://gitops.fuz.dev/',
 			logo_url: 'https://gitops.fuz.dev/logo.svg',
 			logo_alt: 'a friendly blue spider facing you',
