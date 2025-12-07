@@ -1,4 +1,4 @@
-import {spawn, spawn_out} from '@ryanatkn/belt/process.js';
+import {spawn, spawn_out} from '@fuzdev/fuz_util/process.js';
 import type {SpawnOptions} from 'node:child_process';
 import {
 	git_check_clean_workspace as gro_git_check_clean_workspace,
@@ -8,7 +8,7 @@ import {
 	git_current_commit_hash as gro_git_current_commit_hash,
 	type GitBranch,
 	type GitOrigin,
-} from '@ryanatkn/belt/git.js';
+} from '@fuzdev/fuz_util/git.js';
 
 /**
  * Adds files to git staging area and throws if anything goes wrong.

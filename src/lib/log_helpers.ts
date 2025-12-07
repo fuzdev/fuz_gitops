@@ -1,4 +1,4 @@
-import type {Logger} from '@ryanatkn/belt/log.js';
+import type {Logger} from '@fuzdev/fuz_util/log.js';
 import {styleText as st} from 'node:util';
 
 import type {DependencyGraphBuilder} from './dependency_graph.js';

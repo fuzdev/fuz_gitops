@@ -8,7 +8,7 @@
 import {writeFile, mkdir} from 'node:fs/promises';
 import {join} from 'node:path';
 import {existsSync} from 'node:fs';
-import type {Logger} from '@ryanatkn/belt/log.js';
+import type {Logger} from '@fuzdev/fuz_util/log.js';
 import type {LocalRepo} from './local_repo.js';
 import type {PublishedVersion} from './multi_repo_publisher.js';
 import {strip_version_prefix} from './version_utils.js';

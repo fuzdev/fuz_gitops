@@ -24,7 +24,7 @@ With fuz_gitops you can:
 ## Usage
 
 ```bash
-npm i -D @ryanatkn/fuz_gitops
+npm i -D @fuzdev/fuz_gitops
 ```
 
 - configure [`gitops.config.ts`](/gitops.config.ts)
@@ -40,19 +40,19 @@ npm i -D @ryanatkn/fuz_gitops
 
   ```ts
   // gitops_sync.task.ts
-  export * from '@ryanatkn/fuz_gitops/gitops_sync.task.js';
+  export * from '@fuzdev/fuz_gitops/gitops_sync.task.js';
 
   // gitops_analyze.task.ts
-  export * from '@ryanatkn/fuz_gitops/gitops_analyze.task.js';
+  export * from '@fuzdev/fuz_gitops/gitops_analyze.task.js';
 
   // gitops_plan.task.ts
-  export * from '@ryanatkn/fuz_gitops/gitops_plan.task.js';
+  export * from '@fuzdev/fuz_gitops/gitops_plan.task.js';
 
   // gitops_publish.task.ts
-  export * from '@ryanatkn/fuz_gitops/gitops_publish.task.js';
+  export * from '@fuzdev/fuz_gitops/gitops_publish.task.js';
 
   // gitops_validate.task.ts
-  export * from '@ryanatkn/fuz_gitops/gitops_validate.task.js';
+  export * from '@fuzdev/fuz_gitops/gitops_validate.task.js';
   ```
 
 - run `gro gitops_sync` to sync repos and update the local data

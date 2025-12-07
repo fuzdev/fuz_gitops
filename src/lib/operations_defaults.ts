@@ -5,10 +5,10 @@
  * For interface definitions and dependency injection pattern, see `operations.ts`.
  */
 
-import {spawn, spawn_out} from '@ryanatkn/belt/process.js';
+import {spawn, spawn_out} from '@fuzdev/fuz_util/process.js';
 import {readFile, writeFile} from 'node:fs/promises';
-import {git_checkout, type GitBranch, type GitOrigin} from '@ryanatkn/belt/git.js';
-import {EMPTY_OBJECT} from '@ryanatkn/belt/object.js';
+import {git_checkout, type GitBranch, type GitOrigin} from '@fuzdev/fuz_util/git.js';
+import {EMPTY_OBJECT} from '@fuzdev/fuz_util/object.js';
 
 import {has_changesets, read_changesets, predict_next_version} from './changeset_reader.js';
 import {wait_for_package, check_package_available} from './npm_registry.js';

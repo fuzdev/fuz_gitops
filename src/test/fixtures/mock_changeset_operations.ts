@@ -1,4 +1,4 @@
-import type {Logger} from '@ryanatkn/belt/log.js';
+import type {Logger} from '@fuzdev/fuz_util/log.js';
 import type {ChangesetOperations} from '$lib/operations.js';
 import type {LocalRepo} from '$lib/local_repo.js';
 import {parse_changeset_content, type ChangesetInfo} from '$lib/changeset_reader.js';

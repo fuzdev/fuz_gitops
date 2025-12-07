@@ -2,7 +2,7 @@ import {mkdir, readFile, rm, writeFile} from 'node:fs/promises';
 import {dirname, join} from 'node:path';
 import {paths} from '@ryanatkn/gro/paths.js';
 import {format_file} from '@ryanatkn/gro/format_file.js';
-import {deserialize_cache, serialize_cache, type FetchValueCache} from '@ryanatkn/belt/fetch.js';
+import {deserialize_cache, serialize_cache, type FetchValueCache} from '@fuzdev/fuz_util/fetch.js';
 import {existsSync} from 'node:fs';
 
 // TODO upstream to Gro probably, and rename/redesign?

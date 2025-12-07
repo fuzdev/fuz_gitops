@@ -1,4 +1,4 @@
-import type {Logger} from '@ryanatkn/belt/log.js';
+import type {Logger} from '@fuzdev/fuz_util/log.js';
 import {writeFile} from 'node:fs/promises';
 
 export type OutputFormat = 'stdout' | 'json' | 'markdown';

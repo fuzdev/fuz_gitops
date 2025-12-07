@@ -1,6 +1,6 @@
 <script lang="ts">
-	import Svg from '@ryanatkn/fuz/Svg.svelte';
-	import {fuz_logo} from '@ryanatkn/fuz/logos.js';
+	import Svg from '@fuzdev/fuz_ui/Svg.svelte';
+	import {fuz_logo} from '@fuzdev/fuz_ui/logos.js';
 </script>
 
 <header class="pane p_lg">

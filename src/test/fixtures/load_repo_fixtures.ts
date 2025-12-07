@@ -2,8 +2,8 @@
  * Utilities for loading in-memory fixture data as LocalRepo objects.
  */
 
-import type {LibraryJson} from '@ryanatkn/belt/library_json.js';
-import {Library} from '@ryanatkn/fuz/library.svelte.js';
+import type {LibraryJson} from '@fuzdev/fuz_util/library_json.js';
+import {Library} from '@fuzdev/fuz_ui/library.svelte.js';
 
 import type {LocalRepo} from '$lib/local_repo.js';
 import type {RepoFixtureSet, RepoFixtureData} from './repo_fixture_types.js';

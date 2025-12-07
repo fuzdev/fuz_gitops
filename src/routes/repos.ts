@@ -6,7 +6,7 @@ export const repos_json: Array<RepoJson> = [
 	{
 		library_json: {
 			package_json: {
-				name: '@ryanatkn/moss',
+				name: '@fuzdev/fuz_css',
 				version: '0.39.0',
 				description: 'CSS framework and design system',
 				motto: 'magical organic stylesheets',
@@ -16,13 +16,13 @@ export const repos_json: Array<RepoJson> = [
 				public: true,
 				license: 'MIT',
 				homepage: 'https://moss.ryanatkn.com/',
-				repository: 'https://github.com/ryanatkn/moss',
+				repository: 'https://github.com/fuzdev/fuz_css',
 				author: {
 					name: 'Ryan Atkinson',
 					email: 'mail@ryanatkn.com',
 					url: 'https://www.ryanatkn.com/',
 				},
-				bugs: 'https://github.com/ryanatkn/moss/issues',
+				bugs: 'https://github.com/fuzdev/fuz_css/issues',
 				funding: 'https://www.ryanatkn.com/funding',
 				scripts: {
 					start: 'gro dev',
@@ -39,10 +39,10 @@ export const repos_json: Array<RepoJson> = [
 				},
 				devDependencies: {
 					'@changesets/changelog-git': '^0.2.1',
-					'@ryanatkn/belt': '^0.40.0',
+					'@fuzdev/fuz_util': '^0.40.0',
 					'@ryanatkn/eslint-config': '^0.9.0',
-					'@ryanatkn/fuz': '^0.165.0',
-					'@ryanatkn/fuz_code': '^0.36.0',
+					'@fuzdev/fuz_ui': '^0.165.0',
+					'@fuzdev/fuz_code': '^0.36.0',
 					'@ryanatkn/gro': '^0.179.0',
 					'@sveltejs/adapter-static': '^3.0.10',
 					'@sveltejs/kit': '^2.49.0',
@@ -94,7 +94,7 @@ export const repos_json: Array<RepoJson> = [
 				},
 			},
 			source_json: {
-				name: '@ryanatkn/moss',
+				name: '@fuzdev/fuz_css',
 				version: '0.39.0',
 				modules: [
 					{
@@ -3401,15 +3401,15 @@ export const repos_json: Array<RepoJson> = [
 					},
 				],
 			},
-			name: '@ryanatkn/moss',
+			name: '@fuzdev/fuz_css',
 			repo_name: 'moss',
-			repo_url: 'https://github.com/ryanatkn/moss',
+			repo_url: 'https://github.com/fuzdev/fuz_css',
 			owner_name: 'ryanatkn',
 			homepage_url: 'https://moss.ryanatkn.com/',
 			logo_url: 'https://moss.ryanatkn.com/logo.svg',
 			logo_alt: 'a fuzzy tuft of green moss',
-			npm_url: 'https://www.npmjs.com/package/@ryanatkn/moss',
-			changelog_url: 'https://github.com/ryanatkn/moss/blob/main/CHANGELOG.md',
+			npm_url: 'https://www.npmjs.com/package/@fuzdev/fuz_css',
+			changelog_url: 'https://github.com/fuzdev/fuz_css/blob/main/CHANGELOG.md',
 			published: true,
 		},
 		check_runs: {
@@ -3421,7 +3421,7 @@ export const repos_json: Array<RepoJson> = [
 	{
 		library_json: {
 			package_json: {
-				name: '@ryanatkn/fuz',
+				name: '@fuzdev/fuz_ui',
 				version: '0.168.0',
 				description: 'Svelte UI library',
 				motto: 'friendly user zystem',
@@ -3438,9 +3438,9 @@ export const repos_json: Array<RepoJson> = [
 				},
 				repository: {
 					type: 'git',
-					url: 'git+https://github.com/ryanatkn/fuz.git',
+					url: 'git+https://github.com/fuzdev/fuz_ui.git',
 				},
-				bugs: 'https://github.com/ryanatkn/fuz/issues',
+				bugs: 'https://github.com/fuzdev/fuz_ui/issues',
 				funding: 'https://www.ryanatkn.com/funding',
 				scripts: {
 					start: 'gro dev',
@@ -3456,10 +3456,10 @@ export const repos_json: Array<RepoJson> = [
 					node: '>=22.15',
 				},
 				peerDependencies: {
-					'@ryanatkn/belt': '>=0.41.1',
-					'@ryanatkn/fuz_code': '>=0.36.0',
+					'@fuzdev/fuz_util': '>=0.41.1',
+					'@fuzdev/fuz_code': '>=0.36.0',
 					'@ryanatkn/gro': '>=0.180.0',
-					'@ryanatkn/moss': '>=0.39.0',
+					'@fuzdev/fuz_css': '>=0.39.0',
 					'@sveltejs/kit': '^2.47.3',
 					'esm-env': '^1',
 					svelte: '^5',
@@ -3467,7 +3467,7 @@ export const repos_json: Array<RepoJson> = [
 					zod: '^4.1.12',
 				},
 				peerDependenciesMeta: {
-					'@ryanatkn/fuz_code': {
+					'@fuzdev/fuz_code': {
 						optional: true,
 					},
 					'@ryanatkn/gro': {
@@ -3479,11 +3479,11 @@ export const repos_json: Array<RepoJson> = [
 				},
 				devDependencies: {
 					'@changesets/changelog-git': '^0.2.1',
-					'@ryanatkn/belt': '^0.41.1',
+					'@fuzdev/fuz_util': '^0.41.1',
 					'@ryanatkn/eslint-config': '^0.9.0',
-					'@ryanatkn/fuz_code': '^0.36.0',
+					'@fuzdev/fuz_code': '^0.36.0',
 					'@ryanatkn/gro': '^0.180.0',
-					'@ryanatkn/moss': '^0.39.0',
+					'@fuzdev/fuz_css': '^0.39.0',
 					'@sveltejs/adapter-static': '^3.0.10',
 					'@sveltejs/kit': '^2.49.0',
 					'@sveltejs/package': '^2.5.7',
@@ -3539,7 +3539,7 @@ export const repos_json: Array<RepoJson> = [
 				},
 			},
 			source_json: {
-				name: '@ryanatkn/fuz',
+				name: '@fuzdev/fuz_ui',
 				version: '0.168.0',
 				modules: [
 					{
@@ -5267,7 +5267,7 @@ export const repos_json: Array<RepoJson> = [
 								name: 'csp_directive_required_trust_defaults',
 								kind: 'variable',
 								doc_comment:
-									"Sources that meet this trust requirement are included for it by default.\nIf null, no trusted sources are added to the directive automatically.\nDirectives that don't support sources or default to `['none']` are null.\n\nFeedback is welcome, please see the issues - https://github.com/ryanatkn/fuz/issues",
+									"Sources that meet this trust requirement are included for it by default.\nIf null, no trusted sources are added to the directive automatically.\nDirectives that don't support sources or default to `['none']` are null.\n\nFeedback is welcome, please see the issues - https://github.com/fuzdev/fuz_ui/issues",
 								source_line: 307,
 								type_signature: 'Record<keyof CspDirectives, "low" | "medium" | "high" | null>',
 							},
@@ -6981,7 +6981,7 @@ export const repos_json: Array<RepoJson> = [
 							},
 						],
 						module_comment:
-							'Build-time helpers for library metadata generation.\n\nThese functions handle Gro-specific concerns like file collection and dependency\ngraph extraction. Core analysis logic has been extracted to reusable helpers:\n\n- `ts_helpers.ts` - `ts_analyze_module_exports`\n- `svelte_helpers.ts` - `svelte_analyze_file`\n- `module_helpers.ts` - path utilities and source detection\n\nDesign philosophy: Fail fast with clear errors rather than silently producing invalid\nmetadata. All validation errors halt the build immediately with actionable messages.\n\n@see library_gen.ts for the main generation task\n@see @ryanatkn/belt/source_json.js for type definitions\n@see ts_helpers.ts for reusable TypeScript analysis\n@see svelte_helpers.ts for reusable Svelte component analysis',
+							'Build-time helpers for library metadata generation.\n\nThese functions handle Gro-specific concerns like file collection and dependency\ngraph extraction. Core analysis logic has been extracted to reusable helpers:\n\n- `ts_helpers.ts` - `ts_analyze_module_exports`\n- `svelte_helpers.ts` - `svelte_analyze_file`\n- `module_helpers.ts` - path utilities and source detection\n\nDesign philosophy: Fail fast with clear errors rather than silently producing invalid\nmetadata. All validation errors halt the build immediately with actionable messages.\n\n@see library_gen.ts for the main generation task\n@see @fuzdev/fuz_util/source_json.js for type definitions\n@see ts_helpers.ts for reusable TypeScript analysis\n@see svelte_helpers.ts for reusable Svelte component analysis',
 						dependencies: ['module_helpers.ts', 'svelte_helpers.ts', 'ts_helpers.ts'],
 						dependents: ['library_gen.ts'],
 					},
@@ -7005,7 +7005,7 @@ export const repos_json: Array<RepoJson> = [
 								name: 'library_gen',
 								kind: 'function',
 								doc_comment:
-									"Creates a Gen object for generating library metadata with full TypeScript analysis.\n\nUsage in a `.gen.ts` file:\n```ts\nimport {library_gen} from '@ryanatkn/fuz/library_gen.js';\nexport const gen = library_gen();\n```",
+									"Creates a Gen object for generating library metadata with full TypeScript analysis.\n\nUsage in a `.gen.ts` file:\n```ts\nimport {library_gen} from '@fuzdev/fuz_ui/library_gen.js';\nexport const gen = library_gen();\n```",
 								source_line: 49,
 								type_signature: '(options?: LibraryGenOptions | undefined): Gen',
 								return_type: 'Gen',
@@ -7019,7 +7019,7 @@ export const repos_json: Array<RepoJson> = [
 							},
 						],
 						module_comment:
-							'Library metadata generator helper.\n\nGenerates package_json and source_json with rich metadata:\n- JSDoc/TSDoc comments with full tag support\n- Full type signatures\n- Source code locations\n- Parameter information with descriptions and defaults\n- Return value documentation\n- Usage examples\n- Dependency graphs\n- Svelte component props\n\n@see @ryanatkn/belt/source_json.js for type definitions\n@see src/lib/library_gen_helpers.ts for buildtime-only helpers\n@see src/lib/tsdoc_helpers.ts for JSDoc/TSDoc parsing\n@see src/lib/ts_helpers.ts for TypeScript analysis\n@see src/lib/svelte_helpers.ts for Svelte component analysis',
+							'Library metadata generator helper.\n\nGenerates package_json and source_json with rich metadata:\n- JSDoc/TSDoc comments with full tag support\n- Full type signatures\n- Source code locations\n- Parameter information with descriptions and defaults\n- Return value documentation\n- Usage examples\n- Dependency graphs\n- Svelte component props\n\n@see @fuzdev/fuz_util/source_json.js for type definitions\n@see src/lib/library_gen_helpers.ts for buildtime-only helpers\n@see src/lib/tsdoc_helpers.ts for JSDoc/TSDoc parsing\n@see src/lib/ts_helpers.ts for TypeScript analysis\n@see src/lib/svelte_helpers.ts for Svelte component analysis',
 						dependencies: ['library_gen_helpers.ts', 'module_helpers.ts', 'ts_helpers.ts'],
 					},
 					{
@@ -9775,15 +9775,15 @@ export const repos_json: Array<RepoJson> = [
 					},
 				],
 			},
-			name: '@ryanatkn/fuz',
+			name: '@fuzdev/fuz_ui',
 			repo_name: 'fuz',
-			repo_url: 'https://github.com/ryanatkn/fuz',
+			repo_url: 'https://github.com/fuzdev/fuz_ui',
 			owner_name: 'ryanatkn',
 			homepage_url: 'https://www.fuz.dev/',
 			logo_url: 'https://www.fuz.dev/logo.svg',
 			logo_alt: 'a friendly brown spider facing you',
-			npm_url: 'https://www.npmjs.com/package/@ryanatkn/fuz',
-			changelog_url: 'https://github.com/ryanatkn/fuz/blob/main/CHANGELOG.md',
+			npm_url: 'https://www.npmjs.com/package/@fuzdev/fuz_ui',
+			changelog_url: 'https://github.com/fuzdev/fuz_ui/blob/main/CHANGELOG.md',
 			published: true,
 		},
 		check_runs: {
@@ -9867,7 +9867,7 @@ export const repos_json: Array<RepoJson> = [
 					zod: '^4.1.13',
 				},
 				peerDependencies: {
-					'@ryanatkn/belt': '>=0.41.1',
+					'@fuzdev/fuz_util': '>=0.41.1',
 					'@sveltejs/kit': '^2',
 					esbuild: '^0.27.0',
 					svelte: '^5',
@@ -9888,11 +9888,11 @@ export const repos_json: Array<RepoJson> = [
 				devDependencies: {
 					'@changesets/changelog-git': '^0.2.1',
 					'@changesets/types': '^6.1.0',
-					'@ryanatkn/belt': '^0.41.1',
+					'@fuzdev/fuz_util': '^0.41.1',
 					'@ryanatkn/eslint-config': '^0.9.0',
-					'@ryanatkn/fuz': '^0.168.0',
-					'@ryanatkn/fuz_code': '^0.36.0',
-					'@ryanatkn/moss': '^0.39.0',
+					'@fuzdev/fuz_ui': '^0.168.0',
+					'@fuzdev/fuz_code': '^0.36.0',
+					'@fuzdev/fuz_css': '^0.39.0',
 					'@sveltejs/adapter-static': '^3.0.10',
 					'@sveltejs/kit': '^2.49.0',
 					'@sveltejs/package': '^2.5.7',
@@ -16324,7 +16324,7 @@ export const repos_json: Array<RepoJson> = [
 	{
 		library_json: {
 			package_json: {
-				name: '@ryanatkn/belt',
+				name: '@fuzdev/fuz_util',
 				version: '0.41.1',
 				description: 'utility belt for JS',
 				glyph: '🦕',
@@ -16341,9 +16341,9 @@ export const repos_json: Array<RepoJson> = [
 				},
 				repository: {
 					type: 'git',
-					url: 'git+https://github.com/ryanatkn/belt.git',
+					url: 'git+https://github.com/fuzdev/fuz_util.git',
 				},
-				bugs: 'https://github.com/ryanatkn/belt/issues',
+				bugs: 'https://github.com/fuzdev/fuz_util/issues',
 				funding: 'https://www.ryanatkn.com/funding',
 				scripts: {
 					start: 'gro dev',
@@ -16383,10 +16383,10 @@ export const repos_json: Array<RepoJson> = [
 				devDependencies: {
 					'@changesets/changelog-git': '^0.2.1',
 					'@ryanatkn/eslint-config': '^0.9.0',
-					'@ryanatkn/fuz': '^0.167.0',
-					'@ryanatkn/fuz_code': '^0.36.0',
+					'@fuzdev/fuz_ui': '^0.167.0',
+					'@fuzdev/fuz_code': '^0.36.0',
 					'@ryanatkn/gro': '^0.179.0',
-					'@ryanatkn/moss': '^0.39.0',
+					'@fuzdev/fuz_css': '^0.39.0',
 					'@sveltejs/adapter-static': '^3.0.10',
 					'@sveltejs/kit': '^2.49.0',
 					'@sveltejs/package': '^2.5.6',
@@ -16437,7 +16437,7 @@ export const repos_json: Array<RepoJson> = [
 				},
 			},
 			source_json: {
-				name: '@ryanatkn/belt',
+				name: '@fuzdev/fuz_util',
 				version: '0.41.1',
 				modules: [
 					{
@@ -18222,7 +18222,7 @@ export const repos_json: Array<RepoJson> = [
 										name: 'name',
 										kind: 'variable',
 										type_signature: 'string',
-										doc_comment: 'Package name, e.g. `@ryanatkn/fuz`.',
+										doc_comment: 'Package name, e.g. `@fuzdev/fuz_ui`.',
 									},
 									{
 										name: 'repo_name',
@@ -18234,7 +18234,7 @@ export const repos_json: Array<RepoJson> = [
 										name: 'repo_url',
 										kind: 'variable',
 										type_signature: 'Url',
-										doc_comment: 'GitHub repo URL, e.g. `https://github.com/ryanatkn/fuz`.',
+										doc_comment: 'GitHub repo URL, e.g. `https://github.com/fuzdev/fuz_ui`.',
 									},
 									{
 										name: 'owner_name',
@@ -18300,7 +18300,7 @@ export const repos_json: Array<RepoJson> = [
 								name: 'library_repo_name_parse',
 								kind: 'function',
 								doc_comment:
-									'Extracts repo name from a package name, e.g. `@ryanatkn/fuz` → `fuz`.',
+									'Extracts repo name from a package name, e.g. `@fuzdev/fuz_ui` → `fuz`.',
 								source_line: 100,
 								type_signature: '(name: string): string',
 								return_type: 'string',
@@ -20830,15 +20830,15 @@ export const repos_json: Array<RepoJson> = [
 					},
 				],
 			},
-			name: '@ryanatkn/belt',
+			name: '@fuzdev/fuz_util',
 			repo_name: 'belt',
-			repo_url: 'https://github.com/ryanatkn/belt',
+			repo_url: 'https://github.com/fuzdev/fuz_util',
 			owner_name: 'ryanatkn',
 			homepage_url: 'https://belt.ryanatkn.com/',
 			logo_url: 'https://belt.ryanatkn.com/logo.svg',
 			logo_alt: 'a green sauropod wearing a brown utility belt',
-			npm_url: 'https://www.npmjs.com/package/@ryanatkn/belt',
-			changelog_url: 'https://github.com/ryanatkn/belt/blob/main/CHANGELOG.md',
+			npm_url: 'https://www.npmjs.com/package/@fuzdev/fuz_util',
+			changelog_url: 'https://github.com/fuzdev/fuz_util/blob/main/CHANGELOG.md',
 			published: true,
 		},
 		check_runs: {
@@ -20850,7 +20850,7 @@ export const repos_json: Array<RepoJson> = [
 	{
 		library_json: {
 			package_json: {
-				name: '@ryanatkn/fuz_template',
+				name: '@fuzdev/fuz_template',
 				version: '0.0.1',
 				description:
 					'a static web app and Node library template with TypeScript, Svelte, SvelteKit, Vite, esbuild, Gro, and Fuz',
@@ -20859,7 +20859,7 @@ export const repos_json: Array<RepoJson> = [
 				logo_alt: 'a friendly pixelated spider facing you',
 				public: true,
 				homepage: 'https://template.fuz.dev/',
-				repository: 'https://github.com/ryanatkn/fuz_template',
+				repository: 'https://github.com/fuzdev/fuz_template',
 				scripts: {
 					start: 'gro dev',
 					dev: 'gro dev',
@@ -20874,11 +20874,11 @@ export const repos_json: Array<RepoJson> = [
 					node: '>=22.15',
 				},
 				devDependencies: {
-					'@ryanatkn/belt': '^0.40.0',
+					'@fuzdev/fuz_util': '^0.40.0',
 					'@ryanatkn/eslint-config': '^0.9.0',
-					'@ryanatkn/fuz': '^0.165.0',
+					'@fuzdev/fuz_ui': '^0.165.0',
 					'@ryanatkn/gro': '^0.179.0',
-					'@ryanatkn/moss': '^0.39.0',
+					'@fuzdev/fuz_css': '^0.39.0',
 					'@sveltejs/adapter-static': '^3.0.10',
 					'@sveltejs/kit': '^2.49.0',
 					'@sveltejs/vite-plugin-svelte': '^6.2.1',
@@ -20912,13 +20912,13 @@ export const repos_json: Array<RepoJson> = [
 				files: ['dist'],
 			},
 			source_json: {
-				name: '@ryanatkn/fuz_template',
+				name: '@fuzdev/fuz_template',
 				version: '0.0.1',
 				modules: [],
 			},
-			name: '@ryanatkn/fuz_template',
+			name: '@fuzdev/fuz_template',
 			repo_name: 'fuz_template',
-			repo_url: 'https://github.com/ryanatkn/fuz_template',
+			repo_url: 'https://github.com/fuzdev/fuz_template',
 			owner_name: 'ryanatkn',
 			homepage_url: 'https://template.fuz.dev/',
 			logo_url: 'https://template.fuz.dev/logo.svg',
@@ -20936,7 +20936,7 @@ export const repos_json: Array<RepoJson> = [
 	{
 		library_json: {
 			package_json: {
-				name: '@ryanatkn/fuz_blog',
+				name: '@fuzdev/fuz_blog',
 				version: '0.19.0',
 				description: 'blog software from scratch with SvelteKit',
 				glyph: '🖊️',
@@ -20944,7 +20944,7 @@ export const repos_json: Array<RepoJson> = [
 				logo_alt: 'a friendly yellow spider facing you',
 				public: true,
 				homepage: 'https://blog.fuz.dev/',
-				repository: 'https://github.com/ryanatkn/fuz_blog',
+				repository: 'https://github.com/fuzdev/fuz_blog',
 				scripts: {
 					start: 'gro dev',
 					dev: 'gro dev',
@@ -20959,24 +20959,24 @@ export const repos_json: Array<RepoJson> = [
 					node: '>=22.15',
 				},
 				peerDependencies: {
-					'@ryanatkn/belt': '>=0.41.1',
-					'@ryanatkn/fuz': '>=0.168.0',
-					'@ryanatkn/fuz_mastodon': '>=0.36.0',
+					'@fuzdev/fuz_util': '>=0.41.1',
+					'@fuzdev/fuz_ui': '>=0.168.0',
+					'@fuzdev/fuz_mastodon': '>=0.36.0',
 					'@ryanatkn/gro': '>=0.180.0',
-					'@ryanatkn/moss': '>=0.39.0',
+					'@fuzdev/fuz_css': '>=0.39.0',
 					'@sveltejs/kit': '^2',
 					'date-fns': '^4',
 					svelte: '^5',
 				},
 				devDependencies: {
 					'@changesets/changelog-git': '^0.2.1',
-					'@ryanatkn/belt': '^0.41.1',
+					'@fuzdev/fuz_util': '^0.41.1',
 					'@ryanatkn/eslint-config': '^0.9.0',
-					'@ryanatkn/fuz': '^0.168.0',
-					'@ryanatkn/fuz_code': '^0.36.0',
-					'@ryanatkn/fuz_mastodon': '^0.36.0',
+					'@fuzdev/fuz_ui': '^0.168.0',
+					'@fuzdev/fuz_code': '^0.36.0',
+					'@fuzdev/fuz_mastodon': '^0.36.0',
 					'@ryanatkn/gro': '^0.180.0',
-					'@ryanatkn/moss': '^0.39.0',
+					'@fuzdev/fuz_css': '^0.39.0',
 					'@sveltejs/adapter-static': '^3.0.10',
 					'@sveltejs/kit': '^2.49.0',
 					'@sveltejs/package': '^2.5.7',
@@ -21029,7 +21029,7 @@ export const repos_json: Array<RepoJson> = [
 				},
 			},
 			source_json: {
-				name: '@ryanatkn/fuz_blog',
+				name: '@fuzdev/fuz_blog',
 				version: '0.19.0',
 				modules: [
 					{
@@ -21555,15 +21555,15 @@ export const repos_json: Array<RepoJson> = [
 					},
 				],
 			},
-			name: '@ryanatkn/fuz_blog',
+			name: '@fuzdev/fuz_blog',
 			repo_name: 'fuz_blog',
-			repo_url: 'https://github.com/ryanatkn/fuz_blog',
+			repo_url: 'https://github.com/fuzdev/fuz_blog',
 			owner_name: 'ryanatkn',
 			homepage_url: 'https://blog.fuz.dev/',
 			logo_url: 'https://blog.fuz.dev/logo.svg',
 			logo_alt: 'a friendly yellow spider facing you',
-			npm_url: 'https://www.npmjs.com/package/@ryanatkn/fuz_blog',
-			changelog_url: 'https://github.com/ryanatkn/fuz_blog/blob/main/CHANGELOG.md',
+			npm_url: 'https://www.npmjs.com/package/@fuzdev/fuz_blog',
+			changelog_url: 'https://github.com/fuzdev/fuz_blog/blob/main/CHANGELOG.md',
 			published: true,
 		},
 		check_runs: {
@@ -21575,7 +21575,7 @@ export const repos_json: Array<RepoJson> = [
 	{
 		library_json: {
 			package_json: {
-				name: '@ryanatkn/fuz_mastodon',
+				name: '@fuzdev/fuz_mastodon',
 				version: '0.36.0',
 				description: 'Mastodon components and helpers for Svelte, SvelteKit, and Fuz',
 				glyph: '🦣',
@@ -21584,13 +21584,13 @@ export const repos_json: Array<RepoJson> = [
 				public: true,
 				license: 'MIT',
 				homepage: 'https://mastodon.fuz.dev/',
-				repository: 'https://github.com/ryanatkn/fuz_mastodon',
+				repository: 'https://github.com/fuzdev/fuz_mastodon',
 				author: {
 					name: 'Ryan Atkinson',
 					email: 'mail@ryanatkn.com',
 					url: 'https://www.ryanatkn.com/',
 				},
-				bugs: 'https://github.com/ryanatkn/fuz_mastodon/issues',
+				bugs: 'https://github.com/fuzdev/fuz_mastodon/issues',
 				funding: 'https://www.ryanatkn.com/funding',
 				scripts: {
 					start: 'gro dev',
@@ -21606,9 +21606,9 @@ export const repos_json: Array<RepoJson> = [
 					node: '>=22.15',
 				},
 				peerDependencies: {
-					'@ryanatkn/belt': '>=0.39.0',
-					'@ryanatkn/fuz': '>=0.162.0',
-					'@ryanatkn/moss': '>=0.39.0',
+					'@fuzdev/fuz_util': '>=0.39.0',
+					'@fuzdev/fuz_ui': '>=0.162.0',
+					'@fuzdev/fuz_css': '>=0.39.0',
 					'@sveltejs/kit': '^2',
 					'date-fns': '^4',
 					'esm-env': '^1',
@@ -21616,12 +21616,12 @@ export const repos_json: Array<RepoJson> = [
 				},
 				devDependencies: {
 					'@changesets/changelog-git': '^0.2.1',
-					'@ryanatkn/belt': '^0.40.0',
+					'@fuzdev/fuz_util': '^0.40.0',
 					'@ryanatkn/eslint-config': '^0.9.0',
-					'@ryanatkn/fuz': '^0.165.0',
-					'@ryanatkn/fuz_code': '^0.36.0',
+					'@fuzdev/fuz_ui': '^0.165.0',
+					'@fuzdev/fuz_code': '^0.36.0',
 					'@ryanatkn/gro': '^0.179.0',
-					'@ryanatkn/moss': '^0.39.0',
+					'@fuzdev/fuz_css': '^0.39.0',
 					'@sveltejs/adapter-static': '^3.0.10',
 					'@sveltejs/kit': '^2.49.0',
 					'@sveltejs/package': '^2.5.6',
@@ -21674,7 +21674,7 @@ export const repos_json: Array<RepoJson> = [
 				},
 			},
 			source_json: {
-				name: '@ryanatkn/fuz_mastodon',
+				name: '@fuzdev/fuz_mastodon',
 				version: '0.36.0',
 				modules: [
 					{
@@ -22769,15 +22769,15 @@ export const repos_json: Array<RepoJson> = [
 					},
 				],
 			},
-			name: '@ryanatkn/fuz_mastodon',
+			name: '@fuzdev/fuz_mastodon',
 			repo_name: 'fuz_mastodon',
-			repo_url: 'https://github.com/ryanatkn/fuz_mastodon',
+			repo_url: 'https://github.com/fuzdev/fuz_mastodon',
 			owner_name: 'ryanatkn',
 			homepage_url: 'https://mastodon.fuz.dev/',
 			logo_url: 'https://mastodon.fuz.dev/logo.svg',
 			logo_alt: 'a friendly purple spider facing you',
-			npm_url: 'https://www.npmjs.com/package/@ryanatkn/fuz_mastodon',
-			changelog_url: 'https://github.com/ryanatkn/fuz_mastodon/blob/main/CHANGELOG.md',
+			npm_url: 'https://www.npmjs.com/package/@fuzdev/fuz_mastodon',
+			changelog_url: 'https://github.com/fuzdev/fuz_mastodon/blob/main/CHANGELOG.md',
 			published: true,
 		},
 		check_runs: {
@@ -22789,7 +22789,7 @@ export const repos_json: Array<RepoJson> = [
 	{
 		library_json: {
 			package_json: {
-				name: '@ryanatkn/fuz_code',
+				name: '@fuzdev/fuz_code',
 				version: '0.36.0',
 				description: 'syntax styling utilities and components for TypeScript, Svelte, and Markdown',
 				glyph: '🎨',
@@ -22798,13 +22798,13 @@ export const repos_json: Array<RepoJson> = [
 				public: true,
 				license: 'MIT',
 				homepage: 'https://code.fuz.dev/',
-				repository: 'https://github.com/ryanatkn/fuz_code',
+				repository: 'https://github.com/fuzdev/fuz_code',
 				author: {
 					name: 'Ryan Atkinson',
 					email: 'mail@ryanatkn.com',
 					url: 'https://www.ryanatkn.com/',
 				},
-				bugs: 'https://github.com/ryanatkn/fuz_code/issues',
+				bugs: 'https://github.com/fuzdev/fuz_code/issues',
 				funding: 'https://www.ryanatkn.com/funding',
 				scripts: {
 					start: 'gro dev',
@@ -22823,11 +22823,11 @@ export const repos_json: Array<RepoJson> = [
 					node: '>=22.15',
 				},
 				peerDependencies: {
-					'@ryanatkn/moss': '>=0.39.0',
+					'@fuzdev/fuz_css': '>=0.39.0',
 					svelte: '^5',
 				},
 				peerDependenciesMeta: {
-					'@ryanatkn/moss': {
+					'@fuzdev/fuz_css': {
 						optional: true,
 					},
 					svelte: {
@@ -22836,11 +22836,11 @@ export const repos_json: Array<RepoJson> = [
 				},
 				devDependencies: {
 					'@changesets/changelog-git': '^0.2.1',
-					'@ryanatkn/belt': '^0.41.1',
+					'@fuzdev/fuz_util': '^0.41.1',
 					'@ryanatkn/eslint-config': '^0.9.0',
-					'@ryanatkn/fuz': '^0.165.0',
+					'@fuzdev/fuz_ui': '^0.165.0',
 					'@ryanatkn/gro': '^0.179.0',
-					'@ryanatkn/moss': '^0.39.0',
+					'@fuzdev/fuz_css': '^0.39.0',
 					'@sveltejs/adapter-static': '^3.0.10',
 					'@sveltejs/kit': '^2.49.0',
 					'@sveltejs/package': '^2.5.6',
@@ -22897,7 +22897,7 @@ export const repos_json: Array<RepoJson> = [
 				},
 			},
 			source_json: {
-				name: '@ryanatkn/fuz_code',
+				name: '@fuzdev/fuz_code',
 				version: '0.36.0',
 				modules: [
 					{
@@ -24158,15 +24158,15 @@ export const repos_json: Array<RepoJson> = [
 					},
 				],
 			},
-			name: '@ryanatkn/fuz_code',
+			name: '@fuzdev/fuz_code',
 			repo_name: 'fuz_code',
-			repo_url: 'https://github.com/ryanatkn/fuz_code',
+			repo_url: 'https://github.com/fuzdev/fuz_code',
 			owner_name: 'ryanatkn',
 			homepage_url: 'https://code.fuz.dev/',
 			logo_url: 'https://code.fuz.dev/logo.svg',
 			logo_alt: 'a friendly pink spider facing you',
-			npm_url: 'https://www.npmjs.com/package/@ryanatkn/fuz_code',
-			changelog_url: 'https://github.com/ryanatkn/fuz_code/blob/main/CHANGELOG.md',
+			npm_url: 'https://www.npmjs.com/package/@fuzdev/fuz_code',
+			changelog_url: 'https://github.com/fuzdev/fuz_code/blob/main/CHANGELOG.md',
 			published: true,
 		},
 		check_runs: {
@@ -24178,7 +24178,7 @@ export const repos_json: Array<RepoJson> = [
 	{
 		library_json: {
 			package_json: {
-				name: '@ryanatkn/fuz_gitops',
+				name: '@fuzdev/fuz_gitops',
 				version: '0.56.0',
 				description: 'a tool for managing many repos',
 				glyph: '🪄',
@@ -24187,13 +24187,13 @@ export const repos_json: Array<RepoJson> = [
 				public: true,
 				license: 'MIT',
 				homepage: 'https://gitops.fuz.dev/',
-				repository: 'https://github.com/ryanatkn/fuz_gitops',
+				repository: 'https://github.com/fuzdev/fuz_gitops',
 				author: {
 					name: 'Ryan Atkinson',
 					email: 'mail@ryanatkn.com',
 					url: 'https://www.ryanatkn.com/',
 				},
-				bugs: 'https://github.com/ryanatkn/fuz_gitops/issues',
+				bugs: 'https://github.com/fuzdev/fuz_gitops/issues',
 				funding: 'https://www.ryanatkn.com/funding',
 				scripts: {
 					start: 'gro dev',
@@ -24209,22 +24209,22 @@ export const repos_json: Array<RepoJson> = [
 					node: '>=22.15',
 				},
 				peerDependencies: {
-					'@ryanatkn/belt': '>=0.41.1',
-					'@ryanatkn/fuz': '>=0.168.0',
+					'@fuzdev/fuz_util': '>=0.41.1',
+					'@fuzdev/fuz_ui': '>=0.168.0',
 					'@ryanatkn/gro': '>=0.180.0',
-					'@ryanatkn/moss': '>=0.39.0',
+					'@fuzdev/fuz_css': '>=0.39.0',
 					'@sveltejs/kit': '^2',
 					svelte: '^5',
 					zod: '^4.1.13',
 				},
 				devDependencies: {
 					'@changesets/changelog-git': '^0.2.1',
-					'@ryanatkn/belt': '^0.41.1',
+					'@fuzdev/fuz_util': '^0.41.1',
 					'@ryanatkn/eslint-config': '^0.9.0',
-					'@ryanatkn/fuz': '^0.168.0',
-					'@ryanatkn/fuz_code': '^0.36.0',
+					'@fuzdev/fuz_ui': '^0.168.0',
+					'@fuzdev/fuz_code': '^0.36.0',
 					'@ryanatkn/gro': '^0.180.0',
-					'@ryanatkn/moss': '^0.39.0',
+					'@fuzdev/fuz_css': '^0.39.0',
 					'@sveltejs/adapter-static': '^3.0.10',
 					'@sveltejs/kit': '^2.49.0',
 					'@sveltejs/package': '^2.5.7',
@@ -24276,7 +24276,7 @@ export const repos_json: Array<RepoJson> = [
 				},
 			},
 			source_json: {
-				name: '@ryanatkn/fuz_gitops',
+				name: '@fuzdev/fuz_gitops',
 				version: '0.56.0',
 				modules: [
 					{
@@ -27205,7 +27205,7 @@ export const repos_json: Array<RepoJson> = [
 							},
 						],
 						module_comment:
-							"Operations interfaces for dependency injection.\n\nThis is the core pattern enabling testability without mocks.\nAll side effects (git, npm, fs, process) are abstracted into interfaces.\n\n**Design principles:**\n- All operations accept a single `options` object parameter\n- All fallible operations return `Result` from `@ryanatkn/belt`\n- Never throw `Error` in operations - return `Result` with `ok: false`\n- Use `null` for expected \"not found\" cases (not errors)\n- Include `log?: Logger` in options where logging is useful\n\n**Production usage:**\n```typescript\nimport {default_gitops_operations} from './operations_defaults.js';\nconst result = await ops.git.current_branch_name({cwd: '/path'});\nif (!result.ok) {\n  throw new TaskError(result.message);\n}\nconst branch = result.value;\n```\n\n**Test usage:**\n```typescript\nconst mock_ops = create_mock_operations();\nconst result = await publish_repos(repos, {...options, ops: mock_ops});\n// Assert on result without any real git/npm calls\n```\n\nSee `operations_defaults.ts` for real implementations.\nSee test files (*.test.ts) for mock implementations.",
+							"Operations interfaces for dependency injection.\n\nThis is the core pattern enabling testability without mocks.\nAll side effects (git, npm, fs, process) are abstracted into interfaces.\n\n**Design principles:**\n- All operations accept a single `options` object parameter\n- All fallible operations return `Result` from `@fuzdev/fuz_util`\n- Never throw `Error` in operations - return `Result` with `ok: false`\n- Use `null` for expected \"not found\" cases (not errors)\n- Include `log?: Logger` in options where logging is useful\n\n**Production usage:**\n```typescript\nimport {default_gitops_operations} from './operations_defaults.js';\nconst result = await ops.git.current_branch_name({cwd: '/path'});\nif (!result.ok) {\n  throw new TaskError(result.message);\n}\nconst branch = result.value;\n```\n\n**Test usage:**\n```typescript\nconst mock_ops = create_mock_operations();\nconst result = await publish_repos(repos, {...options, ops: mock_ops});\n// Assert on result without any real git/npm calls\n```\n\nSee `operations_defaults.ts` for real implementations.\nSee test files (*.test.ts) for mock implementations.",
 					},
 					{
 						path: 'output_helpers.ts',
@@ -28921,15 +28921,15 @@ export const repos_json: Array<RepoJson> = [
 					},
 				],
 			},
-			name: '@ryanatkn/fuz_gitops',
+			name: '@fuzdev/fuz_gitops',
 			repo_name: 'fuz_gitops',
-			repo_url: 'https://github.com/ryanatkn/fuz_gitops',
+			repo_url: 'https://github.com/fuzdev/fuz_gitops',
 			owner_name: 'ryanatkn',
 			homepage_url: 'https://gitops.fuz.dev/',
 			logo_url: 'https://gitops.fuz.dev/logo.svg',
 			logo_alt: 'a friendly blue spider facing you',
-			npm_url: 'https://www.npmjs.com/package/@ryanatkn/fuz_gitops',
-			changelog_url: 'https://github.com/ryanatkn/fuz_gitops/blob/main/CHANGELOG.md',
+			npm_url: 'https://www.npmjs.com/package/@fuzdev/fuz_gitops',
+			changelog_url: 'https://github.com/fuzdev/fuz_gitops/blob/main/CHANGELOG.md',
 			published: true,
 		},
 		check_runs: {

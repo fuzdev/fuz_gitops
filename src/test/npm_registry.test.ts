@@ -1,6 +1,6 @@
 import {describe, it, expect, vi, beforeEach, afterEach} from 'vitest';
-import {spawn_out} from '@ryanatkn/belt/process.js';
-import {wait} from '@ryanatkn/belt/async.js';
+import {spawn_out} from '@fuzdev/fuz_util/process.js';
+import {wait} from '@fuzdev/fuz_util/async.js';
 
 import {
 	check_package_available,
@@ -13,13 +13,13 @@ import {create_mock_logger} from './test_helpers.ts';
 
 /* eslint-disable @typescript-eslint/require-await */
 
-// Mock spawn_out from @ryanatkn/belt/process.js
-vi.mock('@ryanatkn/belt/process.js', () => ({
+// Mock spawn_out from @fuzdev/fuz_util/process.js
+vi.mock('@fuzdev/fuz_util/process.js', () => ({
 	spawn_out: vi.fn(),
 }));
 
-// Mock wait from @ryanatkn/belt/async.js
-vi.mock('@ryanatkn/belt/async.js', () => ({
+// Mock wait from @fuzdev/fuz_util/async.js
+vi.mock('@fuzdev/fuz_util/async.js', () => ({
 	wait: vi.fn(async () => {
 		// Mock implementation
 	}),

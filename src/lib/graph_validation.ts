@@ -11,7 +11,7 @@
  * See also: `dependency_graph.ts` for core graph data structure and algorithms.
  */
 
-import type {Logger} from '@ryanatkn/belt/log.js';
+import type {Logger} from '@fuzdev/fuz_util/log.js';
 import {TaskError} from '@ryanatkn/gro';
 import {styleText as st} from 'node:util';
 

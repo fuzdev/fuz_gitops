@@ -307,7 +307,7 @@ interface LocalRepoPath {
 ## Commands
 
 ```bash
-npm i -D @ryanatkn/fuz_gitops
+npm i -D @fuzdev/fuz_gitops
 
 # Data management
 gro gitops_sync               # sync repos and update local data
@@ -369,9 +369,9 @@ gro test src/test/fixtures/check     # validate gitops commands against fixture 
 ## Dependencies
 
 - `@ryanatkn/gro` - build tool and task runner
-- `@ryanatkn/fuz` - UI components and utilities
-- `@ryanatkn/belt` - utility functions
-- `@ryanatkn/moss` - CSS framework and design tokens
+- `@fuzdev/fuz_ui` - UI components and utilities
+- `@fuzdev/fuz_util` - utility functions
+- `@fuzdev/fuz_css` - CSS framework and design tokens
 - `@sveltejs/kit` - web framework
 - `svelte` - UI framework
 - `zod` - schema validation
@@ -393,7 +393,7 @@ For packages you control, use `>=` instead of `^` for peer dependencies:
 
 ```json
 "peerDependencies": {
-  "@ryanatkn/belt": ">=0.38.0",   // controlled package - use >=
+  "@fuzdev/fuz_util": ">=0.38.0",   // controlled package - use >=
   "@ryanatkn/gro": ">=0.174.0",   // controlled package - use >=
   "@sveltejs/kit": "^2",          // third-party - use ^
   "svelte": "^5"                  // third-party - use ^
@@ -404,7 +404,7 @@ For packages you control, use `>=` instead of `^` for peer dependencies:
 
 - Eliminates npm peer dependency resolution conflicts when publishing sequentially
 - `^0.37.0` means `>=0.37.0 <0.38.0` in 0.x semver (excludes next minor)
-- When you publish `moss@0.38.0`, packages with `"@ryanatkn/moss": "^0.37.0"`
+- When you publish `moss@0.38.0`, packages with `"@fuzdev/fuz_css": "^0.37.0"`
   conflict
 - `>=0.37.0` allows any version `>=0.37.0`, including `0.38.0` and beyond
 - No need for `--legacy-peer-deps` flag

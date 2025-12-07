@@ -3,16 +3,16 @@ import type {CreateGitopsConfig} from './src/lib/gitops_config.js';
 const config: CreateGitopsConfig = () => {
 	return {
 		repos: [
-			'https://github.com/ryanatkn/moss',
-			'https://github.com/ryanatkn/fuz',
+			'https://github.com/fuzdev/fuz_css',
+			'https://github.com/fuzdev/fuz_ui',
 			'https://github.com/ryanatkn/gro',
-			'https://github.com/ryanatkn/belt',
-			'https://github.com/ryanatkn/fuz_template',
-			'https://github.com/ryanatkn/fuz_blog',
-			'https://github.com/ryanatkn/fuz_mastodon',
-			'https://github.com/ryanatkn/fuz_code',
+			'https://github.com/fuzdev/fuz_util',
+			'https://github.com/fuzdev/fuz_template',
+			'https://github.com/fuzdev/fuz_blog',
+			'https://github.com/fuzdev/fuz_mastodon',
+			'https://github.com/fuzdev/fuz_code',
 			{
-				repo_url: 'https://github.com/ryanatkn/fuz_gitops',
+				repo_url: 'https://github.com/fuzdev/fuz_gitops',
 				branch: 'main',
 			},
 		],

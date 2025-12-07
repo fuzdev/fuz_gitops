@@ -1,4 +1,4 @@
-import type {Logger} from '@ryanatkn/belt/log.js';
+import type {Logger} from '@fuzdev/fuz_util/log.js';
 import {TaskError} from '@ryanatkn/gro';
 import {join} from 'node:path';
 import {styleText as st} from 'node:util';
