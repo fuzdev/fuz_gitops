@@ -5,7 +5,7 @@ import type {LibraryJson} from '@fuzdev/fuz_util/library_json.js';
 export const library_json: LibraryJson = {
 	package_json: {
 		name: '@fuzdev/fuz_gitops',
-		version: '0.56.0',
+		version: '0.57.0',
 		description: 'a tool for managing many repos',
 		glyph: '🪄',
 		logo: 'logo.svg',
@@ -35,22 +35,22 @@ export const library_json: LibraryJson = {
 			node: '>=22.15',
 		},
 		peerDependencies: {
-			'@fuzdev/fuz_util': '>=0.41.1',
-			'@fuzdev/fuz_ui': '>=0.168.0',
-			'@ryanatkn/gro': '>=0.180.0',
-			'@fuzdev/fuz_css': '>=0.39.0',
+			'@fuzdev/fuz_css': '>=0.40.0',
+			'@fuzdev/fuz_ui': '>=0.169.0',
+			'@fuzdev/fuz_util': '>=0.42.0',
+			'@ryanatkn/gro': '>=0.181.0',
 			'@sveltejs/kit': '^2',
 			svelte: '^5',
 			zod: '^4.1.13',
 		},
 		devDependencies: {
 			'@changesets/changelog-git': '^0.2.1',
-			'@fuzdev/fuz_util': '^0.41.1',
+			'@fuzdev/fuz_code': '^0.37.0',
+			'@fuzdev/fuz_css': '^0.40.0',
+			'@fuzdev/fuz_ui': '^0.169.0',
+			'@fuzdev/fuz_util': '^0.42.0',
 			'@ryanatkn/eslint-config': '^0.9.0',
-			'@fuzdev/fuz_ui': '^0.168.0',
-			'@fuzdev/fuz_code': '^0.36.0',
-			'@ryanatkn/gro': '^0.180.0',
-			'@fuzdev/fuz_css': '^0.39.0',
+			'@ryanatkn/gro': '^0.181.0',
 			'@sveltejs/adapter-static': '^3.0.10',
 			'@sveltejs/kit': '^2.49.0',
 			'@sveltejs/package': '^2.5.7',
@@ -103,7 +103,7 @@ export const library_json: LibraryJson = {
 	},
 	source_json: {
 		name: '@fuzdev/fuz_gitops',
-		version: '0.56.0',
+		version: '0.57.0',
 		modules: [
 			{
 				path: 'changeset_generator.ts',
@@ -4721,7 +4721,7 @@ export const library_json: LibraryJson = {
 	name: '@fuzdev/fuz_gitops',
 	repo_name: 'fuz_gitops',
 	repo_url: 'https://github.com/fuzdev/fuz_gitops',
-	owner_name: 'ryanatkn',
+	owner_name: 'fuzdev',
 	homepage_url: 'https://gitops.fuz.dev/',
 	logo_url: 'https://gitops.fuz.dev/logo.svg',
 	logo_alt: 'a friendly blue spider facing you',

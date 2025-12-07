@@ -15,7 +15,7 @@ export const repos_json: Array<RepoJson> = [
 				logo_alt: 'a fuzzy tuft of green moss',
 				public: true,
 				license: 'MIT',
-				homepage: 'https://css.fuz.dev/',
+				homepage: 'https://moss.ryanatkn.com/',
 				repository: 'https://github.com/fuzdev/fuz_css',
 				author: {
 					name: 'Ryan Atkinson',
