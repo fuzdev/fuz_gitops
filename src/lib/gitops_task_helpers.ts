@@ -18,7 +18,7 @@ import {TaskError} from '@ryanatkn/gro';
 import {styleText as st} from 'node:util';
 import {resolve, dirname} from 'node:path';
 import {print_path} from '@ryanatkn/gro/paths.js';
-import type {Logger} from '@ryanatkn/belt/log.js';
+import type {Logger} from '@fuzdev/fuz_util/log.js';
 
 import {load_gitops_config, type GitopsConfig} from './gitops_config.js';
 import {local_repos_load, local_repos_ensure, type LocalRepo} from './local_repo.js';

@@ -9,10 +9,10 @@
  * the system works with normalized configs internally for type safety.
  */
 
-import type {Url} from '@ryanatkn/belt/url.js';
+import type {Url} from '@fuzdev/fuz_util/url.js';
 import {existsSync} from 'node:fs';
-import {strip_end} from '@ryanatkn/belt/string.js';
-import type {GitBranch} from '@ryanatkn/belt/git.js';
+import {strip_end} from '@fuzdev/fuz_util/string.js';
+import type {GitBranch} from '@fuzdev/fuz_util/git.js';
 
 import {DEFAULT_REPOS_DIR} from './paths.js';
 
@@ -33,7 +33,7 @@ export interface RawGitopsConfig {
 export interface GitopsRepoConfig {
 	/**
 	 * The HTTPS URL to the repo. Does not include a `.git` suffix.
-	 * @example 'https://github.com/ryanatkn/fuz'
+	 * @example 'https://github.com/fuzdev/fuz_ui'
 	 */
 	repo_url: Url;
 

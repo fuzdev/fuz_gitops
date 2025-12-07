@@ -1,6 +1,6 @@
-import type {Logger} from '@ryanatkn/belt/log.js';
-import {wait} from '@ryanatkn/belt/async.js';
-import type {FetchValueCache} from '@ryanatkn/belt/fetch.js';
+import type {Logger} from '@fuzdev/fuz_util/log.js';
+import {wait} from '@fuzdev/fuz_util/async.js';
+import type {FetchValueCache} from '@fuzdev/fuz_util/fetch.js';
 
 import {fetch_github_check_runs, fetch_github_pull_requests} from './github.js';
 import type {RepoJson} from './repo.svelte.js';

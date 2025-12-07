@@ -1,7 +1,7 @@
 <script lang="ts">
-	import LibraryDetail from '@ryanatkn/fuz/LibraryDetail.svelte';
-	import EcosystemLinksPanel from '@ryanatkn/fuz/EcosystemLinksPanel.svelte';
-	import {library_context} from '@ryanatkn/fuz/library.svelte.js';
+	import LibraryDetail from '@fuzdev/fuz_ui/LibraryDetail.svelte';
+	import EcosystemLinksPanel from '@fuzdev/fuz_ui/EcosystemLinksPanel.svelte';
+	import {library_context} from '@fuzdev/fuz_ui/library.svelte.js';
 
 	import PageFooter from '$lib/PageFooter.svelte';
 	import PageHeader from '$lib/PageHeader.svelte';

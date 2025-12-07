@@ -1,6 +1,6 @@
 <script lang="ts">
-	import Alert from '@ryanatkn/fuz/Alert.svelte';
-	import Breadcrumb from '@ryanatkn/fuz/Breadcrumb.svelte';
+	import Alert from '@fuzdev/fuz_ui/Alert.svelte';
+	import Breadcrumb from '@fuzdev/fuz_ui/Breadcrumb.svelte';
 
 	import PageFooter from './PageFooter.svelte';
 	import PageHeader from './PageHeader.svelte';

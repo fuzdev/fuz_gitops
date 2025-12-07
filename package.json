@@ -1,5 +1,5 @@
 {
-  "name": "@ryanatkn/fuz_gitops",
+  "name": "@fuzdev/fuz_gitops",
   "version": "0.56.0",
   "description": "a tool for managing many repos",
   "glyph": "🪄",
@@ -8,13 +8,13 @@
   "public": true,
   "license": "MIT",
   "homepage": "https://gitops.fuz.dev/",
-  "repository": "https://github.com/ryanatkn/fuz_gitops",
+  "repository": "https://github.com/fuzdev/fuz_gitops",
   "author": {
     "name": "Ryan Atkinson",
     "email": "mail@ryanatkn.com",
     "url": "https://www.ryanatkn.com/"
   },
-  "bugs": "https://github.com/ryanatkn/fuz_gitops/issues",
+  "bugs": "https://github.com/fuzdev/fuz_gitops/issues",
   "funding": "https://www.ryanatkn.com/funding",
   "scripts": {
     "start": "gro dev",
@@ -30,22 +30,22 @@
     "node": ">=22.15"
   },
   "peerDependencies": {
-    "@ryanatkn/belt": ">=0.41.1",
-    "@ryanatkn/fuz": ">=0.168.0",
+    "@fuzdev/fuz_util": ">=0.41.1",
+    "@fuzdev/fuz_ui": ">=0.168.0",
     "@ryanatkn/gro": ">=0.180.0",
-    "@ryanatkn/moss": ">=0.39.0",
+    "@fuzdev/fuz_css": ">=0.39.0",
     "@sveltejs/kit": "^2",
     "svelte": "^5",
     "zod": "^4.1.13"
   },
   "devDependencies": {
     "@changesets/changelog-git": "^0.2.1",
-    "@ryanatkn/belt": "^0.41.1",
+    "@fuzdev/fuz_util": "^0.41.1",
     "@ryanatkn/eslint-config": "^0.9.0",
-    "@ryanatkn/fuz": "^0.168.0",
-    "@ryanatkn/fuz_code": "^0.36.0",
+    "@fuzdev/fuz_ui": "^0.168.0",
+    "@fuzdev/fuz_code": "^0.36.0",
     "@ryanatkn/gro": "^0.180.0",
-    "@ryanatkn/moss": "^0.39.0",
+    "@fuzdev/fuz_css": "^0.39.0",
     "@sveltejs/adapter-static": "^3.0.10",
     "@sveltejs/kit": "^2.49.0",
     "@sveltejs/package": "^2.5.7",

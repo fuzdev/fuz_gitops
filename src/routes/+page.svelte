@@ -1,8 +1,8 @@
 <script lang="ts">
-	import DocsFooter from '@ryanatkn/fuz/DocsFooter.svelte';
-	import Card from '@ryanatkn/fuz/Card.svelte';
+	import DocsFooter from '@fuzdev/fuz_ui/DocsFooter.svelte';
+	import Card from '@fuzdev/fuz_ui/Card.svelte';
 	import {resolve} from '$app/paths';
-	import {library_context} from '@ryanatkn/fuz/library.svelte.js';
+	import {library_context} from '@fuzdev/fuz_ui/library.svelte.js';
 
 	import MainHeader from '$routes/MainHeader.svelte';
 

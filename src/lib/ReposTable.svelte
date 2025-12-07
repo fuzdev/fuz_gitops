@@ -1,7 +1,7 @@
 <script lang="ts">
 	import {page} from '$app/state';
 	import {resolve} from '$app/paths';
-	import {format_url} from '@ryanatkn/belt/url.js';
+	import {format_url} from '@fuzdev/fuz_util/url.js';
 
 	import type {Repo} from './repo.svelte.js';
 	import {to_pull_url} from './github_helpers.js';
@@ -11,7 +11,7 @@
 		deps?: Array<string>;
 	}
 
-	const {repos, deps = ['@ryanatkn/fuz', '@ryanatkn/gro']}: Props = $props();
+	const {repos, deps = ['@fuzdev/fuz_ui', '@ryanatkn/gro']}: Props = $props();
 
 	// TODO fade out the `version` column if all deps are upgraded to the latest
 

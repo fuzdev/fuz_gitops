@@ -1,5 +1,5 @@
 <script lang="ts">
-	import {ensure_end} from '@ryanatkn/belt/string.js';
+	import {ensure_end} from '@fuzdev/fuz_util/string.js';
 	import {resolve} from '$app/paths';
 	import type {Snippet} from 'svelte';
 

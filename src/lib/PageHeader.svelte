@@ -1,6 +1,6 @@
 <script lang="ts">
-	import type {PackageJson} from '@ryanatkn/belt/package_json.js';
-	import Breadcrumb from '@ryanatkn/fuz/Breadcrumb.svelte';
+	import type {PackageJson} from '@fuzdev/fuz_util/package_json.js';
+	import Breadcrumb from '@fuzdev/fuz_ui/Breadcrumb.svelte';
 	import type {Snippet} from 'svelte';
 	import type {SvelteHTMLElements} from 'svelte/elements';
 

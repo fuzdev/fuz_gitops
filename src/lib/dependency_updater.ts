@@ -1,4 +1,4 @@
-import type {Logger} from '@ryanatkn/belt/log.js';
+import type {Logger} from '@fuzdev/fuz_util/log.js';
 import {join} from 'node:path';
 
 import type {LocalRepo} from './local_repo.js';

@@ -1,7 +1,7 @@
 import {mkdirSync, rmSync, existsSync, writeFileSync} from 'node:fs';
 import {join} from 'node:path';
-import {spawn_out} from '@ryanatkn/belt/process.js';
-import type {Logger} from '@ryanatkn/belt/log.js';
+import {spawn_out} from '@fuzdev/fuz_util/process.js';
+import type {Logger} from '@fuzdev/fuz_util/log.js';
 
 import type {RepoFixtureSet, RepoFixtureData} from './repo_fixture_types.js';
 

@@ -1,8 +1,8 @@
 <script lang="ts">
-	import LibrarySummary from '@ryanatkn/fuz/LibrarySummary.svelte';
-	import LibraryDetail from '@ryanatkn/fuz/LibraryDetail.svelte';
+	import LibrarySummary from '@fuzdev/fuz_ui/LibrarySummary.svelte';
+	import LibraryDetail from '@fuzdev/fuz_ui/LibraryDetail.svelte';
 	import {resolve} from '$app/paths';
-	import {format_url} from '@ryanatkn/belt/url.js';
+	import {format_url} from '@fuzdev/fuz_util/url.js';
 	import type {Snippet} from 'svelte';
 
 	import type {Repo} from './repo.svelte.js';

@@ -1,6 +1,6 @@
-import type {Logger} from '@ryanatkn/belt/log.js';
+import type {Logger} from '@fuzdev/fuz_util/log.js';
 import {z} from 'zod';
-import {fetch_value, type FetchValueCache} from '@ryanatkn/belt/fetch.js';
+import {fetch_value, type FetchValueCache} from '@fuzdev/fuz_util/fetch.js';
 
 /**
  * Minimal interface for GitHub API calls - works with both Pkg and Repo.

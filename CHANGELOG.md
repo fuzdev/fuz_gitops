@@ -1,4 +1,4 @@
-# @ryanatkn/fuz_gitops
+# @fuzdev/fuz_gitops
 
 ## 0.56.0
 

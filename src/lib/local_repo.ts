@@ -1,11 +1,11 @@
-import {strip_end} from '@ryanatkn/belt/string.js';
-import type {LibraryJson} from '@ryanatkn/belt/library_json.js';
-import {Library} from '@ryanatkn/fuz/library.svelte.js';
+import {strip_end} from '@fuzdev/fuz_util/string.js';
+import type {LibraryJson} from '@fuzdev/fuz_util/library_json.js';
+import {Library} from '@fuzdev/fuz_ui/library.svelte.js';
 import {existsSync} from 'node:fs';
 import {join} from 'node:path';
 import {TaskError} from '@ryanatkn/gro';
-import type {Logger} from '@ryanatkn/belt/log.js';
-import {spawn} from '@ryanatkn/belt/process.js';
+import type {Logger} from '@fuzdev/fuz_util/log.js';
+import {spawn} from '@fuzdev/fuz_util/process.js';
 import type {GitOperations, NpmOperations} from './operations.js';
 import {default_git_operations, default_npm_operations} from './operations_defaults.js';
 
@@ -184,7 +184,7 @@ export const local_repo_load = async ({
 			`Repo "${repo_name}" is missing src/routes/library.ts\n` +
 				`This file is required for fuz_gitops. To fix:\n` +
 				`  1. Create src/routes/library.gen.ts with:\n` +
-				`     import {library_gen} from '@ryanatkn/fuz/library_gen.js';\n` +
+				`     import {library_gen} from '@fuzdev/fuz_ui/library_gen.js';\n` +
 				`     export const gen = library_gen();\n` +
 				`  2. Run: cd ${repo_dir} && gro gen`,
 		);
@@ -196,7 +196,7 @@ export const local_repo_load = async ({
 		throw new TaskError(
 			`Repo "${repo_name}" has invalid src/routes/library.ts - missing library_json export\n` +
 				`The file must export a library_json object. To fix:\n` +
-				`  1. Ensure src/routes/library.gen.ts uses library_gen from @ryanatkn/fuz\n` +
+				`  1. Ensure src/routes/library.gen.ts uses library_gen from @fuzdev/fuz_ui\n` +
 				`  2. Run: cd ${repo_dir} && gro gen`,
 		);
 	}

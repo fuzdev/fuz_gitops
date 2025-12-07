@@ -6,7 +6,7 @@
  *
  * **Design principles:**
  * - All operations accept a single `options` object parameter
- * - All fallible operations return `Result` from `@ryanatkn/belt`
+ * - All fallible operations return `Result` from `@fuzdev/fuz_util`
  * - Never throw `Error` in operations - return `Result` with `ok: false`
  * - Use `null` for expected "not found" cases (not errors)
  * - Include `log?: Logger` in options where logging is useful
@@ -32,8 +32,8 @@
  * See test files (*.test.ts) for mock implementations.
  */
 
-import type {Result} from '@ryanatkn/belt/result.js';
-import type {Logger} from '@ryanatkn/belt/log.js';
+import type {Result} from '@fuzdev/fuz_util/result.js';
+import type {Logger} from '@fuzdev/fuz_util/log.js';
 import type {SpawnOptions} from 'node:child_process';
 import type {LocalRepo} from './local_repo.js';
 import type {ChangesetInfo} from './changeset_reader.js';

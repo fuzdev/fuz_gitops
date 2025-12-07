@@ -239,7 +239,7 @@ describe('dependency_updater', () => {
 			const repo = create_mock_repo({
 				name: 'test-pkg',
 				peer_deps: {
-					'@ryanatkn/belt': '>=0.38.0',
+					'@fuzdev/fuz_util': '>=0.38.0',
 				},
 			});
 
@@ -251,7 +251,7 @@ describe('dependency_updater', () => {
 						name: 'test-pkg',
 						version: '1.0.0',
 						peerDependencies: {
-							'@ryanatkn/belt': '>=0.38.0',
+							'@fuzdev/fuz_util': '>=0.38.0',
 						},
 					},
 					null,
@@ -259,14 +259,14 @@ describe('dependency_updater', () => {
 				),
 			);
 
-			const updates = new Map([['@ryanatkn/belt', '0.39.0']]);
+			const updates = new Map([['@fuzdev/fuz_util', '0.39.0']]);
 			const git_ops = create_trackable_git_ops();
 
 			await update_package_json(repo, updates, {git_ops, fs_ops: fs});
 
 			const updated = fs.get(package_json_path);
 			const parsed = JSON.parse(updated!);
-			expect(parsed.peerDependencies['@ryanatkn/belt']).toBe('>=0.39.0');
+			expect(parsed.peerDependencies['@fuzdev/fuz_util']).toBe('>=0.39.0');
 		});
 
 		it('uses gte strategy for >= prefix on new deps', async () => {

@@ -1,7 +1,7 @@
 import type {Task} from '@ryanatkn/gro';
 import {z} from 'zod';
 import {styleText as st} from 'node:util';
-import type {Logger} from '@ryanatkn/belt/log.js';
+import type {Logger} from '@fuzdev/fuz_util/log.js';
 
 import {get_gitops_ready} from './gitops_task_helpers.js';
 import {type DependencyGraph, DependencyGraphBuilder} from './dependency_graph.js';
