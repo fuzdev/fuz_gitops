@@ -1,5 +1,11 @@
 # @ryanatkn/fuz_gitops
 
+## 0.57.0
+
+### Minor Changes
+
+- move to fuzdev ([248b256](https://github.com/fuzdev/fuz_gitops/commit/248b256))
+
 ## 0.56.0
 
 ### Minor Changes
