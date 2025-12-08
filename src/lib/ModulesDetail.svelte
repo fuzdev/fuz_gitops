@@ -6,12 +6,13 @@
 	import ModulesNav from './ModulesNav.svelte';
 	import type {Repo} from './repo.svelte.js';
 
-	interface Props {
+	const {
+		repos,
+		nav_footer,
+	}: {
 		repos: Array<Repo>; // TODO normalized version with cached primitives?
 		nav_footer?: Snippet;
-	}
-
-	const {repos, nav_footer}: Props = $props();
+	} = $props();
 
 	// TODO add sorting options
 

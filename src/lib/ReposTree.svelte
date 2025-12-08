@@ -8,13 +8,15 @@
 	import type {Repo} from './repo.svelte.js';
 	import ReposTreeNav from './ReposTreeNav.svelte';
 
-	interface Props {
+	const {
+		repos,
+		selected_repo,
+		nav,
+	}: {
 		repos: Array<Repo>;
 		selected_repo?: Repo | undefined;
 		nav: Snippet;
-	}
-
-	const {repos, selected_repo, nav}: Props = $props();
+	} = $props();
 </script>
 
 <div class="repos_tree">

@@ -7,13 +7,15 @@
 	import ReposTree from './ReposTree.svelte';
 	import type {Repo} from './repo.svelte.js';
 
-	interface Props {
+	const {
+		repo,
+		repos,
+		slug,
+	}: {
 		repo: Repo;
 		repos: Array<Repo>;
 		slug: string;
-	}
-
-	const {repo, repos, slug}: Props = $props();
+	} = $props();
 
 	// TODO ideally there would be one `ReposTree` mounted by the layout with transitions
 

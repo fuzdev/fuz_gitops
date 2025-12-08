@@ -4,13 +4,15 @@
 
 	import type {Repo} from './repo.svelte.js';
 
-	interface Props {
+	const {
+		repos,
+		selected_repo,
+		children,
+	}: {
 		repos: Array<Repo>;
 		selected_repo?: Repo;
 		children: Snippet;
-	}
-
-	const {repos, selected_repo, children}: Props = $props();
+	} = $props();
 </script>
 
 <nav>

@@ -4,12 +4,13 @@
 	import {to_pull_requests, type FilterPullRequest} from './github_helpers.js';
 	import type {Repo} from './repo.svelte.js';
 
-	interface Props {
+	const {
+		repos,
+		filter_pull_request,
+	}: {
 		repos: Array<Repo>;
 		filter_pull_request?: FilterPullRequest | undefined;
-	}
-
-	const {repos, filter_pull_request}: Props = $props();
+	} = $props();
 
 	const pull_requests = $derived(to_pull_requests(repos, filter_pull_request));
 </script>

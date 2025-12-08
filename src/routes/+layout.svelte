@@ -19,11 +19,11 @@
 	import {Repo, type RepoJson, repos_parse, repos_context} from '$lib/repo.svelte.js';
 	import {library_json} from '$routes/library.js';
 
-	interface Props {
+	const {
+		children,
+	}: {
 		children: Snippet;
-	}
-
-	const {children}: Props = $props();
+	} = $props();
 
 	const contextmenu = new ContextmenuState();
 

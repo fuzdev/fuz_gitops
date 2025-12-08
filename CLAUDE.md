@@ -404,7 +404,7 @@ For packages you control, use `>=` instead of `^` for peer dependencies:
 
 - Eliminates npm peer dependency resolution conflicts when publishing sequentially
 - `^0.37.0` means `>=0.37.0 <0.38.0` in 0.x semver (excludes next minor)
-- When you publish `moss@0.38.0`, packages with `"@fuzdev/fuz_css": "^0.37.0"`
+- When you publish `fuz_css@0.38.0`, packages with `"@fuzdev/fuz_css": "^0.37.0"`
   conflict
 - `>=0.37.0` allows any version `>=0.37.0`, including `0.38.0` and beyond
 - No need for `--legacy-peer-deps` flag

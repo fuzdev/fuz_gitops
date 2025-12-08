@@ -6,12 +6,13 @@
 	import type {Repo} from './repo.svelte.js';
 	import {to_pull_url} from './github_helpers.js';
 
-	interface Props {
+	const {
+		repos,
+		deps = ['@fuzdev/fuz_ui', '@ryanatkn/gro'],
+	}: {
 		repos: Array<Repo>;
 		deps?: Array<string>;
-	}
-
-	const {repos, deps = ['@fuzdev/fuz_ui', '@ryanatkn/gro']}: Props = $props();
+	} = $props();
 
 	// TODO fade out the `version` column if all deps are upgraded to the latest
 

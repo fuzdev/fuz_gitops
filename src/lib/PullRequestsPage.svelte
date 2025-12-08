@@ -1,12 +1,3 @@
-<script module lang="ts">
-	// TODO is this the new required pattern?
-	export interface Props {
-		repo: Repo;
-		repos: Array<Repo>;
-		filter_pull_request?: FilterPullRequest | undefined;
-	}
-</script>
-
 <script lang="ts">
 	import PageFooter from './PageFooter.svelte';
 	import PageHeader from './PageHeader.svelte';
@@ -14,7 +5,15 @@
 	import type {FilterPullRequest} from './github_helpers.js';
 	import type {Repo} from './repo.svelte.js';
 
-	const {repo, repos, filter_pull_request}: Props = $props();
+	const {
+		repo,
+		repos,
+		filter_pull_request,
+	}: {
+		repo: Repo;
+		repos: Array<Repo>;
+		filter_pull_request?: FilterPullRequest | undefined;
+	} = $props();
 </script>
 
 <svelte:head>

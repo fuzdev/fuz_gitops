@@ -4,12 +4,13 @@
 	import ReposTable from './ReposTable.svelte';
 	import type {Repo} from './repo.svelte.js';
 
-	interface Props {
+	const {
+		repo,
+		repos,
+	}: {
 		repo: Repo;
 		repos: Array<Repo>;
-	}
-
-	const {repo, repos}: Props = $props();
+	} = $props();
 </script>
 
 <svelte:head>

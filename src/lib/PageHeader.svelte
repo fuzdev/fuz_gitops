@@ -4,15 +4,19 @@
 	import type {Snippet} from 'svelte';
 	import type {SvelteHTMLElements} from 'svelte/elements';
 
-	interface Props {
+	const {
+		repo,
+		nav_attrs,
+		attrs,
+		nav,
+		children,
+	}: {
 		repo: {package_json: PackageJson} | {url: string; package_json: null};
 		nav_attrs?: SvelteHTMLElements['nav'];
 		attrs?: SvelteHTMLElements['header'];
 		nav?: Snippet;
 		children?: Snippet;
-	}
-
-	const {repo, nav_attrs, attrs, nav, children}: Props = $props();
+	} = $props();
 </script>
 
 <header {...attrs}>

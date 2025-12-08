@@ -5,14 +5,14 @@
 
 	// TODO add highlighting of the items that are onscreen
 
-	interface Props {
+	const {
+		repos_modules,
+	}: {
 		repos_modules: Array<{
 			repo: Repo;
 			modules: Array<unknown>;
 		}>;
-	}
-
-	const {repos_modules}: Props = $props();
+	} = $props();
 
 	// TODO add favicon (from library? gro?)
 </script>
