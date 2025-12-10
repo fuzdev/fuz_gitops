@@ -18,7 +18,7 @@ import type {LocalRepo} from './local_repo.js';
  * Repos with failed fetches will have `null` for check_runs or pull_requests.
  *
  * @param delay milliseconds between API requests (default: 33ms)
- * @param cache optional cache from belt's fetch.js for response memoization
+ * @param cache optional cache from fuz_util's fetch.js for response memoization
  * @returns array of Repo objects with GitHub metadata attached
  */
 export const fetch_repo_data = async (

@@ -48,7 +48,7 @@ export const library_json: LibraryJson = {
 			'@fuzdev/fuz_code': '^0.38.0',
 			'@fuzdev/fuz_css': '^0.42.1',
 			'@fuzdev/fuz_ui': '^0.172.0',
-			'@fuzdev/fuz_util': '^0.42.0',
+			'@fuzdev/fuz_util': '^0.43.0',
 			'@ryanatkn/eslint-config': '^0.9.0',
 			'@ryanatkn/gro': '^0.181.0',
 			'@sveltejs/adapter-static': '^3.0.10',
@@ -838,7 +838,7 @@ export const library_json: LibraryJson = {
 								name: 'cache',
 								type: 'Map<string, { key: string; url: string; params: any; value: any; etag: string | null; last_modified: string | null; }> | undefined',
 								optional: true,
-								description: "optional cache from belt's fetch.js for response memoization",
+								description: "optional cache from fuz_util's fetch.js for response memoization",
 							},
 							{
 								name: 'log',
@@ -893,7 +893,7 @@ export const library_json: LibraryJson = {
 						name: 'create_fs_fetch_value_cache',
 						kind: 'function',
 						doc_comment:
-							"Creates file-system backed cache for belt's fetch.js API responses.\n\nCache invalidation strategy: If cache file can't be read or parsed, entire\ncache is cleared (delete file) and starts fresh. This handles format changes.\n\nUses `structuredClone` to track changes - only writes to disk if data modified.\nFormatted with Prettier before writing for version control friendliness.",
+							"Creates file-system backed cache for fuz_util's fetch.js API responses.\n\nCache invalidation strategy: If cache file can't be read or parsed, entire\ncache is cleared (delete file) and starts fresh. This handles format changes.\n\nUses `structuredClone` to track changes - only writes to disk if data modified.\nFormatted with Prettier before writing for version control friendliness.",
 						source_line: 32,
 						type_signature: '(name: string, dir?: string): Promise<FetchCache>',
 						return_type: 'Promise<FetchCache>',

@@ -17,7 +17,7 @@ export interface FetchCache {
 }
 
 /**
- * Creates file-system backed cache for belt's fetch.js API responses.
+ * Creates file-system backed cache for fuz_util's fetch.js API responses.
  *
  * Cache invalidation strategy: If cache file can't be read or parsed, entire
  * cache is cleared (delete file) and starts fresh. This handles format changes.
