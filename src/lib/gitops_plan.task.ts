@@ -10,16 +10,17 @@ import {
 	type LogPlanOptions,
 } from './publishing_plan.js';
 import {format_and_output, type OutputFormatters} from './output_helpers.js';
+import {GITOPS_CONFIG_PATH_DEFAULT} from './gitops_constants.js';
 
 /** @nodocs */
 export const Args = z.strictObject({
-	path: z
+	config: z
 		.string()
 		.meta({description: 'path to the gitops config file, absolute or relative to the cwd'})
-		.default('gitops.config.ts'),
+		.default(GITOPS_CONFIG_PATH_DEFAULT),
 	dir: z
 		.string()
-		.meta({description: 'path containing the repos, defaults to the parent of the `path` dir'})
+		.meta({description: 'path containing the repos, defaults to the parent of the config dir'})
 		.optional(),
 	format: z
 		.enum(['stdout', 'json', 'markdown'])
@@ -37,7 +38,7 @@ export type Args = z.infer<typeof Args>;
  * Usage:
  *   gro gitops_plan
  *   gro gitops_plan --dir ../repos
- *   gro gitops_plan --path ./custom.config.ts
+ *   gro gitops_plan --config ./custom.config.ts
  *
  * @nodocs
  */
@@ -45,13 +46,13 @@ export const task: Task<Args> = {
 	summary: 'generate a publishing plan based on changesets',
 	Args,
 	run: async ({args, log}): Promise<void> => {
-		const {dir, path, format, outfile, verbose} = args;
+		const {dir, config, format, outfile, verbose} = args;
 
 		log.info(st('cyan', 'Generating multi-repo publishing plan...'));
 
 		// Load local repos
 		const {local_repos} = await get_gitops_ready({
-			path,
+			config,
 			dir,
 			download: false, // Don't download if missing
 			log,

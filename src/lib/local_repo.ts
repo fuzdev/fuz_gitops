@@ -6,11 +6,13 @@ import {join} from 'node:path';
 import {TaskError} from '@ryanatkn/gro';
 import type {Logger} from '@fuzdev/fuz_util/log.js';
 import {spawn} from '@fuzdev/fuz_util/process.js';
+import {map_concurrent_settled} from '@fuzdev/fuz_util/async.js';
 import type {GitOperations, NpmOperations} from './operations.js';
 import {default_git_operations, default_npm_operations} from './operations_defaults.js';
 
 import type {GitopsConfig, GitopsRepoConfig} from './gitops_config.js';
 import type {ResolvedGitopsConfig} from './resolved_gitops_config.js';
+import {GITOPS_CONCURRENCY_DEFAULT} from './gitops_constants.js';
 
 /**
  * Fully loaded local repo with Library and extracted dependency data.
@@ -280,16 +282,57 @@ export const local_repos_load = async ({
 	log,
 	git_ops = default_git_operations,
 	npm_ops = default_npm_operations,
+	parallel = true,
+	concurrency = GITOPS_CONCURRENCY_DEFAULT,
 }: {
 	local_repo_paths: Array<LocalRepoPath>;
 	log?: Logger;
 	git_ops?: GitOperations;
 	npm_ops?: NpmOperations;
+	parallel?: boolean;
+	concurrency?: number;
 }): Promise<Array<LocalRepo>> => {
-	const loaded: Array<LocalRepo> = [];
-	for (const local_repo_path of local_repo_paths) {
-		loaded.push(await local_repo_load({local_repo_path, log, git_ops, npm_ops})); // eslint-disable-line no-await-in-loop
+	if (!parallel) {
+		// Sequential loading (original behavior)
+		const loaded: Array<LocalRepo> = [];
+		for (const local_repo_path of local_repo_paths) {
+			loaded.push(await local_repo_load({local_repo_path, log, git_ops, npm_ops})); // eslint-disable-line no-await-in-loop
+		}
+		return loaded;
 	}
+
+	// Parallel loading with concurrency limit
+	const results = await map_concurrent_settled(
+		local_repo_paths,
+		async (local_repo_path) => {
+			return local_repo_load({local_repo_path, log, git_ops, npm_ops});
+		},
+		concurrency,
+	);
+
+	// Check for failures and collect successes
+	const loaded: Array<LocalRepo> = [];
+	const errors: Array<{repo_name: string; error: string}> = [];
+
+	for (let i = 0; i < results.length; i++) {
+		const result = results[i]!;
+		if (result.status === 'fulfilled') {
+			loaded.push(result.value);
+		} else {
+			const repo_path = local_repo_paths[i]!;
+			errors.push({
+				repo_name: repo_path.repo_name,
+				error: String(result.reason),
+			});
+		}
+	}
+
+	// If any repos failed to load, throw with details
+	if (errors.length > 0) {
+		const error_details = errors.map((e) => `  ${e.repo_name}: ${e.error}`).join('\n');
+		throw new TaskError(`Failed to load ${errors.length} repos:\n${error_details}`);
+	}
+
 	return loaded;
 };
 

@@ -27,12 +27,14 @@ import {DEFAULT_REPOS_DIR} from './paths.js';
 import type {GitOperations, NpmOperations} from './operations.js';
 
 export interface GetGitopsReadyOptions {
-	path: string;
+	config: string;
 	dir?: string;
 	download: boolean;
 	log?: Logger;
 	git_ops?: GitOperations;
 	npm_ops?: NpmOperations;
+	parallel?: boolean;
+	concurrency?: number;
 }
 
 /**
@@ -41,7 +43,7 @@ export interface GetGitopsReadyOptions {
  * Initialization sequence:
  * 1. Loads and normalizes config from `gitops.config.ts`
  * 2. Resolves local repo paths (creates missing with `--download`)
- * 3. Switches branches and pulls latest changes
+ * 3. Switches branches and pulls latest changes (in parallel by default)
  * 4. Auto-installs deps if package.json changed during pull
  *
  * Priority for path resolution:
@@ -51,6 +53,8 @@ export interface GetGitopsReadyOptions {
  *
  * @param options.git_ops for testing (defaults to real git operations)
  * @param options.npm_ops for testing (defaults to real npm operations)
+ * @param options.parallel whether to load repos in parallel (default: true)
+ * @param options.concurrency max concurrent repo loads (default: 5)
  * @returns initialized config and fully loaded repos ready for operations
  * @throws {TaskError} if config loading or repo resolution fails
  */
@@ -62,13 +66,13 @@ export const get_gitops_ready = async (
 	gitops_config: GitopsConfig;
 	local_repos: Array<LocalRepo>;
 }> => {
-	const {path, dir, download, log, git_ops, npm_ops} = options;
-	const config_path = resolve(path);
+	const {config, dir, download, log, git_ops, npm_ops, parallel, concurrency} = options;
+	const config_path = resolve(config);
 	const gitops_config = await import_gitops_config(config_path);
 
 	// Priority: explicit dir arg → config repos_dir → default (two dirs up from config)
 	const repos_dir = resolve_gitops_paths({
-		path,
+		config,
 		dir,
 		config_repos_dir: gitops_config.repos_dir,
 	}).repos_dir;
@@ -88,13 +92,20 @@ export const get_gitops_ready = async (
 		npm_ops,
 	});
 
-	const local_repos = await local_repos_load({local_repo_paths, log, git_ops, npm_ops});
+	const local_repos = await local_repos_load({
+		local_repo_paths,
+		log,
+		git_ops,
+		npm_ops,
+		parallel,
+		concurrency,
+	});
 
 	return {config_path, repos_dir, gitops_config, local_repos};
 };
 
 export interface ResolveGitopsPathsOptions {
-	path: string;
+	config: string;
 	dir?: string;
 	config_repos_dir?: string;
 }
@@ -102,8 +113,8 @@ export interface ResolveGitopsPathsOptions {
 export const resolve_gitops_paths = (
 	options: ResolveGitopsPathsOptions,
 ): {config_path: string; repos_dir: string} => {
-	const {path, dir, config_repos_dir} = options;
-	const config_path = resolve(path);
+	const {config, dir, config_repos_dir} = options;
+	const config_path = resolve(config);
 	const config_dir = dirname(config_path);
 
 	// Priority: explicit dir arg → config repos_dir → default (parent of config dir)

@@ -11,16 +11,17 @@ import {
 } from './multi_repo_publisher.js';
 import {generate_publishing_plan, log_publishing_plan} from './publishing_plan.js';
 import {format_and_output, type OutputFormatters} from './output_helpers.js';
+import {GITOPS_CONFIG_PATH_DEFAULT, GITOPS_NPM_WAIT_TIMEOUT_DEFAULT} from './gitops_constants.js';
 
 /** @nodocs */
 export const Args = z.strictObject({
-	path: z
+	config: z
 		.string()
 		.meta({description: 'path to the gitops config file, absolute or relative to the cwd'})
-		.default('gitops.config.ts'),
+		.default(GITOPS_CONFIG_PATH_DEFAULT),
 	dir: z
 		.string()
-		.meta({description: 'path containing the repos, defaults to the parent of the `path` dir'})
+		.meta({description: 'path containing the repos, defaults to the parent of the config dir'})
 		.optional(),
 	peer_strategy: z
 		.enum(['exact', 'caret', 'tilde'])
@@ -43,7 +44,7 @@ export const Args = z.strictObject({
 	max_wait: z
 		.number()
 		.meta({description: 'max time to wait for npm propagation in ms'})
-		.default(600000), // 10 minutes
+		.default(GITOPS_NPM_WAIT_TIMEOUT_DEFAULT),
 	skip_install: z
 		.boolean()
 		.meta({description: 'skip npm install after dependency updates'})
@@ -59,7 +60,7 @@ export const task: Task<Args> = {
 	Args,
 	run: async ({args, log}): Promise<void> => {
 		const {
-			path,
+			config,
 			dir,
 			peer_strategy,
 			dry_run,
@@ -74,7 +75,7 @@ export const task: Task<Args> = {
 
 		// Load repos
 		const {local_repos: repos} = await get_gitops_ready({
-			path,
+			config,
 			dir,
 			download: false, // Don't download if missing
 			log,

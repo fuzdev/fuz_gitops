@@ -314,6 +314,11 @@ gro gitops_sync               # sync repos and update local data
 gro gitops_sync --download    # clone missing repos
 gro gitops_sync --check       # verify repos are ready without fetching data
 
+# Run commands across repos
+gro gitops_run "npm test"                   # run command in all repos (parallel, concurrency: 5)
+gro gitops_run "npm audit" --concurrency 3  # limit parallelism
+gro gitops_run "gro check" --format json    # JSON output for scripting
+
 # Publishing
 gro gitops_validate          # validate configuration (runs analyze, plan, and dry run)
 gro gitops_analyze           # analyze dependencies and changesets
@@ -355,6 +360,15 @@ gro test src/test/fixtures/check     # validate gitops commands against fixture 
   - Switches branches and pulls latest changes
   - Installs dependencies if package.json changed
   - Verify repos ready without fetching (with `--check`)
+  - Runs in parallel (concurrency: 5 by default)
+
+**Command Execution (User-Defined Side Effects):**
+
+- `gro gitops_run "<command>"` - Run shell command across all repos
+  - Parallel execution (concurrency: 5 by default)
+  - Continue-on-error behavior
+  - Structured output (text or JSON)
+  - Use for testing, auditing, batch operations
 
 **Publishing (Git & NPM Side Effects):**
 
@@ -393,7 +407,7 @@ For packages you control, use `>=` instead of `^` for peer dependencies:
 
 ```json
 "peerDependencies": {
-  "@fuzdev/fuz_util": ">=0.38.0",   // controlled package - use >=
+  "@fuzdev/fuz_util": ">=0.38.0", // controlled package - use >=
   "@ryanatkn/gro": ">=0.174.0",   // controlled package - use >=
   "@sveltejs/kit": "^2",          // third-party - use ^
   "svelte": "^5"                  // third-party - use ^
@@ -464,8 +478,8 @@ Uses vitest with **zero mocks** - all tests use the operations pattern for
 dependency injection (see above).
 
 ```bash
-gro test                 # run all tests
-gro test version_utils   # run specific test file
+gro test                         # run all tests
+gro test version_utils           # run specific test file
 gro test src/test/fixtures/check # validate command output fixtures
 ```
 

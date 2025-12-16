@@ -8,16 +8,17 @@ import {DependencyGraphBuilder} from './dependency_graph.js';
 import {generate_publishing_plan, log_publishing_plan} from './publishing_plan.js';
 import {publish_repos, type PublishingOptions} from './multi_repo_publisher.js';
 import {log_dependency_analysis} from './log_helpers.js';
+import {GITOPS_CONFIG_PATH_DEFAULT} from './gitops_constants.js';
 
 /** @nodocs */
 export const Args = z.strictObject({
-	path: z
+	config: z
 		.string()
 		.meta({description: 'path to the gitops config file, absolute or relative to the cwd'})
-		.default('gitops.config.ts'),
+		.default(GITOPS_CONFIG_PATH_DEFAULT),
 	dir: z
 		.string()
-		.meta({description: 'path containing the repos, defaults to the parent of the `path` dir'})
+		.meta({description: 'path containing the repos, defaults to the parent of the config dir'})
 		.optional(),
 	verbose: z.boolean().meta({description: 'show additional details'}).default(false),
 });
@@ -29,7 +30,7 @@ export const task: Task<Args> = {
 	summary:
 		'validate gitops configuration by running all read-only commands and checking for issues',
 	run: async ({args, log}) => {
-		const {path, dir, verbose} = args;
+		const {config, dir, verbose} = args;
 
 		log.info(st('cyan', 'Running Gitops Validation Suite'));
 		log.info(st('dim', 'This runs all read-only commands and checks for consistency.'));
@@ -49,7 +50,7 @@ export const task: Task<Args> = {
 
 		// Load repos once (shared by all commands)
 		log.info(st('dim', 'Loading repositories...'));
-		const {local_repos} = await get_gitops_ready({path, dir, download: false, log});
+		const {local_repos} = await get_gitops_ready({config, dir, download: false, log});
 		log.info(st('dim', `   Found ${local_repos.length} local repos`));
 
 		// 1. Run gitops_analyze

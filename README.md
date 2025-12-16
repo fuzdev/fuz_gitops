@@ -71,6 +71,21 @@ See [CLAUDE.md](CLAUDE.md#architecture) for detailed documentation.
 
 ## Quick Start
 
+### Running commands across repos
+
+```bash
+gro gitops_run "npm test"                  # run tests in all repos (parallel, concurrency: 5)
+gro gitops_run "npm audit" --concurrency 3 # limit parallelism
+gro gitops_run "git status" --format json  # JSON output for scripting
+```
+
+**Features:**
+
+- Parallel execution with configurable concurrency (default: 5)
+- Continue-on-error behavior (shows all results)
+- Structured output formats (text or JSON)
+- Uses lightweight repo path resolution (no full sync needed)
+
 ### Syncing repo metadata
 
 ```bash
