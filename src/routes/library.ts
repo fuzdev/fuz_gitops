@@ -1596,6 +1596,26 @@ export const library_json: LibraryJson = {
 				],
 			},
 			{
+				path: 'gitops_run.task.ts',
+				declarations: [
+					{
+						name: 'Args',
+						kind: 'type',
+						source_line: 10,
+						type_signature:
+							'ZodObject<{ command: ZodString; path: ZodDefault<ZodString>; concurrency: ZodDefault<ZodNumber>; format: ZodDefault<ZodEnum<{ json: "json"; text: "text"; }>>; }, $strict>',
+					},
+					{
+						name: 'task',
+						kind: 'variable',
+						source_line: 40,
+						type_signature:
+							'Task<{ command: string; path: string; concurrency: number; format: "json" | "text"; }, ZodType<Args, Args, $ZodTypeInternals<Args, Args>>, unknown>',
+					},
+				],
+				dependencies: ['repo_ops.ts'],
+			},
+			{
 				path: 'gitops_sync.task.ts',
 				declarations: [],
 				dependencies: ['fetch_repo_data.ts', 'fs_fetch_value_cache.ts', 'gitops_task_helpers.ts'],
@@ -1828,7 +1848,7 @@ export const library_json: LibraryJson = {
 						kind: 'type',
 						doc_comment:
 							'Fully loaded local repo with Library and extracted dependency data.\nDoes not extend LocalRepoPath - Library is source of truth for name/repo_url/etc.',
-						source_line: 19,
+						source_line: 20,
 						type_signature: 'LocalRepo',
 						properties: [
 							{
@@ -1878,7 +1898,7 @@ export const library_json: LibraryJson = {
 						kind: 'type',
 						doc_comment:
 							'A repo that has been located on the filesystem (path exists).\nUsed before loading - just filesystem/git concerns.',
-						source_line: 34,
+						source_line: 35,
 						type_signature: 'LocalRepoPath',
 						properties: [
 							{
@@ -1917,7 +1937,7 @@ export const library_json: LibraryJson = {
 						name: 'LocalRepoMissing',
 						kind: 'type',
 						doc_comment: 'A repo that is missing from the filesystem (needs cloning).',
-						source_line: 46,
+						source_line: 47,
 						type_signature: 'LocalRepoMissing',
 						properties: [
 							{
@@ -1959,7 +1979,7 @@ export const library_json: LibraryJson = {
 									'workspace dirty, branch switch fails, install fails, or library.ts missing',
 							},
 						],
-						source_line: 71,
+						source_line: 72,
 						type_signature:
 							'({ local_repo_path, log: _log, git_ops, npm_ops, }: { local_repo_path: LocalRepoPath; log?: Logger | undefined; git_ops?: GitOperations | undefined; npm_ops?: NpmOperations | undefined; }): Promise<...>',
 						return_type: 'Promise<LocalRepo>',
@@ -1973,7 +1993,7 @@ export const library_json: LibraryJson = {
 					{
 						name: 'local_repos_ensure',
 						kind: 'function',
-						source_line: 228,
+						source_line: 229,
 						type_signature:
 							'({ resolved_config, repos_dir, gitops_config, download, log, npm_ops, }: { resolved_config: ResolvedGitopsConfig; repos_dir: string; gitops_config: GitopsConfig; download: boolean; log?: Logger | undefined; npm_ops?: NpmOperations | undefined; }): Promise<...>',
 						return_type: 'Promise<LocalRepoPath[]>',
@@ -1987,21 +2007,21 @@ export const library_json: LibraryJson = {
 					{
 						name: 'local_repos_load',
 						kind: 'function',
-						source_line: 278,
+						source_line: 279,
 						type_signature:
-							'({ local_repo_paths, log, git_ops, npm_ops, }: { local_repo_paths: LocalRepoPath[]; log?: Logger | undefined; git_ops?: GitOperations | undefined; npm_ops?: NpmOperations | undefined; }): Promise<...>',
+							'({ local_repo_paths, log, git_ops, npm_ops, parallel, concurrency, }: { local_repo_paths: LocalRepoPath[]; log?: Logger | undefined; git_ops?: GitOperations | undefined; npm_ops?: NpmOperations | undefined; parallel?: boolean | undefined; concurrency?: number | undefined; }): Promise<...>',
 						return_type: 'Promise<LocalRepo[]>',
 						parameters: [
 							{
 								name: '__0',
-								type: '{ local_repo_paths: LocalRepoPath[]; log?: Logger | undefined; git_ops?: GitOperations | undefined; npm_ops?: NpmOperations | undefined; }',
+								type: '{ local_repo_paths: LocalRepoPath[]; log?: Logger | undefined; git_ops?: GitOperations | undefined; npm_ops?: NpmOperations | undefined; parallel?: boolean | undefined; concurrency?: number | undefined; }',
 							},
 						],
 					},
 					{
 						name: 'local_repo_locate',
 						kind: 'function',
-						source_line: 296,
+						source_line: 338,
 						type_signature:
 							'({ repo_config, repos_dir, }: { repo_config: GitopsRepoConfig; repos_dir: string; }): LocalRepoPath | LocalRepoMissing',
 						return_type: 'LocalRepoPath | LocalRepoMissing',
@@ -2174,7 +2194,7 @@ export const library_json: LibraryJson = {
 							'Logs a simple bulleted list with a header.\nCommon pattern for warnings, info messages, and other lists.',
 						source_line: 130,
 						type_signature:
-							'(items: string[], header: string, color: "cyan" | "yellow" | "red" | "dim", log: Logger, log_method?: "info" | "warn" | "error"): void',
+							'(items: string[], header: string, color: "cyan" | "yellow" | "red" | "dim", log: Logger, log_method?: "error" | "info" | "warn"): void',
 						return_type: 'void',
 						parameters: [
 							{
@@ -2195,7 +2215,7 @@ export const library_json: LibraryJson = {
 							},
 							{
 								name: 'log_method',
-								type: '"info" | "warn" | "error"',
+								type: '"error" | "info" | "warn"',
 								default_value: "'info'",
 							},
 						],
@@ -4031,6 +4051,7 @@ export const library_json: LibraryJson = {
 				module_comment:
 					'Generic repository operations for scripts that work across repos.\n\nProvides lightweight utilities for:\n- Getting repo paths from gitops config (without full git sync)\n- Walking files in repos with sensible exclusions\n- Common exclusion patterns for node/svelte projects\n\nFor full git sync/clone functionality, use `get_gitops_ready()` from gitops_task_helpers.',
 				dependencies: ['gitops_config.ts', 'paths.ts'],
+				dependents: ['gitops_run.task.ts'],
 			},
 			{
 				path: 'repo.svelte.ts',
