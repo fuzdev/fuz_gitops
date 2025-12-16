@@ -11,10 +11,7 @@ import {
 } from './multi_repo_publisher.js';
 import {generate_publishing_plan, log_publishing_plan} from './publishing_plan.js';
 import {format_and_output, type OutputFormatters} from './output_helpers.js';
-import {
-	GITOPS_CONFIG_PATH_DEFAULT,
-	GITOPS_NPM_WAIT_TIMEOUT_DEFAULT,
-} from './gitops_constants.js';
+import {GITOPS_CONFIG_PATH_DEFAULT, GITOPS_NPM_WAIT_TIMEOUT_DEFAULT} from './gitops_constants.js';
 
 /** @nodocs */
 export const Args = z.strictObject({

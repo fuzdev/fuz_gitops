@@ -369,20 +369,6 @@ export const library_json: LibraryJson = {
 				dependents: ['operations_defaults.ts'],
 			},
 			{
-				path: 'constants.ts',
-				declarations: [
-					{
-						name: 'MAX_ITERATIONS',
-						kind: 'variable',
-						doc_comment:
-							'Maximum number of iterations for fixed-point iteration during publishing.\nUsed in both plan generation and actual publishing to resolve transitive dependency cascades.\n\nIn practice, most repos converge in 2-3 iterations.\nDeep dependency chains may require more iterations.',
-						source_line: 8,
-						type_signature: '10',
-					},
-				],
-				dependents: ['multi_repo_publisher.ts', 'publishing_plan.ts'],
-			},
-			{
 				path: 'dependency_graph.ts',
 				declarations: [
 					{
@@ -1405,6 +1391,7 @@ export const library_json: LibraryJson = {
 				declarations: [],
 				dependencies: [
 					'dependency_graph.ts',
+					'gitops_constants.ts',
 					'gitops_task_helpers.ts',
 					'graph_validation.ts',
 					'log_helpers.ts',
@@ -1581,14 +1568,70 @@ export const library_json: LibraryJson = {
 				dependents: ['gitops_task_helpers.ts', 'repo_ops.ts'],
 			},
 			{
+				path: 'gitops_constants.ts',
+				declarations: [
+					{
+						name: 'GITOPS_MAX_ITERATIONS_DEFAULT',
+						kind: 'variable',
+						doc_comment:
+							'Maximum number of iterations for fixed-point iteration during publishing.\nUsed in both plan generation and actual publishing to resolve transitive dependency cascades.\n\nIn practice, most repos converge in 2-3 iterations.\nDeep dependency chains may require more iterations.',
+						source_line: 14,
+						type_signature: '10',
+					},
+					{
+						name: 'GITOPS_CONFIG_PATH_DEFAULT',
+						kind: 'variable',
+						doc_comment: 'Default path to the gitops configuration file.',
+						source_line: 19,
+						type_signature: '"gitops.config.ts"',
+					},
+					{
+						name: 'GITOPS_CONCURRENCY_DEFAULT',
+						kind: 'variable',
+						doc_comment:
+							'Default number of repos to process concurrently during parallel operations.',
+						source_line: 24,
+						type_signature: '5',
+					},
+					{
+						name: 'GITOPS_NPM_WAIT_TIMEOUT_DEFAULT',
+						kind: 'variable',
+						doc_comment:
+							"Default timeout in milliseconds for waiting on NPM package propagation (10 minutes).\nNPM's CDN uses eventual consistency, so published packages may not be immediately available.",
+						source_line: 30,
+						type_signature: '600000',
+					},
+				],
+				module_comment:
+					'Shared constants for gitops tasks and operations.\n\nNaming convention: GITOPS_{NAME}_DEFAULT for user-facing defaults.',
+				dependents: [
+					'gitops_analyze.task.ts',
+					'gitops_plan.task.ts',
+					'gitops_publish.task.ts',
+					'gitops_run.task.ts',
+					'gitops_sync.task.ts',
+					'gitops_validate.task.ts',
+					'local_repo.ts',
+					'multi_repo_publisher.ts',
+					'publishing_plan.ts',
+					'repo_ops.ts',
+				],
+			},
+			{
 				path: 'gitops_plan.task.ts',
 				declarations: [],
-				dependencies: ['gitops_task_helpers.ts', 'output_helpers.ts', 'publishing_plan.ts'],
+				dependencies: [
+					'gitops_constants.ts',
+					'gitops_task_helpers.ts',
+					'output_helpers.ts',
+					'publishing_plan.ts',
+				],
 			},
 			{
 				path: 'gitops_publish.task.ts',
 				declarations: [],
 				dependencies: [
+					'gitops_constants.ts',
 					'gitops_task_helpers.ts',
 					'multi_repo_publisher.ts',
 					'output_helpers.ts',
@@ -1601,24 +1644,29 @@ export const library_json: LibraryJson = {
 					{
 						name: 'Args',
 						kind: 'type',
-						source_line: 10,
+						source_line: 11,
 						type_signature:
-							'ZodObject<{ command: ZodString; path: ZodDefault<ZodString>; concurrency: ZodDefault<ZodNumber>; format: ZodDefault<ZodEnum<{ json: "json"; text: "text"; }>>; }, $strict>',
+							'ZodObject<{ command: ZodString; config: ZodDefault<ZodString>; concurrency: ZodDefault<ZodNumber>; format: ZodDefault<ZodEnum<{ json: "json"; text: "text"; }>>; }, $strict>',
 					},
 					{
 						name: 'task',
 						kind: 'variable',
-						source_line: 40,
+						source_line: 38,
 						type_signature:
-							'Task<{ command: string; path: string; concurrency: number; format: "json" | "text"; }, ZodType<Args, Args, $ZodTypeInternals<Args, Args>>, unknown>',
+							'Task<{ command: string; config: string; concurrency: number; format: "json" | "text"; }, ZodType<Args, Args, $ZodTypeInternals<Args, Args>>, unknown>',
 					},
 				],
-				dependencies: ['repo_ops.ts'],
+				dependencies: ['gitops_constants.ts', 'repo_ops.ts'],
 			},
 			{
 				path: 'gitops_sync.task.ts',
 				declarations: [],
-				dependencies: ['fetch_repo_data.ts', 'fs_fetch_value_cache.ts', 'gitops_task_helpers.ts'],
+				dependencies: [
+					'fetch_repo_data.ts',
+					'fs_fetch_value_cache.ts',
+					'gitops_constants.ts',
+					'gitops_task_helpers.ts',
+				],
 			},
 			{
 				path: 'gitops_task_helpers.ts',
@@ -1630,7 +1678,7 @@ export const library_json: LibraryJson = {
 						type_signature: 'GetGitopsReadyOptions',
 						properties: [
 							{
-								name: 'path',
+								name: 'config',
 								kind: 'variable',
 								type_signature: 'string',
 							},
@@ -1659,20 +1707,30 @@ export const library_json: LibraryJson = {
 								kind: 'variable',
 								type_signature: 'NpmOperations',
 							},
+							{
+								name: 'parallel',
+								kind: 'variable',
+								type_signature: 'boolean',
+							},
+							{
+								name: 'concurrency',
+								kind: 'variable',
+								type_signature: 'number',
+							},
 						],
 					},
 					{
 						name: 'get_gitops_ready',
 						kind: 'function',
 						doc_comment:
-							'Central initialization function for all gitops tasks.\n\nInitialization sequence:\n1. Loads and normalizes config from `gitops.config.ts`\n2. Resolves local repo paths (creates missing with `--download`)\n3. Switches branches and pulls latest changes\n4. Auto-installs deps if package.json changed during pull\n\nPriority for path resolution:\n- `dir` argument (explicit override)\n- Config `repos_dir` setting\n- `DEFAULT_REPOS_DIR` constant',
+							'Central initialization function for all gitops tasks.\n\nInitialization sequence:\n1. Loads and normalizes config from `gitops.config.ts`\n2. Resolves local repo paths (creates missing with `--download`)\n3. Switches branches and pulls latest changes (in parallel by default)\n4. Auto-installs deps if package.json changed during pull\n\nPriority for path resolution:\n- `dir` argument (explicit override)\n- Config `repos_dir` setting\n- `DEFAULT_REPOS_DIR` constant',
 						throws: [
 							{
 								type: 'if',
 								description: 'config loading or repo resolution fails',
 							},
 						],
-						source_line: 57,
+						source_line: 61,
 						type_signature:
 							'(options: GetGitopsReadyOptions): Promise<{ config_path: string; repos_dir: string; gitops_config: GitopsConfig; local_repos: LocalRepo[]; }>',
 						return_type:
@@ -1688,11 +1746,11 @@ export const library_json: LibraryJson = {
 					{
 						name: 'ResolveGitopsPathsOptions',
 						kind: 'type',
-						source_line: 96,
+						source_line: 107,
 						type_signature: 'ResolveGitopsPathsOptions',
 						properties: [
 							{
-								name: 'path',
+								name: 'config',
 								kind: 'variable',
 								type_signature: 'string',
 							},
@@ -1711,7 +1769,7 @@ export const library_json: LibraryJson = {
 					{
 						name: 'resolve_gitops_paths',
 						kind: 'function',
-						source_line: 102,
+						source_line: 113,
 						type_signature:
 							'(options: ResolveGitopsPathsOptions): { config_path: string; repos_dir: string; }',
 						return_type: '{ config_path: string; repos_dir: string; }',
@@ -1725,7 +1783,7 @@ export const library_json: LibraryJson = {
 					{
 						name: 'import_gitops_config',
 						kind: 'function',
-						source_line: 120,
+						source_line: 131,
 						type_signature: '(config_path: string): Promise<GitopsConfig>',
 						return_type: 'Promise<GitopsConfig>',
 						parameters: [
@@ -1757,6 +1815,7 @@ export const library_json: LibraryJson = {
 				declarations: [],
 				dependencies: [
 					'dependency_graph.ts',
+					'gitops_constants.ts',
 					'gitops_task_helpers.ts',
 					'graph_validation.ts',
 					'log_helpers.ts',
@@ -1848,7 +1907,7 @@ export const library_json: LibraryJson = {
 						kind: 'type',
 						doc_comment:
 							'Fully loaded local repo with Library and extracted dependency data.\nDoes not extend LocalRepoPath - Library is source of truth for name/repo_url/etc.',
-						source_line: 20,
+						source_line: 21,
 						type_signature: 'LocalRepo',
 						properties: [
 							{
@@ -1898,7 +1957,7 @@ export const library_json: LibraryJson = {
 						kind: 'type',
 						doc_comment:
 							'A repo that has been located on the filesystem (path exists).\nUsed before loading - just filesystem/git concerns.',
-						source_line: 35,
+						source_line: 36,
 						type_signature: 'LocalRepoPath',
 						properties: [
 							{
@@ -1937,7 +1996,7 @@ export const library_json: LibraryJson = {
 						name: 'LocalRepoMissing',
 						kind: 'type',
 						doc_comment: 'A repo that is missing from the filesystem (needs cloning).',
-						source_line: 47,
+						source_line: 48,
 						type_signature: 'LocalRepoMissing',
 						properties: [
 							{
@@ -1979,7 +2038,7 @@ export const library_json: LibraryJson = {
 									'workspace dirty, branch switch fails, install fails, or library.ts missing',
 							},
 						],
-						source_line: 72,
+						source_line: 73,
 						type_signature:
 							'({ local_repo_path, log: _log, git_ops, npm_ops, }: { local_repo_path: LocalRepoPath; log?: Logger | undefined; git_ops?: GitOperations | undefined; npm_ops?: NpmOperations | undefined; }): Promise<...>',
 						return_type: 'Promise<LocalRepo>',
@@ -1993,7 +2052,7 @@ export const library_json: LibraryJson = {
 					{
 						name: 'local_repos_ensure',
 						kind: 'function',
-						source_line: 229,
+						source_line: 230,
 						type_signature:
 							'({ resolved_config, repos_dir, gitops_config, download, log, npm_ops, }: { resolved_config: ResolvedGitopsConfig; repos_dir: string; gitops_config: GitopsConfig; download: boolean; log?: Logger | undefined; npm_ops?: NpmOperations | undefined; }): Promise<...>',
 						return_type: 'Promise<LocalRepoPath[]>',
@@ -2007,7 +2066,7 @@ export const library_json: LibraryJson = {
 					{
 						name: 'local_repos_load',
 						kind: 'function',
-						source_line: 279,
+						source_line: 280,
 						type_signature:
 							'({ local_repo_paths, log, git_ops, npm_ops, parallel, concurrency, }: { local_repo_paths: LocalRepoPath[]; log?: Logger | undefined; git_ops?: GitOperations | undefined; npm_ops?: NpmOperations | undefined; parallel?: boolean | undefined; concurrency?: number | undefined; }): Promise<...>',
 						return_type: 'Promise<LocalRepo[]>',
@@ -2021,7 +2080,7 @@ export const library_json: LibraryJson = {
 					{
 						name: 'local_repo_locate',
 						kind: 'function',
-						source_line: 338,
+						source_line: 339,
 						type_signature:
 							'({ repo_config, repos_dir, }: { repo_config: GitopsRepoConfig; repos_dir: string; }): LocalRepoPath | LocalRepoMissing',
 						return_type: 'LocalRepoPath | LocalRepoMissing',
@@ -2033,7 +2092,7 @@ export const library_json: LibraryJson = {
 						],
 					},
 				],
-				dependencies: ['operations_defaults.ts'],
+				dependencies: ['gitops_constants.ts', 'operations_defaults.ts'],
 				dependents: ['gitops_task_helpers.ts', 'resolved_gitops_config.ts'],
 			},
 			{
@@ -2290,7 +2349,7 @@ export const library_json: LibraryJson = {
 					{
 						name: 'PublishingOptions',
 						kind: 'type',
-						source_line: 18,
+						source_line: 21,
 						type_signature: 'PublishingOptions',
 						properties: [
 							{
@@ -2338,7 +2397,7 @@ export const library_json: LibraryJson = {
 					{
 						name: 'PublishedVersion',
 						kind: 'type',
-						source_line: 29,
+						source_line: 32,
 						type_signature: 'PublishedVersion',
 						properties: [
 							{
@@ -2381,7 +2440,7 @@ export const library_json: LibraryJson = {
 					{
 						name: 'PublishingResult',
 						kind: 'type',
-						source_line: 39,
+						source_line: 42,
 						type_signature: 'PublishingResult',
 						properties: [
 							{
@@ -2409,7 +2468,7 @@ export const library_json: LibraryJson = {
 					{
 						name: 'publish_repos',
 						kind: 'function',
-						source_line: 46,
+						source_line: 49,
 						type_signature:
 							'(repos: LocalRepo[], options: PublishingOptions): Promise<PublishingResult>',
 						return_type: 'Promise<PublishingResult>',
@@ -2426,8 +2485,8 @@ export const library_json: LibraryJson = {
 					},
 				],
 				dependencies: [
-					'constants.ts',
 					'dependency_updater.ts',
+					'gitops_constants.ts',
 					'graph_validation.ts',
 					'npm_install_helpers.ts',
 					'operations_defaults.ts',
@@ -3829,7 +3888,7 @@ export const library_json: LibraryJson = {
 					},
 				],
 				dependencies: [
-					'constants.ts',
+					'gitops_constants.ts',
 					'graph_validation.ts',
 					'operations_defaults.ts',
 					'publishing_plan_helpers.ts',
@@ -3895,7 +3954,7 @@ export const library_json: LibraryJson = {
 						kind: 'function',
 						doc_comment:
 							'Walk files in a directory, respecting common exclusions.\nYields absolute paths to files (and optionally directories).',
-						source_line: 155,
+						source_line: 156,
 						type_signature:
 							'(dir: string, options?: WalkOptions | undefined): AsyncGenerator<string, void, undefined>',
 						return_type: 'AsyncGenerator<string, void, undefined>',
@@ -3917,7 +3976,7 @@ export const library_json: LibraryJson = {
 						name: 'DEFAULT_EXCLUDE_DIRS',
 						kind: 'variable',
 						doc_comment: 'Default directories to exclude from file walking',
-						source_line: 20,
+						source_line: 21,
 						type_signature:
 							'readonly ["node_modules", ".git", ".gro", ".svelte-kit", ".deno", ".vscode", ".idea", "dist", "build", "coverage", ".cache", ".turbo"]',
 					},
@@ -3925,14 +3984,14 @@ export const library_json: LibraryJson = {
 						name: 'DEFAULT_EXCLUDE_EXTENSIONS',
 						kind: 'variable',
 						doc_comment: 'Default binary/non-text extensions to exclude from content processing',
-						source_line: 36,
+						source_line: 37,
 						type_signature:
 							'readonly [".png", ".jpg", ".jpeg", ".gif", ".svg", ".ico", ".webp", ".woff", ".woff2", ".ttf", ".eot", ".mp4", ".webm", ".mp3", ".wav", ".ogg", ".zip", ".tar", ".gz", ".lock", ".pdf"]',
 					},
 					{
 						name: 'WalkOptions',
 						kind: 'type',
-						source_line: 60,
+						source_line: 61,
 						type_signature: 'WalkOptions',
 						properties: [
 							{
@@ -3970,7 +4029,7 @@ export const library_json: LibraryJson = {
 					{
 						name: 'RepoPath',
 						kind: 'type',
-						source_line: 73,
+						source_line: 74,
 						type_signature: 'RepoPath',
 						properties: [
 							{
@@ -3995,7 +4054,7 @@ export const library_json: LibraryJson = {
 						kind: 'function',
 						doc_comment:
 							'Get repo paths from gitops config without full git sync.\nLighter weight than `get_gitops_ready()` - just resolves paths.',
-						source_line: 86,
+						source_line: 87,
 						type_signature: '(config_path?: string | undefined): Promise<RepoPath[]>',
 						return_type: 'Promise<RepoPath[]>',
 						return_description: 'Array of repo info with name, path, and url',
@@ -4012,7 +4071,7 @@ export const library_json: LibraryJson = {
 						name: 'should_exclude_path',
 						kind: 'function',
 						doc_comment: 'Check if a path should be excluded based on options.',
-						source_line: 119,
+						source_line: 120,
 						type_signature: '(file_path: string, options?: WalkOptions | undefined): boolean',
 						return_type: 'boolean',
 						parameters: [
@@ -4032,7 +4091,7 @@ export const library_json: LibraryJson = {
 						kind: 'function',
 						doc_comment:
 							'Collect all files from walk_repo_files into an array.\nConvenience function for when you need all paths upfront.',
-						source_line: 204,
+						source_line: 205,
 						type_signature: '(dir: string, options?: WalkOptions | undefined): Promise<string[]>',
 						return_type: 'Promise<string[]>',
 						parameters: [
@@ -4050,7 +4109,7 @@ export const library_json: LibraryJson = {
 				],
 				module_comment:
 					'Generic repository operations for scripts that work across repos.\n\nProvides lightweight utilities for:\n- Getting repo paths from gitops config (without full git sync)\n- Walking files in repos with sensible exclusions\n- Common exclusion patterns for node/svelte projects\n\nFor full git sync/clone functionality, use `get_gitops_ready()` from gitops_task_helpers.',
-				dependencies: ['gitops_config.ts', 'paths.ts'],
+				dependencies: ['gitops_config.ts', 'gitops_constants.ts', 'paths.ts'],
 				dependents: ['gitops_run.task.ts'],
 			},
 			{

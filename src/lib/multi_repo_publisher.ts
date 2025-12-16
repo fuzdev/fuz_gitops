@@ -10,7 +10,10 @@ import {type PreflightOptions} from './preflight_checks.js';
 import {needs_update, is_breaking_change, detect_bump_type} from './version_utils.js';
 import type {GitopsOperations} from './operations.js';
 import {default_gitops_operations} from './operations_defaults.js';
-import {GITOPS_MAX_ITERATIONS_DEFAULT} from './gitops_constants.js';
+import {
+	GITOPS_MAX_ITERATIONS_DEFAULT,
+	GITOPS_NPM_WAIT_TIMEOUT_DEFAULT,
+} from './gitops_constants.js';
 import {install_with_cache_healing} from './npm_install_helpers.js';
 
 /* eslint-disable no-await-in-loop */
@@ -92,7 +95,9 @@ export const publish_repos = async (
 
 	while (!converged && iteration < GITOPS_MAX_ITERATIONS_DEFAULT) {
 		iteration++;
-		log?.info(st('cyan', `\n🚀 Publishing iteration ${iteration}/${GITOPS_MAX_ITERATIONS_DEFAULT}...\n`));
+		log?.info(
+			st('cyan', `\n🚀 Publishing iteration ${iteration}/${GITOPS_MAX_ITERATIONS_DEFAULT}...\n`),
+		);
 
 		// Track if any packages were published in this iteration
 		let published_in_iteration = false;
@@ -157,7 +162,7 @@ export const publish_repos = async (
 							max_attempts: 30,
 							initial_delay: 1000,
 							max_delay: 60000,
-							timeout: options.max_wait || 600000, // 10 minutes default
+							timeout: options.max_wait ?? GITOPS_NPM_WAIT_TIMEOUT_DEFAULT,
 						},
 						log,
 					});

@@ -20,10 +20,7 @@ export const Args = z.strictObject({
 		.min(1)
 		.meta({description: 'maximum number of repos to run in parallel'})
 		.default(GITOPS_CONCURRENCY_DEFAULT),
-	format: z
-		.enum(['text', 'json'])
-		.meta({description: 'output format'})
-		.default('text'),
+	format: z.enum(['text', 'json']).meta({description: 'output format'}).default('text'),
 });
 export type Args = z.infer<typeof Args>;
 
@@ -147,6 +144,7 @@ export const task: Task<Args> = {
 					duration_ms: Math.round(total_duration_ms),
 				},
 			};
+			// eslint-disable-next-line no-console
 			console.log(JSON.stringify(json_output, null, 2));
 		} else {
 			// Text format

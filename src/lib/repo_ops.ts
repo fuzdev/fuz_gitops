@@ -15,6 +15,7 @@ import {join, resolve, dirname} from 'node:path';
 
 import {load_gitops_config} from './gitops_config.js';
 import {DEFAULT_REPOS_DIR} from './paths.js';
+import {GITOPS_CONFIG_PATH_DEFAULT} from './gitops_constants.js';
 
 /** Default directories to exclude from file walking */
 export const DEFAULT_EXCLUDE_DIRS = [
@@ -84,7 +85,7 @@ export interface RepoPath {
  * @returns Array of repo info with name, path, and url
  */
 export const get_repo_paths = async (config_path?: string): Promise<Array<RepoPath>> => {
-	const resolved_config_path = resolve(config_path ?? 'gitops.config.ts');
+	const resolved_config_path = resolve(config_path ?? GITOPS_CONFIG_PATH_DEFAULT);
 	const config = await load_gitops_config(resolved_config_path);
 
 	if (!config) {
