@@ -13,16 +13,17 @@ import {
 	format_production_cycles,
 } from './log_helpers.js';
 import {format_and_output, type OutputFormatters} from './output_helpers.js';
+import {GITOPS_CONFIG_PATH_DEFAULT} from './gitops_constants.js';
 
 /** @nodocs */
 export const Args = z.strictObject({
-	path: z
+	config: z
 		.string()
 		.meta({description: 'path to the gitops config file, absolute or relative to the cwd'})
-		.default('gitops.config.ts'),
+		.default(GITOPS_CONFIG_PATH_DEFAULT),
 	dir: z
 		.string()
-		.meta({description: 'path containing the repos, defaults to the parent of the `path` dir'})
+		.meta({description: 'path containing the repos, defaults to the parent of the config dir'})
 		.optional(),
 	format: z
 		.enum(['stdout', 'json', 'markdown'])
@@ -37,10 +38,10 @@ export const task: Task<Args> = {
 	Args,
 	summary: 'analyze dependency structure and relationships across repos',
 	run: async ({args, log}) => {
-		const {path, dir, format, outfile} = args;
+		const {config, dir, format, outfile} = args;
 
 		// Get repos ready (without downloading)
-		const {local_repos} = await get_gitops_ready({path, dir, download: false, log});
+		const {local_repos} = await get_gitops_ready({config, dir, download: false, log});
 
 		// Build dependency graph and validate (but don't throw on cycles for analyze)
 		const {graph, publishing_order: order} = validate_dependency_graph(local_repos, {

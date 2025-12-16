@@ -11,18 +11,19 @@ import {existsSync} from 'node:fs';
 import {fetch_repo_data} from './fetch_repo_data.js';
 import {create_fs_fetch_value_cache} from './fs_fetch_value_cache.js';
 import {get_gitops_ready} from './gitops_task_helpers.js';
+import {GITOPS_CONFIG_PATH_DEFAULT} from './gitops_constants.js';
 
 // TODO add flag to ignore or invalidate cache -- no-cache? clean?
 
 /** @nodocs */
 export const Args = z.strictObject({
-	path: z
+	config: z
 		.string()
 		.meta({description: 'path to the gitops config file, absolute or relative to the cwd'})
-		.default('gitops.config.ts'),
+		.default(GITOPS_CONFIG_PATH_DEFAULT),
 	dir: z
 		.string()
-		.meta({description: 'path containing the repos, defaults to the parent of the `path` dir'})
+		.meta({description: 'path containing the repos, defaults to the parent of the config dir'})
 		.optional(),
 	outdir: z
 		.string()
@@ -45,9 +46,9 @@ export const task: Task<Args> = {
 	Args,
 	summary: 'syncs local repos and generates UI data from repo metadata',
 	run: async ({args, log, svelte_config, invoke_task}) => {
-		const {path, dir, outdir = svelte_config.routes_path, download, check} = args;
+		const {config, dir, outdir = svelte_config.routes_path, download, check} = args;
 
-		const {local_repos} = await get_gitops_ready({path, dir, download, log});
+		const {local_repos} = await get_gitops_ready({config, dir, download, log});
 
 		const outfile = resolve(outdir, 'repos.ts');
 

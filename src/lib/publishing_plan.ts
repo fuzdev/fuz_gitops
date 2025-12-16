@@ -7,7 +7,7 @@ import {validate_dependency_graph} from './graph_validation.js';
 import {is_breaking_change, compare_bump_types, calculate_next_version} from './version_utils.js';
 import type {ChangesetOperations} from './operations.js';
 import {default_changeset_operations} from './operations_defaults.js';
-import {MAX_ITERATIONS} from './constants.js';
+import {GITOPS_MAX_ITERATIONS_DEFAULT} from './gitops_constants.js';
 import type {DependencyGraph} from './dependency_graph.ts';
 import {
 	calculate_dependency_updates,
@@ -247,7 +247,7 @@ export const generate_publishing_plan = async (
 	let iteration = 0;
 	let changed = true;
 
-	while (changed && iteration < MAX_ITERATIONS) {
+	while (changed && iteration < GITOPS_MAX_ITERATIONS_DEFAULT) {
 		changed = false;
 		iteration++;
 
@@ -392,7 +392,7 @@ export const generate_publishing_plan = async (
 	}
 
 	// Check if we hit iteration limit without convergence
-	if (iteration === MAX_ITERATIONS && changed) {
+	if (iteration === GITOPS_MAX_ITERATIONS_DEFAULT && changed) {
 		// Calculate how many packages still need processing
 		const pending_packages: Array<string> = [];
 
@@ -428,7 +428,7 @@ export const generate_publishing_plan = async (
 		const pending_count = pending_packages.length;
 		const estimated_iterations = Math.ceil(pending_count / 2); // Rough estimate
 		warnings.push(
-			`Reached maximum iterations (${MAX_ITERATIONS}) without full convergence - ` +
+			`Reached maximum iterations (${GITOPS_MAX_ITERATIONS_DEFAULT}) without full convergence - ` +
 				`${pending_count} package(s) may still need processing: ${pending_packages.join(', ')}. ` +
 				`Estimated ${estimated_iterations} more iteration(s) needed.`,
 		);

@@ -12,6 +12,7 @@ import {default_git_operations, default_npm_operations} from './operations_defau
 
 import type {GitopsConfig, GitopsRepoConfig} from './gitops_config.js';
 import type {ResolvedGitopsConfig} from './resolved_gitops_config.js';
+import {GITOPS_CONCURRENCY_DEFAULT} from './gitops_constants.js';
 
 /**
  * Fully loaded local repo with Library and extracted dependency data.
@@ -282,7 +283,7 @@ export const local_repos_load = async ({
 	git_ops = default_git_operations,
 	npm_ops = default_npm_operations,
 	parallel = true,
-	concurrency = 5,
+	concurrency = GITOPS_CONCURRENCY_DEFAULT,
 }: {
 	local_repo_paths: Array<LocalRepoPath>;
 	log?: Logger;

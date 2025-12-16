@@ -10,7 +10,7 @@ import {type PreflightOptions} from './preflight_checks.js';
 import {needs_update, is_breaking_change, detect_bump_type} from './version_utils.js';
 import type {GitopsOperations} from './operations.js';
 import {default_gitops_operations} from './operations_defaults.js';
-import {MAX_ITERATIONS} from './constants.js';
+import {GITOPS_MAX_ITERATIONS_DEFAULT} from './gitops_constants.js';
 import {install_with_cache_healing} from './npm_install_helpers.js';
 
 /* eslint-disable no-await-in-loop */
@@ -90,9 +90,9 @@ export const publish_repos = async (
 	let iteration = 0;
 	let converged = false;
 
-	while (!converged && iteration < MAX_ITERATIONS) {
+	while (!converged && iteration < GITOPS_MAX_ITERATIONS_DEFAULT) {
 		iteration++;
-		log?.info(st('cyan', `\n🚀 Publishing iteration ${iteration}/${MAX_ITERATIONS}...\n`));
+		log?.info(st('cyan', `\n🚀 Publishing iteration ${iteration}/${GITOPS_MAX_ITERATIONS_DEFAULT}...\n`));
 
 		// Track if any packages were published in this iteration
 		let published_in_iteration = false;
@@ -245,7 +245,7 @@ export const publish_repos = async (
 		if (!published_in_iteration) {
 			converged = true;
 			log?.info(st('green', `\n✓ Converged after ${iteration} iteration(s) - no new changesets\n`));
-		} else if (iteration === MAX_ITERATIONS) {
+		} else if (iteration === GITOPS_MAX_ITERATIONS_DEFAULT) {
 			// Count packages that still have changesets (not yet published)
 			const pending_count = order.length - published.size;
 			const estimated_iterations = Math.ceil(pending_count / 2); // Rough estimate
@@ -253,7 +253,7 @@ export const publish_repos = async (
 			log?.warn(
 				st(
 					'yellow',
-					`\n⚠️  Reached maximum iterations (${MAX_ITERATIONS}) without full convergence\n` +
+					`\n⚠️  Reached maximum iterations (${GITOPS_MAX_ITERATIONS_DEFAULT}) without full convergence\n` +
 						`    ${pending_count} package(s) may still have changesets to process\n` +
 						`    Estimated ${estimated_iterations} more iteration(s) needed - run 'gro gitops_publish' again\n`,
 				),

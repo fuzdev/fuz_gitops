@@ -6,19 +6,20 @@ import {styleText as st} from 'node:util';
 import {resolve} from 'node:path';
 
 import {get_repo_paths} from './repo_ops.js';
+import {GITOPS_CONCURRENCY_DEFAULT, GITOPS_CONFIG_PATH_DEFAULT} from './gitops_constants.js';
 
 export const Args = z.strictObject({
 	command: z.string().meta({description: 'shell command to run in each repo'}),
-	path: z
+	config: z
 		.string()
 		.meta({description: 'path to the gitops config file'})
-		.default('gitops.config.ts'),
+		.default(GITOPS_CONFIG_PATH_DEFAULT),
 	concurrency: z
 		.number()
 		.int()
 		.min(1)
 		.meta({description: 'maximum number of repos to run in parallel'})
-		.default(5),
+		.default(GITOPS_CONCURRENCY_DEFAULT),
 	format: z
 		.enum(['text', 'json'])
 		.meta({description: 'output format'})
@@ -41,10 +42,10 @@ export const task: Task<Args> = {
 	Args,
 	summary: 'run a shell command across all repos in parallel',
 	run: async ({args, log}) => {
-		const {command, path, concurrency, format} = args;
+		const {command, config, concurrency, format} = args;
 
 		// Get repo paths (lightweight, no library.ts loading needed)
-		const config_path = resolve(path);
+		const config_path = resolve(config);
 		const repos = await get_repo_paths(config_path);
 
 		if (repos.length === 0) {
