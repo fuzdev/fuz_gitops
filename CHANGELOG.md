@@ -1,5 +1,11 @@
 # @fuzdev/fuz_gitops
 
+## 0.59.0
+
+### Minor Changes
+
+- add `gitops_run` task, tweak some interfaces ([#43](https://github.com/fuzdev/fuz_gitops/pull/43))
+
 ## 0.58.0
 
 ### Minor Changes
