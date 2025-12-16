@@ -315,7 +315,7 @@ gro gitops_sync --download    # clone missing repos
 gro gitops_sync --check       # verify repos are ready without fetching data
 
 # Run commands across repos
-gro gitops_run "npm test"              # run command in all repos (parallel, concurrency: 5)
+gro gitops_run "npm test"                   # run command in all repos (parallel, concurrency: 5)
 gro gitops_run "npm audit" --concurrency 3  # limit parallelism
 gro gitops_run "gro check" --format json    # JSON output for scripting
 
@@ -407,7 +407,7 @@ For packages you control, use `>=` instead of `^` for peer dependencies:
 
 ```json
 "peerDependencies": {
-  "@fuzdev/fuz_util": ">=0.38.0",   // controlled package - use >=
+  "@fuzdev/fuz_util": ">=0.38.0", // controlled package - use >=
   "@ryanatkn/gro": ">=0.174.0",   // controlled package - use >=
   "@sveltejs/kit": "^2",          // third-party - use ^
   "svelte": "^5"                  // third-party - use ^
@@ -478,8 +478,8 @@ Uses vitest with **zero mocks** - all tests use the operations pattern for
 dependency injection (see above).
 
 ```bash
-gro test                 # run all tests
-gro test version_utils   # run specific test file
+gro test                         # run all tests
+gro test version_utils           # run specific test file
 gro test src/test/fixtures/check # validate command output fixtures
 ```
 
