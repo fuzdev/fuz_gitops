@@ -1,6 +1,6 @@
 {
   "name": "@fuzdev/fuz_gitops",
-  "version": "0.58.0",
+  "version": "0.59.0",
   "modules": [
     {
       "path": "changeset_generator.ts",
@@ -53,15 +53,6 @@
         {
           "name": "predict_next_version",
           "kind": "function"
-        }
-      ]
-    },
-    {
-      "path": "constants.ts",
-      "declarations": [
-        {
-          "name": "MAX_ITERATIONS",
-          "kind": "variable"
         }
       ]
     },
@@ -327,6 +318,27 @@
       ]
     },
     {
+      "path": "gitops_constants.ts",
+      "declarations": [
+        {
+          "name": "GITOPS_MAX_ITERATIONS_DEFAULT",
+          "kind": "variable"
+        },
+        {
+          "name": "GITOPS_CONFIG_PATH_DEFAULT",
+          "kind": "variable"
+        },
+        {
+          "name": "GITOPS_CONCURRENCY_DEFAULT",
+          "kind": "variable"
+        },
+        {
+          "name": "GITOPS_NPM_WAIT_TIMEOUT_DEFAULT",
+          "kind": "variable"
+        }
+      ]
+    },
+    {
       "path": "gitops_plan.task.ts",
       "declarations": [
         {
@@ -341,6 +353,19 @@
     },
     {
       "path": "gitops_publish.task.ts",
+      "declarations": [
+        {
+          "name": "Args",
+          "kind": "variable"
+        },
+        {
+          "name": "task",
+          "kind": "variable"
+        }
+      ]
+    },
+    {
+      "path": "gitops_run.task.ts",
       "declarations": [
         {
           "name": "Args",
