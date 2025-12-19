@@ -1,5 +1,11 @@
 # @fuzdev/fuz_gitops
 
+## 0.60.0
+
+### Minor Changes
+
+- rename some interfaces ([677f7d4](https://github.com/fuzdev/fuz_gitops/commit/677f7d4))
+
 ## 0.59.0
 
 ### Minor Changes
