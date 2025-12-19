@@ -7,13 +7,12 @@ export const repos_json: Array<RepoJson> = [
 		library_json: {
 			package_json: {
 				name: '@fuzdev/fuz_css',
-				version: '0.42.0',
+				version: '0.42.1',
 				description: 'CSS framework and design system',
 				motto: 'magical organic stylesheets',
 				glyph: '🌿',
 				logo: 'logo.svg',
 				logo_alt: 'a fuzzy tuft of green moss',
-				public: true,
 				license: 'MIT',
 				homepage: 'https://css.fuz.dev/',
 				repository: 'https://github.com/fuzdev/fuz_css',
@@ -48,10 +47,10 @@ export const repos_json: Array<RepoJson> = [
 				devDependencies: {
 					'@changesets/changelog-git': '^0.2.1',
 					'@fuzdev/fuz_code': '^0.38.0',
-					'@fuzdev/fuz_ui': '^0.170.0',
-					'@fuzdev/fuz_util': '^0.42.0',
+					'@fuzdev/fuz_ui': '^0.174.0',
+					'@fuzdev/fuz_util': '^0.45.0',
 					'@ryanatkn/eslint-config': '^0.9.0',
-					'@ryanatkn/gro': '^0.181.0',
+					'@ryanatkn/gro': '^0.184.0',
 					'@sveltejs/adapter-static': '^3.0.10',
 					'@sveltejs/kit': '^2.49.1',
 					'@sveltejs/package': '^2.5.7',
@@ -100,10 +99,13 @@ export const repos_json: Array<RepoJson> = [
 						default: './dist/*.css',
 					},
 				},
+				dependencies: {
+					'@fuzdev/fuz_css': '^0.42.1',
+				},
 			},
 			source_json: {
 				name: '@fuzdev/fuz_css',
-				version: '0.42.0',
+				version: '0.42.1',
 				modules: [
 					{
 						path: 'css_class_composites.ts',
@@ -3395,9 +3397,19 @@ export const repos_json: Array<RepoJson> = [
 	},
 	{
 		library_json: {
+			name: '@fuzdev/fuz_ui',
+			repo_name: 'fuz_ui',
+			repo_url: 'https://github.com/fuzdev/fuz_ui',
+			owner_name: 'fuzdev',
+			homepage_url: 'https://ui.fuz.dev/',
+			logo_url: 'https://ui.fuz.dev/logo.svg',
+			logo_alt: 'a friendly brown spider facing you',
+			npm_url: 'https://www.npmjs.com/package/@fuzdev/fuz_ui',
+			changelog_url: 'https://github.com/fuzdev/fuz_ui/blob/main/CHANGELOG.md',
+			published: true,
 			package_json: {
 				name: '@fuzdev/fuz_ui',
-				version: '0.171.0',
+				version: '0.174.0',
 				description: 'Svelte UI library',
 				motto: 'friendly user zystem',
 				glyph: '🧶',
@@ -3434,7 +3446,7 @@ export const repos_json: Array<RepoJson> = [
 					'@fuzdev/fuz_code': '>=0.37.0',
 					'@fuzdev/fuz_css': '>=0.40.0',
 					'@fuzdev/fuz_util': '>=0.42.0',
-					'@ryanatkn/gro': '>=0.180.0',
+					'@ryanatkn/gro': '>=0.183.0',
 					'@sveltejs/kit': '^2.47.3',
 					'esm-env': '^1',
 					svelte: '^5',
@@ -3455,10 +3467,10 @@ export const repos_json: Array<RepoJson> = [
 				devDependencies: {
 					'@changesets/changelog-git': '^0.2.1',
 					'@fuzdev/fuz_code': '^0.38.0',
-					'@fuzdev/fuz_css': '^0.42.0',
-					'@fuzdev/fuz_util': '^0.42.0',
+					'@fuzdev/fuz_css': '^0.42.1',
+					'@fuzdev/fuz_util': '^0.45.1',
 					'@ryanatkn/eslint-config': '^0.9.0',
-					'@ryanatkn/gro': '^0.181.0',
+					'@ryanatkn/gro': '^0.183.0',
 					'@sveltejs/adapter-static': '^3.0.10',
 					'@sveltejs/kit': '^2.49.1',
 					'@sveltejs/package': '^2.5.7',
@@ -3515,7 +3527,7 @@ export const repos_json: Array<RepoJson> = [
 			},
 			source_json: {
 				name: '@fuzdev/fuz_ui',
-				version: '0.171.0',
+				version: '0.174.0',
 				modules: [
 					{
 						path: 'Alert.svelte',
@@ -3544,11 +3556,6 @@ export const repos_json: Array<RepoJson> = [
 									{
 										name: 'disabled',
 										type: 'boolean',
-										optional: true,
-									},
-									{
-										name: 'attrs',
-										type: 'HTMLAttributes<HTMLElement> | undefined',
 										optional: true,
 									},
 									{
@@ -3831,18 +3838,8 @@ export const repos_json: Array<RepoJson> = [
 										optional: true,
 									},
 									{
-										name: 'href',
-										type: 'string | undefined',
-										optional: true,
-									},
-									{
 										name: 'align',
 										type: "'left' | 'right' | 'above' | 'below'",
-										optional: true,
-									},
-									{
-										name: 'attrs',
-										type: 'any',
 										optional: true,
 									},
 									{
@@ -3869,11 +3866,6 @@ export const repos_json: Array<RepoJson> = [
 									{
 										name: 'value',
 										type: '{color_scheme: ColorScheme}',
-										optional: true,
-									},
-									{
-										name: 'onchange',
-										type: '(color_scheme: ColorScheme) => void',
 										optional: true,
 									},
 								],
@@ -5523,7 +5515,7 @@ export const repos_json: Array<RepoJson> = [
 										name: 'constructor',
 										kind: 'constructor',
 										type_signature:
-											'(module: Module, declaration_json: { [x: string]: unknown; name: string; kind: "function" | "type" | "json" | "variable" | "class" | "constructor" | "component" | "css"; doc_comment?: string | undefined; ... 18 more ...; alias_of?: { ...; } | undefined; }): Declaration',
+											'(module: Module, declaration_json: { [x: string]: unknown; name: string; kind: "function" | "json" | "type" | "variable" | "class" | "constructor" | "component" | "css"; doc_comment?: string | undefined; ... 18 more ...; alias_of?: { ...; } | undefined; }): Declaration',
 										parameters: [
 											{
 												name: 'module',
@@ -5531,7 +5523,7 @@ export const repos_json: Array<RepoJson> = [
 											},
 											{
 												name: 'declaration_json',
-												type: '{ [x: string]: unknown; name: string; kind: "function" | "type" | "json" | "variable" | "class" | "constructor" | "component" | "css"; doc_comment?: string | undefined; type_signature?: string | undefined; ... 17 more ...; alias_of?: { ...; } | undefined; }',
+												type: '{ [x: string]: unknown; name: string; kind: "function" | "json" | "type" | "variable" | "class" | "constructor" | "component" | "css"; doc_comment?: string | undefined; type_signature?: string | undefined; ... 17 more ...; alias_of?: { ...; } | undefined; }',
 											},
 										],
 									},
@@ -5835,7 +5827,7 @@ export const repos_json: Array<RepoJson> = [
 								kind: 'variable',
 								source_line: 29,
 								type_signature:
-									'"/docs" | "/" | "/about" | "/docs/Alert" | "/docs/Breadcrumb" | "/docs/Breadcrumb/a" | "/docs/Breadcrumb/a/b" | "/docs/Breadcrumb/a/b/c" | "/docs/Breadcrumb/a/b/c/d" | "/docs/Card" | ... 94 more ... | `/${string}/help/`',
+									'"/docs" | "/" | "/about" | "/docs/Alert" | "/docs/Breadcrumb" | "/docs/Breadcrumb/a" | "/docs/Breadcrumb/a/b" | "/docs/Breadcrumb/a/b/c" | "/docs/Breadcrumb/a/b/c/d" | "/docs/Card" | ... 97 more ... | `/${string}/help/`',
 							},
 							{
 								name: 'DOCS_API_PATH',
@@ -6147,11 +6139,6 @@ export const repos_json: Array<RepoJson> = [
 										type: 'Snippet',
 										optional: true,
 									},
-									{
-										name: 'children',
-										type: 'Snippet',
-										optional: true,
-									},
 								],
 								source_line: 1,
 							},
@@ -6202,11 +6189,6 @@ export const repos_json: Array<RepoJson> = [
 									{
 										name: 'margin',
 										type: 'boolean',
-										optional: true,
-									},
-									{
-										name: 'class',
-										type: 'string',
 										optional: true,
 									},
 									{
@@ -6435,7 +6417,7 @@ export const repos_json: Array<RepoJson> = [
 								props: [
 									{
 										name: 'selected',
-										type: "'webdevladder.net' | 'ryanatkn.com'",
+										type: "'www.fuz.dev'",
 										optional: true,
 									},
 								],
@@ -6539,16 +6521,6 @@ export const repos_json: Array<RepoJson> = [
 						],
 					},
 					{
-						path: 'HiddenPersonalLinks.svelte',
-						declarations: [
-							{
-								name: 'HiddenPersonalLinks',
-								kind: 'component',
-								source_line: 1,
-							},
-						],
-					},
-					{
 						path: 'HueInput.svelte',
 						declarations: [
 							{
@@ -6560,11 +6532,6 @@ export const repos_json: Array<RepoJson> = [
 										type: 'Hue',
 										optional: true,
 										bindable: true,
-									},
-									{
-										name: 'oninput',
-										type: '(hue: Hue) => void',
-										optional: true,
 									},
 									{
 										name: 'children',
@@ -6620,12 +6587,6 @@ export const repos_json: Array<RepoJson> = [
 										name: 'img_attrs',
 										type: "SvelteHTMLElements['img']",
 										optional: true,
-									},
-									{
-										name: 'attrs',
-										type: "Pick<SvelteHTMLElements['div'], 'class' | 'style'>",
-										optional: true,
-										description: 'Shared attributes for both img and svg.',
 									},
 								],
 								source_line: 1,
@@ -6810,12 +6771,12 @@ export const repos_json: Array<RepoJson> = [
 								],
 								source_line: 54,
 								type_signature:
-									'(source_json: { [x: string]: unknown; name: string; version: string; modules?: { [x: string]: unknown; path: string; declarations?: { [x: string]: unknown; name: string; kind: "function" | "type" | "json" | "variable" | "class" | "constructor" | "component" | "css"; ... 19 more ...; alias_of?: { ...; } | undefined; }[] | undefined; module_comment?: string | undefined; dependencies?: string[] | undefined; dependents?: string[] | undefined; }[] | undefined; }, log: Logger): void',
+									'(source_json: { [x: string]: unknown; name: string; version: string; modules?: { [x: string]: unknown; path: string; declarations?: { [x: string]: unknown; name: string; kind: "function" | "json" | "type" | "variable" | "class" | "constructor" | "component" | "css"; ... 19 more ...; alias_of?: { ...; } | undefined; }[] | undefined; module_comment?: string | undefined; dependencies?: string[] | undefined; dependents?: string[] | undefined; }[] | undefined; }, log: Logger): void',
 								return_type: 'void',
 								parameters: [
 									{
 										name: 'source_json',
-										type: '{ [x: string]: unknown; name: string; version: string; modules?: { [x: string]: unknown; path: string; declarations?: { [x: string]: unknown; name: string; kind: "function" | "type" | "json" | "variable" | "class" | "constructor" | "component" | "css"; ... 19 more ...; alias_of?: { ...; } | undefined; }[] | undefine...',
+										type: '{ [x: string]: unknown; name: string; version: string; modules?: { [x: string]: unknown; path: string; declarations?: { [x: string]: unknown; name: string; kind: "function" | "json" | "type" | "variable" | "class" | "constructor" | "component" | "css"; ... 19 more ...; alias_of?: { ...; } | undefined; }[] | undefine...',
 									},
 									{
 										name: 'log',
@@ -6830,33 +6791,55 @@ export const repos_json: Array<RepoJson> = [
 									'Sort modules alphabetically by path for deterministic output and cleaner diffs.',
 								source_line: 100,
 								type_signature:
-									'(modules: { [x: string]: unknown; path: string; declarations?: { [x: string]: unknown; name: string; kind: "function" | "type" | "json" | "variable" | "class" | "constructor" | "component" | "css"; doc_comment?: string | undefined; ... 18 more ...; alias_of?: { ...; } | undefined; }[] | undefined; module_comment?: string | undefined; dependencies?: string[] | undefined; dependents?: string[] | undefined; }[]): { ...; }[]',
+									'(modules: { [x: string]: unknown; path: string; declarations?: { [x: string]: unknown; name: string; kind: "function" | "json" | "type" | "variable" | "class" | "constructor" | "component" | "css"; doc_comment?: string | undefined; ... 18 more ...; alias_of?: { ...; } | undefined; }[] | undefined; module_comment?: string | undefined; dependencies?: string[] | undefined; dependents?: string[] | undefined; }[]): { ...; }[]',
 								return_type:
-									'{ [x: string]: unknown; path: string; declarations?: { [x: string]: unknown; name: string; kind: "function" | "type" | "json" | "variable" | "class" | "constructor" | "component" | "css"; doc_comment?: string | undefined; ... 18 more ...; alias_of?: { ...; } | undefined; }[] | undefined; module_comment?: string | un...',
+									'{ [x: string]: unknown; path: string; declarations?: { [x: string]: unknown; name: string; kind: "function" | "json" | "type" | "variable" | "class" | "constructor" | "component" | "css"; doc_comment?: string | undefined; ... 18 more ...; alias_of?: { ...; } | undefined; }[] | undefined; module_comment?: string | un...',
 								parameters: [
 									{
 										name: 'modules',
-										type: '{ [x: string]: unknown; path: string; declarations?: { [x: string]: unknown; name: string; kind: "function" | "type" | "json" | "variable" | "class" | "constructor" | "component" | "css"; doc_comment?: string | undefined; ... 18 more ...; alias_of?: { ...; } | undefined; }[] | undefined; module_comment?: string | un...',
+										type: '{ [x: string]: unknown; path: string; declarations?: { [x: string]: unknown; name: string; kind: "function" | "json" | "type" | "variable" | "class" | "constructor" | "component" | "css"; doc_comment?: string | undefined; ... 18 more ...; alias_of?: { ...; } | undefined; }[] | undefined; module_comment?: string | un...',
 									},
 								],
 							},
 							{
-								name: 'library_gen_generate_ts',
+								name: 'LibraryGenOutput',
+								kind: 'type',
+								doc_comment:
+									'Result of generating library files.\nContains both the JSON data and the TypeScript wrapper file.',
+								source_line: 108,
+								type_signature: 'LibraryGenOutput',
+								properties: [
+									{
+										name: 'json_content',
+										kind: 'variable',
+										type_signature: 'string',
+										doc_comment: 'JSON content for library.json',
+									},
+									{
+										name: 'ts_content',
+										kind: 'variable',
+										type_signature: 'string',
+										doc_comment: 'TypeScript wrapper content for library.ts',
+									},
+								],
+							},
+							{
+								name: 'library_gen_generate_json',
 								kind: 'function',
 								doc_comment:
-									'Generate the library.ts file content with library_json export.\nParses at generation time so runtime only needs the pre-computed result.',
-								source_line: 108,
+									"Generate the library.json and library.ts file contents.\nParses at generation time so runtime only needs the pre-computed result.\n\nReturns JSON + .ts wrapper because:\n- JSON is natively importable by Node.js and Vite without TypeScript loaders\n- Works in CI environments that don't have TS compilation\n- The .ts wrapper validates with zod and exports with proper types\n  (JSON imports get widened types like `string` instead of literal unions)",
+								source_line: 125,
 								type_signature:
-									'(package_json: { [x: string]: unknown; name: string; version: string; private?: boolean | undefined; public?: boolean | undefined; description?: string | undefined; motto?: string | undefined; glyph?: string | undefined; ... 24 more ...; exports?: string | ... 2 more ... | undefined; }, source_json: { ...; }): string',
-								return_type: 'string',
+									'(package_json: { [x: string]: unknown; name: string; version: string; private?: boolean | undefined; description?: string | undefined; motto?: string | undefined; glyph?: string | undefined; logo?: string | undefined; ... 23 more ...; exports?: string | ... 2 more ... | undefined; }, source_json: { ...; }): LibraryGenOutput',
+								return_type: 'LibraryGenOutput',
 								parameters: [
 									{
 										name: 'package_json',
-										type: '{ [x: string]: unknown; name: string; version: string; private?: boolean | undefined; public?: boolean | undefined; description?: string | undefined; motto?: string | undefined; glyph?: string | undefined; ... 24 more ...; exports?: string | ... 2 more ... | undefined; }',
+										type: '{ [x: string]: unknown; name: string; version: string; private?: boolean | undefined; description?: string | undefined; motto?: string | undefined; glyph?: string | undefined; logo?: string | undefined; ... 23 more ...; exports?: string | ... 2 more ... | undefined; }',
 									},
 									{
 										name: 'source_json',
-										type: '{ [x: string]: unknown; name: string; version: string; modules?: { [x: string]: unknown; path: string; declarations?: { [x: string]: unknown; name: string; kind: "function" | "type" | "json" | "variable" | "class" | "constructor" | "component" | "css"; ... 19 more ...; alias_of?: { ...; } | undefined; }[] | undefine...',
+										type: '{ [x: string]: unknown; name: string; version: string; modules?: { [x: string]: unknown; path: string; declarations?: { [x: string]: unknown; name: string; kind: "function" | "json" | "type" | "variable" | "class" | "constructor" | "component" | "css"; ... 19 more ...; alias_of?: { ...; } | undefined; }[] | undefine...',
 									},
 								],
 							},
@@ -6865,7 +6848,7 @@ export const repos_json: Array<RepoJson> = [
 								kind: 'function',
 								doc_comment:
 									'Collect and filter source files from filer.\n\nReturns disknodes for TypeScript/JS files and Svelte components from src/lib, excluding test files.\nReturns an empty array with a warning if no source files are found.',
-								source_line: 136,
+								source_line: 159,
 								type_signature: '(files: Map<PathId, Disknode>, log: Logger): Disknode[]',
 								return_type: 'Disknode[]',
 								parameters: [
@@ -6884,11 +6867,11 @@ export const repos_json: Array<RepoJson> = [
 								kind: 'function',
 								doc_comment:
 									'Analyze a Svelte component file and extract metadata.\n\nUses `svelte_analyze_file` for core analysis, then adds\nGro-specific dependency information from the disknode.',
-								source_line: 171,
+								source_line: 194,
 								type_signature:
 									'(disknode: Disknode, module_path: string, checker: TypeChecker): { [x: string]: unknown; path: string; declarations?: { [x: string]: unknown; name: string; kind: "function" | ... 6 more ... | "css"; ... 19 more ...; alias_of?: { ...; } | undefined; }[] | undefined; module_comment?: string | undefined; dependencies?: string[] | undefined; dependents?: string[] | undefined; }',
 								return_type:
-									'{ [x: string]: unknown; path: string; declarations?: { [x: string]: unknown; name: string; kind: "function" | "type" | "json" | "variable" | "class" | "constructor" | "component" | "css"; doc_comment?: string | undefined; ... 18 more ...; alias_of?: { ...; } | undefined; }[] | undefined; module_comment?: string | un...',
+									'{ [x: string]: unknown; path: string; declarations?: { [x: string]: unknown; name: string; kind: "function" | "json" | "type" | "variable" | "class" | "constructor" | "component" | "css"; doc_comment?: string | undefined; ... 18 more ...; alias_of?: { ...; } | undefined; }[] | undefined; module_comment?: string | un...',
 								parameters: [
 									{
 										name: 'disknode',
@@ -6909,7 +6892,7 @@ export const repos_json: Array<RepoJson> = [
 								kind: 'function',
 								doc_comment:
 									'Analyze a TypeScript file and extract all declarations.\n\nUses `ts_analyze_module_exports` for core analysis, then adds\nGro-specific dependency information from the disknode.\n\nReturns both the module metadata and re-export information for post-processing.',
-								source_line: 198,
+								source_line: 221,
 								type_signature:
 									'(disknode: Disknode, source_file: SourceFile, module_path: string, checker: TypeChecker): TsFileAnalysis',
 								return_type: 'TsFileAnalysis',
@@ -6937,7 +6920,7 @@ export const repos_json: Array<RepoJson> = [
 								kind: 'function',
 								doc_comment:
 									"Extract dependencies and dependents for a module from the filer's dependency graph.\n\nFilters to only include source modules from src/lib (excludes external packages, node_modules, tests).\nReturns sorted arrays of module paths (relative to src/lib) for deterministic output.",
-								source_line: 237,
+								source_line: 260,
 								type_signature:
 									'(disknode: Disknode): { dependencies: string[]; dependents: string[]; }',
 								return_type: '{ dependencies: string[]; dependents: string[]; }',
@@ -6958,33 +6941,14 @@ export const repos_json: Array<RepoJson> = [
 						path: 'library_gen.ts',
 						declarations: [
 							{
-								name: 'LibraryGenOptions',
-								kind: 'type',
-								source_line: 36,
-								type_signature: 'LibraryGenOptions',
-								properties: [
-									{
-										name: 'filename',
-										kind: 'variable',
-										type_signature: 'string',
-									},
-								],
-							},
-							{
 								name: 'library_gen',
 								kind: 'function',
 								doc_comment:
-									"Creates a Gen object for generating library metadata with full TypeScript analysis.\n\nUsage in a `.gen.ts` file:\n```ts\nimport {library_gen} from '@fuzdev/fuz_ui/library_gen.js';\nexport const gen = library_gen();\n```",
-								source_line: 49,
-								type_signature: '(options?: LibraryGenOptions | undefined): Gen',
+									"Creates a Gen object for generating library metadata with full TypeScript analysis.\n\nUsage in a `.gen.ts` file:\n\n```ts\nimport {library_gen} from '@fuzdev/fuz_ui/library_gen.js';\n\nexport const gen = library_gen();\n```",
+								source_line: 47,
+								type_signature: '(): Gen',
 								return_type: 'Gen',
-								parameters: [
-									{
-										name: 'options',
-										type: 'LibraryGenOptions | undefined',
-										optional: true,
-									},
-								],
+								parameters: [],
 							},
 						],
 						module_comment:
@@ -7116,12 +7080,12 @@ export const repos_json: Array<RepoJson> = [
 								doc_comment: 'Check if a package is published to npm.',
 								source_line: 59,
 								type_signature:
-									'(package_json: { [x: string]: unknown; name: string; version: string; private?: boolean | undefined; public?: boolean | undefined; description?: string | undefined; motto?: string | undefined; glyph?: string | undefined; ... 24 more ...; exports?: string | ... 2 more ... | undefined; }): boolean',
+									'(package_json: { [x: string]: unknown; name: string; version: string; private?: boolean | undefined; description?: string | undefined; motto?: string | undefined; glyph?: string | undefined; logo?: string | undefined; ... 23 more ...; exports?: string | ... 2 more ... | undefined; }): boolean',
 								return_type: 'boolean',
 								parameters: [
 									{
 										name: 'package_json',
-										type: '{ [x: string]: unknown; name: string; version: string; private?: boolean | undefined; public?: boolean | undefined; description?: string | undefined; motto?: string | undefined; glyph?: string | undefined; ... 24 more ...; exports?: string | ... 2 more ... | undefined; }',
+										type: '{ [x: string]: unknown; name: string; version: string; private?: boolean | undefined; description?: string | undefined; motto?: string | undefined; glyph?: string | undefined; logo?: string | undefined; ... 23 more ...; exports?: string | ... 2 more ... | undefined; }',
 									},
 								],
 							},
@@ -7508,111 +7472,75 @@ export const repos_json: Array<RepoJson> = [
 						path: 'logos.ts',
 						declarations: [
 							{
-								name: 'logo_zzz',
+								name: 'logo_gro',
 								kind: 'variable',
 								source_line: 22,
 								type_signature: 'SvgData',
 							},
 							{
-								name: 'logo_gro',
+								name: 'logo_fuz',
 								kind: 'variable',
-								source_line: 38,
+								source_line: 56,
 								type_signature: 'SvgData',
 							},
 							{
-								name: 'logo_fuz',
+								name: 'logo_fuz_ui',
 								kind: 'variable',
-								source_line: 72,
+								source_line: 66,
 								type_signature: 'SvgData',
 							},
 							{
 								name: 'logo_fuz_css',
 								kind: 'variable',
-								source_line: 82,
-								type_signature: 'SvgData',
-							},
-							{
-								name: 'logo_fuz_util',
-								kind: 'variable',
-								source_line: 89,
+								source_line: 72,
 								type_signature: 'SvgData',
 							},
 							{
 								name: 'logo_fuz_code',
 								kind: 'variable',
-								source_line: 115,
+								source_line: 79,
 								type_signature: 'SvgData',
 							},
 							{
 								name: 'logo_fuz_blog',
 								kind: 'variable',
-								source_line: 121,
+								source_line: 85,
 								type_signature: 'SvgData',
 							},
 							{
 								name: 'logo_fuz_mastodon',
 								kind: 'variable',
-								source_line: 127,
+								source_line: 91,
 								type_signature: 'SvgData',
 							},
 							{
 								name: 'logo_fuz_gitops',
 								kind: 'variable',
-								source_line: 133,
+								source_line: 97,
 								type_signature: 'SvgData',
 							},
 							{
 								name: 'logo_fuz_template',
 								kind: 'variable',
-								source_line: 139,
+								source_line: 103,
 								type_signature: 'SvgData',
 							},
 							{
-								name: 'logo_webdevladder',
+								name: 'logo_fuz_util',
 								kind: 'variable',
-								source_line: 149,
-								type_signature: 'SvgData',
-							},
-							{
-								name: 'logo_earbetter',
-								kind: 'variable',
-								source_line: 165,
-								type_signature: 'SvgData',
-							},
-							{
-								name: 'logo_spiderspace',
-								kind: 'variable',
-								source_line: 175,
+								source_line: 113,
 								type_signature: 'SvgData',
 							},
 							{
 								name: 'logo_github',
 								kind: 'variable',
-								source_line: 237,
+								source_line: 139,
 								type_signature: 'SvgData',
 							},
 							{
 								name: 'logo_mdn',
 								kind: 'variable',
-								source_line: 250,
-								type_signature: 'SvgData',
-							},
-							{
-								name: 'logo_chatgpt',
-								kind: 'variable',
-								source_line: 260,
-								type_signature: 'SvgData',
-							},
-							{
-								name: 'logo_claude',
-								kind: 'variable',
-								source_line: 269,
-								type_signature: 'SvgData',
-							},
-							{
-								name: 'logo_gemini',
-								kind: 'variable',
-								source_line: 279,
+								source_line: 152,
 								type_signature: 'SvgData',
 							},
 						],
@@ -8341,7 +8269,7 @@ export const repos_json: Array<RepoJson> = [
 										name: 'constructor',
 										kind: 'constructor',
 										type_signature:
-											'(library: Library, module_json: { [x: string]: unknown; path: string; declarations?: { [x: string]: unknown; name: string; kind: "function" | "type" | "json" | "variable" | "class" | "constructor" | "component" | "css"; ... 19 more ...; alias_of?: { ...; } | undefined; }[] | undefined; module_comment?: string | undefined; dependencies?: string[] | undefined; dependents?: string[] | undefined; }): Module',
+											'(library: Library, module_json: { [x: string]: unknown; path: string; declarations?: { [x: string]: unknown; name: string; kind: "function" | "json" | "type" | "variable" | "class" | "constructor" | "component" | "css"; ... 19 more ...; alias_of?: { ...; } | undefined; }[] | undefined; module_comment?: string | undefined; dependencies?: string[] | undefined; dependents?: string[] | undefined; }): Module',
 										parameters: [
 											{
 												name: 'library',
@@ -8349,7 +8277,7 @@ export const repos_json: Array<RepoJson> = [
 											},
 											{
 												name: 'module_json',
-												type: '{ [x: string]: unknown; path: string; declarations?: { [x: string]: unknown; name: string; kind: "function" | "type" | "json" | "variable" | "class" | "constructor" | "component" | "css"; doc_comment?: string | undefined; ... 18 more ...; alias_of?: { ...; } | undefined; }[] | undefined; module_comment?: string | un...',
+												type: '{ [x: string]: unknown; path: string; declarations?: { [x: string]: unknown; name: string; kind: "function" | "json" | "type" | "variable" | "class" | "constructor" | "component" | "css"; doc_comment?: string | undefined; ... 18 more ...; alias_of?: { ...; } | undefined; }[] | undefined; module_comment?: string | un...',
 											},
 										],
 									},
@@ -8671,9 +8599,9 @@ export const repos_json: Array<RepoJson> = [
 								doc_comment: 'Analyze a Svelte component from its svelte2tsx transformation.',
 								source_line: 27,
 								type_signature:
-									'(ts_code: string, source_file: SourceFile, checker: TypeChecker, component_name: string): { [x: string]: unknown; name: string; kind: "function" | "type" | "json" | ... 4 more ... | "css"; ... 19 more ...; alias_of?: { ...; } | undefined; }',
+									'(ts_code: string, source_file: SourceFile, checker: TypeChecker, component_name: string): { [x: string]: unknown; name: string; kind: "function" | "json" | "type" | ... 4 more ... | "css"; ... 19 more ...; alias_of?: { ...; } | undefined; }',
 								return_type:
-									'{ [x: string]: unknown; name: string; kind: "function" | "type" | "json" | "variable" | "class" | "constructor" | "component" | "css"; doc_comment?: string | undefined; type_signature?: string | undefined; ... 17 more ...; alias_of?: { ...; } | undefined; }',
+									'{ [x: string]: unknown; name: string; kind: "function" | "json" | "type" | "variable" | "class" | "constructor" | "component" | "css"; doc_comment?: string | undefined; type_signature?: string | undefined; ... 17 more ...; alias_of?: { ...; } | undefined; }',
 								parameters: [
 									{
 										name: 'ts_code',
@@ -8700,9 +8628,9 @@ export const repos_json: Array<RepoJson> = [
 									'Analyze a Svelte component file from disk.\n\nThis is a high-level function that handles the complete workflow:\n1. Read the Svelte source from disk\n2. Transform to TypeScript via svelte2tsx\n3. Extract component metadata (props, documentation)\n\nSuitable for use in documentation generators, build tools, and analysis.',
 								source_line: 278,
 								type_signature:
-									'(file_path: string, module_path: string, checker: TypeChecker): { [x: string]: unknown; name: string; kind: "function" | "type" | "json" | "variable" | "class" | "constructor" | "component" | "css"; ... 19 more ...; alias_of?: { ...; } | undefined; }',
+									'(file_path: string, module_path: string, checker: TypeChecker): { [x: string]: unknown; name: string; kind: "function" | "json" | "type" | "variable" | "class" | "constructor" | "component" | "css"; ... 19 more ...; alias_of?: { ...; } | undefined; }',
 								return_type:
-									'{ [x: string]: unknown; name: string; kind: "function" | "type" | "json" | "variable" | "class" | "constructor" | "component" | "css"; doc_comment?: string | undefined; type_signature?: string | undefined; ... 17 more ...; alias_of?: { ...; } | undefined; }',
+									'{ [x: string]: unknown; name: string; kind: "function" | "json" | "type" | "variable" | "class" | "constructor" | "component" | "css"; doc_comment?: string | undefined; type_signature?: string | undefined; ... 17 more ...; alias_of?: { ...; } | undefined; }',
 								return_description: 'Complete declaration metadata for the component',
 								parameters: [
 									{
@@ -8779,11 +8707,6 @@ export const repos_json: Array<RepoJson> = [
 									{
 										name: 'shrink',
 										type: 'boolean',
-										optional: true,
-									},
-									{
-										name: 'attrs',
-										type: "SvelteHTMLElements['svg']",
 										optional: true,
 									},
 								],
@@ -8928,50 +8851,9 @@ export const repos_json: Array<RepoJson> = [
 						path: 'themer.svelte.ts',
 						declarations: [
 							{
-								name: 'Themer',
-								kind: 'class',
-								source_line: 8,
-								members: [
-									{
-										name: 'theme',
-										kind: 'variable',
-										type_signature: 'Theme',
-									},
-									{
-										name: 'color_scheme',
-										kind: 'variable',
-										type_signature: 'ColorScheme',
-									},
-									{
-										name: 'constructor',
-										kind: 'constructor',
-										type_signature: '(theme?: Theme, color_scheme?: ColorScheme): Themer',
-										parameters: [
-											{
-												name: 'theme',
-												type: 'Theme',
-												default_value: 'default_themes[0]!',
-											},
-											{
-												name: 'color_scheme',
-												type: 'ColorScheme',
-												default_value: "'auto'",
-											},
-										],
-									},
-									{
-										name: 'toJSON',
-										kind: 'function',
-										type_signature: '(): ThemerJson',
-										return_type: 'ThemerJson',
-										parameters: [],
-									},
-								],
-							},
-							{
 								name: 'ThemerJson',
 								kind: 'type',
-								source_line: 28,
+								source_line: 8,
 								type_signature: 'ThemerJson',
 								properties: [
 									{
@@ -8987,16 +8869,58 @@ export const repos_json: Array<RepoJson> = [
 								],
 							},
 							{
+								name: 'ThemerOptions',
+								kind: 'type',
+								source_line: 13,
+								type_signature: 'Partial<ThemerJson>',
+							},
+							{
+								name: 'Themer',
+								kind: 'class',
+								source_line: 15,
+								members: [
+									{
+										name: 'theme',
+										kind: 'variable',
+										type_signature: 'Theme',
+									},
+									{
+										name: 'color_scheme',
+										kind: 'variable',
+										type_signature: 'ColorScheme',
+									},
+									{
+										name: 'constructor',
+										kind: 'constructor',
+										type_signature: '(options?: Partial<ThemerJson> | undefined): Themer',
+										parameters: [
+											{
+												name: 'options',
+												type: 'Partial<ThemerJson> | undefined',
+												optional: true,
+											},
+										],
+									},
+									{
+										name: 'toJSON',
+										kind: 'function',
+										type_signature: '(): ThemerJson',
+										return_type: 'ThemerJson',
+										parameters: [],
+									},
+								],
+							},
+							{
 								name: 'themer_context',
 								kind: 'variable',
-								source_line: 33,
+								source_line: 36,
 								type_signature:
 									'{ get: (error_message?: string | undefined) => Themer; get_maybe: () => Themer | undefined; set: (value: Themer) => Themer; }',
 							},
 							{
 								name: 'sync_color_scheme',
 								kind: 'function',
-								source_line: 35,
+								source_line: 38,
 								type_signature: '(color_scheme: ColorScheme | null): void',
 								return_type: 'void',
 								parameters: [
@@ -9009,19 +8933,19 @@ export const repos_json: Array<RepoJson> = [
 							{
 								name: 'COLOR_SCHEME_STORAGE_KEY',
 								kind: 'variable',
-								source_line: 44,
+								source_line: 47,
 								type_signature: '"fuz:color-scheme"',
 							},
 							{
 								name: 'THEME_STORAGE_KEY',
 								kind: 'variable',
-								source_line: 45,
+								source_line: 48,
 								type_signature: '"fuz:theme"',
 							},
 							{
 								name: 'save_color_scheme',
 								kind: 'function',
-								source_line: 47,
+								source_line: 50,
 								type_signature: '(color_scheme: ColorScheme | null, key?: string): void',
 								return_type: 'void',
 								parameters: [
@@ -9039,7 +8963,7 @@ export const repos_json: Array<RepoJson> = [
 							{
 								name: 'load_color_scheme',
 								kind: 'function',
-								source_line: 54,
+								source_line: 57,
 								type_signature: '(fallback?: ColorScheme, key?: string): ColorScheme',
 								return_type: 'ColorScheme',
 								parameters: [
@@ -9058,7 +8982,7 @@ export const repos_json: Array<RepoJson> = [
 							{
 								name: 'save_theme',
 								kind: 'function',
-								source_line: 59,
+								source_line: 62,
 								type_signature: '(theme: Theme | null, key?: string): void',
 								return_type: 'void',
 								parameters: [
@@ -9076,7 +9000,7 @@ export const repos_json: Array<RepoJson> = [
 							{
 								name: 'load_theme',
 								kind: 'function',
-								source_line: 63,
+								source_line: 66,
 								type_signature: '(fallback?: Theme, key?: string): Theme',
 								return_type: 'Theme',
 								parameters: [
@@ -9310,9 +9234,9 @@ export const repos_json: Array<RepoJson> = [
 								doc_comment: 'Infer declaration kind from symbol and node.',
 								source_line: 59,
 								type_signature:
-									'(symbol: Symbol, node: Node): "function" | "type" | "json" | "variable" | "class" | "constructor" | "component" | "css"',
+									'(symbol: Symbol, node: Node): "function" | "json" | "type" | "variable" | "class" | "constructor" | "component" | "css"',
 								return_type:
-									'"function" | "type" | "json" | "variable" | "class" | "constructor" | "component" | "css"',
+									'"function" | "json" | "type" | "variable" | "class" | "constructor" | "component" | "css"',
 								parameters: [
 									{
 										name: 'symbol',
@@ -9331,7 +9255,7 @@ export const repos_json: Array<RepoJson> = [
 									'Extract function/method information including parameters\nwith descriptions and default values.',
 								source_line: 89,
 								type_signature:
-									'(node: Node, symbol: Symbol, checker: TypeChecker, declaration: { [x: string]: unknown; name: string; kind: "function" | "type" | "json" | "variable" | "class" | "constructor" | "component" | "css"; ... 19 more ...; alias_of?: { ...; } | undefined; }, tsdoc: TsdocParsedComment | undefined): void',
+									'(node: Node, symbol: Symbol, checker: TypeChecker, declaration: { [x: string]: unknown; name: string; kind: "function" | "json" | "type" | "variable" | "class" | "constructor" | "component" | "css"; ... 19 more ...; alias_of?: { ...; } | undefined; }, tsdoc: TsdocParsedComment | undefined): void',
 								return_type: 'void',
 								parameters: [
 									{
@@ -9348,7 +9272,7 @@ export const repos_json: Array<RepoJson> = [
 									},
 									{
 										name: 'declaration',
-										type: '{ [x: string]: unknown; name: string; kind: "function" | "type" | "json" | "variable" | "class" | "constructor" | "component" | "css"; doc_comment?: string | undefined; type_signature?: string | undefined; ... 17 more ...; alias_of?: { ...; } | undefined; }',
+										type: '{ [x: string]: unknown; name: string; kind: "function" | "json" | "type" | "variable" | "class" | "constructor" | "component" | "css"; doc_comment?: string | undefined; type_signature?: string | undefined; ... 17 more ...; alias_of?: { ...; } | undefined; }',
 									},
 									{
 										name: 'tsdoc',
@@ -9362,7 +9286,7 @@ export const repos_json: Array<RepoJson> = [
 								doc_comment: 'Extract type/interface information with rich property metadata.',
 								source_line: 162,
 								type_signature:
-									'(node: Node, _symbol: Symbol, checker: TypeChecker, declaration: { [x: string]: unknown; name: string; kind: "function" | "type" | "json" | "variable" | "class" | "constructor" | "component" | "css"; ... 19 more ...; alias_of?: { ...; } | undefined; }): void',
+									'(node: Node, _symbol: Symbol, checker: TypeChecker, declaration: { [x: string]: unknown; name: string; kind: "function" | "json" | "type" | "variable" | "class" | "constructor" | "component" | "css"; ... 19 more ...; alias_of?: { ...; } | undefined; }): void',
 								return_type: 'void',
 								parameters: [
 									{
@@ -9379,7 +9303,7 @@ export const repos_json: Array<RepoJson> = [
 									},
 									{
 										name: 'declaration',
-										type: '{ [x: string]: unknown; name: string; kind: "function" | "type" | "json" | "variable" | "class" | "constructor" | "component" | "css"; doc_comment?: string | undefined; type_signature?: string | undefined; ... 17 more ...; alias_of?: { ...; } | undefined; }',
+										type: '{ [x: string]: unknown; name: string; kind: "function" | "json" | "type" | "variable" | "class" | "constructor" | "component" | "css"; doc_comment?: string | undefined; type_signature?: string | undefined; ... 17 more ...; alias_of?: { ...; } | undefined; }',
 									},
 								],
 							},
@@ -9389,7 +9313,7 @@ export const repos_json: Array<RepoJson> = [
 								doc_comment: 'Extract class information with rich member metadata.',
 								source_line: 226,
 								type_signature:
-									'(node: Node, _symbol: Symbol, checker: TypeChecker, declaration: { [x: string]: unknown; name: string; kind: "function" | "type" | "json" | "variable" | "class" | "constructor" | "component" | "css"; ... 19 more ...; alias_of?: { ...; } | undefined; }): void',
+									'(node: Node, _symbol: Symbol, checker: TypeChecker, declaration: { [x: string]: unknown; name: string; kind: "function" | "json" | "type" | "variable" | "class" | "constructor" | "component" | "css"; ... 19 more ...; alias_of?: { ...; } | undefined; }): void',
 								return_type: 'void',
 								parameters: [
 									{
@@ -9406,7 +9330,7 @@ export const repos_json: Array<RepoJson> = [
 									},
 									{
 										name: 'declaration',
-										type: '{ [x: string]: unknown; name: string; kind: "function" | "type" | "json" | "variable" | "class" | "constructor" | "component" | "css"; doc_comment?: string | undefined; type_signature?: string | undefined; ... 17 more ...; alias_of?: { ...; } | undefined; }',
+										type: '{ [x: string]: unknown; name: string; kind: "function" | "json" | "type" | "variable" | "class" | "constructor" | "component" | "css"; doc_comment?: string | undefined; type_signature?: string | undefined; ... 17 more ...; alias_of?: { ...; } | undefined; }',
 									},
 								],
 							},
@@ -9416,7 +9340,7 @@ export const repos_json: Array<RepoJson> = [
 								doc_comment: 'Extract variable information.',
 								source_line: 381,
 								type_signature:
-									'(node: Node, symbol: Symbol, checker: TypeChecker, declaration: { [x: string]: unknown; name: string; kind: "function" | "type" | "json" | "variable" | "class" | "constructor" | "component" | "css"; ... 19 more ...; alias_of?: { ...; } | undefined; }): void',
+									'(node: Node, symbol: Symbol, checker: TypeChecker, declaration: { [x: string]: unknown; name: string; kind: "function" | "json" | "type" | "variable" | "class" | "constructor" | "component" | "css"; ... 19 more ...; alias_of?: { ...; } | undefined; }): void',
 								return_type: 'void',
 								parameters: [
 									{
@@ -9433,7 +9357,7 @@ export const repos_json: Array<RepoJson> = [
 									},
 									{
 										name: 'declaration',
-										type: '{ [x: string]: unknown; name: string; kind: "function" | "type" | "json" | "variable" | "class" | "constructor" | "component" | "css"; doc_comment?: string | undefined; type_signature?: string | undefined; ... 17 more ...; alias_of?: { ...; } | undefined; }',
+										type: '{ [x: string]: unknown; name: string; kind: "function" | "json" | "type" | "variable" | "class" | "constructor" | "component" | "css"; doc_comment?: string | undefined; type_signature?: string | undefined; ... 17 more ...; alias_of?: { ...; } | undefined; }',
 									},
 								],
 							},
@@ -9699,12 +9623,12 @@ export const repos_json: Array<RepoJson> = [
 									'Apply parsed TSDoc metadata to a declaration.\n\nConsolidates the common pattern of assigning TSDoc fields to declarations,\nwith conditional assignment for array fields (only if non-empty).',
 								source_line: 237,
 								type_signature:
-									'(declaration: { [x: string]: unknown; name: string; kind: "function" | "type" | "json" | "variable" | "class" | "constructor" | "component" | "css"; doc_comment?: string | undefined; type_signature?: string | undefined; ... 17 more ...; alias_of?: { ...; } | undefined; }, tsdoc: TsdocParsedComment | undefined): void',
+									'(declaration: { [x: string]: unknown; name: string; kind: "function" | "json" | "type" | "variable" | "class" | "constructor" | "component" | "css"; doc_comment?: string | undefined; type_signature?: string | undefined; ... 17 more ...; alias_of?: { ...; } | undefined; }, tsdoc: TsdocParsedComment | undefined): void',
 								return_type: 'void',
 								parameters: [
 									{
 										name: 'declaration',
-										type: '{ [x: string]: unknown; name: string; kind: "function" | "type" | "json" | "variable" | "class" | "constructor" | "component" | "css"; doc_comment?: string | undefined; type_signature?: string | undefined; ... 17 more ...; alias_of?: { ...; } | undefined; }',
+										type: '{ [x: string]: unknown; name: string; kind: "function" | "json" | "type" | "variable" | "class" | "constructor" | "component" | "css"; doc_comment?: string | undefined; type_signature?: string | undefined; ... 17 more ...; alias_of?: { ...; } | undefined; }',
 										description: 'declaration object to update',
 									},
 									{
@@ -9737,18 +9661,46 @@ export const repos_json: Array<RepoJson> = [
 						dependencies: ['DeclarationLink.svelte', 'library.svelte.ts'],
 						dependents: ['DeclarationDetail.svelte'],
 					},
+					{
+						path: 'vite_plugin_library_well_known.ts',
+						declarations: [
+							{
+								name: 'VitePluginLibraryWellKnownOptions',
+								kind: 'type',
+								source_line: 7,
+								type_signature: 'VitePluginLibraryWellKnownOptions',
+								properties: [
+									{
+										name: 'library_path',
+										kind: 'variable',
+										type_signature: 'string',
+										doc_comment: 'Path to the library.json file (relative to vite.config.ts).',
+									},
+								],
+							},
+							{
+								name: 'vite_plugin_library_well_known',
+								kind: 'function',
+								doc_comment:
+									"Vite plugin that publishes `package.json` and `library.json` to `.well-known/`.\n\nRequires a generated library.json file (created by `library_gen` from `gro gen`).\nThe plugin reads this JSON file and publishes its metadata to `.well-known/` for\nboth dev and production builds.\n\nNote: This plugin respects SvelteKit's `base` path configuration, so `.well-known/`\nwill be served at `{base}.well-known/` (e.g., `/my-app/.well-known/`). This deviates\nfrom RFC 8615 which specifies `.well-known` should be at the domain root. This tradeoff\nallows the plugin to work correctly when apps are deployed to non-root paths.\n\nNote: CORS headers are only set for the dev server. For production, configure\nCORS at the server level (nginx, Caddy, etc.) if cross-origin access is needed.",
+								examples: [
+									"```ts\n// vite.config.ts\nimport {defineConfig} from 'vite';\nimport {sveltekit} from '@sveltejs/kit/vite';\nimport {vite_plugin_library_well_known} from '@fuzdev/fuz_ui/vite_plugin_library_well_known.js';\n\nexport default defineConfig({\n  plugins: [sveltekit(), vite_plugin_library_well_known()],\n});\n```",
+								],
+								source_line: 54,
+								type_signature: '(options?: VitePluginLibraryWellKnownOptions): Plugin<any>',
+								return_type: 'Plugin<any>',
+								parameters: [
+									{
+										name: 'options',
+										type: 'VitePluginLibraryWellKnownOptions',
+										default_value: '{}',
+									},
+								],
+							},
+						],
+					},
 				],
 			},
-			name: '@fuzdev/fuz_ui',
-			repo_name: 'fuz_ui',
-			repo_url: 'https://github.com/fuzdev/fuz_ui',
-			owner_name: 'fuzdev',
-			homepage_url: 'https://ui.fuz.dev/',
-			logo_url: 'https://ui.fuz.dev/logo.svg',
-			logo_alt: 'a friendly brown spider facing you',
-			npm_url: 'https://www.npmjs.com/package/@fuzdev/fuz_ui',
-			changelog_url: 'https://github.com/fuzdev/fuz_ui/blob/main/CHANGELOG.md',
-			published: true,
 		},
 		check_runs: {
 			status: 'in_progress',
@@ -9769,13 +9721,12 @@ export const repos_json: Array<RepoJson> = [
 		library_json: {
 			package_json: {
 				name: '@ryanatkn/gro',
-				version: '0.181.0',
+				version: '0.184.0',
 				description: 'task runner and toolkit extending SvelteKit',
 				motto: 'generate, run, optimize',
 				glyph: '🌰',
 				logo: 'logo.svg',
 				logo_alt: 'a pixelated green oak acorn with a glint of sun',
-				public: true,
 				license: 'MIT',
 				homepage: 'https://gro.ryanatkn.com/',
 				author: {
@@ -9853,9 +9804,9 @@ export const repos_json: Array<RepoJson> = [
 					'@changesets/changelog-git': '^0.2.1',
 					'@changesets/types': '^6.1.0',
 					'@fuzdev/fuz_code': '^0.38.0',
-					'@fuzdev/fuz_css': '^0.42.0',
-					'@fuzdev/fuz_ui': '^0.171.0',
-					'@fuzdev/fuz_util': '^0.42.0',
+					'@fuzdev/fuz_css': '^0.42.1',
+					'@fuzdev/fuz_ui': '^0.174.0',
+					'@fuzdev/fuz_util': '^0.45.0',
 					'@ryanatkn/eslint-config': '^0.9.0',
 					'@sveltejs/adapter-static': '^3.0.10',
 					'@sveltejs/kit': '^2.49.1',
@@ -9906,7 +9857,7 @@ export const repos_json: Array<RepoJson> = [
 			},
 			source_json: {
 				name: '@ryanatkn/gro',
-				version: '0.181.0',
+				version: '0.184.0',
 				modules: [
 					{
 						path: 'args.ts',
@@ -12766,7 +12717,7 @@ export const repos_json: Array<RepoJson> = [
 							},
 						],
 						dependencies: ['constants.ts', 'gro.config.default.ts', 'hash.ts', 'paths.ts'],
-						dependents: ['gro_plugin_sveltekit_app.ts', 'invoke.ts'],
+						dependents: ['invoke.ts'],
 					},
 					{
 						path: 'gro_helpers.ts',
@@ -13050,37 +13001,9 @@ export const repos_json: Array<RepoJson> = [
 							{
 								name: 'GroPluginSveltekitAppOptions',
 								kind: 'type',
-								source_line: 16,
+								source_line: 9,
 								type_signature: 'GroPluginSveltekitAppOptions',
 								properties: [
-									{
-										name: 'host_target',
-										kind: 'variable',
-										type_signature: 'HostTarget',
-										doc_comment:
-											'Used for finalizing a SvelteKit build like adding a `.nojekyll` file for GitHub Pages.',
-									},
-									{
-										name: 'well_known_package_json',
-										kind: 'variable',
-										type_signature: 'boolean | PackageJsonMapper',
-										doc_comment:
-											'If truthy, adds `/.well-known/package.json` to the static output.\nIf a function, maps the value.',
-									},
-									{
-										name: 'well_known_source_json',
-										kind: 'variable',
-										type_signature: 'boolean | SourceJsonMapper',
-										doc_comment:
-											'If truthy, adds `/.well-known/source.json` and `/.well-known/src/` to the static output.\nIf a function, maps the value.',
-									},
-									{
-										name: 'well_known_src_files',
-										kind: 'variable',
-										type_signature: 'boolean | CopyFileFilter',
-										doc_comment:
-											'If truthy, copies `src/` to `/.well-known/src/` to the static output.\nPass a function to customize which files get copied.',
-									},
 									{
 										name: 'vite_cli',
 										kind: 'variable',
@@ -13090,23 +13013,11 @@ export const repos_json: Array<RepoJson> = [
 								],
 							},
 							{
-								name: 'HostTarget',
-								kind: 'type',
-								source_line: 46,
-								type_signature: 'HostTarget',
-							},
-							{
-								name: 'CopyFileFilter',
-								kind: 'type',
-								source_line: 48,
-								type_signature: 'CopyFileFilter',
-							},
-							{
 								name: 'gro_plugin_sveltekit_app',
 								kind: 'function',
-								source_line: 50,
+								source_line: 16,
 								type_signature:
-									'({ host_target, well_known_package_json, well_known_source_json, well_known_src_files, vite_cli, }?: GroPluginSveltekitAppOptions): Plugin<PluginContext<object>>',
+									'({ vite_cli, }?: GroPluginSveltekitAppOptions): Plugin<PluginContext<object>>',
 								return_type: 'Plugin<PluginContext<object>>',
 								parameters: [
 									{
@@ -13117,16 +13028,7 @@ export const repos_json: Array<RepoJson> = [
 								],
 							},
 						],
-						dependencies: [
-							'args.ts',
-							'cli.ts',
-							'constants.ts',
-							'gro_config.ts',
-							'package_json.ts',
-							'source_json.ts',
-							'svelte_config.ts',
-							'task.ts',
-						],
+						dependencies: ['args.ts', 'cli.ts', 'constants.ts', 'task.ts'],
 						dependents: ['gro.config.default.ts'],
 					},
 					{
@@ -13178,7 +13080,7 @@ export const repos_json: Array<RepoJson> = [
 							{
 								name: 'default',
 								kind: 'variable',
-								source_line: 44,
+								source_line: 42,
 								type_signature: 'CreateGroConfig',
 							},
 						],
@@ -13749,16 +13651,16 @@ export const repos_json: Array<RepoJson> = [
 								kind: 'variable',
 								source_line: 27,
 								type_signature:
-									'{ [x: string]: unknown; name: string; version: string; private?: boolean | undefined; public?: boolean | undefined; description?: string | undefined; motto?: string | undefined; glyph?: string | undefined; ... 24 more ...; exports?: string | ... 2 more ... | undefined; }',
+									'{ [x: string]: unknown; name: string; version: string; private?: boolean | undefined; description?: string | undefined; motto?: string | undefined; glyph?: string | undefined; logo?: string | undefined; ... 23 more ...; exports?: string | ... 2 more ... | undefined; }',
 							},
 							{
 								name: 'package_json_load',
 								kind: 'function',
 								source_line: 29,
 								type_signature:
-									'(dir?: string, cache?: Record<string, { [x: string]: unknown; name: string; version: string; private?: boolean | undefined; public?: boolean | undefined; description?: string | undefined; motto?: string | undefined; ... 25 more ...; exports?: string | ... 2 more ... | undefined; }> | undefined, parse?: boolean, log?: Logger | undefined): Promise<...>',
+									'(dir?: string, cache?: Record<string, { [x: string]: unknown; name: string; version: string; private?: boolean | undefined; description?: string | undefined; motto?: string | undefined; glyph?: string | undefined; ... 24 more ...; exports?: string | ... 2 more ... | undefined; }> | undefined, parse?: boolean, log?: Logger | undefined): Promise<...>',
 								return_type:
-									'Promise<{ [x: string]: unknown; name: string; version: string; private?: boolean | undefined; public?: boolean | undefined; description?: string | undefined; motto?: string | undefined; glyph?: string | undefined; ... 24 more ...; exports?: string | ... 2 more ... | undefined; }>',
+									'Promise<{ [x: string]: unknown; name: string; version: string; private?: boolean | undefined; description?: string | undefined; motto?: string | undefined; glyph?: string | undefined; logo?: string | undefined; ... 23 more ...; exports?: string | ... 2 more ... | undefined; }>',
 								parameters: [
 									{
 										name: 'dir',
@@ -13767,7 +13669,7 @@ export const repos_json: Array<RepoJson> = [
 									},
 									{
 										name: 'cache',
-										type: 'Record<string, { [x: string]: unknown; name: string; version: string; private?: boolean | undefined; public?: boolean | undefined; description?: string | undefined; motto?: string | undefined; glyph?: string | undefined; ... 24 more ...; exports?: string | ... 2 more ... | undefined; }> | undefined',
+										type: 'Record<string, { [x: string]: unknown; name: string; version: string; private?: boolean | undefined; description?: string | undefined; motto?: string | undefined; glyph?: string | undefined; logo?: string | undefined; ... 23 more ...; exports?: string | ... 2 more ... | undefined; }> | undefined',
 										optional: true,
 									},
 									{
@@ -13787,9 +13689,9 @@ export const repos_json: Array<RepoJson> = [
 								kind: 'function',
 								source_line: 54,
 								type_signature:
-									'(map_package_json: PackageJsonMapper, log: Logger, write?: boolean, dir?: string, exports_dir?: string): Promise<{ package_json: { [x: string]: unknown; name: string; version: string; ... 29 more ...; exports?: string | ... 2 more ... | undefined; } | null; changed: boolean; }>',
+									'(map_package_json: PackageJsonMapper, log: Logger, write?: boolean, dir?: string, exports_dir?: string): Promise<{ package_json: { [x: string]: unknown; name: string; version: string; ... 28 more ...; exports?: string | ... 2 more ... | undefined; } | null; changed: boolean; }>',
 								return_type:
-									'Promise<{ package_json: { [x: string]: unknown; name: string; version: string; private?: boolean | undefined; public?: boolean | undefined; description?: string | undefined; motto?: string | undefined; ... 25 more ...; exports?: string | ... 2 more ... | undefined; } | null; changed: boolean; }>',
+									'Promise<{ package_json: { [x: string]: unknown; name: string; version: string; private?: boolean | undefined; description?: string | undefined; motto?: string | undefined; glyph?: string | undefined; ... 24 more ...; exports?: string | ... 2 more ... | undefined; } | null; changed: boolean; }>',
 								parameters: [
 									{
 										name: 'map_package_json',
@@ -13821,15 +13723,15 @@ export const repos_json: Array<RepoJson> = [
 								kind: 'function',
 								source_line: 88,
 								type_signature:
-									'(): Promise<{ [x: string]: unknown; name: string; version: string; private?: boolean | undefined; public?: boolean | undefined; description?: string | undefined; motto?: string | undefined; glyph?: string | undefined; ... 24 more ...; exports?: string | ... 2 more ... | undefined; }>',
+									'(): Promise<{ [x: string]: unknown; name: string; version: string; private?: boolean | undefined; description?: string | undefined; motto?: string | undefined; glyph?: string | undefined; logo?: string | undefined; ... 23 more ...; exports?: string | ... 2 more ... | undefined; }>',
 								return_type:
-									'Promise<{ [x: string]: unknown; name: string; version: string; private?: boolean | undefined; public?: boolean | undefined; description?: string | undefined; motto?: string | undefined; glyph?: string | undefined; ... 24 more ...; exports?: string | ... 2 more ... | undefined; }>',
+									'Promise<{ [x: string]: unknown; name: string; version: string; private?: boolean | undefined; description?: string | undefined; motto?: string | undefined; glyph?: string | undefined; logo?: string | undefined; ... 23 more ...; exports?: string | ... 2 more ... | undefined; }>',
 								parameters: [],
 							},
 							{
 								name: 'package_json_write',
 								kind: 'function',
-								source_line: 94,
+								source_line: 95,
 								type_signature: '(serialized_package_json: string): Promise<void>',
 								return_type: 'Promise<void>',
 								parameters: [
@@ -13842,14 +13744,14 @@ export const repos_json: Array<RepoJson> = [
 							{
 								name: 'package_json_serialize',
 								kind: 'function',
-								source_line: 97,
+								source_line: 98,
 								type_signature:
-									'(package_json: { [x: string]: unknown; name: string; version: string; private?: boolean | undefined; public?: boolean | undefined; description?: string | undefined; motto?: string | undefined; glyph?: string | undefined; ... 24 more ...; exports?: string | ... 2 more ... | undefined; }): string',
+									'(package_json: { [x: string]: unknown; name: string; version: string; private?: boolean | undefined; description?: string | undefined; motto?: string | undefined; glyph?: string | undefined; logo?: string | undefined; ... 23 more ...; exports?: string | ... 2 more ... | undefined; }): string',
 								return_type: 'string',
 								parameters: [
 									{
 										name: 'package_json',
-										type: '{ [x: string]: unknown; name: string; version: string; private?: boolean | undefined; public?: boolean | undefined; description?: string | undefined; motto?: string | undefined; glyph?: string | undefined; ... 24 more ...; exports?: string | ... 2 more ... | undefined; }',
+										type: '{ [x: string]: unknown; name: string; version: string; private?: boolean | undefined; description?: string | undefined; motto?: string | undefined; glyph?: string | undefined; logo?: string | undefined; ... 23 more ...; exports?: string | ... 2 more ... | undefined; }',
 									},
 								],
 							},
@@ -13858,15 +13760,15 @@ export const repos_json: Array<RepoJson> = [
 								kind: 'function',
 								doc_comment:
 									'Updates package.json. Writes to the filesystem only when contents change.',
-								source_line: 103,
+								source_line: 104,
 								type_signature:
-									'(update: (package_json: { [x: string]: unknown; name: string; version: string; private?: boolean | undefined; public?: boolean | undefined; description?: string | undefined; motto?: string | undefined; glyph?: string | undefined; ... 24 more ...; exports?: string | ... 2 more ... | undefined; }) => { ...; } | ... 1 more ... | null, dir?: string, write?: boolean): Promise<...>',
+									'(update: (package_json: { [x: string]: unknown; name: string; version: string; private?: boolean | undefined; description?: string | undefined; motto?: string | undefined; glyph?: string | undefined; logo?: string | undefined; ... 23 more ...; exports?: string | ... 2 more ... | undefined; }) => { ...; } | ... 1 more ... | null, dir?: string, write?: boolean): Promise<...>',
 								return_type:
-									'Promise<{ package_json: { [x: string]: unknown; name: string; version: string; private?: boolean | undefined; public?: boolean | undefined; description?: string | undefined; motto?: string | undefined; ... 25 more ...; exports?: string | ... 2 more ... | undefined; } | null; changed: boolean; }>',
+									'Promise<{ package_json: { [x: string]: unknown; name: string; version: string; private?: boolean | undefined; description?: string | undefined; motto?: string | undefined; glyph?: string | undefined; ... 24 more ...; exports?: string | ... 2 more ... | undefined; } | null; changed: boolean; }>',
 								parameters: [
 									{
 										name: 'update',
-										type: '(package_json: { [x: string]: unknown; name: string; version: string; private?: boolean | undefined; public?: boolean | undefined; description?: string | undefined; motto?: string | undefined; glyph?: string | undefined; ... 24 more ...; exports?: string | ... 2 more ... | undefined; }) => { ...; } | ... 1 more ... ...',
+										type: '(package_json: { [x: string]: unknown; name: string; version: string; private?: boolean | undefined; description?: string | undefined; motto?: string | undefined; glyph?: string | undefined; logo?: string | undefined; ... 23 more ...; exports?: string | ... 2 more ... | undefined; }) => { ...; } | ... 1 more ... | n...',
 									},
 									{
 										name: 'dir',
@@ -13883,7 +13785,7 @@ export const repos_json: Array<RepoJson> = [
 							{
 								name: 'package_json_to_exports',
 								kind: 'function',
-								source_line: 124,
+								source_line: 125,
 								type_signature: '(paths: string[]): string | Record<string, unknown> | null',
 								return_type: 'string | Record<string, unknown> | null',
 								parameters: [
@@ -13896,23 +13798,23 @@ export const repos_json: Array<RepoJson> = [
 							{
 								name: 'package_json_parse_repo_url',
 								kind: 'function',
-								source_line: 179,
+								source_line: 180,
 								type_signature:
-									'(package_json: { [x: string]: unknown; name: string; version: string; private?: boolean | undefined; public?: boolean | undefined; description?: string | undefined; motto?: string | undefined; glyph?: string | undefined; ... 24 more ...; exports?: string | ... 2 more ... | undefined; }): { ...; } | undefined',
+									'(package_json: { [x: string]: unknown; name: string; version: string; private?: boolean | undefined; description?: string | undefined; motto?: string | undefined; glyph?: string | undefined; logo?: string | undefined; ... 23 more ...; exports?: string | ... 2 more ... | undefined; }): { ...; } | undefined',
 								return_type: '{ owner: string; repo: string; } | undefined',
 								parameters: [
 									{
 										name: 'package_json',
-										type: '{ [x: string]: unknown; name: string; version: string; private?: boolean | undefined; public?: boolean | undefined; description?: string | undefined; motto?: string | undefined; glyph?: string | undefined; ... 24 more ...; exports?: string | ... 2 more ... | undefined; }',
+										type: '{ [x: string]: unknown; name: string; version: string; private?: boolean | undefined; description?: string | undefined; motto?: string | undefined; glyph?: string | undefined; logo?: string | undefined; ... 23 more ...; exports?: string | ... 2 more ... | undefined; }',
 									},
 								],
 							},
 							{
 								name: 'package_json_has_dependency',
 								kind: 'function',
-								source_line: 227,
+								source_line: 228,
 								type_signature:
-									'(dep_name: string, package_json: { [x: string]: unknown; name: string; version: string; private?: boolean | undefined; public?: boolean | undefined; description?: string | undefined; motto?: string | undefined; ... 25 more ...; exports?: string | ... 2 more ... | undefined; }): boolean',
+									'(dep_name: string, package_json: { [x: string]: unknown; name: string; version: string; private?: boolean | undefined; description?: string | undefined; motto?: string | undefined; glyph?: string | undefined; ... 24 more ...; exports?: string | ... 2 more ... | undefined; }): boolean',
 								return_type: 'boolean',
 								parameters: [
 									{
@@ -13921,14 +13823,14 @@ export const repos_json: Array<RepoJson> = [
 									},
 									{
 										name: 'package_json',
-										type: '{ [x: string]: unknown; name: string; version: string; private?: boolean | undefined; public?: boolean | undefined; description?: string | undefined; motto?: string | undefined; glyph?: string | undefined; ... 24 more ...; exports?: string | ... 2 more ... | undefined; }',
+										type: '{ [x: string]: unknown; name: string; version: string; private?: boolean | undefined; description?: string | undefined; motto?: string | undefined; glyph?: string | undefined; logo?: string | undefined; ... 23 more ...; exports?: string | ... 2 more ... | undefined; }',
 									},
 								],
 							},
 							{
 								name: 'PackageJsonDep',
 								kind: 'type',
-								source_line: 232,
+								source_line: 233,
 								type_signature: 'PackageJsonDep',
 								properties: [
 									{
@@ -13946,14 +13848,14 @@ export const repos_json: Array<RepoJson> = [
 							{
 								name: 'package_json_extract_dependencies',
 								kind: 'function',
-								source_line: 237,
+								source_line: 238,
 								type_signature:
-									'(package_json: { [x: string]: unknown; name: string; version: string; private?: boolean | undefined; public?: boolean | undefined; description?: string | undefined; motto?: string | undefined; glyph?: string | undefined; ... 24 more ...; exports?: string | ... 2 more ... | undefined; }): PackageJsonDep[]',
+									'(package_json: { [x: string]: unknown; name: string; version: string; private?: boolean | undefined; description?: string | undefined; motto?: string | undefined; glyph?: string | undefined; logo?: string | undefined; ... 23 more ...; exports?: string | ... 2 more ... | undefined; }): PackageJsonDep[]',
 								return_type: 'PackageJsonDep[]',
 								parameters: [
 									{
 										name: 'package_json',
-										type: '{ [x: string]: unknown; name: string; version: string; private?: boolean | undefined; public?: boolean | undefined; description?: string | undefined; motto?: string | undefined; glyph?: string | undefined; ... 24 more ...; exports?: string | ... 2 more ... | undefined; }',
+										type: '{ [x: string]: unknown; name: string; version: string; private?: boolean | undefined; description?: string | undefined; motto?: string | undefined; glyph?: string | undefined; logo?: string | undefined; ... 23 more ...; exports?: string | ... 2 more ... | undefined; }',
 									},
 								],
 							},
@@ -13964,7 +13866,6 @@ export const repos_json: Array<RepoJson> = [
 							'check.task.ts',
 							'format_file.ts',
 							'gro.config.default.ts',
-							'gro_plugin_sveltekit_app.ts',
 							'gro_plugin_sveltekit_library.ts',
 							'invoke_task.ts',
 							'publish.task.ts',
@@ -14883,13 +14784,13 @@ export const repos_json: Array<RepoJson> = [
 								kind: 'function',
 								source_line: 17,
 								type_signature:
-									'(package_json: { [x: string]: unknown; name: string; version: string; private?: boolean | undefined; public?: boolean | undefined; description?: string | undefined; motto?: string | undefined; glyph?: string | undefined; ... 24 more ...; exports?: string | ... 2 more ... | undefined; }, lib_path?: string | undefined, log?: Logger | undefined): Promise<...>',
+									'(package_json: { [x: string]: unknown; name: string; version: string; private?: boolean | undefined; description?: string | undefined; motto?: string | undefined; glyph?: string | undefined; logo?: string | undefined; ... 23 more ...; exports?: string | ... 2 more ... | undefined; }, lib_path?: string | undefined, log?: Logger | undefined): Promise<...>',
 								return_type:
 									'Promise<{ [x: string]: unknown; name: string; version: string; modules?: { [x: string]: unknown; path: string; declarations?: { [x: string]: unknown; name: string; kind: "function" | "type" | "json" | "variable" | "class" | "constructor" | "component" | "css"; ... 19 more ...; alias_of?: { ...; } | undefined; }[] | ...',
 								parameters: [
 									{
 										name: 'package_json',
-										type: '{ [x: string]: unknown; name: string; version: string; private?: boolean | undefined; public?: boolean | undefined; description?: string | undefined; motto?: string | undefined; glyph?: string | undefined; ... 24 more ...; exports?: string | ... 2 more ... | undefined; }',
+										type: '{ [x: string]: unknown; name: string; version: string; private?: boolean | undefined; description?: string | undefined; motto?: string | undefined; glyph?: string | undefined; logo?: string | undefined; ... 23 more ...; exports?: string | ... 2 more ... | undefined; }',
 									},
 									{
 										name: 'lib_path',
@@ -14904,23 +14805,9 @@ export const repos_json: Array<RepoJson> = [
 								],
 							},
 							{
-								name: 'source_json_serialize',
-								kind: 'function',
-								source_line: 28,
-								type_signature:
-									'(source_json: { [x: string]: unknown; name: string; version: string; modules?: { [x: string]: unknown; path: string; declarations?: { [x: string]: unknown; name: string; kind: "function" | "type" | "json" | "variable" | "class" | "constructor" | "component" | "css"; ... 19 more ...; alias_of?: { ...; } | undefined; }[] | undefined; module_comment?: string | undefined; dependencies?: string[] | undefined; dependents?: string[] | undefined; }[] | undefined; }): string',
-								return_type: 'string',
-								parameters: [
-									{
-										name: 'source_json',
-										type: '{ [x: string]: unknown; name: string; version: string; modules?: { [x: string]: unknown; path: string; declarations?: { [x: string]: unknown; name: string; kind: "function" | "type" | "json" | "variable" | "class" | "constructor" | "component" | "css"; ... 19 more ...; alias_of?: { ...; } | undefined; }[] | undefine...',
-									},
-								],
-							},
-							{
 								name: 'source_json_modules_create',
 								kind: 'function',
-								source_line: 33,
+								source_line: 28,
 								type_signature:
 									'(exports: string | Record<string, unknown> | null | undefined, lib_path?: string, log?: Logger | undefined): Promise<{ [x: string]: unknown; path: string; declarations?: { [x: string]: unknown; ... 21 more ...; alias_of?: { ...; } | undefined; }[] | undefined; module_comment?: string | undefined; dependencies?: string[] | undefined; dependents?: string[] | undefined; }[] | undefined>',
 								return_type:
@@ -14944,7 +14831,6 @@ export const repos_json: Array<RepoJson> = [
 							},
 						],
 						dependencies: ['constants.ts', 'parse_exports.ts', 'paths.ts'],
-						dependents: ['gro_plugin_sveltekit_app.ts'],
 					},
 					{
 						path: 'svelte_config.ts',
@@ -15090,7 +14976,6 @@ export const repos_json: Array<RepoJson> = [
 							'filer.ts',
 							'gen_helpers.ts',
 							'gro_plugin_server.ts',
-							'gro_plugin_sveltekit_app.ts',
 							'loader.ts',
 							'paths.ts',
 							'run_gen.ts',
@@ -15121,12 +15006,12 @@ export const repos_json: Array<RepoJson> = [
 								kind: 'function',
 								source_line: 30,
 								type_signature:
-									'(package_json: { [x: string]: unknown; name: string; version: string; private?: boolean | undefined; public?: boolean | undefined; description?: string | undefined; motto?: string | undefined; glyph?: string | undefined; ... 24 more ...; exports?: string | ... 2 more ... | undefined; }, svelte_config?: ParsedSvelteConfig, dep_name?: string): Promise<...>',
+									'(package_json: { [x: string]: unknown; name: string; version: string; private?: boolean | undefined; description?: string | undefined; motto?: string | undefined; glyph?: string | undefined; logo?: string | undefined; ... 23 more ...; exports?: string | ... 2 more ... | undefined; }, svelte_config?: ParsedSvelteConfig, dep_name?: string): Promise<...>',
 								return_type: 'Promise<Result<object, { message: string; }>>',
 								parameters: [
 									{
 										name: 'package_json',
-										type: '{ [x: string]: unknown; name: string; version: string; private?: boolean | undefined; public?: boolean | undefined; description?: string | undefined; motto?: string | undefined; glyph?: string | undefined; ... 24 more ...; exports?: string | ... 2 more ... | undefined; }',
+										type: '{ [x: string]: unknown; name: string; version: string; private?: boolean | undefined; description?: string | undefined; motto?: string | undefined; glyph?: string | undefined; logo?: string | undefined; ... 23 more ...; exports?: string | ... 2 more ... | undefined; }',
 									},
 									{
 										name: 'svelte_config',
@@ -15264,12 +15149,12 @@ export const repos_json: Array<RepoJson> = [
 								kind: 'function',
 								source_line: 149,
 								type_signature:
-									'(package_json: { [x: string]: unknown; name: string; version: string; private?: boolean | undefined; public?: boolean | undefined; description?: string | undefined; motto?: string | undefined; glyph?: string | undefined; ... 24 more ...; exports?: string | ... 2 more ... | undefined; }, options: SveltePackageOptions | undefined, cli: string | Cli, log: Logger, pm_cli: string): Promise<...>',
+									'(package_json: { [x: string]: unknown; name: string; version: string; private?: boolean | undefined; description?: string | undefined; motto?: string | undefined; glyph?: string | undefined; logo?: string | undefined; ... 23 more ...; exports?: string | ... 2 more ... | undefined; }, options: SveltePackageOptions | undefined, cli: string | Cli, log: Logger, pm_cli: string): Promise<...>',
 								return_type: 'Promise<void>',
 								parameters: [
 									{
 										name: 'package_json',
-										type: '{ [x: string]: unknown; name: string; version: string; private?: boolean | undefined; public?: boolean | undefined; description?: string | undefined; motto?: string | undefined; glyph?: string | undefined; ... 24 more ...; exports?: string | ... 2 more ... | undefined; }',
+										type: '{ [x: string]: unknown; name: string; version: string; private?: boolean | undefined; description?: string | undefined; motto?: string | undefined; glyph?: string | undefined; logo?: string | undefined; ... 23 more ...; exports?: string | ... 2 more ... | undefined; }',
 									},
 									{
 										name: 'options',
@@ -15511,12 +15396,12 @@ export const repos_json: Array<RepoJson> = [
 								kind: 'function',
 								source_line: 24,
 								type_signature:
-									'(file: "/CNAME" | "/favicon.png" | "/logo.svg" | "/robots.txt" | (string & {})): string',
+									'(file: "/.nojekyll" | "/CNAME" | "/favicon.png" | "/logo.svg" | "/robots.txt" | (string & {})): string',
 								return_type: 'string',
 								parameters: [
 									{
 										name: 'file',
-										type: '"/CNAME" | "/favicon.png" | "/logo.svg" | "/robots.txt" | (string & {})',
+										type: '"/.nojekyll" | "/CNAME" | "/favicon.png" | "/logo.svg" | "/robots.txt" | (string & {})',
 									},
 								],
 							},
@@ -16283,28 +16168,18 @@ export const repos_json: Array<RepoJson> = [
 			status: 'completed',
 			conclusion: 'success',
 		},
-		pull_requests: [
-			{
-				number: 584,
-				title: 'migrate deps to fuzdev',
-				user: {
-					login: 'ryanatkn',
-				},
-				draft: false,
-			},
-		],
+		pull_requests: [],
 	},
 	{
 		library_json: {
 			package_json: {
 				name: '@fuzdev/fuz_util',
-				version: '0.42.0',
+				version: '0.45.1',
 				description: 'utility belt for JS',
 				glyph: '🦕',
 				logo: 'logo.svg',
 				logo_alt: 'a green sauropod wearing a brown utility belt',
 				motto: 'ancient not extinct',
-				public: true,
 				license: 'MIT',
 				homepage: 'https://util.fuz.dev/',
 				author: {
@@ -16326,11 +16201,12 @@ export const repos_json: Array<RepoJson> = [
 					test: 'gro test',
 					preview: 'vite preview',
 					deploy: 'gro deploy',
-					benchmark: 'gro run src/benchmarks/slugify.benchmark.ts',
-					benchmark_deep_equal:
-						'node --max-old-space-size=8192 --expose-gc --import @ryanatkn/gro/register.js src/lib/deep_equal.bench_comparison.ts',
-					'benchmark_deep_equal-deno':
-						'deno run --allow-read --allow-env --v8-flags=--expose-gc src/lib/deep_equal.bench_comparison.ts',
+					benchmark: 'gro run src/benchmarks/run.ts',
+					'benchmark:save': 'gro run src/benchmarks/run.ts --save',
+					benchmark_slugify: 'gro run src/benchmarks/slugify.benchmark.ts',
+					benchmark_deep_equal: 'gro run src/benchmarks/deep_equal.benchmark.ts',
+					benchmark_deep_equal_comparison:
+						'gro run src/benchmarks/deep_equal_comparison.benchmark.ts',
 				},
 				type: 'module',
 				engines: {
@@ -16356,10 +16232,10 @@ export const repos_json: Array<RepoJson> = [
 				devDependencies: {
 					'@changesets/changelog-git': '^0.2.1',
 					'@fuzdev/fuz_code': '^0.38.0',
-					'@fuzdev/fuz_css': '^0.42.0',
-					'@fuzdev/fuz_ui': '^0.171.0',
+					'@fuzdev/fuz_css': '^0.42.1',
+					'@fuzdev/fuz_ui': '^0.174.0',
 					'@ryanatkn/eslint-config': '^0.9.0',
-					'@ryanatkn/gro': '^0.181.0',
+					'@ryanatkn/gro': '^0.184.0',
 					'@sveltejs/adapter-static': '^3.0.10',
 					'@sveltejs/kit': '^2.49.1',
 					'@sveltejs/package': '^2.5.7',
@@ -16369,11 +16245,11 @@ export const repos_json: Array<RepoJson> = [
 					eslint: '^9.39.1',
 					'eslint-plugin-svelte': '^3.13.1',
 					'esm-env': '^1.2.2',
+					'fast-deep-equal': '^3.1.3',
 					prettier: '^3.7.4',
 					'prettier-plugin-svelte': '^3.4.0',
 					svelte: '^5.45.6',
 					'svelte-check': '^4.3.4',
-					tinybench: '^5.1.0',
 					tslib: '^2.8.1',
 					typescript: '^5.9.3',
 					'typescript-eslint': '^8.48.1',
@@ -16411,7 +16287,7 @@ export const repos_json: Array<RepoJson> = [
 			},
 			source_json: {
 				name: '@fuzdev/fuz_util',
-				version: '0.42.0',
+				version: '0.45.1',
 				modules: [
 					{
 						path: 'array.ts',
@@ -16499,14 +16375,14 @@ export const repos_json: Array<RepoJson> = [
 							{
 								name: 'is_promise',
 								kind: 'function',
-								doc_comment: 'Checks if `value` is a `Promise`.',
+								doc_comment: 'Checks if `value` is a `Promise` (or thenable).',
 								source_line: 12,
-								type_signature: '(value: any): value is Promise<any>',
+								type_signature: '(value: unknown): value is Promise<unknown>',
 								return_type: 'boolean',
 								parameters: [
 									{
 										name: 'value',
-										type: 'any',
+										type: 'unknown',
 									},
 								],
 							},
@@ -16613,7 +16489,1293 @@ export const repos_json: Array<RepoJson> = [
 								],
 							},
 						],
-						dependents: ['throttle.ts'],
+						dependents: ['benchmark.ts', 'throttle.ts'],
+					},
+					{
+						path: 'benchmark_baseline.ts',
+						declarations: [
+							{
+								name: 'BenchmarkBaselineEntry',
+								kind: 'type',
+								doc_comment: 'Schema for a single benchmark entry in the baseline.',
+								source_line: 26,
+								type_signature:
+									'ZodObject<{ name: ZodString; mean_ns: ZodNumber; p50_ns: ZodNumber; std_dev_ns: ZodNumber; min_ns: ZodNumber; max_ns: ZodNumber; ... 5 more ...; sample_size: ZodNumber; }, $strip>',
+							},
+							{
+								name: 'BenchmarkBaseline',
+								kind: 'type',
+								doc_comment: 'Schema for the complete baseline file.',
+								source_line: 45,
+								type_signature:
+									'ZodObject<{ version: ZodNumber; timestamp: ZodString; git_commit: ZodNullable<ZodString>; git_branch: ZodNullable<ZodString>; node_version: ZodString; entries: ZodArray<...>; }, $strip>',
+							},
+							{
+								name: 'BenchmarkBaselineSaveOptions',
+								kind: 'type',
+								doc_comment: 'Options for saving a baseline.',
+								source_line: 58,
+								type_signature: 'BenchmarkBaselineSaveOptions',
+								properties: [
+									{
+										name: 'path',
+										kind: 'variable',
+										type_signature: 'string',
+										doc_comment: "Directory to store baselines (default: '.gro/benchmarks')",
+									},
+									{
+										name: 'git_commit',
+										kind: 'variable',
+										type_signature: 'string | null',
+										doc_comment: 'Git commit hash (auto-detected if not provided)',
+									},
+									{
+										name: 'git_branch',
+										kind: 'variable',
+										type_signature: 'string | null',
+										doc_comment: 'Git branch name (auto-detected if not provided)',
+									},
+								],
+							},
+							{
+								name: 'BenchmarkBaselineLoadOptions',
+								kind: 'type',
+								doc_comment: 'Options for loading a baseline.',
+								source_line: 70,
+								type_signature: 'BenchmarkBaselineLoadOptions',
+								properties: [
+									{
+										name: 'path',
+										kind: 'variable',
+										type_signature: 'string',
+										doc_comment: "Directory to load baseline from (default: '.gro/benchmarks')",
+									},
+								],
+							},
+							{
+								name: 'BenchmarkBaselineCompareOptions',
+								kind: 'type',
+								doc_comment: 'Options for comparing against a baseline.',
+								source_line: 78,
+								type_signature: 'BenchmarkBaselineCompareOptions',
+								extends: ['BenchmarkBaselineLoadOptions'],
+								properties: [
+									{
+										name: 'regression_threshold',
+										kind: 'variable',
+										type_signature: 'number',
+										doc_comment:
+											'Minimum speedup ratio to consider a regression.\nFor example, 1.05 means only flag regressions that are 5% or more slower.\nDefault: 1.0 (any statistically significant slowdown is a regression)',
+									},
+									{
+										name: 'staleness_warning_days',
+										kind: 'variable',
+										type_signature: 'number',
+										doc_comment:
+											'Number of days after which to warn about stale baseline.\nDefault: undefined (no staleness warning)',
+									},
+								],
+							},
+							{
+								name: 'BenchmarkBaselineComparisonResult',
+								kind: 'type',
+								doc_comment: 'Result of comparing current results against a baseline.',
+								source_line: 95,
+								type_signature: 'BenchmarkBaselineComparisonResult',
+								properties: [
+									{
+										name: 'baseline_found',
+										kind: 'variable',
+										type_signature: 'boolean',
+										doc_comment: 'Whether a baseline was found',
+									},
+									{
+										name: 'baseline_timestamp',
+										kind: 'variable',
+										type_signature: 'string | null',
+										doc_comment: 'Timestamp of the baseline',
+									},
+									{
+										name: 'baseline_commit',
+										kind: 'variable',
+										type_signature: 'string | null',
+										doc_comment: 'Git commit of the baseline',
+									},
+									{
+										name: 'baseline_age_days',
+										kind: 'variable',
+										type_signature: 'number | null',
+										doc_comment: 'Age of the baseline in days',
+									},
+									{
+										name: 'baseline_stale',
+										kind: 'variable',
+										type_signature: 'boolean',
+										doc_comment:
+											'Whether the baseline is considered stale based on staleness_warning_days option',
+									},
+									{
+										name: 'comparisons',
+										kind: 'variable',
+										type_signature: 'Array<BenchmarkBaselineTaskComparison>',
+										doc_comment: 'Individual task comparisons',
+									},
+									{
+										name: 'regressions',
+										kind: 'variable',
+										type_signature: 'Array<BenchmarkBaselineTaskComparison>',
+										doc_comment:
+											'Tasks that regressed (slower with statistical significance), sorted by effect size (largest first)',
+									},
+									{
+										name: 'improvements',
+										kind: 'variable',
+										type_signature: 'Array<BenchmarkBaselineTaskComparison>',
+										doc_comment:
+											'Tasks that improved (faster with statistical significance), sorted by effect size (largest first)',
+									},
+									{
+										name: 'unchanged',
+										kind: 'variable',
+										type_signature: 'Array<BenchmarkBaselineTaskComparison>',
+										doc_comment: 'Tasks with no significant change',
+									},
+									{
+										name: 'new_tasks',
+										kind: 'variable',
+										type_signature: 'Array<string>',
+										doc_comment: 'Tasks in current run but not in baseline',
+									},
+									{
+										name: 'removed_tasks',
+										kind: 'variable',
+										type_signature: 'Array<string>',
+										doc_comment: 'Tasks in baseline but not in current run',
+									},
+								],
+							},
+							{
+								name: 'BenchmarkBaselineTaskComparison',
+								kind: 'type',
+								doc_comment: 'Comparison result for a single task.',
+								source_line: 123,
+								type_signature: 'BenchmarkBaselineTaskComparison',
+								properties: [
+									{
+										name: 'name',
+										kind: 'variable',
+										type_signature: 'string',
+									},
+									{
+										name: 'baseline',
+										kind: 'variable',
+										type_signature: 'BenchmarkBaselineEntry',
+									},
+									{
+										name: 'current',
+										kind: 'variable',
+										type_signature: 'BenchmarkBaselineEntry',
+									},
+									{
+										name: 'comparison',
+										kind: 'variable',
+										type_signature: 'BenchmarkComparison',
+									},
+								],
+							},
+							{
+								name: 'benchmark_baseline_save',
+								kind: 'function',
+								doc_comment: 'Save benchmark results as the current baseline.',
+								examples: [
+									"```ts\nconst bench = new Benchmark();\nbench.add('test', () => fn());\nawait bench.run();\nawait benchmark_baseline_save(bench.results());\n```",
+								],
+								source_line: 167,
+								type_signature:
+									'(results: BenchmarkResult[], options?: BenchmarkBaselineSaveOptions): Promise<void>',
+								return_type: 'Promise<void>',
+								parameters: [
+									{
+										name: 'results',
+										type: 'BenchmarkResult[]',
+										description: '- Benchmark results to save',
+									},
+									{
+										name: 'options',
+										type: 'BenchmarkBaselineSaveOptions',
+										description: '- Save options',
+										default_value: '{}',
+									},
+								],
+							},
+							{
+								name: 'benchmark_baseline_load',
+								kind: 'function',
+								doc_comment: 'Load the current baseline from disk.',
+								examples: [
+									'```ts\nconst baseline = await benchmark_baseline_load();\nif (baseline) {\n  console.log(`Baseline from ${baseline.timestamp}`);\n}\n```',
+								],
+								source_line: 210,
+								type_signature:
+									'(options?: BenchmarkBaselineLoadOptions): Promise<{ version: number; timestamp: string; git_commit: string | null; git_branch: string | null; node_version: string; entries: { ...; }[]; } | null>',
+								return_type:
+									'Promise<{ version: number; timestamp: string; git_commit: string | null; git_branch: string | null; node_version: string; entries: { name: string; mean_ns: number; p50_ns: number; std_dev_ns: number; ... 7 more ...; sample_size: number; }[]; } | null>',
+								return_description: 'The baseline, or null if not found or invalid',
+								parameters: [
+									{
+										name: 'options',
+										type: 'BenchmarkBaselineLoadOptions',
+										description: '- Load options',
+										default_value: '{}',
+									},
+								],
+							},
+							{
+								name: 'benchmark_baseline_compare',
+								kind: 'function',
+								doc_comment: 'Compare benchmark results against the stored baseline.',
+								examples: [
+									"```ts\nconst bench = new Benchmark();\nbench.add('test', () => fn());\nawait bench.run();\n\nconst comparison = await benchmark_baseline_compare(bench.results(), {\n  regression_threshold: 1.05, // Only flag regressions 5% or more slower\n  staleness_warning_days: 7,  // Warn if baseline is older than 7 days\n});\nif (comparison.regressions.length > 0) {\n  console.log('Performance regressions detected!');\n  for (const r of comparison.regressions) {\n    console.log(`  ${r.name}: ${r.comparison.speedup_ratio.toFixed(2)}x slower`);\n  }\n  process.exit(1);\n}\n```",
+								],
+								source_line: 273,
+								type_signature:
+									'(results: BenchmarkResult[], options?: BenchmarkBaselineCompareOptions): Promise<BenchmarkBaselineComparisonResult>',
+								return_type: 'Promise<BenchmarkBaselineComparisonResult>',
+								return_description:
+									'Comparison result with regressions, improvements, and unchanged tasks',
+								parameters: [
+									{
+										name: 'results',
+										type: 'BenchmarkResult[]',
+										description: '- Current benchmark results',
+									},
+									{
+										name: 'options',
+										type: 'BenchmarkBaselineCompareOptions',
+										description:
+											'- Comparison options including regression threshold and staleness warning',
+										default_value: '{}',
+									},
+								],
+							},
+							{
+								name: 'benchmark_baseline_format',
+								kind: 'function',
+								doc_comment: 'Format a baseline comparison result as a human-readable string.',
+								source_line: 415,
+								type_signature: '(result: BenchmarkBaselineComparisonResult): string',
+								return_type: 'string',
+								return_description: 'Formatted string summary',
+								parameters: [
+									{
+										name: 'result',
+										type: 'BenchmarkBaselineComparisonResult',
+										description: '- Comparison result from benchmark_baseline_compare',
+									},
+								],
+							},
+							{
+								name: 'benchmark_baseline_format_json',
+								kind: 'function',
+								doc_comment:
+									'Format a baseline comparison result as JSON for programmatic consumption.',
+								source_line: 496,
+								type_signature:
+									'(result: BenchmarkBaselineComparisonResult, options?: { pretty?: boolean | undefined; }): string',
+								return_type: 'string',
+								return_description: 'JSON string',
+								parameters: [
+									{
+										name: 'result',
+										type: 'BenchmarkBaselineComparisonResult',
+										description: '- Comparison result from benchmark_baseline_compare',
+									},
+									{
+										name: 'options',
+										type: '{ pretty?: boolean | undefined; }',
+										description: '- Formatting options',
+										default_value: '{}',
+									},
+								],
+							},
+						],
+						module_comment:
+							'Benchmark baseline storage and comparison utilities.\nSave benchmark results to disk and compare against baselines for regression detection.',
+						dependencies: ['benchmark_stats.ts', 'fs.ts', 'git.ts', 'stats.ts'],
+					},
+					{
+						path: 'benchmark_format.ts',
+						declarations: [
+							{
+								name: 'benchmark_format_table',
+								kind: 'function',
+								doc_comment:
+									'Format results as an ASCII table with percentiles, min/max, and relative performance.\nAll times use the same unit for easy comparison.',
+								examples: [
+									'```ts\nconsole.log(benchmark_format_table(results));\n// ┌─────────────┬────────────┬──────────┬──────────┬──────────┬──────────┬──────────┬──────────┬──────────┬──────────┐\n// │ Task Name   │  ops/sec   │ p50 (μs) │ p75 (μs) │ p90 (μs) │ p95 (μs) │ p99 (μs) │ min (μs) │ max (μs) │ vs Best  │\n// ├─────────────┼────────────┼──────────┼──────────┼──────────┼──────────┼──────────┼──────────┼──────────┼──────────┤\n// │ slugify v2  │ 1,237,144  │   0.81   │   0.85   │   0.89   │   0.95   │   1.20   │   0.72   │   2.45   │ baseline │\n// │ slugify     │   261,619  │   3.82   │   3.95   │   4.12   │   4.35   │   5.10   │   3.21   │  12.45   │   4.73x  │\n// └─────────────┴────────────┴──────────┴──────────┴──────────┴──────────┴──────────┴──────────┴──────────┴──────────┘\n```',
+								],
+								source_line: 24,
+								type_signature:
+									'(results: BenchmarkResult[], baseline?: string | undefined): string',
+								return_type: 'string',
+								return_description: 'Formatted table string with enhanced metrics',
+								parameters: [
+									{
+										name: 'results',
+										type: 'BenchmarkResult[]',
+										description: '- Array of benchmark results',
+									},
+									{
+										name: 'baseline',
+										type: 'string | undefined',
+										optional: true,
+										description:
+											'- Optional task name to use as baseline for comparison (defaults to fastest)',
+									},
+								],
+							},
+							{
+								name: 'benchmark_format_markdown',
+								kind: 'function',
+								doc_comment:
+									'Format results as a Markdown table with key metrics.\nAll times use the same unit for easy comparison.',
+								examples: [
+									'```ts\nconsole.log(benchmark_format_markdown(results));\n// | Task Name  | ops/sec    | p50 (μs) | p75 (μs) | p90 (μs) | p95 (μs) | p99 (μs) | min (μs) | max (μs) | vs Best  |\n// |------------|------------|----------|----------|----------|----------|----------|----------|----------|----------|\n// | slugify v2 | 1,237,144  | 0.81     | 0.85     | 0.89     | 0.95     | 1.20     | 0.72     | 2.45     | baseline |\n// | slugify    |   261,619  | 3.82     | 3.95     | 4.12     | 4.35     | 5.10     | 3.21     | 12.45    | 4.73x    |\n```',
+								],
+								source_line: 142,
+								type_signature:
+									'(results: BenchmarkResult[], baseline?: string | undefined): string',
+								return_type: 'string',
+								return_description: 'Formatted markdown table string',
+								parameters: [
+									{
+										name: 'results',
+										type: 'BenchmarkResult[]',
+										description: '- Array of benchmark results',
+									},
+									{
+										name: 'baseline',
+										type: 'string | undefined',
+										optional: true,
+										description:
+											'- Optional task name to use as baseline for comparison (defaults to fastest)',
+									},
+								],
+							},
+							{
+								name: 'benchmark_format_markdown_grouped',
+								kind: 'function',
+								doc_comment:
+									'Format results as grouped Markdown tables with headers between groups.',
+								examples: [
+									"```ts\nconst groups = [\n  { name: 'Fast Paths', filter: (r) => r.name.includes('fast'), baseline: 'fast/reference' },\n  { name: 'Slow Paths', filter: (r) => r.name.includes('slow') },\n];\nconsole.log(benchmark_format_markdown_grouped(results, groups));\n// ### Fast Paths\n// | Task Name | ops/sec | ... | vs fast/reference |\n// |-----------|---------|-----|-------------------|\n// | ...       | ...     | ... | ...               |\n//\n// ### Slow Paths\n// | Task Name | ops/sec | ... | vs Best |\n// |-----------|---------|-----|---------|\n// | ...       | ...     | ... | ...     |\n```",
+								],
+								source_line: 263,
+								type_signature: '(results: BenchmarkResult[], groups: BenchmarkGroup[]): string',
+								return_type: 'string',
+								return_description: 'Formatted markdown string with group headers and tables',
+								parameters: [
+									{
+										name: 'results',
+										type: 'BenchmarkResult[]',
+										description: '- Array of benchmark results',
+									},
+									{
+										name: 'groups',
+										type: 'BenchmarkGroup[]',
+										description: '- Array of group definitions',
+									},
+								],
+							},
+							{
+								name: 'BenchmarkFormatJsonOptions',
+								kind: 'type',
+								source_line: 295,
+								type_signature: 'BenchmarkFormatJsonOptions',
+								properties: [
+									{
+										name: 'pretty',
+										kind: 'variable',
+										type_signature: 'boolean',
+										doc_comment: 'Whether to pretty-print (default: true)',
+									},
+									{
+										name: 'include_timings',
+										kind: 'variable',
+										type_signature: 'boolean',
+										doc_comment:
+											'Whether to include raw timings array (default: false, can be large)',
+									},
+								],
+							},
+							{
+								name: 'benchmark_format_json',
+								kind: 'function',
+								doc_comment: 'Format results as JSON.',
+								examples: [
+									'```ts\nconsole.log(format_json(results));\nconsole.log(format_json(results, {pretty: false}));\nconsole.log(format_json(results, {include_timings: true}));\n```',
+								],
+								source_line: 315,
+								type_signature:
+									'(results: BenchmarkResult[], options?: BenchmarkFormatJsonOptions | undefined): string',
+								return_type: 'string',
+								return_description: 'JSON string',
+								parameters: [
+									{
+										name: 'results',
+										type: 'BenchmarkResult[]',
+										description: '- Array of benchmark results',
+									},
+									{
+										name: 'options',
+										type: 'BenchmarkFormatJsonOptions | undefined',
+										optional: true,
+										description: '- Formatting options',
+									},
+								],
+							},
+							{
+								name: 'benchmark_format_table_grouped',
+								kind: 'function',
+								doc_comment:
+									'Format results as a grouped table with visual separators between groups.',
+								examples: [
+									"```ts\nconst groups = [\n  { name: 'FAST PATHS', filter: (r) => r.name.includes('fast') },\n  { name: 'SLOW PATHS', filter: (r) => r.name.includes('slow') },\n];\nconsole.log(benchmark_format_table_grouped(results, groups));\n// 📦 FAST PATHS\n// ┌────┬─────────────┬────────────┬...┐\n// │ 🐆 │ fast test 1 │ 1,237,144  │...│\n// │ 🐇 │ fast test 2 │   261,619  │...│\n// └────┴─────────────┴────────────┴...┘\n//\n// 📦 SLOW PATHS\n// ┌────┬─────────────┬────────────┬...┐\n// │ 🐢 │ slow test 1 │    10,123  │...│\n// └────┴─────────────┴────────────┴...┘\n```",
+								],
+								source_line: 374,
+								type_signature: '(results: BenchmarkResult[], groups: BenchmarkGroup[]): string',
+								return_type: 'string',
+								return_description: 'Formatted table string with group separators',
+								parameters: [
+									{
+										name: 'results',
+										type: 'BenchmarkResult[]',
+										description: '- Array of benchmark results',
+									},
+									{
+										name: 'groups',
+										type: 'BenchmarkGroup[]',
+										description: '- Array of group definitions',
+									},
+								],
+							},
+							{
+								name: 'benchmark_format_number',
+								kind: 'variable',
+								doc_comment: 'Format a number with fixed decimal places and thousands separators.',
+								see_also: [
+									'`{@link format_number} in maths.ts for the underlying implementation.`',
+								],
+								source_line: 410,
+								type_signature: '(n: number, decimals?: number) => string',
+							},
+						],
+						dependencies: ['maths.ts', 'string.ts', 'time.ts'],
+						dependents: ['benchmark.ts'],
+					},
+					{
+						path: 'benchmark_stats.ts',
+						declarations: [
+							{
+								name: 'BenchmarkStatsComparable',
+								kind: 'type',
+								doc_comment:
+									'Minimal stats interface for comparison.\nThis allows comparing stats from different sources (e.g., loaded baselines).',
+								source_line: 25,
+								type_signature: 'BenchmarkStatsComparable',
+								properties: [
+									{
+										name: 'mean_ns',
+										kind: 'variable',
+										type_signature: 'number',
+									},
+									{
+										name: 'std_dev_ns',
+										kind: 'variable',
+										type_signature: 'number',
+									},
+									{
+										name: 'sample_size',
+										kind: 'variable',
+										type_signature: 'number',
+									},
+									{
+										name: 'confidence_interval_ns',
+										kind: 'variable',
+										type_signature: '[number, number]',
+									},
+								],
+							},
+							{
+								name: 'EffectMagnitude',
+								kind: 'type',
+								doc_comment: "Effect size magnitude interpretation (Cohen's d).",
+								source_line: 35,
+								type_signature: 'EffectMagnitude',
+							},
+							{
+								name: 'BenchmarkComparison',
+								kind: 'type',
+								doc_comment: 'Result from comparing two benchmark stats.',
+								source_line: 40,
+								type_signature: 'BenchmarkComparison',
+								properties: [
+									{
+										name: 'faster',
+										kind: 'variable',
+										type_signature: "'a' | 'b' | 'equal'",
+										doc_comment:
+											"Which benchmark is faster ('a', 'b', or 'equal' if difference is negligible)",
+									},
+									{
+										name: 'speedup_ratio',
+										kind: 'variable',
+										type_signature: 'number',
+										doc_comment: 'How much faster the winner is (e.g., 1.5 means 1.5x faster)',
+									},
+									{
+										name: 'significant',
+										kind: 'variable',
+										type_signature: 'boolean',
+										doc_comment:
+											'Whether the difference is statistically significant at the given alpha',
+									},
+									{
+										name: 'p_value',
+										kind: 'variable',
+										type_signature: 'number',
+										doc_comment:
+											"P-value from Welch's t-test (lower = more confident the difference is real)",
+									},
+									{
+										name: 'effect_size',
+										kind: 'variable',
+										type_signature: 'number',
+										doc_comment:
+											"Cohen's d effect size (magnitude of difference independent of sample size)",
+									},
+									{
+										name: 'effect_magnitude',
+										kind: 'variable',
+										type_signature: 'EffectMagnitude',
+										doc_comment: 'Interpretation of effect size',
+									},
+									{
+										name: 'ci_overlap',
+										kind: 'variable',
+										type_signature: 'boolean',
+										doc_comment: 'Whether the 95% confidence intervals overlap',
+									},
+									{
+										name: 'recommendation',
+										kind: 'variable',
+										type_signature: 'string',
+										doc_comment: 'Human-readable interpretation of the comparison',
+									},
+								],
+							},
+							{
+								name: 'BenchmarkCompareOptions',
+								kind: 'type',
+								doc_comment: 'Options for benchmark comparison.',
+								source_line: 62,
+								type_signature: 'BenchmarkCompareOptions',
+								properties: [
+									{
+										name: 'alpha',
+										kind: 'variable',
+										type_signature: 'number',
+										doc_comment: 'Significance level for hypothesis testing (default: 0.05)',
+									},
+								],
+							},
+							{
+								name: 'BenchmarkStats',
+								kind: 'class',
+								doc_comment:
+									'Complete statistical analysis of timing measurements.\nIncludes outlier detection, descriptive statistics, and performance metrics.\nAll timing values are in nanoseconds.',
+								source_line: 72,
+								members: [
+									{
+										name: 'mean_ns',
+										kind: 'variable',
+										modifiers: ['readonly'],
+										doc_comment: 'Mean (average) time in nanoseconds',
+										type_signature: 'number',
+									},
+									{
+										name: 'p50_ns',
+										kind: 'variable',
+										modifiers: ['readonly'],
+										doc_comment: '50th percentile (median) time in nanoseconds',
+										type_signature: 'number',
+									},
+									{
+										name: 'std_dev_ns',
+										kind: 'variable',
+										modifiers: ['readonly'],
+										doc_comment: 'Standard deviation in nanoseconds',
+										type_signature: 'number',
+									},
+									{
+										name: 'min_ns',
+										kind: 'variable',
+										modifiers: ['readonly'],
+										doc_comment: 'Minimum time in nanoseconds',
+										type_signature: 'number',
+									},
+									{
+										name: 'max_ns',
+										kind: 'variable',
+										modifiers: ['readonly'],
+										doc_comment: 'Maximum time in nanoseconds',
+										type_signature: 'number',
+									},
+									{
+										name: 'p75_ns',
+										kind: 'variable',
+										modifiers: ['readonly'],
+										doc_comment: '75th percentile in nanoseconds',
+										type_signature: 'number',
+									},
+									{
+										name: 'p90_ns',
+										kind: 'variable',
+										modifiers: ['readonly'],
+										doc_comment: '90th percentile in nanoseconds',
+										type_signature: 'number',
+									},
+									{
+										name: 'p95_ns',
+										kind: 'variable',
+										modifiers: ['readonly'],
+										doc_comment: '95th percentile in nanoseconds',
+										type_signature: 'number',
+									},
+									{
+										name: 'p99_ns',
+										kind: 'variable',
+										modifiers: ['readonly'],
+										doc_comment: '99th percentile in nanoseconds',
+										type_signature: 'number',
+									},
+									{
+										name: 'cv',
+										kind: 'variable',
+										modifiers: ['readonly'],
+										doc_comment: 'Coefficient of variation (std_dev / mean)',
+										type_signature: 'number',
+									},
+									{
+										name: 'confidence_interval_ns',
+										kind: 'variable',
+										modifiers: ['readonly'],
+										doc_comment: '95% confidence interval for the mean in nanoseconds',
+										type_signature: '[number, number]',
+									},
+									{
+										name: 'outliers_ns',
+										kind: 'variable',
+										modifiers: ['readonly'],
+										doc_comment: 'Array of detected outlier values in nanoseconds',
+										type_signature: 'Array<number>',
+									},
+									{
+										name: 'outlier_ratio',
+										kind: 'variable',
+										modifiers: ['readonly'],
+										doc_comment: 'Ratio of outliers to total samples',
+										type_signature: 'number',
+									},
+									{
+										name: 'sample_size',
+										kind: 'variable',
+										modifiers: ['readonly'],
+										doc_comment: 'Number of samples after outlier removal',
+										type_signature: 'number',
+									},
+									{
+										name: 'raw_sample_size',
+										kind: 'variable',
+										modifiers: ['readonly'],
+										doc_comment: 'Original number of samples (before outlier removal)',
+										type_signature: 'number',
+									},
+									{
+										name: 'ops_per_second',
+										kind: 'variable',
+										modifiers: ['readonly'],
+										doc_comment: 'Operations per second (NS_PER_SEC / mean_ns)',
+										type_signature: 'number',
+									},
+									{
+										name: 'failed_iterations',
+										kind: 'variable',
+										modifiers: ['readonly'],
+										doc_comment: 'Number of failed iterations (NaN, Infinity, or negative values)',
+										type_signature: 'number',
+									},
+									{
+										name: 'constructor',
+										kind: 'constructor',
+										type_signature: '(timings_ns: number[]): BenchmarkStats',
+										parameters: [
+											{
+												name: 'timings_ns',
+												type: 'number[]',
+											},
+										],
+									},
+									{
+										name: 'toString',
+										kind: 'function',
+										doc_comment: 'Format stats as a human-readable string.',
+										type_signature: '(): string',
+										return_type: 'string',
+										parameters: [],
+									},
+								],
+							},
+							{
+								name: 'benchmark_stats_compare',
+								kind: 'function',
+								doc_comment:
+									"Compare two benchmark results for statistical significance.\nUses Welch's t-test (handles unequal variances) and Cohen's d effect size.",
+								examples: [
+									'```ts\nconst comparison = benchmark_stats_compare(result_a.stats, result_b.stats);\nif (comparison.significant) {\n  console.log(`${comparison.faster} is ${comparison.speedup_ratio.toFixed(2)}x faster`);\n}\n```',
+								],
+								source_line: 198,
+								type_signature:
+									'(a: BenchmarkStatsComparable, b: BenchmarkStatsComparable, options?: BenchmarkCompareOptions | undefined): BenchmarkComparison',
+								return_type: 'BenchmarkComparison',
+								return_description:
+									'Comparison result with significance, effect size, and recommendation',
+								parameters: [
+									{
+										name: 'a',
+										type: 'BenchmarkStatsComparable',
+										description: '- First benchmark stats (or any object with required properties)',
+									},
+									{
+										name: 'b',
+										type: 'BenchmarkStatsComparable',
+										description:
+											'- Second benchmark stats (or any object with required properties)',
+									},
+									{
+										name: 'options',
+										type: 'BenchmarkCompareOptions | undefined',
+										optional: true,
+										description: '- Comparison options',
+									},
+								],
+							},
+						],
+						module_comment:
+							'Benchmark-specific statistical analysis.\nUses the general stats utilities from stats.ts for timing/performance analysis.\nAll timing values are in nanoseconds.',
+						dependencies: ['stats.ts', 'time.ts'],
+						dependents: ['benchmark.ts', 'benchmark_baseline.ts'],
+					},
+					{
+						path: 'benchmark_types.ts',
+						declarations: [
+							{
+								name: 'BenchmarkConfig',
+								kind: 'type',
+								doc_comment: 'Configuration options for a benchmark suite.',
+								source_line: 7,
+								type_signature: 'BenchmarkConfig',
+								properties: [
+									{
+										name: 'duration_ms',
+										kind: 'variable',
+										type_signature: 'number',
+										doc_comment:
+											'Target duration to run each benchmark task in milliseconds.\nThe benchmark will run until this duration is reached or max_iterations is hit.\nDefault: 1000ms',
+									},
+									{
+										name: 'warmup_iterations',
+										kind: 'variable',
+										type_signature: 'number',
+										doc_comment:
+											'Number of warmup iterations before actual measurements.\nWarmup helps stabilize JIT compilation and caches.\nDefault: 5',
+									},
+									{
+										name: 'cooldown_ms',
+										kind: 'variable',
+										type_signature: 'number',
+										doc_comment:
+											'Cooldown time between tasks in milliseconds.\nHelps prevent interference between benchmarks.\nDefault: 100ms',
+									},
+									{
+										name: 'min_iterations',
+										kind: 'variable',
+										type_signature: 'number',
+										doc_comment: 'Minimum number of iterations to run.\nDefault: 10',
+									},
+									{
+										name: 'max_iterations',
+										kind: 'variable',
+										type_signature: 'number',
+										doc_comment:
+											'Maximum number of iterations to run.\nPrevents infinite loops if function is extremely fast.\nDefault: 100000',
+									},
+									{
+										name: 'timer',
+										kind: 'variable',
+										type_signature: 'Timer',
+										doc_comment:
+											'Custom timer to use for measurements.\nDefault: timer_default (auto-detects environment)',
+									},
+									{
+										name: 'on_iteration',
+										kind: 'variable',
+										type_signature:
+											'(task_name: string, iteration: number, abort: () => void) => void',
+										doc_comment:
+											'Callback invoked after each iteration completes.\nUseful for triggering garbage collection, logging progress, early termination,\nor custom instrumentation.\n\n**Note**: The callback time is NOT included in iteration measurements - it runs\nafter the timing capture. However, frequent GC calls will slow overall benchmark\nexecution time.',
+									},
+									{
+										name: 'on_task_complete',
+										kind: 'variable',
+										type_signature:
+											'(result: BenchmarkResult, index: number, total: number) => void',
+										doc_comment:
+											'Callback invoked after each task completes.\nUseful for logging progress during long benchmark runs.',
+									},
+								],
+							},
+							{
+								name: 'BenchmarkTask',
+								kind: 'type',
+								doc_comment: 'A benchmark task to execute.',
+								source_line: 112,
+								type_signature: 'BenchmarkTask',
+								properties: [
+									{
+										name: 'name',
+										kind: 'variable',
+										type_signature: 'string',
+										doc_comment: 'Name of the task (for display)',
+									},
+									{
+										name: 'fn',
+										kind: 'variable',
+										type_signature: '() => unknown',
+										doc_comment:
+											'Function to benchmark (sync or async). Return values are ignored.',
+									},
+									{
+										name: 'setup',
+										kind: 'variable',
+										type_signature: '() => void | Promise<void>',
+										doc_comment:
+											'Optional setup function run before benchmarking this task.\nNot included in timing measurements.',
+									},
+									{
+										name: 'teardown',
+										kind: 'variable',
+										type_signature: '() => void | Promise<void>',
+										doc_comment:
+											'Optional teardown function run after benchmarking this task.\nNot included in timing measurements.',
+									},
+									{
+										name: 'skip',
+										kind: 'variable',
+										type_signature: 'boolean',
+										doc_comment:
+											'If true, skip this task during benchmark runs.\nUseful for temporarily disabling tasks during development.',
+									},
+									{
+										name: 'only',
+										kind: 'variable',
+										type_signature: 'boolean',
+										doc_comment:
+											'If true, run only this task (and other tasks marked `only`).\nUseful for focusing on specific tasks during development.',
+									},
+									{
+										name: 'async',
+										kind: 'variable',
+										type_signature: 'boolean',
+										doc_comment:
+											'Hint for whether the function is sync or async.\nIf not provided, automatically detected during warmup.\nSetting this explicitly skips per-iteration promise checking for sync functions.',
+									},
+								],
+							},
+							{
+								name: 'BenchmarkResult',
+								kind: 'type',
+								doc_comment: 'Result from running a single benchmark task.',
+								source_line: 154,
+								type_signature: 'BenchmarkResult',
+								properties: [
+									{
+										name: 'name',
+										kind: 'variable',
+										type_signature: 'string',
+										doc_comment: 'Task name',
+									},
+									{
+										name: 'stats',
+										kind: 'variable',
+										type_signature: 'BenchmarkStats',
+										doc_comment: 'Statistical analysis of the benchmark',
+									},
+									{
+										name: 'iterations',
+										kind: 'variable',
+										type_signature: 'number',
+										doc_comment: 'Number of iterations executed',
+									},
+									{
+										name: 'total_time_ms',
+										kind: 'variable',
+										type_signature: 'number',
+										doc_comment: 'Total time spent benchmarking (including warmup) in milliseconds',
+									},
+									{
+										name: 'timings_ns',
+										kind: 'variable',
+										type_signature: 'Array<number>',
+										doc_comment:
+											'Raw timing data for each iteration in nanoseconds.\nUseful for custom statistical analysis, histogram generation,\nor exporting to external tools.',
+									},
+								],
+							},
+							{
+								name: 'BenchmarkFormatTableOptions',
+								kind: 'type',
+								doc_comment: 'Options for table formatting.',
+								source_line: 178,
+								type_signature: 'BenchmarkFormatTableOptions',
+								properties: [
+									{
+										name: 'groups',
+										kind: 'variable',
+										type_signature: 'Array<BenchmarkGroup>',
+										doc_comment: 'Group results by category using filter functions.',
+									},
+								],
+							},
+							{
+								name: 'BenchmarkGroup',
+								kind: 'type',
+								doc_comment: 'A group definition for organizing benchmark results.',
+								source_line: 188,
+								type_signature: 'BenchmarkGroup',
+								properties: [
+									{
+										name: 'name',
+										kind: 'variable',
+										type_signature: 'string',
+										doc_comment: 'Display name for the group',
+									},
+									{
+										name: 'description',
+										kind: 'variable',
+										type_signature: 'string',
+										doc_comment: 'Optional description shown below the group name',
+									},
+									{
+										name: 'filter',
+										kind: 'variable',
+										type_signature: '(result: BenchmarkResult) => boolean',
+										doc_comment: 'Filter function to determine which results belong to this group',
+									},
+									{
+										name: 'baseline',
+										kind: 'variable',
+										type_signature: 'string',
+										doc_comment:
+											'Task name to use as baseline for the "vs" column.\nWhen specified, ratios are computed against this task instead of the fastest.\nIf the baseline task is not found in the group, falls back to "vs Best" with a warning.',
+									},
+								],
+							},
+						],
+					},
+					{
+						path: 'benchmark.ts',
+						declarations: [
+							{
+								name: 'benchmark_warmup',
+								kind: 'function',
+								doc_comment:
+									'Warmup function by running it multiple times.\nDetects whether the function is async based on return value.',
+								examples: [
+									'```ts\nconst is_async = await benchmark_warmup(() => expensive_operation(), 10);\n```',
+								],
+								source_line: 101,
+								type_signature:
+									'(fn: () => unknown, iterations: number, async_hint?: boolean | undefined): Promise<boolean>',
+								return_type: 'Promise<boolean>',
+								return_description: 'Whether the function is async',
+								parameters: [
+									{
+										name: 'fn',
+										type: '() => unknown',
+										description: '- Function to warmup (sync or async)',
+									},
+									{
+										name: 'iterations',
+										type: 'number',
+										description: '- Number of warmup iterations',
+									},
+									{
+										name: 'async_hint',
+										type: 'boolean | undefined',
+										optional: true,
+										description: '- If provided, use this instead of detecting',
+									},
+								],
+							},
+							{
+								name: 'Benchmark',
+								kind: 'class',
+								doc_comment: 'Benchmark class for measuring and comparing function performance.',
+								source_line: 135,
+								members: [
+									{
+										name: 'constructor',
+										kind: 'constructor',
+										type_signature: '(config?: BenchmarkConfig): Benchmark',
+										parameters: [
+											{
+												name: 'config',
+												type: 'BenchmarkConfig',
+												default_value: '{}',
+											},
+										],
+									},
+									{
+										name: 'add',
+										kind: 'function',
+										doc_comment: 'Add a benchmark task.',
+										type_signature: '(name: string, fn: () => unknown): this',
+										return_type: 'this',
+										return_description: 'This Benchmark instance for chaining',
+										parameters: [
+											{
+												name: 'name',
+												type: 'string',
+												description: '- Task name or full task object',
+											},
+											{
+												name: 'fn',
+												type: '() => unknown',
+												description:
+													'- Function to benchmark (if name is string). Return values are ignored.',
+											},
+										],
+									},
+									{
+										name: 'add',
+										kind: 'function',
+										type_signature: '(name: string, fn: () => unknown): this',
+										return_type: 'this',
+										parameters: [
+											{
+												name: 'name',
+												type: 'string',
+											},
+											{
+												name: 'fn',
+												type: '() => unknown',
+											},
+										],
+									},
+									{
+										name: 'add',
+										kind: 'function',
+										type_signature: '(name: string, fn: () => unknown): this',
+										return_type: 'this',
+										parameters: [
+											{
+												name: 'name',
+												type: 'string',
+											},
+											{
+												name: 'fn',
+												type: '() => unknown',
+											},
+										],
+									},
+									{
+										name: 'remove',
+										kind: 'function',
+										doc_comment: 'Remove a benchmark task by name.',
+										type_signature: '(name: string): this',
+										return_type: 'this',
+										return_description: 'This Benchmark instance for chaining',
+										parameters: [
+											{
+												name: 'name',
+												type: 'string',
+												description: '- Name of the task to remove',
+											},
+										],
+										throws: [
+											{
+												type: 'Error',
+												description: "if task with given name doesn't exist",
+											},
+										],
+									},
+									{
+										name: 'skip',
+										kind: 'function',
+										doc_comment: 'Mark a task to be skipped during benchmark runs.',
+										type_signature: '(name: string): this',
+										return_type: 'this',
+										return_description: 'This Benchmark instance for chaining',
+										parameters: [
+											{
+												name: 'name',
+												type: 'string',
+												description: '- Name of the task to skip',
+											},
+										],
+										throws: [
+											{
+												type: 'Error',
+												description: "if task with given name doesn't exist",
+											},
+										],
+									},
+									{
+										name: 'only',
+										kind: 'function',
+										doc_comment: 'Mark a task to run exclusively (along with other `only` tasks).',
+										type_signature: '(name: string): this',
+										return_type: 'this',
+										return_description: 'This Benchmark instance for chaining',
+										parameters: [
+											{
+												name: 'name',
+												type: 'string',
+												description: '- Name of the task to run exclusively',
+											},
+										],
+										throws: [
+											{
+												type: 'Error',
+												description: "if task with given name doesn't exist",
+											},
+										],
+									},
+									{
+										name: 'run',
+										kind: 'function',
+										doc_comment: 'Run all benchmark tasks.',
+										type_signature: '(): Promise<BenchmarkResult[]>',
+										return_type: 'Promise<BenchmarkResult[]>',
+										return_description: 'Array of benchmark results',
+										parameters: [],
+									},
+									{
+										name: 'table',
+										kind: 'function',
+										doc_comment:
+											'Format results as an ASCII table with percentiles, min/max, and relative performance.',
+										type_signature: '(options?: BenchmarkFormatTableOptions | undefined): string',
+										return_type: 'string',
+										return_description: 'Formatted table string',
+										parameters: [
+											{
+												name: 'options',
+												type: 'BenchmarkFormatTableOptions | undefined',
+												optional: true,
+												description: '- Formatting options',
+											},
+										],
+									},
+									{
+										name: 'markdown',
+										kind: 'function',
+										doc_comment: 'Format results as a Markdown table.',
+										type_signature: '(options?: BenchmarkFormatTableOptions | undefined): string',
+										return_type: 'string',
+										return_description: 'Formatted markdown string',
+										parameters: [
+											{
+												name: 'options',
+												type: 'BenchmarkFormatTableOptions | undefined',
+												optional: true,
+												description:
+													'- Formatting options (groups for organized output with optional baselines)',
+											},
+										],
+									},
+									{
+										name: 'json',
+										kind: 'function',
+										doc_comment: 'Format results as JSON.',
+										type_signature: '(options?: BenchmarkFormatJsonOptions | undefined): string',
+										return_type: 'string',
+										return_description: 'JSON string',
+										parameters: [
+											{
+												name: 'options',
+												type: 'BenchmarkFormatJsonOptions | undefined',
+												optional: true,
+												description: '- Formatting options (pretty, include_timings)',
+											},
+										],
+									},
+									{
+										name: 'results',
+										kind: 'function',
+										doc_comment:
+											'Get the benchmark results.\nReturns a shallow copy to prevent external mutation.',
+										type_signature: '(): BenchmarkResult[]',
+										return_type: 'BenchmarkResult[]',
+										return_description: 'Array of benchmark results',
+										parameters: [],
+									},
+									{
+										name: 'results_by_name',
+										kind: 'function',
+										doc_comment:
+											'Get results as a map for convenient lookup by task name.\nReturns a new Map each call to prevent external mutation.',
+										type_signature: '(): Map<string, BenchmarkResult>',
+										return_type: 'Map<string, BenchmarkResult>',
+										return_description: 'Map of task name to benchmark result',
+										parameters: [],
+									},
+									{
+										name: 'reset',
+										kind: 'function',
+										doc_comment:
+											'Reset the benchmark results.\nKeeps tasks intact so benchmarks can be rerun.',
+										type_signature: '(): this',
+										return_type: 'this',
+										return_description: 'This Benchmark instance for chaining',
+										parameters: [],
+									},
+									{
+										name: 'clear',
+										kind: 'function',
+										doc_comment:
+											'Clear everything (results and tasks).\nUse this to start fresh with a new set of benchmarks.',
+										type_signature: '(): this',
+										return_type: 'this',
+										return_description: 'This Benchmark instance for chaining',
+										parameters: [],
+									},
+									{
+										name: 'summary',
+										kind: 'function',
+										doc_comment: 'Get a quick text summary of the fastest task.',
+										type_signature: '(): string',
+										return_type: 'string',
+										return_description: 'Human-readable summary string',
+										parameters: [],
+									},
+								],
+							},
+						],
+						module_comment:
+							"Benchmarking library.\n\n@example\n```ts\nimport {Benchmark} from '@fuzdev/fuz_util/benchmark.js';\n\nconst bench = new Benchmark({\n  duration_ms: 5000,\n  warmup_iterations: 5,\n});\n\nbench\n  .add('slugify', () => slugify(title))\n  .add('slugify_slower', () => slugify_slower(title));\n\nconst results = await bench.run();\nconsole.log(bench.table());\n```",
+						dependencies: ['async.ts', 'benchmark_format.ts', 'benchmark_stats.ts', 'time.ts'],
 					},
 					{
 						path: 'colors.ts',
@@ -17400,7 +18562,7 @@ export const repos_json: Array<RepoJson> = [
 							},
 						],
 						dependencies: ['array.ts', 'object.ts', 'string.ts'],
-						dependents: ['git.ts'],
+						dependents: ['benchmark_baseline.ts', 'git.ts'],
 					},
 					{
 						path: 'function.ts',
@@ -17488,15 +18650,50 @@ export const repos_json: Array<RepoJson> = [
 						path: 'git.ts',
 						declarations: [
 							{
+								name: 'GitInfo',
+								kind: 'type',
+								doc_comment: 'Basic git repository info.',
+								source_line: 12,
+								type_signature: 'GitInfo',
+								properties: [
+									{
+										name: 'commit',
+										kind: 'variable',
+										type_signature: 'string | null',
+									},
+									{
+										name: 'branch',
+										kind: 'variable',
+										type_signature: 'string | null',
+									},
+								],
+							},
+							{
+								name: 'git_info_get',
+								kind: 'function',
+								doc_comment:
+									'Get basic git info (commit hash and branch name) without throwing.\nReturns null values if git commands fail (e.g., not in a git repo).',
+								source_line: 21,
+								type_signature: '(options?: SpawnOptions | undefined): Promise<GitInfo>',
+								return_type: 'Promise<GitInfo>',
+								parameters: [
+									{
+										name: 'options',
+										type: 'SpawnOptions | undefined',
+										optional: true,
+									},
+								],
+							},
+							{
 								name: 'GitOrigin',
 								kind: 'type',
-								source_line: 9,
+								source_line: 33,
 								type_signature: 'ZodString',
 							},
 							{
 								name: 'GitBranch',
 								kind: 'type',
-								source_line: 12,
+								source_line: 36,
 								type_signature: 'ZodString',
 							},
 							{
@@ -17504,7 +18701,7 @@ export const repos_json: Array<RepoJson> = [
 								kind: 'function',
 								doc_comment:
 									'Returns the current git branch name or throws if something goes wrong.',
-								source_line: 18,
+								source_line: 42,
 								type_signature: '(options?: SpawnOptions | undefined): Promise<GitBranch>',
 								return_type: 'Promise<GitBranch>',
 								parameters: [
@@ -17519,7 +18716,7 @@ export const repos_json: Array<RepoJson> = [
 								name: 'git_remote_branch_exists',
 								kind: 'function',
 								doc_comment: '',
-								source_line: 28,
+								source_line: 52,
 								type_signature:
 									'(origin?: GitOrigin, branch?: GitBranch | undefined, options?: SpawnOptions | undefined): Promise<boolean>',
 								return_type: 'Promise<boolean>',
@@ -17546,7 +18743,7 @@ export const repos_json: Array<RepoJson> = [
 								name: 'git_local_branch_exists',
 								kind: 'function',
 								doc_comment: '',
-								source_line: 56,
+								source_line: 80,
 								type_signature:
 									'(branch: GitBranch, options?: SpawnOptions | undefined): Promise<boolean>',
 								return_type: 'Promise<boolean>',
@@ -17568,7 +18765,7 @@ export const repos_json: Array<RepoJson> = [
 								kind: 'type',
 								doc_comment:
 									'Git workspace status flags indicating which types of changes are present.',
-								source_line: 70,
+								source_line: 94,
 								type_signature: 'GitWorkspaceStatus',
 								properties: [
 									{
@@ -17593,7 +18790,7 @@ export const repos_json: Array<RepoJson> = [
 								kind: 'function',
 								doc_comment:
 									'Parses the output of `git status --porcelain -z` (v1 format) into a status object.\nThis is a pure function that can be tested independently.\n\nFormat: XY path\\0 where:\n- X = staged status (index)\n- Y = unstaged status (work tree)\n- path = file path (unescaped with -z)\n\nSupported status codes:\n- M = modified\n- A = added\n- D = deleted\n- R = renamed\n- C = copied\n- T = type changed (regular file, symbolic link or submodule)\n- U = unmerged\n- ? = untracked\n- ! = ignored\n\nFor renames/copies: XY new\\0old\\0 (two NUL-separated paths)\n\nNote: This implementation treats submodules the same as regular files.\nSubmodule-specific status codes (lowercase m, ?) are interpreted as changes.',
-								source_line: 104,
+								source_line: 128,
 								type_signature: '(stdout: string | null): GitWorkspaceStatus',
 								return_type: 'GitWorkspaceStatus',
 								return_description:
@@ -17611,7 +18808,7 @@ export const repos_json: Array<RepoJson> = [
 								kind: 'function',
 								doc_comment:
 									'Checks the git workspace status using a single `git status --porcelain -z` call.\nThe -z format provides more reliable parsing by using NUL separators and avoiding escaping.',
-								source_line: 154,
+								source_line: 178,
 								type_signature: '(options?: SpawnOptions | undefined): Promise<GitWorkspaceStatus>',
 								return_type: 'Promise<GitWorkspaceStatus>',
 								return_description:
@@ -17628,7 +18825,7 @@ export const repos_json: Array<RepoJson> = [
 								name: 'git_workspace_is_clean',
 								kind: 'function',
 								doc_comment: '',
-								source_line: 162,
+								source_line: 186,
 								type_signature: '(status: GitWorkspaceStatus): boolean',
 								return_type: 'boolean',
 								return_description: '`true` if the workspace has no changes at all',
@@ -17643,7 +18840,7 @@ export const repos_json: Array<RepoJson> = [
 								name: 'git_workspace_is_fully_staged',
 								kind: 'function',
 								doc_comment: '',
-								source_line: 168,
+								source_line: 192,
 								type_signature: '(status: GitWorkspaceStatus): boolean',
 								return_type: 'boolean',
 								return_description:
@@ -17659,7 +18856,7 @@ export const repos_json: Array<RepoJson> = [
 								name: 'git_workspace_status_message',
 								kind: 'function',
 								doc_comment: 'Converts a workspace status to a human-readable message.',
-								source_line: 174,
+								source_line: 198,
 								type_signature: '(status: GitWorkspaceStatus): string',
 								return_type: 'string',
 								parameters: [
@@ -17673,7 +18870,7 @@ export const repos_json: Array<RepoJson> = [
 								name: 'git_check_clean_workspace',
 								kind: 'function',
 								doc_comment: '',
-								source_line: 186,
+								source_line: 210,
 								type_signature: '(options?: SpawnOptions | undefined): Promise<string | null>',
 								return_type: 'Promise<string | null>',
 								return_description:
@@ -17690,7 +18887,7 @@ export const repos_json: Array<RepoJson> = [
 								name: 'git_check_fully_staged_workspace',
 								kind: 'function',
 								doc_comment: '',
-								source_line: 194,
+								source_line: 218,
 								type_signature: '(options?: SpawnOptions | undefined): Promise<string | null>',
 								return_type: 'Promise<string | null>',
 								return_description:
@@ -17707,7 +18904,7 @@ export const repos_json: Array<RepoJson> = [
 								name: 'git_fetch',
 								kind: 'function',
 								doc_comment: 'Calls `git fetch` and throws if anything goes wrong.',
-								source_line: 204,
+								source_line: 228,
 								type_signature:
 									'(origin?: GitOrigin, branch?: GitBranch | undefined, options?: SpawnOptions | undefined): Promise<void>',
 								return_type: 'Promise<void>',
@@ -17733,7 +18930,7 @@ export const repos_json: Array<RepoJson> = [
 								name: 'git_checkout',
 								kind: 'function',
 								doc_comment: 'Calls `git checkout` and throws if anything goes wrong.',
-								source_line: 223,
+								source_line: 247,
 								type_signature:
 									'(branch: GitBranch, options?: SpawnOptions | undefined): Promise<GitBranch | null>',
 								return_type: 'Promise<GitBranch | null>',
@@ -17754,7 +18951,7 @@ export const repos_json: Array<RepoJson> = [
 								name: 'git_pull',
 								kind: 'function',
 								doc_comment: 'Calls `git pull` and throws if anything goes wrong.',
-								source_line: 241,
+								source_line: 265,
 								type_signature:
 									'(origin?: GitOrigin, branch?: GitBranch | undefined, options?: SpawnOptions | undefined): Promise<void>',
 								return_type: 'Promise<void>',
@@ -17780,7 +18977,7 @@ export const repos_json: Array<RepoJson> = [
 								name: 'git_push',
 								kind: 'function',
 								doc_comment: 'Calls `git push` and throws if anything goes wrong.',
-								source_line: 257,
+								source_line: 281,
 								type_signature:
 									'(origin: GitOrigin, branch?: GitBranch | undefined, options?: SpawnOptions | undefined, set_upstream?: boolean): Promise<void>',
 								return_type: 'Promise<void>',
@@ -17810,7 +19007,7 @@ export const repos_json: Array<RepoJson> = [
 								name: 'git_push_to_create',
 								kind: 'function',
 								doc_comment: 'Calls `git push` and throws if anything goes wrong.',
-								source_line: 275,
+								source_line: 299,
 								type_signature:
 									'(origin?: GitOrigin, branch?: GitBranch | undefined, options?: SpawnOptions | undefined): Promise<void>',
 								return_type: 'Promise<void>',
@@ -17836,7 +19033,7 @@ export const repos_json: Array<RepoJson> = [
 								name: 'git_delete_local_branch',
 								kind: 'function',
 								doc_comment: 'Deletes a branch locally and throws if anything goes wrong.',
-								source_line: 297,
+								source_line: 321,
 								type_signature:
 									'(branch: GitBranch, options?: SpawnOptions | undefined): Promise<void>',
 								return_type: 'Promise<void>',
@@ -17856,7 +19053,7 @@ export const repos_json: Array<RepoJson> = [
 								name: 'git_delete_remote_branch',
 								kind: 'function',
 								doc_comment: 'Deletes a branch remotely and throws if anything goes wrong.',
-								source_line: 310,
+								source_line: 334,
 								type_signature:
 									'(origin: GitOrigin, branch: GitBranch, options?: SpawnOptions | undefined): Promise<void>',
 								return_type: 'Promise<void>',
@@ -17881,7 +19078,7 @@ export const repos_json: Array<RepoJson> = [
 								kind: 'function',
 								doc_comment:
 									'Resets the `target` branch back to its first commit both locally and remotely.',
-								source_line: 324,
+								source_line: 348,
 								type_signature:
 									'(origin: GitOrigin, branch: GitBranch, options?: SpawnOptions | undefined): Promise<void>',
 								return_type: 'Promise<void>',
@@ -17906,7 +19103,7 @@ export const repos_json: Array<RepoJson> = [
 								kind: 'function',
 								doc_comment:
 									"Returns the branch's latest commit hash or throws if something goes wrong.",
-								source_line: 341,
+								source_line: 365,
 								type_signature:
 									'(branch?: string | undefined, options?: SpawnOptions | undefined): Promise<string | null>',
 								return_type: 'Promise<string | null>',
@@ -17928,7 +19125,7 @@ export const repos_json: Array<RepoJson> = [
 								kind: 'function',
 								doc_comment:
 									"Returns the hash of the current branch's first commit or throws if something goes wrong.",
-								source_line: 354,
+								source_line: 378,
 								type_signature: '(options?: SpawnOptions | undefined): Promise<string>',
 								return_type: 'Promise<string>',
 								parameters: [
@@ -17943,7 +19140,7 @@ export const repos_json: Array<RepoJson> = [
 								name: 'git_check_setting_pull_rebase',
 								kind: 'function',
 								doc_comment: 'Returns the global git config setting for `pull.rebase`.',
-								source_line: 369,
+								source_line: 393,
 								type_signature: '(options?: SpawnOptions | undefined): Promise<boolean>',
 								return_type: 'Promise<boolean>',
 								parameters: [
@@ -17959,7 +19156,7 @@ export const repos_json: Array<RepoJson> = [
 								kind: 'function',
 								doc_comment:
 									'Clones a branch locally to another directory and updates the origin to match the source.',
-								source_line: 377,
+								source_line: 401,
 								type_signature:
 									'(origin: GitOrigin, branch: GitBranch, source_dir: string, target_dir: string, options?: SpawnOptions | undefined): Promise<void>',
 								return_type: 'Promise<void>',
@@ -17989,6 +19186,7 @@ export const repos_json: Array<RepoJson> = [
 							},
 						],
 						dependencies: ['fs.ts', 'path.ts', 'process.ts'],
+						dependents: ['benchmark_baseline.ts'],
 					},
 					{
 						path: 'id.ts',
@@ -18182,16 +19380,6 @@ export const repos_json: Array<RepoJson> = [
 								type_signature: 'LibraryJson',
 								properties: [
 									{
-										name: 'package_json',
-										kind: 'variable',
-										type_signature: 'PackageJson',
-									},
-									{
-										name: 'source_json',
-										kind: 'variable',
-										type_signature: 'SourceJson',
-									},
-									{
 										name: 'name',
 										kind: 'variable',
 										type_signature: 'string',
@@ -18247,6 +19435,16 @@ export const repos_json: Array<RepoJson> = [
 										type_signature: 'boolean',
 										doc_comment: 'True if has exports and version is not `0.0.1`.',
 									},
+									{
+										name: 'package_json',
+										kind: 'variable',
+										type_signature: 'PackageJson',
+									},
+									{
+										name: 'source_json',
+										kind: 'variable',
+										type_signature: 'SourceJson',
+									},
 								],
 							},
 							{
@@ -18256,12 +19454,12 @@ export const repos_json: Array<RepoJson> = [
 									'Creates a `LibraryJson` with computed properties from package.json and source metadata.',
 								source_line: 37,
 								type_signature:
-									'(package_json: { [x: string]: unknown; name: string; version: string; private?: boolean | undefined; public?: boolean | undefined; description?: string | undefined; motto?: string | undefined; glyph?: string | undefined; ... 24 more ...; exports?: string | ... 2 more ... | undefined; }, source_json: { ...; }): LibraryJson',
+									'(package_json: { [x: string]: unknown; name: string; version: string; private?: boolean | undefined; description?: string | undefined; motto?: string | undefined; glyph?: string | undefined; logo?: string | undefined; ... 23 more ...; exports?: string | ... 2 more ... | undefined; }, source_json: { ...; }): LibraryJson',
 								return_type: 'LibraryJson',
 								parameters: [
 									{
 										name: 'package_json',
-										type: '{ [x: string]: unknown; name: string; version: string; private?: boolean | undefined; public?: boolean | undefined; description?: string | undefined; motto?: string | undefined; glyph?: string | undefined; ... 24 more ...; exports?: string | ... 2 more ... | undefined; }',
+										type: '{ [x: string]: unknown; name: string; version: string; private?: boolean | undefined; description?: string | undefined; motto?: string | undefined; glyph?: string | undefined; logo?: string | undefined; ... 23 more ...; exports?: string | ... 2 more ... | undefined; }',
 									},
 									{
 										name: 'source_json',
@@ -18819,8 +20017,27 @@ export const repos_json: Array<RepoJson> = [
 								source_line: 91,
 								type_signature: '0.013155617496424835',
 							},
+							{
+								name: 'format_number',
+								kind: 'function',
+								doc_comment: 'Format a number with fixed decimal places and thousands separators.',
+								source_line: 96,
+								type_signature: '(n: number, decimals?: number): string',
+								return_type: 'string',
+								parameters: [
+									{
+										name: 'n',
+										type: 'number',
+									},
+									{
+										name: 'decimals',
+										type: 'number',
+										default_value: '2',
+									},
+								],
+							},
 						],
-						dependents: ['colors.ts', 'timings.ts'],
+						dependents: ['benchmark_format.ts', 'colors.ts', 'timings.ts'],
 					},
 					{
 						path: 'object.ts',
@@ -19027,7 +20244,7 @@ export const repos_json: Array<RepoJson> = [
 								see_also: ['https://docs.npmjs.com/cli/v10/configuring-npm/package-json'],
 								source_line: 66,
 								type_signature:
-									'ZodObject<{ name: ZodString; version: ZodString; private: ZodOptional<ZodBoolean>; public: ZodOptional<ZodBoolean>; ... 27 more ...; exports: ZodOptional<...>; }, $loose>',
+									'ZodObject<{ name: ZodString; version: ZodString; private: ZodOptional<ZodBoolean>; description: ZodOptional<ZodString>; ... 26 more ...; exports: ZodOptional<...>; }, $loose>',
 							},
 						],
 						dependencies: ['object.ts', 'string.ts', 'url.ts'],
@@ -19690,6 +20907,20 @@ export const repos_json: Array<RepoJson> = [
 									},
 								],
 							},
+							{
+								name: 'process_is_pid_running',
+								kind: 'function',
+								doc_comment: 'Check if a PID is still running.',
+								source_line: 212,
+								type_signature: '(pid: number): boolean',
+								return_type: 'boolean',
+								parameters: [
+									{
+										name: 'pid',
+										type: 'number',
+									},
+								],
+							},
 						],
 						dependencies: ['log.ts', 'print.ts'],
 						dependents: ['git.ts'],
@@ -20136,6 +21367,518 @@ export const repos_json: Array<RepoJson> = [
 							'Metadata types for library source code analysis.\n\nThese types represent the structure of `src/lib/` exports,\nextracted at build time via TypeScript compiler analysis.\nUsed for generating API documentation and enabling code search.\n\nHierarchy: SourceJson → ModuleJson → DeclarationJson',
 					},
 					{
+						path: 'stats.ts',
+						declarations: [
+							{
+								name: 'stats_mean',
+								kind: 'function',
+								doc_comment: 'Calculate the mean (average) of an array of numbers.',
+								source_line: 20,
+								type_signature: '(values: number[]): number',
+								return_type: 'number',
+								parameters: [
+									{
+										name: 'values',
+										type: 'number[]',
+									},
+								],
+							},
+							{
+								name: 'stats_median',
+								kind: 'function',
+								doc_comment: 'Calculate the median of an array of numbers.',
+								source_line: 28,
+								type_signature: '(values: number[]): number',
+								return_type: 'number',
+								parameters: [
+									{
+										name: 'values',
+										type: 'number[]',
+									},
+								],
+							},
+							{
+								name: 'stats_std_dev',
+								kind: 'function',
+								doc_comment:
+									'Calculate the standard deviation of an array of numbers.\nUses population standard deviation (divides by n, not n-1).\nFor benchmarks with many samples, this is typically appropriate.',
+								source_line: 40,
+								type_signature: '(values: number[], mean?: number | undefined): number',
+								return_type: 'number',
+								parameters: [
+									{
+										name: 'values',
+										type: 'number[]',
+									},
+									{
+										name: 'mean',
+										type: 'number | undefined',
+										optional: true,
+									},
+								],
+							},
+							{
+								name: 'stats_variance',
+								kind: 'function',
+								doc_comment: 'Calculate the variance of an array of numbers.',
+								source_line: 50,
+								type_signature: '(values: number[], mean?: number | undefined): number',
+								return_type: 'number',
+								parameters: [
+									{
+										name: 'values',
+										type: 'number[]',
+									},
+									{
+										name: 'mean',
+										type: 'number | undefined',
+										optional: true,
+									},
+								],
+							},
+							{
+								name: 'stats_percentile',
+								kind: 'function',
+								doc_comment:
+									'Calculate a percentile of an array of numbers using linear interpolation.\nUses the "R-7" method (default in R, NumPy, Excel) which interpolates between\ndata points for more accurate percentile estimates, especially with smaller samples.',
+								source_line: 63,
+								type_signature: '(values: number[], p: number): number',
+								return_type: 'number',
+								parameters: [
+									{
+										name: 'values',
+										type: 'number[]',
+										description: '- Array of numbers',
+									},
+									{
+										name: 'p',
+										type: 'number',
+										description: '- Percentile (0-1, e.g., 0.95 for 95th percentile)',
+									},
+								],
+							},
+							{
+								name: 'stats_cv',
+								kind: 'function',
+								doc_comment:
+									'Calculate the coefficient of variation (CV).\nCV = standard deviation / mean, expressed as a ratio.\nUseful for comparing relative variability between datasets.',
+								source_line: 89,
+								type_signature: '(mean: number, std_dev: number): number',
+								return_type: 'number',
+								parameters: [
+									{
+										name: 'mean',
+										type: 'number',
+									},
+									{
+										name: 'std_dev',
+										type: 'number',
+									},
+								],
+							},
+							{
+								name: 'stats_min_max',
+								kind: 'function',
+								doc_comment: 'Calculate min and max values.',
+								source_line: 97,
+								type_signature: '(values: number[]): { min: number; max: number; }',
+								return_type: '{ min: number; max: number; }',
+								parameters: [
+									{
+										name: 'values',
+										type: 'number[]',
+									},
+								],
+							},
+							{
+								name: 'StatsOutlierResult',
+								kind: 'type',
+								doc_comment: 'Result from outlier detection.',
+								source_line: 112,
+								type_signature: 'StatsOutlierResult',
+								properties: [
+									{
+										name: 'cleaned',
+										kind: 'variable',
+										type_signature: 'Array<number>',
+										doc_comment: 'Values after removing outliers',
+									},
+									{
+										name: 'outliers',
+										kind: 'variable',
+										type_signature: 'Array<number>',
+										doc_comment: 'Detected outlier values',
+									},
+								],
+							},
+							{
+								name: 'StatsOutliersIqrOptions',
+								kind: 'type',
+								doc_comment: 'Configuration options for IQR outlier detection.',
+								source_line: 122,
+								type_signature: 'StatsOutliersIqrOptions',
+								properties: [
+									{
+										name: 'iqr_multiplier',
+										kind: 'variable',
+										type_signature: 'number',
+										doc_comment: 'Multiplier for IQR bounds (default: 1.5)',
+									},
+									{
+										name: 'min_sample_size',
+										kind: 'variable',
+										type_signature: 'number',
+										doc_comment: 'Minimum sample size to perform outlier detection (default: 3)',
+									},
+								],
+							},
+							{
+								name: 'stats_outliers_iqr',
+								kind: 'function',
+								doc_comment:
+									'Detect outliers using the IQR (Interquartile Range) method.\nValues outside [Q1 - multiplier*IQR, Q3 + multiplier*IQR] are considered outliers.',
+								source_line: 133,
+								type_signature:
+									'(values: number[], options?: StatsOutliersIqrOptions | undefined): StatsOutlierResult',
+								return_type: 'StatsOutlierResult',
+								parameters: [
+									{
+										name: 'values',
+										type: 'number[]',
+									},
+									{
+										name: 'options',
+										type: 'StatsOutliersIqrOptions | undefined',
+										optional: true,
+									},
+								],
+							},
+							{
+								name: 'StatsOutliersMadOptions',
+								kind: 'type',
+								doc_comment: 'Configuration options for MAD outlier detection.',
+								source_line: 173,
+								type_signature: 'StatsOutliersMadOptions',
+								properties: [
+									{
+										name: 'z_score_threshold',
+										kind: 'variable',
+										type_signature: 'number',
+										doc_comment: 'Modified Z-score threshold for outlier detection (default: 3.5)',
+									},
+									{
+										name: 'z_score_extreme',
+										kind: 'variable',
+										type_signature: 'number',
+										doc_comment:
+											'Extreme Z-score threshold when too many outliers detected (default: 5.0)',
+									},
+									{
+										name: 'mad_constant',
+										kind: 'variable',
+										type_signature: 'number',
+										doc_comment: 'MAD constant for normal distribution (default: 0.6745)',
+									},
+									{
+										name: 'outlier_ratio_high',
+										kind: 'variable',
+										type_signature: 'number',
+										doc_comment: 'Ratio threshold to switch to extreme mode (default: 0.3)',
+									},
+									{
+										name: 'outlier_ratio_extreme',
+										kind: 'variable',
+										type_signature: 'number',
+										doc_comment: 'Ratio threshold to switch to keep-closest mode (default: 0.4)',
+									},
+									{
+										name: 'outlier_keep_ratio',
+										kind: 'variable',
+										type_signature: 'number',
+										doc_comment: 'Ratio of values to keep in keep-closest mode (default: 0.8)',
+									},
+									{
+										name: 'min_sample_size',
+										kind: 'variable',
+										type_signature: 'number',
+										doc_comment: 'Minimum sample size to perform outlier detection (default: 3)',
+									},
+									{
+										name: 'iqr_options',
+										kind: 'variable',
+										type_signature: 'StatsOutliersIqrOptions',
+										doc_comment: 'Options to pass to IQR fallback when MAD is zero',
+									},
+								],
+							},
+							{
+								name: 'stats_outliers_mad',
+								kind: 'function',
+								doc_comment:
+									'Detect outliers using the MAD (Median Absolute Deviation) method.\nMore robust than IQR for skewed distributions.\nUses modified Z-score: |0.6745 * (x - median) / MAD|\nValues with modified Z-score > threshold are considered outliers.',
+								source_line: 198,
+								type_signature:
+									'(values: number[], options?: StatsOutliersMadOptions | undefined): StatsOutlierResult',
+								return_type: 'StatsOutlierResult',
+								parameters: [
+									{
+										name: 'values',
+										type: 'number[]',
+									},
+									{
+										name: 'options',
+										type: 'StatsOutliersMadOptions | undefined',
+										optional: true,
+									},
+								],
+							},
+							{
+								name: 'STATS_CONFIDENCE_Z_SCORES',
+								kind: 'variable',
+								doc_comment: 'Common z-scores for confidence intervals.',
+								source_line: 275,
+								type_signature: 'Record<number, number>',
+							},
+							{
+								name: 'stats_confidence_level_to_z_score',
+								kind: 'function',
+								doc_comment:
+									'Convert a confidence level (0-1) to a z-score.\nUses a lookup table for common values, approximates others.',
+								examples: [
+									'```ts\nstats_confidence_level_to_z_score(0.95); // 1.96\nstats_confidence_level_to_z_score(0.99); // 2.576\n```',
+								],
+								source_line: 293,
+								type_signature: '(level: number): number',
+								return_type: 'number',
+								parameters: [
+									{
+										name: 'level',
+										type: 'number',
+									},
+								],
+							},
+							{
+								name: 'StatsConfidenceIntervalOptions',
+								kind: 'type',
+								doc_comment: 'Configuration options for confidence interval calculation.',
+								source_line: 321,
+								type_signature: 'StatsConfidenceIntervalOptions',
+								properties: [
+									{
+										name: 'z_score',
+										kind: 'variable',
+										type_signature: 'number',
+										doc_comment: 'Z-score for confidence level (default: 1.96 for 95% CI)',
+									},
+									{
+										name: 'confidence_level',
+										kind: 'variable',
+										type_signature: 'number',
+										doc_comment:
+											'Confidence level (0-1), alternative to z_score. If both provided, z_score takes precedence.',
+									},
+								],
+							},
+							{
+								name: 'stats_confidence_interval',
+								kind: 'function',
+								doc_comment: 'Calculate confidence interval for the mean.',
+								source_line: 334,
+								type_signature:
+									'(values: number[], options?: StatsConfidenceIntervalOptions | undefined): [number, number]',
+								return_type: '[number, number]',
+								return_description: '[lower_bound, upper_bound]',
+								parameters: [
+									{
+										name: 'values',
+										type: 'number[]',
+										description: '- Array of numbers',
+									},
+									{
+										name: 'options',
+										type: 'StatsConfidenceIntervalOptions | undefined',
+										optional: true,
+										description: '- Configuration options',
+									},
+								],
+							},
+							{
+								name: 'stats_confidence_interval_from_summary',
+								kind: 'function',
+								doc_comment:
+									'Calculate confidence interval from summary statistics (mean, std_dev, sample_size).\nUseful when raw data is not available.',
+								source_line: 355,
+								type_signature:
+									'(mean: number, std_dev: number, sample_size: number, options?: StatsConfidenceIntervalOptions | undefined): [number, number]',
+								return_type: '[number, number]',
+								return_description: '[lower_bound, upper_bound]',
+								parameters: [
+									{
+										name: 'mean',
+										type: 'number',
+										description: '- Mean of the data',
+									},
+									{
+										name: 'std_dev',
+										type: 'number',
+										description: '- Standard deviation of the data',
+									},
+									{
+										name: 'sample_size',
+										type: 'number',
+										description: '- Number of samples',
+									},
+									{
+										name: 'options',
+										type: 'StatsConfidenceIntervalOptions | undefined',
+										optional: true,
+										description: '- Configuration options',
+									},
+								],
+							},
+							{
+								name: 'StatsWelchTTestResult',
+								kind: 'type',
+								doc_comment: "Result from Welch's t-test calculation.",
+								source_line: 383,
+								type_signature: 'StatsWelchTTestResult',
+								properties: [
+									{
+										name: 't_statistic',
+										kind: 'variable',
+										type_signature: 'number',
+										doc_comment: 'The t-statistic',
+									},
+									{
+										name: 'degrees_of_freedom',
+										kind: 'variable',
+										type_signature: 'number',
+										doc_comment: 'Welch-Satterthwaite degrees of freedom',
+									},
+								],
+							},
+							{
+								name: 'stats_welch_t_test',
+								kind: 'function',
+								doc_comment:
+									"Calculate Welch's t-test statistic and degrees of freedom.\nWelch's t-test is more robust than Student's t-test when variances are unequal.",
+								source_line: 401,
+								type_signature:
+									'(mean1: number, std1: number, n1: number, mean2: number, std2: number, n2: number): StatsWelchTTestResult',
+								return_type: 'StatsWelchTTestResult',
+								parameters: [
+									{
+										name: 'mean1',
+										type: 'number',
+										description: '- Mean of first sample',
+									},
+									{
+										name: 'std1',
+										type: 'number',
+										description: '- Standard deviation of first sample',
+									},
+									{
+										name: 'n1',
+										type: 'number',
+										description: '- Size of first sample',
+									},
+									{
+										name: 'mean2',
+										type: 'number',
+										description: '- Mean of second sample',
+									},
+									{
+										name: 'std2',
+										type: 'number',
+										description: '- Standard deviation of second sample',
+									},
+									{
+										name: 'n2',
+										type: 'number',
+										description: '- Size of second sample',
+									},
+								],
+							},
+							{
+								name: 'stats_normal_cdf',
+								kind: 'function',
+								doc_comment:
+									'Standard normal CDF approximation (Abramowitz and Stegun formula 7.1.26).',
+								source_line: 428,
+								type_signature: '(x: number): number',
+								return_type: 'number',
+								parameters: [
+									{
+										name: 'x',
+										type: 'number',
+									},
+								],
+							},
+							{
+								name: 'stats_ln_gamma',
+								kind: 'function',
+								doc_comment: 'Log gamma function approximation (Lanczos approximation).',
+								source_line: 439,
+								type_signature: '(z: number): number',
+								return_type: 'number',
+								parameters: [
+									{
+										name: 'z',
+										type: 'number',
+									},
+								],
+							},
+							{
+								name: 'stats_incomplete_beta',
+								kind: 'function',
+								doc_comment:
+									'Approximate regularized incomplete beta function for p-value calculation.\nUses continued fraction expansion for reasonable accuracy.',
+								source_line: 464,
+								type_signature: '(x: number, a: number, b: number): number',
+								return_type: 'number',
+								parameters: [
+									{
+										name: 'x',
+										type: 'number',
+									},
+									{
+										name: 'a',
+										type: 'number',
+									},
+									{
+										name: 'b',
+										type: 'number',
+									},
+								],
+							},
+							{
+								name: 'stats_t_distribution_p_value',
+								kind: 'function',
+								doc_comment:
+									'Approximate two-tailed p-value from t-distribution.\nFor large df (>100), uses normal approximation.\nFor smaller df, uses incomplete beta function.',
+								source_line: 521,
+								type_signature: '(t: number, df: number): number',
+								return_type: 'number',
+								return_description: 'Two-tailed p-value',
+								parameters: [
+									{
+										name: 't',
+										type: 'number',
+										description: '- Absolute value of t-statistic',
+									},
+									{
+										name: 'df',
+										type: 'number',
+										description: '- Degrees of freedom',
+									},
+								],
+							},
+						],
+						module_comment:
+							'Statistical analysis utilities.\nPure functions with zero dependencies - can be used standalone for any data analysis.',
+						dependents: ['benchmark_baseline.ts', 'benchmark_stats.ts'],
+					},
+					{
 						path: 'string.ts',
 						declarations: [
 							{
@@ -20349,9 +22092,55 @@ export const repos_json: Array<RepoJson> = [
 									},
 								],
 							},
+							{
+								name: 'string_display_width',
+								kind: 'function',
+								doc_comment:
+									'Calculate the display width of a string in terminal columns.\n- Strips ANSI escape codes (they have 0 width)\n- Emojis and other wide characters take 2 columns\n- Tab characters take 4 columns\n- Newlines and other control characters take 0 columns\n- Uses `Intl.Segmenter` to properly handle grapheme clusters (e.g., family emoji "👨‍👩‍👧‍👦")',
+								source_line: 109,
+								type_signature: '(str: string): number',
+								return_type: 'number',
+								parameters: [
+									{
+										name: 'str',
+										type: 'string',
+									},
+								],
+							},
+							{
+								name: 'pad_width',
+								kind: 'function',
+								doc_comment:
+									'Pad a string to a target display width (accounting for wide characters).',
+								source_line: 153,
+								type_signature:
+									'(str: string, target_width: number, align?: "left" | "right"): string',
+								return_type: 'string',
+								parameters: [
+									{
+										name: 'str',
+										type: 'string',
+									},
+									{
+										name: 'target_width',
+										type: 'number',
+									},
+									{
+										name: 'align',
+										type: '"left" | "right"',
+										default_value: "'left'",
+									},
+								],
+							},
 						],
 						dependencies: ['iterator.ts'],
-						dependents: ['fs.ts', 'library_json.ts', 'package_json.ts', 'url.ts'],
+						dependents: [
+							'benchmark_format.ts',
+							'fs.ts',
+							'library_json.ts',
+							'package_json.ts',
+							'url.ts',
+						],
 					},
 					{
 						path: 'throttle.ts',
@@ -20403,6 +22192,322 @@ export const repos_json: Array<RepoJson> = [
 						dependencies: ['async.ts', 'object.ts'],
 					},
 					{
+						path: 'time.ts',
+						declarations: [
+							{
+								name: 'Timer',
+								kind: 'type',
+								doc_comment:
+									'Timer interface for measuring elapsed time.\nReturns time in nanoseconds for maximum precision.',
+								source_line: 10,
+								type_signature: 'Timer',
+								properties: [
+									{
+										name: 'now',
+										kind: 'variable',
+										type_signature: '() => number',
+										doc_comment: 'Get current time in nanoseconds',
+									},
+								],
+							},
+							{
+								name: 'timer_node',
+								kind: 'variable',
+								doc_comment:
+									'Node.js high-resolution timer using process.hrtime.bigint().\nProvides true nanosecond precision.',
+								source_line: 19,
+								type_signature: 'Timer',
+							},
+							{
+								name: 'timer_browser',
+								kind: 'variable',
+								doc_comment:
+									'Browser high-resolution timer using performance.now().\nConverts milliseconds to nanoseconds for consistent API.\n\n**Precision varies by browser due to Spectre/Meltdown mitigations:**\n- Chrome: ~100μs (coarsened)\n- Firefox: ~1ms (rounded)\n- Safari: ~100μs\n- Node.js: ~1μs\n\nFor nanosecond-precision benchmarks, use Node.js with `timer_node`.',
+								source_line: 38,
+								type_signature: 'Timer',
+							},
+							{
+								name: 'timer_default',
+								kind: 'variable',
+								doc_comment:
+									'Auto-detected timer based on environment.\nUses process.hrtime in Node.js, performance.now() in browsers.\nThe timer function is detected once and cached for performance.',
+								source_line: 82,
+								type_signature: 'Timer',
+							},
+							{
+								name: 'TIME_NS_PER_US',
+								kind: 'variable',
+								doc_comment: 'Time units and conversions.',
+								source_line: 89,
+								type_signature: '1000',
+							},
+							{
+								name: 'TIME_NS_PER_MS',
+								kind: 'variable',
+								source_line: 90,
+								type_signature: '1000000',
+							},
+							{
+								name: 'TIME_NS_PER_SEC',
+								kind: 'variable',
+								source_line: 91,
+								type_signature: '1000000000',
+							},
+							{
+								name: 'time_ns_to_us',
+								kind: 'function',
+								doc_comment: 'Convert nanoseconds to microseconds.',
+								source_line: 96,
+								type_signature: '(ns: number): number',
+								return_type: 'number',
+								parameters: [
+									{
+										name: 'ns',
+										type: 'number',
+									},
+								],
+							},
+							{
+								name: 'time_ns_to_ms',
+								kind: 'function',
+								doc_comment: 'Convert nanoseconds to milliseconds.',
+								source_line: 101,
+								type_signature: '(ns: number): number',
+								return_type: 'number',
+								parameters: [
+									{
+										name: 'ns',
+										type: 'number',
+									},
+								],
+							},
+							{
+								name: 'time_ns_to_sec',
+								kind: 'function',
+								doc_comment: 'Convert nanoseconds to seconds.',
+								source_line: 106,
+								type_signature: '(ns: number): number',
+								return_type: 'number',
+								parameters: [
+									{
+										name: 'ns',
+										type: 'number',
+									},
+								],
+							},
+							{
+								name: 'TimeUnit',
+								kind: 'type',
+								doc_comment: 'Time unit for formatting.',
+								source_line: 111,
+								type_signature: 'TimeUnit',
+							},
+							{
+								name: 'TIME_UNIT_DISPLAY',
+								kind: 'variable',
+								doc_comment:
+									'Display labels for time units (uses proper Unicode μ for microseconds).',
+								source_line: 116,
+								type_signature: 'Record<TimeUnit, string>',
+							},
+							{
+								name: 'time_unit_detect_best',
+								kind: 'function',
+								doc_comment:
+									'Detect the best time unit for a set of nanosecond values.\nChooses the unit where most values fall in the range 1-9999.',
+								source_line: 124,
+								type_signature: '(values_ns: number[]): TimeUnit',
+								return_type: 'TimeUnit',
+								return_description: 'Best unit to use for all values',
+								parameters: [
+									{
+										name: 'values_ns',
+										type: 'number[]',
+										description: '- Array of times in nanoseconds',
+									},
+								],
+							},
+							{
+								name: 'time_format',
+								kind: 'function',
+								doc_comment: 'Format time with a specific unit.',
+								source_line: 154,
+								type_signature: '(ns: number, unit: TimeUnit, decimals?: number): string',
+								return_type: 'string',
+								return_description: 'Formatted string like "3.87μs"',
+								parameters: [
+									{
+										name: 'ns',
+										type: 'number',
+										description: '- Time in nanoseconds',
+									},
+									{
+										name: 'unit',
+										type: 'TimeUnit',
+										description: "- Unit to use ('ns', 'us', 'ms', 's')",
+									},
+									{
+										name: 'decimals',
+										type: 'number',
+										description: '- Number of decimal places (default: 2)',
+										default_value: '2',
+									},
+								],
+							},
+							{
+								name: 'time_format_adaptive',
+								kind: 'function',
+								doc_comment: 'Format time with adaptive units (ns/μs/ms/s) based on magnitude.',
+								examples: [
+									'```ts\ntime_format_adaptive(1500) // "1.50μs"\ntime_format_adaptive(3870) // "3.87μs"\ntime_format_adaptive(1500000) // "1.50ms"\ntime_format_adaptive(1500000000) // "1.50s"\n```',
+								],
+								source_line: 183,
+								type_signature: '(ns: number, decimals?: number): string',
+								return_type: 'string',
+								return_description: 'Formatted string like "3.87μs" or "1.23ms"',
+								parameters: [
+									{
+										name: 'ns',
+										type: 'number',
+										description: '- Time in nanoseconds',
+									},
+									{
+										name: 'decimals',
+										type: 'number',
+										description: '- Number of decimal places (default: 2)',
+										default_value: '2',
+									},
+								],
+							},
+							{
+								name: 'TimeResult',
+								kind: 'type',
+								doc_comment:
+									'Result from timing a function execution.\nAll times in nanoseconds for maximum precision.',
+								source_line: 202,
+								type_signature: 'TimeResult',
+								properties: [
+									{
+										name: 'elapsed_ns',
+										kind: 'variable',
+										type_signature: 'number',
+										doc_comment: 'Elapsed time in nanoseconds',
+									},
+									{
+										name: 'elapsed_us',
+										kind: 'variable',
+										type_signature: 'number',
+										doc_comment: 'Elapsed time in microseconds (convenience)',
+									},
+									{
+										name: 'elapsed_ms',
+										kind: 'variable',
+										type_signature: 'number',
+										doc_comment: 'Elapsed time in milliseconds (convenience)',
+									},
+									{
+										name: 'started_at_ns',
+										kind: 'variable',
+										type_signature: 'number',
+										doc_comment: 'Start time in nanoseconds (from timer.now())',
+									},
+									{
+										name: 'ended_at_ns',
+										kind: 'variable',
+										type_signature: 'number',
+										doc_comment: 'End time in nanoseconds (from timer.now())',
+									},
+								],
+							},
+							{
+								name: 'time_async',
+								kind: 'function',
+								doc_comment: 'Time an asynchronous function execution.',
+								examples: [
+									"```ts\nconst {result, timing} = await time_async(async () => {\n  await fetch('https://api.example.com/data');\n  return 42;\n});\nconsole.log(`Result: ${result}, took ${time_format_adaptive(timing.elapsed_ns)}`);\n```",
+								],
+								source_line: 230,
+								type_signature:
+									'<T>(fn: () => Promise<T>, timer?: Timer): Promise<{ result: T; timing: TimeResult; }>',
+								return_type: 'Promise<{ result: T; timing: TimeResult; }>',
+								return_description: 'Object containing the function result and timing information',
+								parameters: [
+									{
+										name: 'fn',
+										type: '() => Promise<T>',
+										description: '- Async function to time',
+									},
+									{
+										name: 'timer',
+										type: 'Timer',
+										description: '- Timer to use (defaults to timer_default)',
+										default_value: 'timer_default',
+									},
+								],
+							},
+							{
+								name: 'time_sync',
+								kind: 'function',
+								doc_comment: 'Time a synchronous function execution.',
+								examples: [
+									'```ts\nconst {result, timing} = time_sync(() => {\n  return expensive_computation();\n});\nconsole.log(`Result: ${result}, took ${time_format_adaptive(timing.elapsed_ns)}`);\n```',
+								],
+								source_line: 265,
+								type_signature:
+									'<T>(fn: () => T, timer?: Timer): { result: T; timing: TimeResult; }',
+								return_type: '{ result: T; timing: TimeResult; }',
+								return_description: 'Object containing the function result and timing information',
+								parameters: [
+									{
+										name: 'fn',
+										type: '() => T',
+										description: '- Sync function to time',
+									},
+									{
+										name: 'timer',
+										type: 'Timer',
+										description: '- Timer to use (defaults to timer_default)',
+										default_value: 'timer_default',
+									},
+								],
+							},
+							{
+								name: 'time_measure',
+								kind: 'function',
+								doc_comment: 'Measure multiple executions of a function and return all timings.',
+								examples: [
+									"```ts\nconst timings_ns = await time_measure(async () => {\n  await process_data();\n}, 100);\n\nimport {BenchmarkStats} from './benchmark_stats.js';\nconst stats = new BenchmarkStats(timings_ns);\nconsole.log(`Mean: ${time_format_adaptive(stats.mean_ns)}`);\n```",
+								],
+								source_line: 304,
+								type_signature:
+									'(fn: () => unknown, iterations: number, timer?: Timer): Promise<number[]>',
+								return_type: 'Promise<number[]>',
+								return_description: 'Array of elapsed times in nanoseconds',
+								parameters: [
+									{
+										name: 'fn',
+										type: '() => unknown',
+										description: '- Function to measure (sync or async)',
+									},
+									{
+										name: 'iterations',
+										type: 'number',
+										description: '- Number of times to execute',
+									},
+									{
+										name: 'timer',
+										type: 'Timer',
+										description: '- Timer to use (defaults to timer_default)',
+										default_value: 'timer_default',
+									},
+								],
+							},
+						],
+						module_comment:
+							'Time utilities.\nProvides cross-platform high-resolution timing and measurement helpers.',
+						dependents: ['benchmark.ts', 'benchmark_format.ts', 'benchmark_stats.ts'],
+					},
+					{
 						path: 'timings.ts',
 						declarations: [
 							{
@@ -20446,18 +22551,6 @@ export const repos_json: Array<RepoJson> = [
 										type_signature: 'number | undefined',
 									},
 									{
-										name: 'timings',
-										kind: 'variable',
-										modifiers: ['private', 'readonly'],
-										type_signature: 'Map<TimingsKey, number | undefined>',
-									},
-									{
-										name: 'stopwatches',
-										kind: 'variable',
-										modifiers: ['private', 'readonly'],
-										type_signature: 'Map<TimingsKey, Stopwatch>',
-									},
-									{
 										name: 'constructor',
 										kind: 'constructor',
 										type_signature: '(decimals?: number | undefined): Timings',
@@ -20485,33 +22578,6 @@ export const repos_json: Array<RepoJson> = [
 												name: 'decimals',
 												type: 'number | undefined',
 												default_value: 'this.decimals',
-											},
-										],
-									},
-									{
-										name: 'next_key',
-										kind: 'function',
-										modifiers: ['private'],
-										type_signature: '(key: TimingsKey): TimingsKey',
-										return_type: 'TimingsKey',
-										parameters: [
-											{
-												name: 'key',
-												type: 'TimingsKey',
-											},
-										],
-									},
-									{
-										name: 'stop',
-										kind: 'function',
-										modifiers: ['private'],
-										doc_comment: 'Stops a timing operation and records the elapsed time.',
-										type_signature: '(key: TimingsKey): number',
-										return_type: 'number',
-										parameters: [
-											{
-												name: 'key',
-												type: 'TimingsKey',
 											},
 										],
 									},
@@ -20830,7 +22896,7 @@ export const repos_json: Array<RepoJson> = [
 				glyph: '❄',
 				logo: 'logo.svg',
 				logo_alt: 'a friendly pixelated spider facing you',
-				public: true,
+				private: true,
 				homepage: 'https://template.fuz.dev/',
 				repository: 'https://github.com/fuzdev/fuz_template',
 				scripts: {
@@ -20847,11 +22913,12 @@ export const repos_json: Array<RepoJson> = [
 					node: '>=22.15',
 				},
 				devDependencies: {
-					'@fuzdev/fuz_css': '^0.42.0',
-					'@fuzdev/fuz_ui': '^0.171.0',
-					'@fuzdev/fuz_util': '^0.42.0',
+					'@fuzdev/fuz_code': '^0.38.0',
+					'@fuzdev/fuz_css': '^0.42.1',
+					'@fuzdev/fuz_ui': '^0.174.0',
+					'@fuzdev/fuz_util': '^0.43.0',
 					'@ryanatkn/eslint-config': '^0.9.0',
-					'@ryanatkn/gro': '^0.181.0',
+					'@ryanatkn/gro': '^0.184.0',
 					'@sveltejs/adapter-static': '^3.0.10',
 					'@sveltejs/kit': '^2.49.1',
 					'@sveltejs/vite-plugin-svelte': '^6.2.1',
@@ -20887,7 +22954,56 @@ export const repos_json: Array<RepoJson> = [
 			source_json: {
 				name: '@fuzdev/fuz_template',
 				version: '0.0.1',
-				modules: [],
+				modules: [
+					{
+						path: 'Mreows.svelte',
+						declarations: [
+							{
+								name: 'Mreows',
+								kind: 'component',
+								props: [
+									{
+										name: 'mreows',
+										type: 'Array<Mreow>',
+										optional: true,
+										bindable: true,
+									},
+								],
+								source_line: 1,
+							},
+						],
+						dependencies: ['Positioned.svelte'],
+					},
+					{
+						path: 'Positioned.svelte',
+						declarations: [
+							{
+								name: 'Positioned',
+								kind: 'component',
+								props: [
+									{
+										name: 'x',
+										type: 'number',
+									},
+									{
+										name: 'y',
+										type: 'number',
+									},
+									{
+										name: 'scale',
+										type: 'number',
+									},
+									{
+										name: 'children',
+										type: 'Snippet',
+									},
+								],
+								source_line: 1,
+							},
+						],
+						dependents: ['Mreows.svelte'],
+					},
+				],
 			},
 			name: '@fuzdev/fuz_template',
 			repo_name: 'fuz_template',
@@ -20910,12 +23026,11 @@ export const repos_json: Array<RepoJson> = [
 		library_json: {
 			package_json: {
 				name: '@fuzdev/fuz_blog',
-				version: '0.20.0',
+				version: '0.21.0',
 				description: 'blog software from scratch with SvelteKit',
 				glyph: '🖊️',
 				logo: 'logo.svg',
 				logo_alt: 'a friendly yellow spider facing you',
-				public: true,
 				homepage: 'https://blog.fuz.dev/',
 				repository: 'https://github.com/fuzdev/fuz_blog',
 				scripts: {
@@ -20936,7 +23051,7 @@ export const repos_json: Array<RepoJson> = [
 					'@fuzdev/fuz_mastodon': '>=0.37.0',
 					'@fuzdev/fuz_ui': '>=0.169.0',
 					'@fuzdev/fuz_util': '>=0.42.0',
-					'@ryanatkn/gro': '>=0.181.0',
+					'@ryanatkn/gro': '>=0.184.0',
 					'@sveltejs/kit': '^2',
 					'date-fns': '^4',
 					svelte: '^5',
@@ -20944,12 +23059,12 @@ export const repos_json: Array<RepoJson> = [
 				devDependencies: {
 					'@changesets/changelog-git': '^0.2.1',
 					'@fuzdev/fuz_code': '^0.38.0',
-					'@fuzdev/fuz_css': '^0.42.0',
+					'@fuzdev/fuz_css': '^0.42.1',
 					'@fuzdev/fuz_mastodon': '^0.37.0',
-					'@fuzdev/fuz_ui': '^0.171.0',
+					'@fuzdev/fuz_ui': '^0.174.0',
 					'@fuzdev/fuz_util': '^0.42.0',
 					'@ryanatkn/eslint-config': '^0.9.0',
-					'@ryanatkn/gro': '^0.181.0',
+					'@ryanatkn/gro': '^0.184.0',
 					'@sveltejs/adapter-static': '^3.0.10',
 					'@sveltejs/kit': '^2.49.1',
 					'@sveltejs/package': '^2.5.7',
@@ -21003,7 +23118,7 @@ export const repos_json: Array<RepoJson> = [
 			},
 			source_json: {
 				name: '@fuzdev/fuz_blog',
-				version: '0.20.0',
+				version: '0.21.0',
 				modules: [
 					{
 						path: 'blog_helpers.ts',
@@ -21554,7 +23669,6 @@ export const repos_json: Array<RepoJson> = [
 				glyph: '🦣',
 				logo: 'logo.svg',
 				logo_alt: 'a friendly purple spider facing you',
-				public: true,
 				license: 'MIT',
 				homepage: 'https://mastodon.fuz.dev/',
 				repository: 'https://github.com/fuzdev/fuz_mastodon',
@@ -21590,11 +23704,11 @@ export const repos_json: Array<RepoJson> = [
 				devDependencies: {
 					'@changesets/changelog-git': '^0.2.1',
 					'@fuzdev/fuz_code': '^0.38.0',
-					'@fuzdev/fuz_css': '^0.42.0',
-					'@fuzdev/fuz_ui': '^0.171.0',
+					'@fuzdev/fuz_css': '^0.42.1',
+					'@fuzdev/fuz_ui': '^0.174.0',
 					'@fuzdev/fuz_util': '^0.42.0',
 					'@ryanatkn/eslint-config': '^0.9.0',
-					'@ryanatkn/gro': '^0.181.0',
+					'@ryanatkn/gro': '^0.184.0',
 					'@sveltejs/adapter-static': '^3.0.10',
 					'@sveltejs/kit': '^2.49.1',
 					'@sveltejs/package': '^2.5.7',
@@ -22728,7 +24842,6 @@ export const repos_json: Array<RepoJson> = [
 				glyph: '🎨',
 				logo: 'logo.svg',
 				logo_alt: 'a friendly pink spider facing you',
-				public: true,
 				license: 'MIT',
 				homepage: 'https://code.fuz.dev/',
 				repository: 'https://github.com/fuzdev/fuz_code',
@@ -22747,8 +24860,8 @@ export const repos_json: Array<RepoJson> = [
 					test: 'gro test',
 					preview: 'vite preview',
 					deploy: 'gro deploy',
-					benchmark: 'gro run benchmark/run_benchmarks.ts',
-					'benchmark:compare': 'gro run benchmark/compare/run_compare.ts',
+					benchmark: 'gro run src/benchmark/run_benchmarks.ts',
+					'benchmark:compare': 'gro run src/benchmark/compare/run_compare.ts',
 					'fixtures:update': 'gro src/test/fixtures/update',
 				},
 				type: 'module',
@@ -22769,11 +24882,11 @@ export const repos_json: Array<RepoJson> = [
 				},
 				devDependencies: {
 					'@changesets/changelog-git': '^0.2.1',
-					'@fuzdev/fuz_css': '^0.42.0',
-					'@fuzdev/fuz_ui': '^0.171.0',
-					'@fuzdev/fuz_util': '^0.42.0',
+					'@fuzdev/fuz_css': '^0.42.1',
+					'@fuzdev/fuz_ui': '^0.174.0',
+					'@fuzdev/fuz_util': '^0.45.0',
 					'@ryanatkn/eslint-config': '^0.9.0',
-					'@ryanatkn/gro': '^0.181.0',
+					'@ryanatkn/gro': '^0.184.0',
 					'@sveltejs/adapter-static': '^3.0.10',
 					'@sveltejs/kit': '^2.49.1',
 					'@sveltejs/package': '^2.5.7',
@@ -22786,7 +24899,6 @@ export const repos_json: Array<RepoJson> = [
 					'prettier-plugin-svelte': '^3.4.0',
 					svelte: '^5.45.6',
 					'svelte-check': '^4.3.4',
-					tinybench: '^6.0.0',
 					tslib: '^2.8.1',
 					typescript: '^5.9.3',
 					'typescript-eslint': '^8.48.1',
@@ -23583,47 +25695,6 @@ export const repos_json: Array<RepoJson> = [
 										],
 									},
 									{
-										name: 'normalize_pattern',
-										kind: 'function',
-										modifiers: ['private'],
-										doc_comment:
-											'Normalize a single pattern to have consistent shape.\nThis ensures all patterns have the same object shape for V8 optimization.',
-										type_signature:
-											'(pattern: RegExp | SyntaxGrammarTokenRaw, visited: Set<number>): SyntaxGrammarToken',
-										return_type: 'SyntaxGrammarToken',
-										parameters: [
-											{
-												name: 'pattern',
-												type: 'RegExp | SyntaxGrammarTokenRaw',
-											},
-											{
-												name: 'visited',
-												type: 'Set<number>',
-											},
-										],
-									},
-									{
-										name: 'normalize_grammar',
-										kind: 'function',
-										modifiers: ['private'],
-										doc_comment:
-											'Normalize a grammar to have consistent object shapes.\nThis performs several optimizations:\n1. Merges `rest` property into main grammar\n2. Ensures all pattern values are arrays\n3. Normalizes all pattern objects to have consistent shapes\n4. Adds global flag to greedy patterns\n\nThis is called once at registration time to avoid runtime overhead.',
-										type_signature: '(grammar: SyntaxGrammarRaw, visited: Set<number>): void',
-										return_type: 'void',
-										parameters: [
-											{
-												name: 'grammar',
-												type: 'SyntaxGrammarRaw',
-											},
-											{
-												name: 'visited',
-												type: 'Set<number>',
-												description:
-													'- Set of grammar object IDs already normalized (for circular references)',
-											},
-										],
-									},
-									{
 										name: 'plugins',
 										kind: 'variable',
 										type_signature: 'Record<string, any>',
@@ -24057,12 +26128,11 @@ export const repos_json: Array<RepoJson> = [
 		library_json: {
 			package_json: {
 				name: '@fuzdev/fuz_gitops',
-				version: '0.58.0',
+				version: '0.61.0',
 				description: 'a tool for managing many repos',
 				glyph: '🪄',
 				logo: 'logo.svg',
 				logo_alt: 'a friendly blue spider facing you',
-				public: true,
 				license: 'MIT',
 				homepage: 'https://gitops.fuz.dev/',
 				repository: 'https://github.com/fuzdev/fuz_gitops',
@@ -24087,10 +26157,10 @@ export const repos_json: Array<RepoJson> = [
 					node: '>=22.15',
 				},
 				peerDependencies: {
-					'@fuzdev/fuz_css': '>=0.40.0',
-					'@fuzdev/fuz_ui': '>=0.169.0',
-					'@fuzdev/fuz_util': '>=0.42.0',
-					'@ryanatkn/gro': '>=0.181.0',
+					'@fuzdev/fuz_css': '>=0.42.1',
+					'@fuzdev/fuz_ui': '>=0.174.0',
+					'@fuzdev/fuz_util': '>=0.45.0',
+					'@ryanatkn/gro': '>=0.184.0',
 					'@sveltejs/kit': '^2',
 					svelte: '^5',
 					zod: '^4.1.13',
@@ -24098,11 +26168,11 @@ export const repos_json: Array<RepoJson> = [
 				devDependencies: {
 					'@changesets/changelog-git': '^0.2.1',
 					'@fuzdev/fuz_code': '^0.38.0',
-					'@fuzdev/fuz_css': '^0.42.0',
-					'@fuzdev/fuz_ui': '^0.171.0',
-					'@fuzdev/fuz_util': '^0.42.0',
+					'@fuzdev/fuz_css': '^0.42.1',
+					'@fuzdev/fuz_ui': '^0.174.0',
+					'@fuzdev/fuz_util': '^0.45.0',
 					'@ryanatkn/eslint-config': '^0.9.0',
-					'@ryanatkn/gro': '^0.181.0',
+					'@ryanatkn/gro': '^0.184.0',
 					'@sveltejs/adapter-static': '^3.0.10',
 					'@sveltejs/kit': '^2.49.1',
 					'@sveltejs/package': '^2.5.7',
@@ -24155,7 +26225,7 @@ export const repos_json: Array<RepoJson> = [
 			},
 			source_json: {
 				name: '@fuzdev/fuz_gitops',
-				version: '0.58.0',
+				version: '0.61.0',
 				modules: [
 					{
 						path: 'changeset_generator.ts',
@@ -24421,20 +26491,6 @@ export const repos_json: Array<RepoJson> = [
 							'Changeset parsing and version prediction from `.changeset/*.md` files.\n\nReads changesets to determine which packages need publishing and their version bumps.\nFor auto-generating changesets during publishing, see `changeset_generator.ts`.',
 						dependencies: ['version_utils.ts'],
 						dependents: ['operations_defaults.ts'],
-					},
-					{
-						path: 'constants.ts',
-						declarations: [
-							{
-								name: 'MAX_ITERATIONS',
-								kind: 'variable',
-								doc_comment:
-									'Maximum number of iterations for fixed-point iteration during publishing.\nUsed in both plan generation and actual publishing to resolve transitive dependency cascades.\n\nIn practice, most repos converge in 2-3 iterations.\nDeep dependency chains may require more iterations.',
-								source_line: 8,
-								type_signature: '10',
-							},
-						],
-						dependents: ['multi_repo_publisher.ts', 'publishing_plan.ts'],
 					},
 					{
 						path: 'dependency_graph.ts',
@@ -24768,7 +26824,7 @@ export const repos_json: Array<RepoJson> = [
 								],
 							},
 							{
-								name: 'package_json_update',
+								name: 'update_package_json',
 								kind: 'function',
 								doc_comment:
 									'Updates package.json dependencies and creates changeset if needed.\n\nWorkflow:\n1. Updates all dependency types (dependencies, devDependencies, peerDependencies)\n2. Writes updated package.json with tabs formatting\n3. Creates auto-changeset if published_versions provided (for transitive updates)\n4. Commits both package.json and changeset with standard message\n\nUses version strategy to determine prefix (exact, caret, tilde) while preserving\nexisting prefixes when possible.',
@@ -25470,6 +27526,7 @@ export const repos_json: Array<RepoJson> = [
 						declarations: [],
 						dependencies: [
 							'dependency_graph.ts',
+							'gitops_constants.ts',
 							'gitops_task_helpers.ts',
 							'graph_validation.ts',
 							'log_helpers.ts',
@@ -25647,14 +27704,70 @@ export const repos_json: Array<RepoJson> = [
 						dependents: ['gitops_task_helpers.ts', 'repo_ops.ts'],
 					},
 					{
+						path: 'gitops_constants.ts',
+						declarations: [
+							{
+								name: 'GITOPS_MAX_ITERATIONS_DEFAULT',
+								kind: 'variable',
+								doc_comment:
+									'Maximum number of iterations for fixed-point iteration during publishing.\nUsed in both plan generation and actual publishing to resolve transitive dependency cascades.\n\nIn practice, most repos converge in 2-3 iterations.\nDeep dependency chains may require more iterations.',
+								source_line: 14,
+								type_signature: '10',
+							},
+							{
+								name: 'GITOPS_CONFIG_PATH_DEFAULT',
+								kind: 'variable',
+								doc_comment: 'Default path to the gitops configuration file.',
+								source_line: 19,
+								type_signature: '"gitops.config.ts"',
+							},
+							{
+								name: 'GITOPS_CONCURRENCY_DEFAULT',
+								kind: 'variable',
+								doc_comment:
+									'Default number of repos to process concurrently during parallel operations.',
+								source_line: 24,
+								type_signature: '5',
+							},
+							{
+								name: 'GITOPS_NPM_WAIT_TIMEOUT_DEFAULT',
+								kind: 'variable',
+								doc_comment:
+									"Default timeout in milliseconds for waiting on NPM package propagation (10 minutes).\nNPM's CDN uses eventual consistency, so published packages may not be immediately available.",
+								source_line: 30,
+								type_signature: '600000',
+							},
+						],
+						module_comment:
+							'Shared constants for gitops tasks and operations.\n\nNaming convention: GITOPS_{NAME}_DEFAULT for user-facing defaults.',
+						dependents: [
+							'gitops_analyze.task.ts',
+							'gitops_plan.task.ts',
+							'gitops_publish.task.ts',
+							'gitops_run.task.ts',
+							'gitops_sync.task.ts',
+							'gitops_validate.task.ts',
+							'local_repo.ts',
+							'multi_repo_publisher.ts',
+							'publishing_plan.ts',
+							'repo_ops.ts',
+						],
+					},
+					{
 						path: 'gitops_plan.task.ts',
 						declarations: [],
-						dependencies: ['gitops_task_helpers.ts', 'output_helpers.ts', 'publishing_plan.ts'],
+						dependencies: [
+							'gitops_constants.ts',
+							'gitops_task_helpers.ts',
+							'output_helpers.ts',
+							'publishing_plan.ts',
+						],
 					},
 					{
 						path: 'gitops_publish.task.ts',
 						declarations: [],
 						dependencies: [
+							'gitops_constants.ts',
 							'gitops_task_helpers.ts',
 							'multi_repo_publisher.ts',
 							'output_helpers.ts',
@@ -25662,11 +27775,32 @@ export const repos_json: Array<RepoJson> = [
 						],
 					},
 					{
+						path: 'gitops_run.task.ts',
+						declarations: [
+							{
+								name: 'Args',
+								kind: 'type',
+								source_line: 11,
+								type_signature:
+									'ZodObject<{ command: ZodString; config: ZodDefault<ZodString>; concurrency: ZodDefault<ZodNumber>; format: ZodDefault<ZodEnum<{ json: "json"; text: "text"; }>>; }, $strict>',
+							},
+							{
+								name: 'task',
+								kind: 'variable',
+								source_line: 38,
+								type_signature:
+									'Task<{ command: string; config: string; concurrency: number; format: "json" | "text"; }, ZodType<Args, Args, $ZodTypeInternals<Args, Args>>, unknown>',
+							},
+						],
+						dependencies: ['gitops_constants.ts', 'repo_ops.ts'],
+					},
+					{
 						path: 'gitops_sync.task.ts',
 						declarations: [],
 						dependencies: [
 							'fetch_repo_data.ts',
 							'fs_fetch_value_cache.ts',
+							'gitops_constants.ts',
 							'gitops_task_helpers.ts',
 						],
 					},
@@ -25680,7 +27814,7 @@ export const repos_json: Array<RepoJson> = [
 								type_signature: 'GetGitopsReadyOptions',
 								properties: [
 									{
-										name: 'path',
+										name: 'config',
 										kind: 'variable',
 										type_signature: 'string',
 									},
@@ -25709,20 +27843,30 @@ export const repos_json: Array<RepoJson> = [
 										kind: 'variable',
 										type_signature: 'NpmOperations',
 									},
+									{
+										name: 'parallel',
+										kind: 'variable',
+										type_signature: 'boolean',
+									},
+									{
+										name: 'concurrency',
+										kind: 'variable',
+										type_signature: 'number',
+									},
 								],
 							},
 							{
 								name: 'get_gitops_ready',
 								kind: 'function',
 								doc_comment:
-									'Central initialization function for all gitops tasks.\n\nInitialization sequence:\n1. Loads and normalizes config from `gitops.config.ts`\n2. Resolves local repo paths (creates missing with `--download`)\n3. Switches branches and pulls latest changes\n4. Auto-installs deps if package.json changed during pull\n\nPriority for path resolution:\n- `dir` argument (explicit override)\n- Config `repos_dir` setting\n- `DEFAULT_REPOS_DIR` constant',
+									'Central initialization function for all gitops tasks.\n\nInitialization sequence:\n1. Loads and normalizes config from `gitops.config.ts`\n2. Resolves local repo paths (creates missing with `--download`)\n3. Switches branches and pulls latest changes (in parallel by default)\n4. Auto-installs deps if package.json changed during pull\n\nPriority for path resolution:\n- `dir` argument (explicit override)\n- Config `repos_dir` setting\n- `DEFAULT_REPOS_DIR` constant',
 								throws: [
 									{
 										type: 'if',
 										description: 'config loading or repo resolution fails',
 									},
 								],
-								source_line: 57,
+								source_line: 61,
 								type_signature:
 									'(options: GetGitopsReadyOptions): Promise<{ config_path: string; repos_dir: string; gitops_config: GitopsConfig; local_repos: LocalRepo[]; }>',
 								return_type:
@@ -25739,11 +27883,11 @@ export const repos_json: Array<RepoJson> = [
 							{
 								name: 'ResolveGitopsPathsOptions',
 								kind: 'type',
-								source_line: 96,
+								source_line: 107,
 								type_signature: 'ResolveGitopsPathsOptions',
 								properties: [
 									{
-										name: 'path',
+										name: 'config',
 										kind: 'variable',
 										type_signature: 'string',
 									},
@@ -25762,7 +27906,7 @@ export const repos_json: Array<RepoJson> = [
 							{
 								name: 'resolve_gitops_paths',
 								kind: 'function',
-								source_line: 102,
+								source_line: 113,
 								type_signature:
 									'(options: ResolveGitopsPathsOptions): { config_path: string; repos_dir: string; }',
 								return_type: '{ config_path: string; repos_dir: string; }',
@@ -25776,7 +27920,7 @@ export const repos_json: Array<RepoJson> = [
 							{
 								name: 'import_gitops_config',
 								kind: 'function',
-								source_line: 120,
+								source_line: 131,
 								type_signature: '(config_path: string): Promise<GitopsConfig>',
 								return_type: 'Promise<GitopsConfig>',
 								parameters: [
@@ -25808,6 +27952,7 @@ export const repos_json: Array<RepoJson> = [
 						declarations: [],
 						dependencies: [
 							'dependency_graph.ts',
+							'gitops_constants.ts',
 							'gitops_task_helpers.ts',
 							'graph_validation.ts',
 							'log_helpers.ts',
@@ -25899,7 +28044,7 @@ export const repos_json: Array<RepoJson> = [
 								kind: 'type',
 								doc_comment:
 									'Fully loaded local repo with Library and extracted dependency data.\nDoes not extend LocalRepoPath - Library is source of truth for name/repo_url/etc.',
-								source_line: 19,
+								source_line: 21,
 								type_signature: 'LocalRepo',
 								properties: [
 									{
@@ -25949,7 +28094,7 @@ export const repos_json: Array<RepoJson> = [
 								kind: 'type',
 								doc_comment:
 									'A repo that has been located on the filesystem (path exists).\nUsed before loading - just filesystem/git concerns.',
-								source_line: 34,
+								source_line: 36,
 								type_signature: 'LocalRepoPath',
 								properties: [
 									{
@@ -25988,7 +28133,7 @@ export const repos_json: Array<RepoJson> = [
 								name: 'LocalRepoMissing',
 								kind: 'type',
 								doc_comment: 'A repo that is missing from the filesystem (needs cloning).',
-								source_line: 46,
+								source_line: 48,
 								type_signature: 'LocalRepoMissing',
 								properties: [
 									{
@@ -26030,7 +28175,7 @@ export const repos_json: Array<RepoJson> = [
 											'workspace dirty, branch switch fails, install fails, or library.ts missing',
 									},
 								],
-								source_line: 71,
+								source_line: 73,
 								type_signature:
 									'({ local_repo_path, log: _log, git_ops, npm_ops, }: { local_repo_path: LocalRepoPath; log?: Logger | undefined; git_ops?: GitOperations | undefined; npm_ops?: NpmOperations | undefined; }): Promise<...>',
 								return_type: 'Promise<LocalRepo>',
@@ -26044,7 +28189,7 @@ export const repos_json: Array<RepoJson> = [
 							{
 								name: 'local_repos_ensure',
 								kind: 'function',
-								source_line: 228,
+								source_line: 230,
 								type_signature:
 									'({ resolved_config, repos_dir, gitops_config, download, log, npm_ops, }: { resolved_config: ResolvedGitopsConfig; repos_dir: string; gitops_config: GitopsConfig; download: boolean; log?: Logger | undefined; npm_ops?: NpmOperations | undefined; }): Promise<...>',
 								return_type: 'Promise<LocalRepoPath[]>',
@@ -26058,21 +28203,21 @@ export const repos_json: Array<RepoJson> = [
 							{
 								name: 'local_repos_load',
 								kind: 'function',
-								source_line: 278,
+								source_line: 280,
 								type_signature:
-									'({ local_repo_paths, log, git_ops, npm_ops, }: { local_repo_paths: LocalRepoPath[]; log?: Logger | undefined; git_ops?: GitOperations | undefined; npm_ops?: NpmOperations | undefined; }): Promise<...>',
+									'({ local_repo_paths, log, git_ops, npm_ops, parallel, concurrency, }: { local_repo_paths: LocalRepoPath[]; log?: Logger | undefined; git_ops?: GitOperations | undefined; npm_ops?: NpmOperations | undefined; parallel?: boolean | undefined; concurrency?: number | undefined; }): Promise<...>',
 								return_type: 'Promise<LocalRepo[]>',
 								parameters: [
 									{
 										name: '__0',
-										type: '{ local_repo_paths: LocalRepoPath[]; log?: Logger | undefined; git_ops?: GitOperations | undefined; npm_ops?: NpmOperations | undefined; }',
+										type: '{ local_repo_paths: LocalRepoPath[]; log?: Logger | undefined; git_ops?: GitOperations | undefined; npm_ops?: NpmOperations | undefined; parallel?: boolean | undefined; concurrency?: number | undefined; }',
 									},
 								],
 							},
 							{
 								name: 'local_repo_locate',
 								kind: 'function',
-								source_line: 296,
+								source_line: 339,
 								type_signature:
 									'({ repo_config, repos_dir, }: { repo_config: GitopsRepoConfig; repos_dir: string; }): LocalRepoPath | LocalRepoMissing',
 								return_type: 'LocalRepoPath | LocalRepoMissing',
@@ -26084,7 +28229,7 @@ export const repos_json: Array<RepoJson> = [
 								],
 							},
 						],
-						dependencies: ['operations_defaults.ts'],
+						dependencies: ['gitops_constants.ts', 'operations_defaults.ts'],
 						dependents: ['gitops_task_helpers.ts', 'resolved_gitops_config.ts'],
 					},
 					{
@@ -26245,7 +28390,7 @@ export const repos_json: Array<RepoJson> = [
 									'Logs a simple bulleted list with a header.\nCommon pattern for warnings, info messages, and other lists.',
 								source_line: 130,
 								type_signature:
-									'(items: string[], header: string, color: "cyan" | "yellow" | "red" | "dim", log: Logger, log_method?: "info" | "warn" | "error"): void',
+									'(items: string[], header: string, color: "cyan" | "yellow" | "red" | "dim", log: Logger, log_method?: "error" | "info" | "warn"): void',
 								return_type: 'void',
 								parameters: [
 									{
@@ -26266,7 +28411,7 @@ export const repos_json: Array<RepoJson> = [
 									},
 									{
 										name: 'log_method',
-										type: '"info" | "warn" | "error"',
+										type: '"error" | "info" | "warn"',
 										default_value: "'info'",
 									},
 								],
@@ -26341,7 +28486,7 @@ export const repos_json: Array<RepoJson> = [
 							{
 								name: 'PublishingOptions',
 								kind: 'type',
-								source_line: 18,
+								source_line: 21,
 								type_signature: 'PublishingOptions',
 								properties: [
 									{
@@ -26389,7 +28534,7 @@ export const repos_json: Array<RepoJson> = [
 							{
 								name: 'PublishedVersion',
 								kind: 'type',
-								source_line: 29,
+								source_line: 32,
 								type_signature: 'PublishedVersion',
 								properties: [
 									{
@@ -26432,7 +28577,7 @@ export const repos_json: Array<RepoJson> = [
 							{
 								name: 'PublishingResult',
 								kind: 'type',
-								source_line: 39,
+								source_line: 42,
 								type_signature: 'PublishingResult',
 								properties: [
 									{
@@ -26460,7 +28605,7 @@ export const repos_json: Array<RepoJson> = [
 							{
 								name: 'publish_repos',
 								kind: 'function',
-								source_line: 46,
+								source_line: 49,
 								type_signature:
 									'(repos: LocalRepo[], options: PublishingOptions): Promise<PublishingResult>',
 								return_type: 'Promise<PublishingResult>',
@@ -26477,8 +28622,8 @@ export const repos_json: Array<RepoJson> = [
 							},
 						],
 						dependencies: [
-							'constants.ts',
 							'dependency_updater.ts',
+							'gitops_constants.ts',
 							'graph_validation.ts',
 							'npm_install_helpers.ts',
 							'operations_defaults.ts',
@@ -27884,7 +30029,7 @@ export const repos_json: Array<RepoJson> = [
 							},
 						],
 						dependencies: [
-							'constants.ts',
+							'gitops_constants.ts',
 							'graph_validation.ts',
 							'operations_defaults.ts',
 							'publishing_plan_helpers.ts',
@@ -27954,7 +30099,7 @@ export const repos_json: Array<RepoJson> = [
 								kind: 'function',
 								doc_comment:
 									'Walk files in a directory, respecting common exclusions.\nYields absolute paths to files (and optionally directories).',
-								source_line: 155,
+								source_line: 156,
 								type_signature:
 									'(dir: string, options?: WalkOptions | undefined): AsyncGenerator<string, void, undefined>',
 								return_type: 'AsyncGenerator<string, void, undefined>',
@@ -27976,7 +30121,7 @@ export const repos_json: Array<RepoJson> = [
 								name: 'DEFAULT_EXCLUDE_DIRS',
 								kind: 'variable',
 								doc_comment: 'Default directories to exclude from file walking',
-								source_line: 20,
+								source_line: 21,
 								type_signature:
 									'readonly ["node_modules", ".git", ".gro", ".svelte-kit", ".deno", ".vscode", ".idea", "dist", "build", "coverage", ".cache", ".turbo"]',
 							},
@@ -27985,14 +30130,14 @@ export const repos_json: Array<RepoJson> = [
 								kind: 'variable',
 								doc_comment:
 									'Default binary/non-text extensions to exclude from content processing',
-								source_line: 36,
+								source_line: 37,
 								type_signature:
 									'readonly [".png", ".jpg", ".jpeg", ".gif", ".svg", ".ico", ".webp", ".woff", ".woff2", ".ttf", ".eot", ".mp4", ".webm", ".mp3", ".wav", ".ogg", ".zip", ".tar", ".gz", ".lock", ".pdf"]',
 							},
 							{
 								name: 'WalkOptions',
 								kind: 'type',
-								source_line: 60,
+								source_line: 61,
 								type_signature: 'WalkOptions',
 								properties: [
 									{
@@ -28030,7 +30175,7 @@ export const repos_json: Array<RepoJson> = [
 							{
 								name: 'RepoPath',
 								kind: 'type',
-								source_line: 73,
+								source_line: 74,
 								type_signature: 'RepoPath',
 								properties: [
 									{
@@ -28055,7 +30200,7 @@ export const repos_json: Array<RepoJson> = [
 								kind: 'function',
 								doc_comment:
 									'Get repo paths from gitops config without full git sync.\nLighter weight than `get_gitops_ready()` - just resolves paths.',
-								source_line: 86,
+								source_line: 87,
 								type_signature: '(config_path?: string | undefined): Promise<RepoPath[]>',
 								return_type: 'Promise<RepoPath[]>',
 								return_description: 'Array of repo info with name, path, and url',
@@ -28072,7 +30217,7 @@ export const repos_json: Array<RepoJson> = [
 								name: 'should_exclude_path',
 								kind: 'function',
 								doc_comment: 'Check if a path should be excluded based on options.',
-								source_line: 119,
+								source_line: 120,
 								type_signature: '(file_path: string, options?: WalkOptions | undefined): boolean',
 								return_type: 'boolean',
 								parameters: [
@@ -28092,7 +30237,7 @@ export const repos_json: Array<RepoJson> = [
 								kind: 'function',
 								doc_comment:
 									'Collect all files from walk_repo_files into an array.\nConvenience function for when you need all paths upfront.',
-								source_line: 204,
+								source_line: 205,
 								type_signature:
 									'(dir: string, options?: WalkOptions | undefined): Promise<string[]>',
 								return_type: 'Promise<string[]>',
@@ -28111,7 +30256,8 @@ export const repos_json: Array<RepoJson> = [
 						],
 						module_comment:
 							'Generic repository operations for scripts that work across repos.\n\nProvides lightweight utilities for:\n- Getting repo paths from gitops config (without full git sync)\n- Walking files in repos with sensible exclusions\n- Common exclusion patterns for node/svelte projects\n\nFor full git sync/clone functionality, use `get_gitops_ready()` from gitops_task_helpers.',
-						dependencies: ['gitops_config.ts', 'paths.ts'],
+						dependencies: ['gitops_config.ts', 'gitops_constants.ts', 'paths.ts'],
+						dependents: ['gitops_run.task.ts'],
 					},
 					{
 						path: 'repo.svelte.ts',
