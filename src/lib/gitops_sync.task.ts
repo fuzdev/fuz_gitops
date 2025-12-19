@@ -102,7 +102,7 @@ export const task: Task<Args> = {
 
 			import json from './repos.json' with {type: 'json'};
 
-			export const repos_json: Array<RepoJson> = json as Array<RepoJson>;
+			export const repos_json: Array<RepoJson> = json as unknown as Array<RepoJson>;
 		`;
 		// TODO think about possibly using the `gen` functionality in this task, not sure what the API design could look like
 		const formatted_ts = await format_file(ts_contents, {filepath: outfile_ts});
