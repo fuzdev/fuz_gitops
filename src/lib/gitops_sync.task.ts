@@ -5,7 +5,7 @@ import {format_file} from '@ryanatkn/gro/format_file.js';
 import {basename, resolve} from 'node:path';
 import {print_path} from '@ryanatkn/gro/paths.js';
 import {load_from_env} from '@ryanatkn/gro/env.js';
-import {load_package_json} from '@ryanatkn/gro/package_json.js';
+import {package_json_load} from '@ryanatkn/gro/package_json.js';
 import {existsSync} from 'node:fs';
 
 import {fetch_repo_data} from './fetch_repo_data.js';
@@ -70,7 +70,7 @@ export const task: Task<Args> = {
 		const repos_json = await fetch_repo_data(local_repos, token, cache.data, log);
 
 		// TODO should package_json be provided in the Gro task/gen contexts? check if it's always loaded
-		const package_json = await load_package_json();
+		const package_json = await package_json_load();
 		const repo_specifier =
 			package_json.name === '@fuzdev/fuz_gitops'
 				? '$lib/repo.svelte.js'
