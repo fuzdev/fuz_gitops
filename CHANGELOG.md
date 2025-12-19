@@ -1,5 +1,11 @@
 # @fuzdev/fuz_gitops
 
+## 0.61.1
+
+### Patch Changes
+
+- change `gitops_sync` to output `repos.json` too ([fb2d0ca](https://github.com/fuzdev/fuz_gitops/commit/fb2d0ca))
+
 ## 0.61.0
 
 ### Minor Changes
