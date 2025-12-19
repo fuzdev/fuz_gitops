@@ -1,5 +1,11 @@
 # @fuzdev/fuz_gitops
 
+## 0.61.0
+
+### Minor Changes
+
+- upgrade peer deps ([896380a](https://github.com/fuzdev/fuz_gitops/commit/896380a))
+
 ## 0.60.0
 
 ### Minor Changes
