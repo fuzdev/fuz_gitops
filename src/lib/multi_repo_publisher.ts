@@ -6,7 +6,7 @@ import {styleText as st} from 'node:util';
 import type {LocalRepo} from './local_repo.js';
 import {update_package_json, type VersionStrategy} from './dependency_updater.js';
 import {validate_dependency_graph} from './graph_validation.js';
-import {type PreflightOptions} from './preflight_checks.js';
+import type {PreflightOptions} from './preflight_checks.js';
 import {needs_update, is_breaking_change, detect_bump_type} from './version_utils.js';
 import type {GitopsOperations} from './operations.js';
 import {default_gitops_operations} from './operations_defaults.js';
