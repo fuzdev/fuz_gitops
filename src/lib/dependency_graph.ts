@@ -3,6 +3,8 @@
  *
  * Provides `DependencyGraph` class with topological sort and cycle detection.
  * For validation workflow and publishing order computation, see `graph_validation.ts`.
+ *
+ * @module
  */
 
 import type {LocalRepo} from './local_repo.js';

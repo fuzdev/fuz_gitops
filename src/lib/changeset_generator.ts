@@ -3,6 +3,8 @@
  *
  * Creates changesets when packages need to republish due to updated dependencies.
  * For parsing existing changesets, see `changeset_reader.ts`.
+ *
+ * @module
  */
 
 import {writeFile, mkdir} from 'node:fs/promises';

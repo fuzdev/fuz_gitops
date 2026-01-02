@@ -7,6 +7,8 @@
  * - Common exclusion patterns for node/svelte projects
  *
  * For full git sync/clone functionality, use `get_gitops_ready()` from gitops_task_helpers.
+ *
+ * @module
  */
 
 import {existsSync} from 'node:fs';

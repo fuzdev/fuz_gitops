@@ -3,6 +3,8 @@
  *
  * Provides real git, npm, fs, and build operations for production use.
  * For interface definitions and dependency injection pattern, see `operations.ts`.
+ *
+ * @module
  */
 
 import {spawn, spawn_out} from '@fuzdev/fuz_util/process.js';

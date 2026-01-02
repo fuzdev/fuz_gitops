@@ -2,6 +2,8 @@
  * Shared constants for gitops tasks and operations.
  *
  * Naming convention: GITOPS_{NAME}_DEFAULT for user-facing defaults.
+ *
+ * @module
  */
 
 /**

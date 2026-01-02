@@ -3,6 +3,8 @@
  *
  * Reads changesets to determine which packages need publishing and their version bumps.
  * For auto-generating changesets during publishing, see `changeset_generator.ts`.
+ *
+ * @module
  */
 
 import type {Logger} from '@fuzdev/fuz_util/log.js';

@@ -2,6 +2,8 @@
  * Logging and formatting functions for publishing plans.
  *
  * Includes both regular plan output and verbose diagnostic sections.
+ *
+ * @module
  */
 
 import type {Logger} from '@fuzdev/fuz_util/log.js';

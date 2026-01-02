@@ -12,6 +12,8 @@
  *
  * Accepts `git_ops` and `npm_ops` parameters to support testing via operations pattern
  * (see `operations.ts` for dependency injection details).
+ *
+ * @module
  */
 
 import {TaskError} from '@ryanatkn/gro';

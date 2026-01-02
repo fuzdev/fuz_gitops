@@ -30,6 +30,8 @@
  *
  * See `operations_defaults.ts` for real implementations.
  * See test files (*.test.ts) for mock implementations.
+ *
+ * @module
  */
 
 import type {Result} from '@fuzdev/fuz_util/result.js';

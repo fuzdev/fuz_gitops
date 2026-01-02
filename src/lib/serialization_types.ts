@@ -8,6 +8,8 @@
  *
  * Used by `gitops_analyze`, `gitops_plan`, and `gitops_publish --dry_run` when
  * `--format json` or `--outfile` is specified.
+ *
+ * @module
  */
 
 import type {DependencyGraph} from './dependency_graph.js';

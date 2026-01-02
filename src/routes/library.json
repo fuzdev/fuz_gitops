@@ -52,7 +52,7 @@
 			"@changesets/changelog-git": "^0.2.1",
 			"@fuzdev/fuz_code": "^0.38.0",
 			"@fuzdev/fuz_css": "^0.43.0",
-			"@fuzdev/fuz_ui": "^0.175.0",
+			"@fuzdev/fuz_ui": "^0.177.0",
 			"@fuzdev/fuz_util": "^0.45.1",
 			"@ryanatkn/eslint-config": "^0.9.0",
 			"@ryanatkn/gro": "^0.184.0",
@@ -116,7 +116,7 @@
 					{
 						"name": "DependencyVersionChange",
 						"kind": "type",
-						"source_line": 16,
+						"source_line": 18,
 						"type_signature": "DependencyVersionChange",
 						"properties": [
 							{
@@ -150,7 +150,7 @@
 						"name": "create_changeset_for_dependency_updates",
 						"kind": "function",
 						"doc_comment": "Creates a changeset file for dependency updates.\nReturns the path to the created changeset file.",
-						"source_line": 28,
+						"source_line": 30,
 						"type_signature": "(repo: LocalRepo, updates: DependencyVersionChange[], options?: { log?: Logger | undefined; }): Promise<string>",
 						"return_type": "Promise<string>",
 						"parameters": [
@@ -173,7 +173,7 @@
 						"name": "generate_changeset_content",
 						"kind": "function",
 						"doc_comment": "Generates markdown changeset content for dependency updates.\n\nCreates properly formatted changeset with YAML frontmatter, summary,\nand categorized list of breaking vs regular updates. Output format\nmatches changesets CLI for consistency.",
-						"source_line": 95,
+						"source_line": 97,
 						"type_signature": "(package_name: string, updates: DependencyVersionChange[], bump_type: \"major\" | \"minor\" | \"patch\"): string",
 						"return_type": "string",
 						"return_description": "markdown content ready to write to .changeset/*.md file",
@@ -198,7 +198,7 @@
 					{
 						"name": "create_dependency_updates",
 						"kind": "function",
-						"source_line": 139,
+						"source_line": 141,
 						"type_signature": "(dependencies: Map<string, string>, published_versions: Map<string, PublishedVersion>): DependencyVersionChange[]",
 						"return_type": "DependencyVersionChange[]",
 						"parameters": [
@@ -223,7 +223,7 @@
 					{
 						"name": "ChangesetInfo",
 						"kind": "type",
-						"source_line": 17,
+						"source_line": 19,
 						"type_signature": "ChangesetInfo",
 						"properties": [
 							{
@@ -247,7 +247,7 @@
 						"name": "parse_changeset_content",
 						"kind": "function",
 						"doc_comment": "Parses changeset content string from markdown format.\n\nPure function for testability - no file I/O, just string parsing.\nExtracts package names, bump types, and summary from YAML frontmatter format.\nReturns null if format is invalid or no packages found.\n\nExpected format:\n---\n\"package-name\": patch\n\"@scope/package\": minor\n---\n\nSummary of changes",
-						"source_line": 42,
+						"source_line": 44,
 						"type_signature": "(content: string, filename?: string): ChangesetInfo | null",
 						"return_type": "ChangesetInfo | null",
 						"return_description": "parsed changeset info or null if invalid format",
@@ -268,7 +268,7 @@
 					{
 						"name": "parse_changeset_file",
 						"kind": "function",
-						"source_line": 82,
+						"source_line": 84,
 						"type_signature": "(filepath: string, log?: Logger | undefined): Promise<ChangesetInfo | null>",
 						"return_type": "Promise<ChangesetInfo | null>",
 						"parameters": [
@@ -286,7 +286,7 @@
 					{
 						"name": "read_changesets",
 						"kind": "function",
-						"source_line": 103,
+						"source_line": 105,
 						"type_signature": "(repo: LocalRepo, log?: Logger | undefined): Promise<ChangesetInfo[]>",
 						"return_type": "Promise<ChangesetInfo[]>",
 						"parameters": [
@@ -305,7 +305,7 @@
 						"name": "determine_bump_from_changesets",
 						"kind": "function",
 						"doc_comment": "Determines the bump type for a package from its changesets.\n\nWhen multiple changesets exist for the same package, returns the highest\nbump type (major > minor > patch) to ensure the most significant change\nis reflected in the version bump.",
-						"source_line": 139,
+						"source_line": 141,
 						"type_signature": "(changesets: ChangesetInfo[], package_name: string): BumpType | null",
 						"return_type": "BumpType | null",
 						"return_description": "the highest bump type, or null if package has no changesets",
@@ -324,7 +324,7 @@
 						"name": "has_changesets",
 						"kind": "function",
 						"doc_comment": "Checks if a repo has any changeset files (excluding README.md).\n\nUsed by preflight checks and publishing workflow to determine which packages\nneed to be published. Returns false if .changeset directory doesn't exist\nor contains only README.md.",
-						"source_line": 167,
+						"source_line": 169,
 						"type_signature": "(repo: LocalRepo): Promise<boolean>",
 						"return_type": "Promise<boolean>",
 						"return_description": "true if repo has unpublished changesets",
@@ -339,7 +339,7 @@
 						"name": "predict_next_version",
 						"kind": "function",
 						"doc_comment": "Predicts the next version by analyzing all changesets in a repo.\n\nReads all changesets, determines the highest bump type for the package,\nand calculates the next version. Returns null if no changesets found.\n\nCritical for dry-run mode accuracy - allows simulating publishes without\nactually running `gro publish` which consumes changesets.",
-						"source_line": 193,
+						"source_line": 195,
 						"type_signature": "(repo: LocalRepo, log?: Logger | undefined): Promise<{ version: string; bump_type: BumpType; } | null>",
 						"return_type": "Promise<{ version: string; bump_type: BumpType; } | null>",
 						"return_description": "predicted version and bump type, or null if no changesets",
@@ -366,19 +366,19 @@
 					{
 						"name": "DEPENDENCY_TYPE",
 						"kind": "variable",
-						"source_line": 11,
+						"source_line": 13,
 						"type_signature": "{ readonly PROD: \"prod\"; readonly PEER: \"peer\"; readonly DEV: \"dev\"; }"
 					},
 					{
 						"name": "DependencyType",
 						"kind": "type",
-						"source_line": 17,
+						"source_line": 19,
 						"type_signature": "DependencyType"
 					},
 					{
 						"name": "DependencySpec",
 						"kind": "type",
-						"source_line": 19,
+						"source_line": 21,
 						"type_signature": "DependencySpec",
 						"properties": [
 							{
@@ -401,7 +401,7 @@
 					{
 						"name": "DependencyGraphJson",
 						"kind": "type",
-						"source_line": 25,
+						"source_line": 27,
 						"type_signature": "DependencyGraphJson",
 						"properties": [
 							{
@@ -419,7 +419,7 @@
 					{
 						"name": "DependencyNode",
 						"kind": "type",
-						"source_line": 36,
+						"source_line": 38,
 						"type_signature": "DependencyNode",
 						"properties": [
 							{
@@ -457,7 +457,7 @@
 					{
 						"name": "DependencyGraph",
 						"kind": "class",
-						"source_line": 45,
+						"source_line": 47,
 						"members": [
 							{
 								"name": "nodes",
@@ -575,7 +575,7 @@
 						"name": "DependencyGraphBuilder",
 						"kind": "class",
 						"doc_comment": "Builder for creating and analyzing dependency graphs.",
-						"source_line": 369,
+						"source_line": 371,
 						"members": [
 							{
 								"name": "build_from_repos",
@@ -1354,7 +1354,7 @@
 					{
 						"name": "GitopsConfig",
 						"kind": "type",
-						"source_line": 19,
+						"source_line": 21,
 						"type_signature": "GitopsConfig",
 						"properties": [
 							{
@@ -1372,13 +1372,13 @@
 					{
 						"name": "CreateGitopsConfig",
 						"kind": "type",
-						"source_line": 24,
+						"source_line": 26,
 						"type_signature": "CreateGitopsConfig"
 					},
 					{
 						"name": "RawGitopsConfig",
 						"kind": "type",
-						"source_line": 28,
+						"source_line": 30,
 						"type_signature": "RawGitopsConfig",
 						"properties": [
 							{
@@ -1396,7 +1396,7 @@
 					{
 						"name": "GitopsRepoConfig",
 						"kind": "type",
-						"source_line": 33,
+						"source_line": 35,
 						"type_signature": "GitopsRepoConfig",
 						"properties": [
 							{
@@ -1422,7 +1422,7 @@
 					{
 						"name": "RawGitopsRepoConfig",
 						"kind": "type",
-						"source_line": 54,
+						"source_line": 56,
 						"type_signature": "RawGitopsRepoConfig",
 						"properties": [
 							{
@@ -1445,7 +1445,7 @@
 					{
 						"name": "create_empty_gitops_config",
 						"kind": "function",
-						"source_line": 60,
+						"source_line": 62,
 						"type_signature": "(): GitopsConfig",
 						"return_type": "GitopsConfig",
 						"parameters": []
@@ -1454,7 +1454,7 @@
 						"name": "normalize_gitops_config",
 						"kind": "function",
 						"doc_comment": "Transforms a `RawGitopsConfig` to the more strict `GitopsConfig`.\nThis allows users to provide a more relaxed config.",
-						"source_line": 69,
+						"source_line": 71,
 						"type_signature": "(raw_config: RawGitopsConfig): GitopsConfig",
 						"return_type": "GitopsConfig",
 						"parameters": [
@@ -1467,7 +1467,7 @@
 					{
 						"name": "GitopsConfigModule",
 						"kind": "type",
-						"source_line": 92,
+						"source_line": 94,
 						"type_signature": "GitopsConfigModule",
 						"properties": [
 							{
@@ -1481,7 +1481,7 @@
 					{
 						"name": "load_gitops_config",
 						"kind": "function",
-						"source_line": 96,
+						"source_line": 98,
 						"type_signature": "(config_path: string): Promise<GitopsConfig | null>",
 						"return_type": "Promise<GitopsConfig | null>",
 						"parameters": [
@@ -1494,7 +1494,7 @@
 					{
 						"name": "validate_gitops_config_module",
 						"kind": "function",
-						"source_line": 111,
+						"source_line": 113,
 						"type_signature": "(config_module: any, config_path: string): asserts config_module is GitopsConfigModule",
 						"return_type": "void",
 						"parameters": [
@@ -1520,28 +1520,28 @@
 						"name": "GITOPS_MAX_ITERATIONS_DEFAULT",
 						"kind": "variable",
 						"doc_comment": "Maximum number of iterations for fixed-point iteration during publishing.\nUsed in both plan generation and actual publishing to resolve transitive dependency cascades.\n\nIn practice, most repos converge in 2-3 iterations.\nDeep dependency chains may require more iterations.",
-						"source_line": 14,
+						"source_line": 16,
 						"type_signature": "10"
 					},
 					{
 						"name": "GITOPS_CONFIG_PATH_DEFAULT",
 						"kind": "variable",
 						"doc_comment": "Default path to the gitops configuration file.",
-						"source_line": 19,
+						"source_line": 21,
 						"type_signature": "\"gitops.config.ts\""
 					},
 					{
 						"name": "GITOPS_CONCURRENCY_DEFAULT",
 						"kind": "variable",
 						"doc_comment": "Default number of repos to process concurrently during parallel operations.",
-						"source_line": 24,
+						"source_line": 26,
 						"type_signature": "5"
 					},
 					{
 						"name": "GITOPS_NPM_WAIT_TIMEOUT_DEFAULT",
 						"kind": "variable",
 						"doc_comment": "Default timeout in milliseconds for waiting on NPM package propagation (10 minutes).\nNPM's CDN uses eventual consistency, so published packages may not be immediately available.",
-						"source_line": 30,
+						"source_line": 32,
 						"type_signature": "600000"
 					}
 				],
@@ -1614,7 +1614,7 @@
 					{
 						"name": "GetGitopsReadyOptions",
 						"kind": "type",
-						"source_line": 29,
+						"source_line": 31,
 						"type_signature": "GetGitopsReadyOptions",
 						"properties": [
 							{
@@ -1669,7 +1669,7 @@
 								"description": "config loading or repo resolution fails"
 							}
 						],
-						"source_line": 61,
+						"source_line": 63,
 						"type_signature": "(options: GetGitopsReadyOptions): Promise<{ config_path: string; repos_dir: string; gitops_config: GitopsConfig; local_repos: LocalRepo[]; }>",
 						"return_type": "Promise<{ config_path: string; repos_dir: string; gitops_config: GitopsConfig; local_repos: LocalRepo[]; }>",
 						"return_description": "initialized config and fully loaded repos ready for operations",
@@ -1683,7 +1683,7 @@
 					{
 						"name": "ResolveGitopsPathsOptions",
 						"kind": "type",
-						"source_line": 107,
+						"source_line": 109,
 						"type_signature": "ResolveGitopsPathsOptions",
 						"properties": [
 							{
@@ -1706,7 +1706,7 @@
 					{
 						"name": "resolve_gitops_paths",
 						"kind": "function",
-						"source_line": 113,
+						"source_line": 115,
 						"type_signature": "(options: ResolveGitopsPathsOptions): { config_path: string; repos_dir: string; }",
 						"return_type": "{ config_path: string; repos_dir: string; }",
 						"parameters": [
@@ -1719,7 +1719,7 @@
 					{
 						"name": "import_gitops_config",
 						"kind": "function",
-						"source_line": 131,
+						"source_line": 133,
 						"type_signature": "(config_path: string): Promise<GitopsConfig>",
 						"return_type": "Promise<GitopsConfig>",
 						"parameters": [
@@ -1764,7 +1764,7 @@
 					{
 						"name": "GraphValidationResult",
 						"kind": "type",
-						"source_line": 21,
+						"source_line": 23,
 						"type_signature": "GraphValidationResult",
 						"properties": [
 							{
@@ -1804,7 +1804,7 @@
 								"description": "production cycles detected and throw_on_prod_cycles is true"
 							}
 						],
-						"source_line": 39,
+						"source_line": 41,
 						"type_signature": "(repos: LocalRepo[], options?: { log?: Logger | undefined; throw_on_prod_cycles?: boolean | undefined; log_cycles?: boolean | undefined; log_order?: boolean | undefined; }): GraphValidationResult",
 						"return_type": "GraphValidationResult",
 						"return_description": "graph validation result with graph, publishing order, and detected cycles",
@@ -2590,50 +2590,50 @@
 					{
 						"name": "default_changeset_operations",
 						"kind": "variable",
-						"source_line": 68,
+						"source_line": 70,
 						"type_signature": "ChangesetOperations"
 					},
 					{
 						"name": "default_git_operations",
 						"kind": "variable",
-						"source_line": 93,
+						"source_line": 95,
 						"type_signature": "GitOperations"
 					},
 					{
 						"name": "default_process_operations",
 						"kind": "variable",
-						"source_line": 190,
+						"source_line": 192,
 						"type_signature": "ProcessOperations"
 					},
 					{
 						"name": "default_npm_operations",
 						"kind": "variable",
-						"source_line": 214,
+						"source_line": 216,
 						"type_signature": "NpmOperations"
 					},
 					{
 						"name": "default_preflight_operations",
 						"kind": "variable",
-						"source_line": 285,
+						"source_line": 287,
 						"type_signature": "PreflightOperations"
 					},
 					{
 						"name": "default_fs_operations",
 						"kind": "variable",
-						"source_line": 291,
+						"source_line": 293,
 						"type_signature": "FsOperations"
 					},
 					{
 						"name": "default_build_operations",
 						"kind": "variable",
-						"source_line": 303,
+						"source_line": 305,
 						"type_signature": "BuildOperations"
 					},
 					{
 						"name": "default_gitops_operations",
 						"kind": "variable",
 						"doc_comment": "Combined default operations for all gitops functionality.",
-						"source_line": 327,
+						"source_line": 329,
 						"type_signature": "GitopsOperations"
 					}
 				],
@@ -2659,7 +2659,7 @@
 						"name": "ChangesetOperations",
 						"kind": "type",
 						"doc_comment": "Changeset operations for reading and predicting versions from `.changeset/*.md` files.",
-						"source_line": 47,
+						"source_line": 49,
 						"type_signature": "ChangesetOperations",
 						"properties": [
 							{
@@ -2686,7 +2686,7 @@
 						"name": "GitOperations",
 						"kind": "type",
 						"doc_comment": "Git operations for branch management, commits, tags, and workspace state.\nAll operations return `Result` instead of throwing errors.",
-						"source_line": 80,
+						"source_line": 82,
 						"type_signature": "GitOperations",
 						"properties": [
 							{
@@ -2797,7 +2797,7 @@
 						"name": "ProcessOperations",
 						"kind": "type",
 						"doc_comment": "Process spawning operations for running shell commands.",
-						"source_line": 210,
+						"source_line": 212,
 						"type_signature": "ProcessOperations",
 						"properties": [
 							{
@@ -2812,7 +2812,7 @@
 						"name": "BuildOperations",
 						"kind": "type",
 						"doc_comment": "Build operations for validating packages compile before publishing.",
-						"source_line": 224,
+						"source_line": 226,
 						"type_signature": "BuildOperations",
 						"properties": [
 							{
@@ -2827,7 +2827,7 @@
 						"name": "NpmOperations",
 						"kind": "type",
 						"doc_comment": "NPM registry operations for package availability checks and authentication.\nIncludes exponential backoff for waiting on package propagation.",
-						"source_line": 238,
+						"source_line": 240,
 						"type_signature": "NpmOperations",
 						"properties": [
 							{
@@ -2872,7 +2872,7 @@
 						"name": "PreflightOperations",
 						"kind": "type",
 						"doc_comment": "Preflight validation operations to ensure repos are ready for publishing.\nValidates workspace state, branches, builds, and npm authentication.",
-						"source_line": 287,
+						"source_line": 289,
 						"type_signature": "PreflightOperations",
 						"properties": [
 							{
@@ -2887,7 +2887,7 @@
 						"name": "FsOperations",
 						"kind": "type",
 						"doc_comment": "File system operations for reading and writing files.",
-						"source_line": 304,
+						"source_line": 306,
 						"type_signature": "FsOperations",
 						"properties": [
 							{
@@ -2908,7 +2908,7 @@
 						"name": "GitopsOperations",
 						"kind": "type",
 						"doc_comment": "Combined operations interface grouping all gitops functionality.\nThis is the main interface injected into publishing and validation workflows.",
-						"source_line": 326,
+						"source_line": 328,
 						"type_signature": "GitopsOperations",
 						"properties": [
 							{
@@ -3271,7 +3271,7 @@
 						"name": "calculate_dependency_updates",
 						"kind": "function",
 						"doc_comment": "Calculates all dependency updates between packages based on predicted versions.\n\nIterates through all repos, checking prod, peer, and dev dependencies to find\nwhich packages will need dependency version bumps after publishing.\n\nAlso tracks \"breaking cascades\" - when a breaking change propagates to dependents.",
-						"source_line": 20,
+						"source_line": 22,
 						"type_signature": "(repos: LocalRepo[], predicted_versions: Map<string, string>, breaking_packages: Set<string>): { dependency_updates: DependencyUpdate[]; breaking_cascades: Map<...>; }",
 						"return_type": "{ dependency_updates: DependencyUpdate[]; breaking_cascades: Map<string, string[]>; }",
 						"parameters": [
@@ -3293,7 +3293,7 @@
 						"name": "get_required_bump_for_dependencies",
 						"kind": "function",
 						"doc_comment": "Determines the required bump type for a package based on its dependency updates.\n\nReturns null if no prod/peer dependency updates, otherwise returns the minimum\nrequired bump type (major for breaking deps, patch otherwise).\n\nRespects pre-1.0 semver conventions (minor for breaking in 0.x).",
-						"source_line": 111,
+						"source_line": 113,
 						"type_signature": "(repo: LocalRepo, dependency_updates: DependencyUpdate[], breaking_packages: Set<string>): BumpType | null",
 						"return_type": "BumpType | null",
 						"parameters": [
@@ -3322,7 +3322,7 @@
 					{
 						"name": "LogPlanOptions",
 						"kind": "type",
-						"source_line": 21,
+						"source_line": 23,
 						"type_signature": "LogPlanOptions",
 						"properties": [
 							{
@@ -3337,7 +3337,7 @@
 						"name": "log_publishing_plan",
 						"kind": "function",
 						"doc_comment": "Logs a complete publishing plan to the console.\n\nDisplays errors, publishing order, version changes grouped by scenario,\ndependency-only updates, warnings, and a summary.",
-						"source_line": 136,
+						"source_line": 138,
 						"type_signature": "(plan: PublishingPlan, log: Logger, options?: LogPlanOptions): void",
 						"return_type": "void",
 						"parameters": [
@@ -3795,7 +3795,7 @@
 						"name": "walk_repo_files",
 						"kind": "function",
 						"doc_comment": "Walk files in a directory, respecting common exclusions.\nYields absolute paths to files (and optionally directories).",
-						"source_line": 156,
+						"source_line": 158,
 						"type_signature": "(dir: string, options?: WalkOptions | undefined): AsyncGenerator<string, void, undefined>",
 						"return_type": "AsyncGenerator<string, void, undefined>",
 						"parameters": [
@@ -3816,20 +3816,20 @@
 						"name": "DEFAULT_EXCLUDE_DIRS",
 						"kind": "variable",
 						"doc_comment": "Default directories to exclude from file walking",
-						"source_line": 21,
+						"source_line": 23,
 						"type_signature": "readonly [\"node_modules\", \".git\", \".gro\", \".svelte-kit\", \".deno\", \".vscode\", \".idea\", \"dist\", \"build\", \"coverage\", \".cache\", \".turbo\"]"
 					},
 					{
 						"name": "DEFAULT_EXCLUDE_EXTENSIONS",
 						"kind": "variable",
 						"doc_comment": "Default binary/non-text extensions to exclude from content processing",
-						"source_line": 37,
+						"source_line": 39,
 						"type_signature": "readonly [\".png\", \".jpg\", \".jpeg\", \".gif\", \".svg\", \".ico\", \".webp\", \".woff\", \".woff2\", \".ttf\", \".eot\", \".mp4\", \".webm\", \".mp3\", \".wav\", \".ogg\", \".zip\", \".tar\", \".gz\", \".lock\", \".pdf\"]"
 					},
 					{
 						"name": "WalkOptions",
 						"kind": "type",
-						"source_line": 61,
+						"source_line": 63,
 						"type_signature": "WalkOptions",
 						"properties": [
 							{
@@ -3867,7 +3867,7 @@
 					{
 						"name": "RepoPath",
 						"kind": "type",
-						"source_line": 74,
+						"source_line": 76,
 						"type_signature": "RepoPath",
 						"properties": [
 							{
@@ -3891,7 +3891,7 @@
 						"name": "get_repo_paths",
 						"kind": "function",
 						"doc_comment": "Get repo paths from gitops config without full git sync.\nLighter weight than `get_gitops_ready()` - just resolves paths.",
-						"source_line": 87,
+						"source_line": 89,
 						"type_signature": "(config_path?: string | undefined): Promise<RepoPath[]>",
 						"return_type": "Promise<RepoPath[]>",
 						"return_description": "Array of repo info with name, path, and url",
@@ -3908,7 +3908,7 @@
 						"name": "should_exclude_path",
 						"kind": "function",
 						"doc_comment": "Check if a path should be excluded based on options.",
-						"source_line": 120,
+						"source_line": 122,
 						"type_signature": "(file_path: string, options?: WalkOptions | undefined): boolean",
 						"return_type": "boolean",
 						"parameters": [
@@ -3927,7 +3927,7 @@
 						"name": "collect_repo_files",
 						"kind": "function",
 						"doc_comment": "Collect all files from walk_repo_files into an array.\nConvenience function for when you need all paths upfront.",
-						"source_line": 205,
+						"source_line": 207,
 						"type_signature": "(dir: string, options?: WalkOptions | undefined): Promise<string[]>",
 						"return_type": "Promise<string[]>",
 						"parameters": [
@@ -4184,13 +4184,13 @@
 						"kind": "type",
 						"doc_comment": "Semantic Versioning 2.0.0 utilities",
 						"see_also": ["https://semver.org/"],
-						"source_line": 6,
+						"source_line": 8,
 						"type_signature": "BumpType"
 					},
 					{
 						"name": "Semver",
 						"kind": "type",
-						"source_line": 8,
+						"source_line": 10,
 						"type_signature": "Semver",
 						"properties": [
 							{
@@ -4224,7 +4224,7 @@
 						"name": "semver_compare_versions",
 						"kind": "function",
 						"doc_comment": "Compares two semver versions according to SemVer 2.0.0 spec.\nReturns -1 if a < b, 0 if a === b, 1 if a > b.\nBuild metadata is ignored in precedence comparison.",
-						"source_line": 116,
+						"source_line": 118,
 						"type_signature": "(a: string, b: string): number",
 						"return_type": "number",
 						"parameters": [
@@ -4242,7 +4242,7 @@
 						"name": "semver_bump_version",
 						"kind": "function",
 						"doc_comment": "Bumps a version according to the specified type.\nResets lower version numbers per SemVer spec.",
-						"source_line": 143,
+						"source_line": 145,
 						"type_signature": "(version: string, type: BumpType): string",
 						"return_type": "string",
 						"parameters": [
@@ -4265,7 +4265,7 @@
 					{
 						"name": "SerializedNode",
 						"kind": "type",
-						"source_line": 15,
+						"source_line": 17,
 						"type_signature": "SerializedNode",
 						"properties": [
 							{
@@ -4298,7 +4298,7 @@
 					{
 						"name": "SerializedGraph",
 						"kind": "type",
-						"source_line": 27,
+						"source_line": 29,
 						"type_signature": "SerializedGraph",
 						"properties": [
 							{
@@ -4316,7 +4316,7 @@
 					{
 						"name": "SerializedPublishingPlan",
 						"kind": "type",
-						"source_line": 32,
+						"source_line": 34,
 						"type_signature": "SerializedPublishingPlan",
 						"properties": [
 							{
@@ -4355,7 +4355,7 @@
 						"name": "serialize_graph",
 						"kind": "function",
 						"doc_comment": "Serializes a dependency graph to a JSON-safe format.",
-						"source_line": 61,
+						"source_line": 63,
 						"type_signature": "(graph: DependencyGraph): SerializedGraph",
 						"return_type": "SerializedGraph",
 						"parameters": [

@@ -9,6 +9,8 @@
  * reporting, while publish must throw on production cycles.
  *
  * See also: `dependency_graph.ts` for core graph data structure and algorithms.
+ *
+ * @module
  */
 
 import type {Logger} from '@fuzdev/fuz_util/log.js';

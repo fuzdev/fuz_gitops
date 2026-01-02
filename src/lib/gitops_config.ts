@@ -7,6 +7,8 @@
  *
  * This allows users to provide minimal configs (e.g., just URLs as strings) while
  * the system works with normalized configs internally for type safety.
+ *
+ * @module
  */
 
 import type {Url} from '@fuzdev/fuz_util/url.js';

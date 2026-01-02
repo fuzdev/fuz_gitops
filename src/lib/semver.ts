@@ -1,6 +1,8 @@
 /**
  * Semantic Versioning 2.0.0 utilities
  * @see https://semver.org/
+ *
+ * @module
  */
 
 export type BumpType = 'major' | 'minor' | 'patch';

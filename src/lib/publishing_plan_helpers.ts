@@ -2,6 +2,8 @@
  * Helper functions for publishing plan calculations.
  *
  * Extracted from publishing_plan.ts to reduce file size.
+ *
+ * @module
  */
 
 import type {LocalRepo} from './local_repo.js';
