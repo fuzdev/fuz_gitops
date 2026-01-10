@@ -44,7 +44,7 @@
 		{#each repos_modules as repo_modules (repo_modules)}
 			{@const {repo, modules} = repo_modules}
 			<li class="repo_module">
-				<header class="width_100 position_relative">
+				<header class="width_100 position:relative">
 					<a href="#{repo.name}" id={repo.name} class="subtitle">🔗</a>
 					<a href={resolve(`/tree/${repo.repo_name}`)}>{repo.name}</a>
 				</header>

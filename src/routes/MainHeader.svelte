@@ -5,7 +5,7 @@
 
 <header class="pane p_lg">
 	<div class="box bg mb_lg">
-		<h1 class="mb_lg font_size_xl2 font_weight_400">fuz_gitops</h1>
+		<h1 class="mb_lg font_size_xl2 font-weight:400">fuz_gitops</h1>
 		<!-- TODO FuzGitopsLogo -->
 		<Svg
 			data={logo_fuz}
@@ -14,5 +14,5 @@
 			label="a friendly blue spider facing you"
 		/>
 	</div>
-	<p class="text_align_center">a tool for managing many repos 🪄</p>
+	<p class="text-align:center">a tool for managing many repos 🪄</p>
 </header>
