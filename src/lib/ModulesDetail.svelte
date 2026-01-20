@@ -40,7 +40,7 @@
 		</section>
 		{@render nav_footer?.()}
 	</div>
-	<ul class="width_upto_md box unstyled">
+	<ul class="width_atmost_md box unstyled">
 		{#each repos_modules as repo_modules (repo_modules)}
 			{@const {repo, modules} = repo_modules}
 			<li class="repo_module">

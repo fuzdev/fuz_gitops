@@ -15,7 +15,7 @@
 	const pull_requests = $derived(to_pull_requests(repos, filter_pull_request));
 </script>
 
-<div class="width_upto_md">
+<div class="width_atmost_md">
 	<section class="panel p_sm">
 		<table>
 			<thead><tr><th>repo</th><th>number</th><th>title</th></tr></thead>
