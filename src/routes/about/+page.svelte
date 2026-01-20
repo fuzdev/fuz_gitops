@@ -13,13 +13,13 @@
 	<title>about {library.package_json.glyph} {library.package_json.name}</title>
 </svelte:head>
 
-<main class="width_upto_md">
+<main class="width_atmost_md">
 	<div class="p_lg">
 		<PageHeader repo={library}></PageHeader>
 	</div>
 	<EcosystemLinksPanel />
-	<section class="box width_100 mb_lg">
-		<div class="panel p_md width_upto_md">
+	<section class="box width:100% mb_lg">
+		<div class="panel p_md width_atmost_md">
 			<LibraryDetail {library} />
 		</div>
 	</section>
