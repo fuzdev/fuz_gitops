@@ -11,7 +11,7 @@
 	"published": true,
 	"package_json": {
 		"name": "@fuzdev/fuz_gitops",
-		"version": "0.61.1",
+		"version": "0.62.0",
 		"description": "a tool for managing many repos",
 		"glyph": "🪄",
 		"logo": "logo.svg",
@@ -109,7 +109,7 @@
 	},
 	"source_json": {
 		"name": "@fuzdev/fuz_gitops",
-		"version": "0.61.1",
+		"version": "0.62.0",
 		"modules": [
 			{
 				"path": "changeset_generator.ts",

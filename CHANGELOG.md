@@ -1,5 +1,11 @@
 # @fuzdev/fuz_gitops
 
+## 0.62.0
+
+### Minor Changes
+
+- upgrade deps ([#44](https://github.com/fuzdev/fuz_gitops/pull/44))
+
 ## 0.61.1
 
 ### Patch Changes
