@@ -180,11 +180,11 @@
 		padding: 0 var(--space_xs);
 	}
 	tr:hover {
-		background-color: var(--bg_5);
+		background-color: var(--shade_50);
 	}
 	.latest {
 		/* TODO even lighter, add `--text_color_7` to Fuz probably, or change the scaling of `--text_color_3` and `--text_color_5` */
-		color: var(--text_color_5);
+		color: var(--text_50);
 		opacity: var(--disabled_opacity);
 	}
 </style>

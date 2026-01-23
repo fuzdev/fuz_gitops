@@ -49,9 +49,9 @@
 	}
 	/* TODO should be a CSS class or variable, probably add :focus behavior */
 	.names a:hover {
-		background-color: var(--bg_5);
+		background-color: var(--shade_50);
 	}
 	.names a:is(:active, .selected) {
-		background-color: var(--bg_7);
+		background-color: var(--shade_70);
 	}
 </style>
