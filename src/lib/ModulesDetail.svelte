@@ -121,29 +121,29 @@
 		font-size: var(--font_size_lg);
 		position: sticky;
 		top: 0;
-		background-color: var(--bg);
+		background-color: var(--shade_00);
 	}
 	.modules {
 		padding: var(--space_sm);
 	}
 	.module {
 		margin-bottom: var(--space_lg);
-		--link_color: var(--text_color_3);
+		--link_color: var(--text_70);
 	}
 	.module_file {
 		margin-bottom: var(--space_xs);
 	}
 	.ts {
-		--link_color: var(--color_a_5);
+		--link_color: var(--color_a_50);
 	}
 	.svelte {
-		--link_color: var(--color_e_5);
+		--link_color: var(--color_e_50);
 	}
 	.css {
-		--link_color: var(--color_b_5);
+		--link_color: var(--color_b_50);
 	}
 	.json {
-		--link_color: var(--color_f_5);
+		--link_color: var(--color_f_50);
 	}
 	/* TODO extract */
 	.declarations {
@@ -160,16 +160,16 @@
 		font-size: var(--font_size_sm);
 	}
 	.variable_declaration {
-		color: var(--color_d_5);
+		color: var(--color_d_50);
 	}
 	.function_declaration {
-		color: var(--color_c_5);
+		color: var(--color_c_50);
 	}
 	.type_declaration {
-		color: var(--color_g_5);
+		color: var(--color_g_50);
 	}
 	.class_declaration {
-		color: var(--color_f_5);
+		color: var(--color_f_50);
 	}
 	/* TODO extract  */
 	.nav_wrapper {

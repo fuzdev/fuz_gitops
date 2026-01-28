@@ -4,12 +4,12 @@
 </script>
 
 <header class="pane p_lg">
-	<div class="box bg mb_lg">
+	<div class="box shade_00 mb_lg">
 		<h1 class="mb_lg font_size_xl2 font-weight:400">fuz_gitops</h1>
 		<!-- TODO FuzGitopsLogo -->
 		<Svg
 			data={logo_fuz}
-			fill="var(--color_a_5)"
+			fill="var(--color_a_50)"
 			size="var(--icon_size_xl2)"
 			label="a friendly blue spider facing you"
 		/>
