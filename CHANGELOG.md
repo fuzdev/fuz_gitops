@@ -1,5 +1,11 @@
 # @fuzdev/fuz_gitops
 
+## 0.63.0
+
+### Minor Changes
+
+- upgrade fuz_css ([#45](https://github.com/fuzdev/fuz_gitops/pull/45))
+
 ## 0.62.0
 
 ### Minor Changes
