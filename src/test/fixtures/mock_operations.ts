@@ -404,9 +404,9 @@ export const create_configurable_gitops_ops = (
 	preflight: create_configurable_preflight_ops(fixture, config.preflight),
 });
 
-// ============================================================================
+//
 // Specific failure scenario factories
-// ============================================================================
+//
 
 /**
  * Create git operations that simulate a dirty workspace.
