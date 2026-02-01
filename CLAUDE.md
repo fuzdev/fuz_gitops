@@ -1,7 +1,11 @@
 # fuz_gitops
 
-A tool for managing many repos - alternative to monorepo pattern that loosely
-couples repos.
+> Multi-repo management - alternative to monorepo pattern
+
+fuz_gitops (`@fuzdev/fuz_gitops`) loosely couples repos with cascade publishing
+and cross-repo automation.
+
+For coding conventions, see [`fuz-stack`](../fuz-stack/CLAUDE.md).
 
 ## Table of Contents
 
