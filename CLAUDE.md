@@ -63,7 +63,7 @@ Publishing uses fixed-point iteration to handle transitive dependency updates:
 - Auto-changesets trigger republishing in subsequent passes (transitive
   cascades)
 - Stops when no new changesets are created (converged state)
-- Single `gro gitops_publish` command handles full dependency cascades
+- Single `gro gitops_publish --wetrun` command handles full dependency cascades
 - If MAX_ITERATIONS reached without convergence, warns with pending package
   count and estimated iterations needed
 
@@ -145,13 +145,13 @@ Requires `SECRET_GITHUB_API_TOKEN` in `.env` for API access.
 
 #### Publishing Workflow
 
-- `gro gitops_publish` - publishes repos in dependency order
+- `gro gitops_publish --wetrun` - publishes repos in dependency order
   - Uses fixed-point iteration to handle transitive dependency updates
   - Converges after multiple passes (max 10 iterations)
   - Creates auto-changesets for dependent packages during publishing
 - `gro gitops_plan` - generates a publishing plan (read-only prediction)
 - `gro gitops_analyze` - analyzes dependencies and changesets
-- `gro gitops_publish --dry_run` - simulates publishing without preflight checks
+- `gro gitops_publish` - simulates publishing (dry run) without preflight checks
   or state persistence
 - Handles circular dev dependencies by excluding from topological sort
 - Waits for NPM propagation with exponential backoff (10 minute default
@@ -162,7 +162,7 @@ Requires `SECRET_GITHUB_API_TOKEN` in `.env` for API access.
     publishing dependents
 - Updates cross-repo dependencies automatically
 - Preflight checks validate clean workspaces, branches, builds, and npm
-  authentication (skipped for --dry_run runs)
+  authentication (skipped for dry runs)
 
 **Build Validation (Fail-Fast Safety)**
 
@@ -218,7 +218,7 @@ The publishing workflow automatically installs dependencies after package.json u
   auto-generated changesets, and no changes
 - No side effects - does not modify any files or state
 
-`gro gitops_publish --dry_run`:
+`gro gitops_publish` (dry run, default):
 
 - **Simulated execution** - Runs the same code path as real publishing
 - Skips preflight checks (workspace, branch, npm auth)
@@ -324,14 +324,14 @@ gro gitops_run "npm audit" --concurrency 3  # limit parallelism
 gro gitops_run "gro check" --format json    # JSON output for scripting
 
 # Publishing
-gro gitops_validate          # validate configuration (runs analyze, plan, and dry run)
-gro gitops_analyze           # analyze dependencies and changesets
-gro gitops_plan              # generate publishing plan
-gro gitops_plan --verbose    # show additional details
-gro gitops_publish           # publish repos in dependency order (interactive y/n prompt)
-gro gitops_publish --dry_run # dry run without preflight checks
-gro gitops_publish --no-plan # skip interactive plan confirmation
-gro gitops_publish --verbose # show additional details in plan
+gro gitops_validate              # validate configuration (runs analyze, plan, and dry run)
+gro gitops_analyze               # analyze dependencies and changesets
+gro gitops_plan                  # generate publishing plan
+gro gitops_plan --verbose        # show additional details
+gro gitops_publish               # dry run (default, simulates publishing)
+gro gitops_publish --wetrun      # actually publish repos in dependency order
+gro gitops_publish --wetrun --no-plan # skip interactive plan confirmation
+gro gitops_publish --verbose     # show additional details in plan
 
 # Output formats (analyze, plan, publish)
 gro gitops_analyze --format json --outfile analysis.json
@@ -355,7 +355,7 @@ gro test src/test/fixtures/check     # validate gitops commands against fixture 
 - `gro gitops_plan` - Generate publishing plan showing version changes and
   cascades
 - `gro gitops_validate` - Run all validation checks (analyze + plan + dry run)
-- `gro gitops_publish --dry_run` - Simulate publishing without preflight checks
+- `gro gitops_publish` - Simulate publishing without preflight checks (dry run default)
 
 **Data Sync (Local Changes Only):**
 
@@ -376,13 +376,13 @@ gro test src/test/fixtures/check     # validate gitops commands against fixture 
 
 **Publishing (Git & NPM Side Effects):**
 
-- `gro gitops_publish` - Publish packages, update dependencies, git commits
+- `gro gitops_publish --wetrun` - Publish packages, update dependencies, git commits
 
 ### Command Workflow
 
 - `gitops_validate` runs: `gitops_analyze` + `gitops_plan` +
-  `gitops_publish --dry_run`
-- `gitops_publish` runs: `gitops_plan` (with confirmation) + actual publish
+  `gitops_publish` (dry run)
+- `gitops_publish --wetrun` runs: `gitops_plan` (with confirmation) + actual publish
 
 ## Dependencies
 

@@ -96,17 +96,17 @@ gro gitops_sync --download    # clone missing repos first
 ### Diagnostic commands (read-only)
 
 ```bash
-gro gitops_validate      # run all validation checks (analyze + plan + dry run)
-gro gitops_analyze       # analyze dependency graph and detect cycles
-gro gitops_plan          # generate publishing plan showing version changes and cascades
-gro gitops_publish --dry_run # simulate publishing without side effects
+gro gitops_validate   # run all validation checks (analyze + plan + dry run)
+gro gitops_analyze    # analyze dependency graph and detect cycles
+gro gitops_plan       # generate publishing plan showing version changes and cascades
+gro gitops_publish    # simulate publishing without side effects (dry run default)
 ```
 
 ### Publishing packages
 
 ```bash
-gro gitops_publish  # publish all repos with changesets (interactive y/n prompt)
-gro gitops_publish --no-plan  # skip plan confirmation
+gro gitops_publish --wetrun  # actually publish all repos with changesets
+gro gitops_publish --wetrun --no-plan  # skip plan confirmation
 ```
 
 **Note:** If publishing fails, simply re-run the same command. Already-published packages are automatically skipped (changesets consumed), failed packages retried naturally.

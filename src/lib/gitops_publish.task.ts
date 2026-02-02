@@ -27,10 +27,7 @@ export const Args = z.strictObject({
 		.enum(['exact', 'caret', 'tilde'])
 		.meta({description: 'version strategy for peer dependencies'})
 		.default('caret' as const),
-	dry_run: z
-		.boolean()
-		.meta({description: 'perform a dry run without actually publishing'})
-		.default(false),
+	wetrun: z.boolean().meta({description: 'actually publish (default is dry run)'}).default(false),
 	format: z
 		.enum(['stdout', 'json', 'markdown'])
 		.meta({description: 'output format'})
@@ -63,7 +60,7 @@ export const task: Task<Args> = {
 			config,
 			dir,
 			peer_strategy,
-			dry_run,
+			wetrun,
 			format,
 			deploy,
 			plan,
@@ -82,7 +79,7 @@ export const task: Task<Args> = {
 		});
 
 		// Show plan if requested (skip for dry runs)
-		if (plan && !dry_run) {
+		if (plan && wetrun) {
 			log.info(st('cyan', 'Publishing Plan'));
 			const plan_result = await generate_publishing_plan(repos, {log, verbose});
 			log_publishing_plan(plan_result, log, {verbose});
@@ -103,7 +100,7 @@ export const task: Task<Args> = {
 
 		// Publishing options
 		const options: PublishingOptions = {
-			dry_run,
+			wetrun,
 			update_deps: true, // Always update dependencies
 			version_strategy: peer_strategy,
 			deploy,

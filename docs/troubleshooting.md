@@ -78,7 +78,7 @@ NPM propagation can be slow. Either:
 - Increase timeout with `--max-wait` (default is 10 minutes / 600000ms)
 - Check NPM registry status
 - Verify package was actually published
-- If verified published, re-run `gro gitops_publish` to continue
+- If verified published, re-run `gro gitops_publish --wetrun` to continue
   (already-published packages will be skipped)
 
 ## Unexpected Behavior
@@ -118,12 +118,12 @@ Check:
 Resumption is **automatic** and **natural**:
 
 1. When `gro publish` succeeds, it consumes changesets
-2. Single `gro gitops_publish` run handles full dependency cascades via
+2. Single `gro gitops_publish --wetrun` run handles full dependency cascades via
    iteration (max 10 passes)
-3. If publishing fails mid-way, re-run `gro gitops_publish`:
+3. If publishing fails mid-way, re-run `gro gitops_publish --wetrun`:
    - Already-published packages have no changesets → skipped automatically
    - Failed packages still have changesets → retried automatically
-4. No flags needed, no state files, just re-run the same command!
+4. No state files needed, just re-run the same command!
 
 This is safer than explicit state tracking because:
 
@@ -146,8 +146,8 @@ gro gitops_analyze --format markdown --outfile deps.md
 # Before publishing
 gro gitops_plan --format markdown --outfile plan.md
 
-# After publishing (dry run)
-gro gitops_publish --dry_run --format markdown --outfile actual.md
+# After publishing (dry run, which is the default)
+gro gitops_publish --format markdown --outfile actual.md
 
 # Compare files
 diff plan.md actual.md

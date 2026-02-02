@@ -15,7 +15,7 @@ import {
 
 /* eslint-disable @typescript-eslint/require-await */
 
-test('dry_run predicts versions without publishing', async () => {
+test('wetrun=false predicts versions without publishing', async () => {
 	const repos: Array<LocalRepo> = [
 		create_mock_repo({name: 'pkg-a', version: '0.1.0'}),
 		create_mock_repo({name: 'pkg-b', version: '0.2.0', deps: {'pkg-a': '0.1.0'}}),
@@ -38,7 +38,7 @@ test('dry_run predicts versions without publishing', async () => {
 	});
 
 	const result = await publish_repos(repos, {
-		dry_run: true,
+		wetrun: false,
 		update_deps: false,
 		ops: mock_ops,
 	});
@@ -79,7 +79,7 @@ test('always fails fast on publish errors', async () => {
 	});
 
 	const result = await publish_repos(repos, {
-		dry_run: false,
+		wetrun: true,
 		update_deps: false,
 		ops: mock_ops,
 	});
@@ -91,7 +91,7 @@ test('always fails fast on publish errors', async () => {
 	expect(result.published.length).toBe(0); // No packages published after failure
 });
 
-test('handles breaking change cascades in dry_run', async () => {
+test('handles breaking change cascades when wetrun=false', async () => {
 	const repos: Array<LocalRepo> = [
 		create_mock_repo({name: 'pkg-core', version: '0.5.0'}),
 		create_mock_repo({name: 'pkg-mid', version: '0.3.0', deps: {'pkg-core': '^0.5.0'}}),
@@ -119,7 +119,7 @@ test('handles breaking change cascades in dry_run', async () => {
 	});
 
 	const result = await publish_repos(repos, {
-		dry_run: true,
+		wetrun: false,
 		update_deps: false,
 		ops: mock_ops,
 	});
@@ -160,7 +160,7 @@ test('skips repos without changesets', async () => {
 	});
 
 	const result = await publish_repos(repos, {
-		dry_run: false,
+		wetrun: true,
 		update_deps: false,
 		ops: mock_ops,
 	});
@@ -192,7 +192,7 @@ test('publishes in dependency order', async () => {
 		fs: mock_fs_ops,
 	});
 
-	await publish_repos(repos, {dry_run: false, update_deps: false, ops: mock_ops});
+	await publish_repos(repos, {wetrun: true, update_deps: false, ops: mock_ops});
 
 	// Should publish in dependency order: lib → middleware → app
 	const publish_commands = get_commands_by_type('publish');
@@ -225,7 +225,7 @@ test('waits for npm propagation after each publish', async () => {
 		fs: mock_fs_ops,
 	});
 
-	await publish_repos(repos, {dry_run: false, update_deps: true, ops: mock_ops});
+	await publish_repos(repos, {wetrun: true, update_deps: true, ops: mock_ops});
 
 	// Should wait for both packages
 	expect(wait_calls.length).toBe(2);
@@ -253,7 +253,7 @@ test('updates prod dependencies after publishing (Phase 1)', async () => {
 		fs: mock_fs_ops,
 	});
 
-	await publish_repos(repos, {dry_run: false, update_deps: true, ops: mock_ops});
+	await publish_repos(repos, {wetrun: true, update_deps: true, ops: mock_ops});
 
 	// With update_deps enabled and lib having changesets, dependency updates should occur
 	// (Actual behavior depends on implementation - tests document expected outcome)
@@ -280,7 +280,7 @@ test('updates dev dependencies (Phase 2)', async () => {
 	});
 
 	// Don't use update_deps to avoid file not found errors in this test
-	const result = await publish_repos(repos, {dry_run: false, update_deps: false, ops: mock_ops});
+	const result = await publish_repos(repos, {wetrun: true, update_deps: false, ops: mock_ops});
 
 	// Test succeeds if publishing completes
 	expect(result.ok).toBe(true);
@@ -307,7 +307,7 @@ test('deploys all repos when deploy flag is set (Phase 3)', async () => {
 		},
 	});
 
-	await publish_repos(repos, {dry_run: false, update_deps: false, deploy: true, ops: mock_ops});
+	await publish_repos(repos, {wetrun: true, update_deps: false, deploy: true, ops: mock_ops});
 
 	// Should deploy both repos
 	const deploy_commands = get_commands_by_type('deploy');
@@ -347,7 +347,7 @@ test('deploys only repos with changes (skips unchanged repos)', async () => {
 		},
 	});
 
-	await publish_repos(repos, {dry_run: false, update_deps: true, deploy: true, ops: mock_ops});
+	await publish_repos(repos, {wetrun: true, update_deps: true, deploy: true, ops: mock_ops});
 
 	// Should deploy only lib (published) and app-with-dep (dep updated)
 	const deploy_commands = get_commands_by_type('deploy');
@@ -358,7 +358,7 @@ test('deploys only repos with changes (skips unchanged repos)', async () => {
 	expect(deploy_commands.some((c) => c.cwd.includes('util-isolated'))).toBe(false);
 });
 
-test('dry run skips deployment even with deploy flag', async () => {
+test('wetrun=false skips deployment even with deploy flag', async () => {
 	const repos: Array<LocalRepo> = [
 		create_mock_repo({name: 'pkg-a', version: '1.0.0'}),
 		create_mock_repo({name: 'pkg-b', version: '1.0.0'}),
@@ -377,7 +377,7 @@ test('dry run skips deployment even with deploy flag', async () => {
 		process: process_ops,
 	});
 
-	await publish_repos(repos, {dry_run: true, update_deps: false, deploy: true, ops: mock_ops});
+	await publish_repos(repos, {wetrun: false, update_deps: false, deploy: true, ops: mock_ops});
 
 	// Dry run should skip deployment entirely
 	const deploy_commands = get_commands_by_type('deploy');
@@ -409,7 +409,7 @@ test('no changes results in no deployment', async () => {
 		},
 	});
 
-	await publish_repos(repos, {dry_run: false, update_deps: true, deploy: true, ops: mock_ops});
+	await publish_repos(repos, {wetrun: true, update_deps: true, deploy: true, ops: mock_ops});
 
 	// No changes = no deployment
 	const deploy_commands = get_commands_by_type('deploy');
@@ -433,7 +433,7 @@ test('applies version strategy (caret vs tilde vs exact)', async () => {
 
 	// Don't use update_deps to avoid file not found errors in this test
 	const result = await publish_repos(repos, {
-		dry_run: false,
+		wetrun: true,
 		update_deps: false,
 		version_strategy: 'exact',
 		ops: mock_ops,
@@ -470,7 +470,7 @@ test('handles 4-level transitive dependency chain', async () => {
 		},
 	});
 
-	await publish_repos(repos, {dry_run: false, update_deps: false, ops: mock_ops});
+	await publish_repos(repos, {wetrun: true, update_deps: false, ops: mock_ops});
 
 	// Should publish bottom-up
 	const publish_commands = get_commands_by_type('publish');
@@ -497,7 +497,7 @@ test('handles mixed prod and dev deps on same package', async () => {
 	});
 
 	// Don't use update_deps to avoid file not found errors in this test
-	const result = await publish_repos(repos, {dry_run: false, update_deps: false, ops: mock_ops});
+	const result = await publish_repos(repos, {wetrun: true, update_deps: false, ops: mock_ops});
 
 	// Test succeeds if publishing completes
 	expect(result.ok).toBe(true);
@@ -513,13 +513,13 @@ test('reports correct duration in result', async () => {
 		fs: mock_fs_ops,
 	});
 
-	const result = await publish_repos(repos, {dry_run: false, update_deps: false, ops: mock_ops});
+	const result = await publish_repos(repos, {wetrun: true, update_deps: false, ops: mock_ops});
 
 	expect(result.duration).toBeGreaterThanOrEqual(0);
 	expect(typeof result.duration).toBe('number');
 });
 
-test('dry_run skips preflight checks', async () => {
+test('wetrun=false skips preflight checks', async () => {
 	const repos: Array<LocalRepo> = [create_mock_repo({name: 'pkg-a', version: '1.0.0'})];
 
 	let preflight_called = false;
@@ -533,9 +533,9 @@ test('dry_run skips preflight checks', async () => {
 		},
 	});
 
-	await publish_repos(repos, {dry_run: true, update_deps: false, ops: mock_ops});
+	await publish_repos(repos, {wetrun: false, update_deps: false, ops: mock_ops});
 
-	// Dry_run should skip preflight checks
+	// wetrun=false should skip preflight checks
 	expect(preflight_called).toBe(false);
 });
 
@@ -558,7 +558,7 @@ test('handles npm propagation failure gracefully', async () => {
 		fs: mock_fs_ops,
 	});
 
-	const result = await publish_repos(repos, {dry_run: false, update_deps: true, ops: mock_ops});
+	const result = await publish_repos(repos, {wetrun: true, update_deps: true, ops: mock_ops});
 
 	// Should fail due to npm propagation timeout
 	expect(result.ok).toBe(false);
@@ -602,7 +602,7 @@ test('handles deploy failures without stopping', async () => {
 	});
 
 	const result = await publish_repos(repos, {
-		dry_run: false,
+		wetrun: true,
 		update_deps: false,
 		deploy: true,
 		ops: mock_ops,
@@ -639,7 +639,7 @@ test('returns correct PublishedVersion metadata', async () => {
 		},
 	});
 
-	const result = await publish_repos(repos, {dry_run: true, update_deps: false, ops: mock_ops});
+	const result = await publish_repos(repos, {wetrun: false, update_deps: false, ops: mock_ops});
 
 	expect(result.published.length).toBe(1);
 	const published = result.published[0]!;
@@ -667,7 +667,7 @@ test('converges early when no new packages publish', async () => {
 	const log = create_mock_logger();
 
 	const result = await publish_repos(repos, {
-		dry_run: false,
+		wetrun: true,
 		update_deps: false,
 		log,
 		ops: mock_ops,
@@ -718,7 +718,7 @@ test('skip_install flag prevents npm install', async () => {
 	});
 
 	await publish_repos(repos, {
-		dry_run: false,
+		wetrun: true,
 		update_deps: true,
 		skip_install: true,
 		ops: mock_ops,
@@ -761,7 +761,7 @@ test('install failures are handled gracefully', async () => {
 		},
 	});
 
-	const result = await publish_repos(repos, {dry_run: false, update_deps: true, ops: mock_ops});
+	const result = await publish_repos(repos, {wetrun: true, update_deps: true, ops: mock_ops});
 
 	// Install should have been attempted for both apps
 	expect(install_attempts).toBeGreaterThan(0);

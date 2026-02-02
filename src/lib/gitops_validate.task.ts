@@ -153,12 +153,12 @@ export const task: Task<Args> = {
 			log.error(st('red', `  ✗ gitops_plan failed: ${error}`));
 		}
 
-		// 3. Run gitops_publish --dry_run
-		log.info(st('yellow', 'Running gitops_publish --dry_run...'));
+		// 3. Run gitops_publish (dry run)
+		log.info(st('yellow', 'Running gitops_publish (dry run)...'));
 		const dry_start = Date.now();
 		try {
 			const options: PublishingOptions = {
-				dry_run: true,
+				wetrun: false,
 				update_deps: true,
 				log: undefined, // Silent for validation
 			};
@@ -171,27 +171,27 @@ export const task: Task<Args> = {
 			const errors = result.ok ? 0 : result.failed.length;
 
 			results.push({
-				command: 'gitops_publish --dry_run',
+				command: 'gitops_publish (dry run)',
 				success: result.ok,
 				warnings: 0,
 				errors,
 				duration: dry_duration,
 			});
 
-			log.info(st('green', `  ✓ gitops_publish --dry_run completed in ${dry_duration}ms`));
+			log.info(st('green', `  ✓ gitops_publish (dry run) completed in ${dry_duration}ms`));
 			if (errors > 0) {
 				log.error(st('red', `  ❌ Found ${errors} error(s)`));
 			}
 		} catch (error) {
 			const dry_duration = Date.now() - dry_start;
 			results.push({
-				command: 'gitops_publish --dry_run',
+				command: 'gitops_publish (dry run)',
 				success: false,
 				warnings: 0,
 				errors: 1,
 				duration: dry_duration,
 			});
-			log.error(st('red', `  ✗ gitops_publish --dry_run failed: ${error}`));
+			log.error(st('red', `  ✗ gitops_publish (dry run) failed: ${error}`));
 		}
 
 		// Summary

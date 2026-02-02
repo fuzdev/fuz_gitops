@@ -89,7 +89,7 @@ const setup_dry_run_test = async (fixture: RepoFixtureSet) => {
 	const mock_ops = create_mock_gitops_ops(fixture);
 	const local_repos = get_fixture_repos(fixture);
 	const result = await publish_repos(local_repos, {
-		dry_run: true,
+		wetrun: false,
 		update_deps: false,
 		ops: mock_ops,
 	});

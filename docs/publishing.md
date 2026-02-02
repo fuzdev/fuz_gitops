@@ -22,8 +22,8 @@ gro gitops_validate
 # 2. Review what will be published
 gro gitops_plan
 
-# 3. Publish
-gro gitops_publish
+# 3. Publish (after dry run looks good)
+gro gitops_publish --wetrun
 ```
 
 ## Changeset Semantics
@@ -84,7 +84,7 @@ production/peer takes priority for dependency graph calculations.
   auto-generated changesets, and no changes
 - No side effects - does not modify any files or state
 
-### `gro gitops_publish --dry_run`
+### `gro gitops_publish` (dry run, default)
 
 - **Simulated execution** - Runs the same code path as real publishing
 - Skips preflight checks (workspace, branch, npm auth)
@@ -164,11 +164,11 @@ gro gitops_analyze
 # 3. Review plan to see what will be published
 gro gitops_plan
 
-# 4. Test with dry run
-gro gitops_publish --dry_run
-
-# 5. If everything looks good, publish
+# 4. Test with dry run (default)
 gro gitops_publish
+
+# 5. If everything looks good, actually publish
+gro gitops_publish --wetrun
 ```
 
 ### Output Formats
@@ -195,7 +195,7 @@ gro gitops_plan
 # Output shows: my-package: 1.0.0 → 1.1.0 (minor)
 
 # Publish
-gro gitops_publish
+gro gitops_publish --wetrun
 ```
 
 ### Publishing multiple packages with cascading dependencies
@@ -211,18 +211,18 @@ gro gitops_plan
 #   @my/ui: 1.5.0 → 2.0.0 (auto-changeset, BREAKING cascade)
 
 # Publish in dependency order
-gro gitops_publish
+gro gitops_publish --wetrun
 ```
 
 ### Recovering from failures (natural resumption)
 
 ```bash
 # Publishing failed midway through
-gro gitops_publish
+gro gitops_publish --wetrun
 # Error: Failed to publish @my/package-5
 
 # Fix the issue, then re-run the same command
-gro gitops_publish
+gro gitops_publish --wetrun
 # Already-published packages have no changesets → skipped automatically
 # Failed packages still have changesets → retried automatically
 ```
@@ -240,5 +240,5 @@ gro gitops_plan
 #   @my/app: 2.0.0 → 3.0.0 (patch → major, escalated)
 
 # Publish handles escalation automatically
-gro gitops_publish
+gro gitops_publish --wetrun
 ```

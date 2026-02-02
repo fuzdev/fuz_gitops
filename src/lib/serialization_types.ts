@@ -6,7 +6,7 @@
  * - Dependency graph structures (`SerializedGraph`)
  * - Publishing plan predictions (`SerializedPublishingPlan`)
  *
- * Used by `gitops_analyze`, `gitops_plan`, and `gitops_publish --dry_run` when
+ * Used by `gitops_analyze`, `gitops_plan`, and `gitops_publish` (dry run) when
  * `--format json` or `--outfile` is specified.
  *
  * @module

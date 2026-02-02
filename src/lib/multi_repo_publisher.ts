@@ -19,7 +19,7 @@ import {install_with_cache_healing} from './npm_install_helpers.js';
 /* eslint-disable no-await-in-loop */
 
 export interface PublishingOptions {
-	dry_run: boolean;
+	wetrun: boolean;
 	update_deps: boolean;
 	version_strategy?: VersionStrategy;
 	deploy?: boolean;
@@ -51,10 +51,10 @@ export const publish_repos = async (
 	options: PublishingOptions,
 ): Promise<PublishingResult> => {
 	const start_time = Date.now();
-	const {dry_run, update_deps, log, ops = default_gitops_operations} = options;
+	const {wetrun, update_deps, log, ops = default_gitops_operations} = options;
 
 	// Preflight checks (skip for dry runs since we're not actually publishing)
-	if (!dry_run) {
+	if (wetrun) {
 		const preflight_options: PreflightOptions = {
 			skip_changesets: false, // Always check for changesets
 			required_branch: 'main',
@@ -73,7 +73,7 @@ export const publish_repos = async (
 			throw new TaskError(`Preflight checks failed: ${preflight.errors.join(', ')}`);
 		}
 	} else {
-		log?.info('⏭️  Skipping preflight checks for dry run');
+		log?.info('⏭️  Skipping preflight checks (dry run)');
 	}
 
 	// Build dependency graph and validate
@@ -131,7 +131,7 @@ export const publish_repos = async (
 				// Skip packages without changesets
 				// In real publish: They might get auto-changesets during dependency updates
 				// In dry run: We can't simulate auto-changesets, so just skip
-				if (dry_run) {
+				if (!wetrun) {
 					// Silent skip in dry run - plan shows which packages get auto-changesets
 					continue;
 				} else {
@@ -152,7 +152,7 @@ export const publish_repos = async (
 				published_count++;
 				log?.info(st('green', `  ✅ Published ${pkg_name}@${version.new_version}`));
 
-				if (!dry_run) {
+				if (wetrun) {
 					// 2. Wait for this package to be available on NPM
 					log?.info(`  ⏳ Waiting for ${pkg_name}@${version.new_version} on NPM...`);
 					const wait_result = await ops.npm.wait_for_package({
@@ -221,7 +221,7 @@ export const publish_repos = async (
 
 		// Phase 1b: Batch install dependencies for repos with updated package.json
 		// This ensures workspace stays consistent before next iteration
-		if (!dry_run && !options.skip_install && changed_in_iteration.size > 0) {
+		if (wetrun && !options.skip_install && changed_in_iteration.size > 0) {
 			log?.info(st('cyan', '\n📦 Installing dependencies for updated repos...\n'));
 
 			for (const pkg_name of changed_in_iteration) {
@@ -269,7 +269,7 @@ export const publish_repos = async (
 	// Phase 2: Update all dev dependencies (can have cycles)
 	// Dev dep changes require deployment even without version bumps (rebuild needed)
 	const dev_updated_repos: Set<string> = new Set();
-	if (update_deps && published.size > 0 && !dry_run) {
+	if (update_deps && published.size > 0 && wetrun) {
 		log?.info(st('cyan', '\n🔄 Updating dev dependencies...\n'));
 
 		for (const repo of repos) {
@@ -300,7 +300,7 @@ export const publish_repos = async (
 	}
 
 	// Phase 2b: Install dev dependencies for repos with dev dep updates
-	if (!dry_run && !options.skip_install && dev_updated_repos.size > 0) {
+	if (wetrun && !options.skip_install && dev_updated_repos.size > 0) {
 		log?.info(st('cyan', '\n📦 Installing dev dependencies for updated repos...\n'));
 
 		for (const pkg_name of dev_updated_repos) {
@@ -322,7 +322,7 @@ export const publish_repos = async (
 
 	// Phase 3: Deploy repos with changes (optional)
 	// Deploys only repos that were: published, had prod/peer deps updated, or had dev deps updated
-	if (options.deploy && !dry_run) {
+	if (options.deploy && wetrun) {
 		const repos_to_deploy = repos.filter((r) => changed_repos.has(r.library.name));
 		log?.info(
 			st(
@@ -390,11 +390,11 @@ const publish_single_repo = async (
 	options: PublishingOptions,
 	ops: GitopsOperations = default_gitops_operations,
 ): Promise<PublishedVersion> => {
-	const {dry_run, log} = options;
+	const {wetrun, log} = options;
 
 	const old_version = repo.library.package_json.version || '0.0.0';
 
-	if (dry_run) {
+	if (!wetrun) {
 		// In dry run, predict version from changesets
 		const prediction = await ops.changeset.predict_next_version({repo, log});
 
@@ -417,7 +417,7 @@ const publish_single_repo = async (
 			new_version,
 			bump_type,
 			breaking,
-			commit: 'dry_run',
+			commit: 'simulated',
 			tag: `v${new_version}`,
 		};
 	}

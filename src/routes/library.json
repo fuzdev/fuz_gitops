@@ -2261,7 +2261,7 @@
 						"type_signature": "PublishingOptions",
 						"properties": [
 							{
-								"name": "dry_run",
+								"name": "wetrun",
 								"kind": "variable",
 								"type_signature": "boolean"
 							},
@@ -4367,7 +4367,7 @@
 						]
 					}
 				],
-				"module_comment": "JSON-serializable types for command output formats.\n\nGitops commands support `--format json` and `--format markdown` output modes\nin addition to styled terminal output. These types define the JSON schema for:\n- Dependency graph structures (`SerializedGraph`)\n- Publishing plan predictions (`SerializedPublishingPlan`)\n\nUsed by `gitops_analyze`, `gitops_plan`, and `gitops_publish --dry_run` when\n`--format json` or `--outfile` is specified."
+				"module_comment": "JSON-serializable types for command output formats.\n\nGitops commands support `--format json` and `--format markdown` output modes\nin addition to styled terminal output. These types define the JSON schema for:\n- Dependency graph structures (`SerializedGraph`)\n- Publishing plan predictions (`SerializedPublishingPlan`)\n\nUsed by `gitops_analyze`, `gitops_plan`, and `gitops_publish` (dry run) when\n`--format json` or `--outfile` is specified."
 			},
 			{
 				"path": "TablePage.svelte",
