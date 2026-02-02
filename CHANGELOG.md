@@ -1,5 +1,11 @@
 # @fuzdev/fuz_gitops
 
+## 0.64.0
+
+### Minor Changes
+
+- switch to `wetrun` ([4fdc869](https://github.com/fuzdev/fuz_gitops/commit/4fdc869))
+
 ## 0.63.0
 
 ### Minor Changes
