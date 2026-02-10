@@ -3,15 +3,17 @@
  * Provides both basic mocks (always succeed) and configurable mocks for testing various scenarios.
  */
 
+import type {FsOperations} from '@fuzdev/fuz_util/fs_operations.js';
+
 import type {
 	GitOperations,
 	NpmOperations,
 	ProcessOperations,
-	FsOperations,
 	BuildOperations,
 	PreflightOperations,
 	GitopsOperations,
 } from '$lib/operations.js';
+
 import type {RepoFixtureSet} from './repo_fixture_types.js';
 import {create_mock_changeset_ops} from './mock_changeset_operations.js';
 

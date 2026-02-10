@@ -2,13 +2,13 @@ import type {Logger} from '@fuzdev/fuz_util/log.js';
 import {vi} from 'vitest';
 import type {LibraryJson} from '@fuzdev/fuz_util/library_json.js';
 import {Library} from '@fuzdev/fuz_ui/library.svelte.js';
+import type {FsOperations} from '@fuzdev/fuz_util/fs_operations.js';
 
 import type {LocalRepo} from '$lib/local_repo.js';
 import type {
 	GitopsOperations,
 	ChangesetOperations,
 	GitOperations,
-	FsOperations,
 	NpmOperations,
 	BuildOperations,
 	ProcessOperations,

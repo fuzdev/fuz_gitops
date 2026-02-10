@@ -1,5 +1,6 @@
 import type {Logger} from '@fuzdev/fuz_util/log.js';
 import {join} from 'node:path';
+import type {FsOperations} from '@fuzdev/fuz_util/fs_operations.js';
 
 import type {LocalRepo} from './local_repo.js';
 import type {PublishedVersion} from './multi_repo_publisher.js';
@@ -8,7 +9,7 @@ import {
 	create_dependency_updates,
 } from './changeset_generator.js';
 import {needs_update, get_update_prefix} from './version_utils.js';
-import type {GitOperations, FsOperations} from './operations.js';
+import type {GitOperations} from './operations.js';
 import {default_git_operations, default_fs_operations} from './operations_defaults.js';
 
 export type VersionStrategy = 'exact' | 'caret' | 'tilde' | 'gte';

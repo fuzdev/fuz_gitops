@@ -36,7 +36,9 @@
 
 import type {Result} from '@fuzdev/fuz_util/result.js';
 import type {Logger} from '@fuzdev/fuz_util/log.js';
+import type {FsOperations} from '@fuzdev/fuz_util/fs_operations.js';
 import type {SpawnOptions} from 'node:child_process';
+
 import type {LocalRepo} from './local_repo.js';
 import type {ChangesetInfo} from './changeset_reader.js';
 import type {BumpType} from './semver.js';
@@ -299,9 +301,6 @@ export interface PreflightOperations {
 		changeset_ops?: ChangesetOperations;
 	}) => Promise<PreflightResult>;
 }
-
-import type {FsOperations} from '@fuzdev/fuz_util/fs_operations.js';
-export type {FsOperations};
 
 /**
  * Combined operations interface grouping all gitops functionality.

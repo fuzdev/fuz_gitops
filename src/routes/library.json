@@ -643,13 +643,13 @@
 					{
 						"name": "VersionStrategy",
 						"kind": "type",
-						"source_line": 14,
+						"source_line": 15,
 						"type_signature": "VersionStrategy"
 					},
 					{
 						"name": "UpdatePackageJsonOptions",
 						"kind": "type",
-						"source_line": 16,
+						"source_line": 17,
 						"type_signature": "UpdatePackageJsonOptions",
 						"properties": [
 							{
@@ -689,7 +689,7 @@
 								"description": "file operations or git operations fail"
 							}
 						],
-						"source_line": 38,
+						"source_line": 39,
 						"type_signature": "(repo: LocalRepo, updates: Map<string, string>, options?: UpdatePackageJsonOptions): Promise<void>",
 						"return_type": "Promise<void>",
 						"parameters": [
@@ -711,7 +711,7 @@
 					{
 						"name": "UpdateAllReposOptions",
 						"kind": "type",
-						"source_line": 174,
+						"source_line": 175,
 						"type_signature": "UpdateAllReposOptions",
 						"properties": [
 							{
@@ -739,7 +739,7 @@
 					{
 						"name": "update_all_repos",
 						"kind": "function",
-						"source_line": 181,
+						"source_line": 182,
 						"type_signature": "(repos: LocalRepo[], published: Map<string, string>, options?: UpdateAllReposOptions): Promise<{ updated: number; failed: { repo: string; error: Error; }[]; }>",
 						"return_type": "Promise<{ updated: number; failed: { repo: string; error: Error; }[]; }>",
 						"parameters": [
@@ -761,7 +761,7 @@
 					{
 						"name": "find_updates_needed",
 						"kind": "function",
-						"source_line": 242,
+						"source_line": 243,
 						"type_signature": "(repo: LocalRepo, published: Map<string, string>): Map<string, { current: string; new: string; type: \"dependencies\" | \"devDependencies\" | \"peerDependencies\"; }>",
 						"return_type": "Map<string, { current: string; new: string; type: \"dependencies\" | \"devDependencies\" | \"peerDependencies\"; }>",
 						"parameters": [
@@ -2604,7 +2604,7 @@
 						"name": "ChangesetOperations",
 						"kind": "type",
 						"doc_comment": "Changeset operations for reading and predicting versions from `.changeset/*.md` files.",
-						"source_line": 49,
+						"source_line": 51,
 						"type_signature": "ChangesetOperations",
 						"properties": [
 							{
@@ -2631,7 +2631,7 @@
 						"name": "GitOperations",
 						"kind": "type",
 						"doc_comment": "Git operations for branch management, commits, tags, and workspace state.\nAll operations return `Result` instead of throwing errors.",
-						"source_line": 82,
+						"source_line": 84,
 						"type_signature": "GitOperations",
 						"properties": [
 							{
@@ -2742,7 +2742,7 @@
 						"name": "ProcessOperations",
 						"kind": "type",
 						"doc_comment": "Process spawning operations for running shell commands.",
-						"source_line": 212,
+						"source_line": 214,
 						"type_signature": "ProcessOperations",
 						"properties": [
 							{
@@ -2757,7 +2757,7 @@
 						"name": "BuildOperations",
 						"kind": "type",
 						"doc_comment": "Build operations for validating packages compile before publishing.",
-						"source_line": 226,
+						"source_line": 228,
 						"type_signature": "BuildOperations",
 						"properties": [
 							{
@@ -2772,7 +2772,7 @@
 						"name": "NpmOperations",
 						"kind": "type",
 						"doc_comment": "NPM registry operations for package availability checks and authentication.\nIncludes exponential backoff for waiting on package propagation.",
-						"source_line": 240,
+						"source_line": 242,
 						"type_signature": "NpmOperations",
 						"properties": [
 							{
@@ -2817,7 +2817,7 @@
 						"name": "PreflightOperations",
 						"kind": "type",
 						"doc_comment": "Preflight validation operations to ensure repos are ready for publishing.\nValidates workspace state, branches, builds, and npm authentication.",
-						"source_line": 289,
+						"source_line": 291,
 						"type_signature": "PreflightOperations",
 						"properties": [
 							{
@@ -2832,7 +2832,7 @@
 						"name": "GitopsOperations",
 						"kind": "type",
 						"doc_comment": "Combined operations interface grouping all gitops functionality.\nThis is the main interface injected into publishing and validation workflows.",
-						"source_line": 310,
+						"source_line": 309,
 						"type_signature": "GitopsOperations",
 						"properties": [
 							{
