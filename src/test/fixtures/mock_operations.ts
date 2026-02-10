@@ -157,7 +157,7 @@ export const create_mock_fs_ops = (fixture: RepoFixtureSet): FsOperations => {
 		read_file_buffer: async () => not_implemented,
 		write_file: async () => ({ok: true}),
 		stat: async () => not_implemented,
-		exists: async () => false,
+		exists: async () => ({ok: true as const, value: false}),
 		readdir: async () => not_implemented,
 		mkdir: async () => not_implemented,
 		rm: async () => not_implemented,

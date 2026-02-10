@@ -131,7 +131,7 @@ export const create_mock_gitops_ops = (
 		read_file_buffer: async () => ({ok: false as const, message: 'not implemented in mock'}),
 		write_file: async () => ({ok: true}),
 		stat: async () => ({ok: false as const, message: 'not implemented in mock'}),
-		exists: async () => false,
+		exists: async () => ({ok: true as const, value: false}),
 		readdir: async () => ({ok: false as const, message: 'not implemented in mock'}),
 		mkdir: async () => ({ok: false as const, message: 'not implemented in mock'}),
 		rm: async () => ({ok: false as const, message: 'not implemented in mock'}),
@@ -302,7 +302,7 @@ export const create_mock_fs_ops = (): FsOperations & {
 			return {ok: true};
 		},
 		stat: async () => not_implemented,
-		exists: async () => false,
+		exists: async () => ({ok: true as const, value: false}),
 		readdir: async () => not_implemented,
 		mkdir: async () => not_implemented,
 		rm: async () => not_implemented,
