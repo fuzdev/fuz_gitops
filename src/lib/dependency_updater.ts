@@ -52,7 +52,7 @@ export const update_package_json = async (
 	const package_json_path = join(repo.repo_dir, 'package.json');
 
 	// Read current package.json
-	const content_result = await fs_ops.readFile({path: package_json_path, encoding: 'utf8'});
+	const content_result = await fs_ops.read_file({path: package_json_path, encoding: 'utf8'});
 	if (!content_result.ok) {
 		throw new Error(`Failed to read package.json: ${content_result.message}`);
 	}
@@ -103,7 +103,7 @@ export const update_package_json = async (
 	if (!updated) return;
 
 	// Write updated package.json
-	const write_result = await fs_ops.writeFile({
+	const write_result = await fs_ops.write_file({
 		path: package_json_path,
 		content: JSON.stringify(package_json, null, '\t') + '\n',
 	});

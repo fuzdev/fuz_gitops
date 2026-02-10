@@ -300,26 +300,8 @@ export interface PreflightOperations {
 	}) => Promise<PreflightResult>;
 }
 
-/**
- * File system operations for reading and writing files.
- */
-export interface FsOperations {
-	/**
-	 * Reads a file from the file system.
-	 */
-	readFile: (options: {
-		path: string;
-		encoding: BufferEncoding;
-	}) => Promise<Result<{value: string}, {message: string}>>;
-
-	/**
-	 * Writes a file to the file system.
-	 */
-	writeFile: (options: {
-		path: string;
-		content: string;
-	}) => Promise<Result<object, {message: string}>>;
-}
+import type {FsOperations} from '@fuzdev/fuz_util/fs_operations.js';
+export type {FsOperations};
 
 /**
  * Combined operations interface grouping all gitops functionality.

@@ -299,11 +299,11 @@ test('deploys all repos when deploy flag is set (Phase 3)', async () => {
 		preflight: create_preflight_mock(['pkg-a', 'pkg-b']),
 		process: process_ops,
 		fs: {
-			readFile: async (options) => ({
+			read_file: async (options: {path: string}) => ({
 				ok: true,
 				value: mock_fs.get(options.path) || '{}',
 			}),
-			writeFile: async () => ({ok: true}),
+			write_file: async () => ({ok: true}),
 		},
 	});
 
@@ -339,11 +339,11 @@ test('deploys only repos with changes (skips unchanged repos)', async () => {
 		},
 		process: process_ops,
 		fs: {
-			readFile: async (options) => ({
+			read_file: async (options: {path: string}) => ({
 				ok: true,
 				value: mock_fs.get(options.path) || '{}',
 			}),
-			writeFile: async () => ({ok: true}),
+			write_file: async () => ({ok: true}),
 		},
 	});
 
@@ -401,11 +401,11 @@ test('no changes results in no deployment', async () => {
 		},
 		process: process_ops,
 		fs: {
-			readFile: async (options) => ({
+			read_file: async (options: {path: string}) => ({
 				ok: true,
 				value: mock_fs.get(options.path) || '{}',
 			}),
-			writeFile: async () => ({ok: true}),
+			write_file: async () => ({ok: true}),
 		},
 	});
 
@@ -462,11 +462,11 @@ test('handles 4-level transitive dependency chain', async () => {
 		process: process_ops,
 		preflight: create_preflight_mock(['level-1', 'level-2', 'level-3', 'level-4']),
 		fs: {
-			readFile: async (options) => ({
+			read_file: async (options: {path: string}) => ({
 				ok: true,
 				value: mock_fs.get(options.path) || '{}',
 			}),
-			writeFile: async () => ({ok: true}),
+			write_file: async () => ({ok: true}),
 		},
 	});
 
@@ -593,11 +593,11 @@ test('handles deploy failures without stopping', async () => {
 		preflight: create_preflight_mock(['pkg-a', 'pkg-b']),
 		process: process_ops,
 		fs: {
-			readFile: async (options) => ({
+			read_file: async (options: {path: string}) => ({
 				ok: true,
 				value: mock_fs.get(options.path) || '{}',
 			}),
-			writeFile: async () => ({ok: true}),
+			write_file: async () => ({ok: true}),
 		},
 	});
 
@@ -631,11 +631,11 @@ test('returns correct PublishedVersion metadata', async () => {
 			}),
 		},
 		fs: {
-			readFile: async (options) => ({
+			read_file: async (options: {path: string}) => ({
 				ok: true,
 				value: mock_fs.get(options.path) || '{}',
 			}),
-			writeFile: async () => ({ok: true}),
+			write_file: async () => ({ok: true}),
 		},
 	});
 

@@ -8,7 +8,6 @@
  */
 
 import {spawn, spawn_out} from '@fuzdev/fuz_util/process.js';
-import {readFile, writeFile} from 'node:fs/promises';
 import {git_checkout, type GitBranch, type GitOrigin} from '@fuzdev/fuz_util/git.js';
 import {EMPTY_OBJECT} from '@fuzdev/fuz_util/object.js';
 
@@ -38,7 +37,6 @@ import type {
 	ProcessOperations,
 	NpmOperations,
 	PreflightOperations,
-	FsOperations,
 	BuildOperations,
 	GitopsOperations,
 } from './operations.js';
@@ -290,17 +288,8 @@ export const default_preflight_operations: PreflightOperations = {
 	},
 };
 
-export const default_fs_operations: FsOperations = {
-	readFile: async (options) => {
-		const {path, encoding} = options;
-		return wrap_with_value(() => readFile(path, encoding));
-	},
-
-	writeFile: async (options) => {
-		const {path, content} = options;
-		return wrap_void(() => writeFile(path, content));
-	},
-};
+import {default_fs_operations} from '@fuzdev/fuz_util/fs_operations_node.js';
+export {default_fs_operations};
 
 export const default_build_operations: BuildOperations = {
 	build_package: async (options) => {

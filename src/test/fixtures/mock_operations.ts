@@ -143,8 +143,10 @@ export const create_mock_fs_ops = (fixture: RepoFixtureSet): FsOperations => {
 		package_jsons.set(path, JSON.stringify(repo.package_json, null, '\t'));
 	}
 
+	const not_implemented = {ok: false as const, message: 'not implemented in mock'};
+
 	return {
-		readFile: async (options) => {
+		read_file: async (options) => {
 			const content = package_jsons.get(options.path);
 			if (content) {
 				return {ok: true, value: content};
@@ -152,8 +154,13 @@ export const create_mock_fs_ops = (fixture: RepoFixtureSet): FsOperations => {
 			// Default for unknown files
 			return {ok: true, value: '{}'};
 		},
-
-		writeFile: async () => ({ok: true}),
+		read_file_buffer: async () => not_implemented,
+		write_file: async () => ({ok: true}),
+		stat: async () => not_implemented,
+		exists: async () => false,
+		readdir: async () => not_implemented,
+		mkdir: async () => not_implemented,
+		rm: async () => not_implemented,
 	};
 };
 

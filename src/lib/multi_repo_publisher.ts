@@ -435,7 +435,7 @@ const publish_single_repo = async (
 
 	// Read the new version from package.json after gro publish
 	const package_json_path = join(repo.repo_dir, 'package.json');
-	const content_result = await ops.fs.readFile({path: package_json_path, encoding: 'utf8'});
+	const content_result = await ops.fs.read_file({path: package_json_path, encoding: 'utf8'});
 
 	if (!content_result.ok) {
 		throw new Error(`Failed to read package.json: ${content_result.message}`);

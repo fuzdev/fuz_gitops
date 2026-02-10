@@ -127,8 +127,14 @@ export const create_mock_gitops_ops = (
 		...overrides.preflight,
 	},
 	fs: {
-		readFile: async () => ({ok: true, value: '{}'}),
-		writeFile: async () => ({ok: true}),
+		read_file: async () => ({ok: true, value: '{}'}),
+		read_file_buffer: async () => ({ok: false as const, message: 'not implemented in mock'}),
+		write_file: async () => ({ok: true}),
+		stat: async () => ({ok: false as const, message: 'not implemented in mock'}),
+		exists: async () => false,
+		readdir: async () => ({ok: false as const, message: 'not implemented in mock'}),
+		mkdir: async () => ({ok: false as const, message: 'not implemented in mock'}),
+		rm: async () => ({ok: false as const, message: 'not implemented in mock'}),
 		...overrides.fs,
 	},
 	build: create_mock_build_ops(overrides.build),
@@ -280,19 +286,26 @@ export const create_mock_fs_ops = (): FsOperations & {
 	set: (path: string, content: string) => void;
 } => {
 	const files: Map<string, string> = new Map();
+	const not_implemented = {ok: false as const, message: 'not implemented in mock'};
 
 	return {
-		readFile: async (options) => {
+		read_file: async (options) => {
 			const content = files.get(options.path);
 			if (content === undefined) {
 				return {ok: false, message: `File not found: ${options.path}`};
 			}
 			return {ok: true, value: content};
 		},
-		writeFile: async (options) => {
-			files.set(options.path, options.content);
+		read_file_buffer: async () => not_implemented,
+		write_file: async (options) => {
+			files.set(options.path, options.content as string);
 			return {ok: true};
 		},
+		stat: async () => not_implemented,
+		exists: async () => false,
+		readdir: async () => not_implemented,
+		mkdir: async () => not_implemented,
+		rm: async () => not_implemented,
 		get: (path: string): string | undefined => files.get(path),
 		set: (path: string, content: string): void => {
 			files.set(path, content);

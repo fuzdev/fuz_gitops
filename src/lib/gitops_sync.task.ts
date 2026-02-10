@@ -2,14 +2,14 @@ import {TaskError, type Task} from '@ryanatkn/gro';
 import {z} from 'zod';
 import {readFile, writeFile} from 'node:fs/promises';
 import {format_file} from '@ryanatkn/gro/format_file.js';
-import {basename, resolve} from 'node:path';
-import {print_path} from '@ryanatkn/gro/paths.js';
+import {basename, join, resolve} from 'node:path';
+import {paths, print_path} from '@ryanatkn/gro/paths.js';
 import {load_from_env} from '@ryanatkn/gro/env.js';
 import {package_json_load} from '@ryanatkn/gro/package_json.js';
-import {existsSync} from 'node:fs';
+import {existsSync} from 'node:fs'; // TODO think about fs ops pattern here with tasks
+import {create_fs_fetch_cache} from '@fuzdev/fuz_util/fs_fetch_cache.js';
 
 import {fetch_repo_data} from './fetch_repo_data.js';
-import {create_fs_fetch_value_cache} from './fs_fetch_value_cache.js';
 import {get_gitops_ready} from './gitops_task_helpers.js';
 import {GITOPS_CONFIG_PATH_DEFAULT} from './gitops_constants.js';
 
@@ -65,7 +65,11 @@ export const task: Task<Args> = {
 			return;
 		}
 
-		const cache = await create_fs_fetch_value_cache('repos');
+		const cache = await create_fs_fetch_cache({
+			name: 'repos',
+			dir: join(paths.build, 'fetch'),
+			format: (content, filepath) => format_file(content, {filepath}),
+		});
 
 		log.info('fetching remote repo data');
 		const repos_json = await fetch_repo_data(local_repos, token, cache.data, log);
@@ -118,8 +122,10 @@ export const task: Task<Args> = {
 			await invoke_task('gen');
 		}
 
-		const changed = await cache.save();
-		if (changed) {
+		const save_result = await cache.save();
+		if (!save_result.ok) {
+			log.warn('failed to save repos cache', save_result.message);
+		} else if (save_result.value) {
 			log.info('repos cache updated');
 		} else {
 			log.info('repos cache did not change');

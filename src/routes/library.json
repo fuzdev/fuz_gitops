@@ -829,58 +829,6 @@
 				"dependents": ["gitops_sync.task.ts"]
 			},
 			{
-				"path": "fs_fetch_value_cache.ts",
-				"declarations": [
-					{
-						"name": "FetchCache",
-						"kind": "type",
-						"source_line": 10,
-						"type_signature": "FetchCache",
-						"properties": [
-							{
-								"name": "name",
-								"kind": "variable",
-								"type_signature": "string"
-							},
-							{
-								"name": "data",
-								"kind": "variable",
-								"type_signature": "FetchValueCache"
-							},
-							{
-								"name": "save",
-								"kind": "variable",
-								"type_signature": "() => Promise<boolean>",
-								"doc_comment": ""
-							}
-						]
-					},
-					{
-						"name": "create_fs_fetch_value_cache",
-						"kind": "function",
-						"doc_comment": "Creates file-system backed cache for fuz_util's fetch.js API responses.\n\nCache invalidation strategy: If cache file can't be read or parsed, entire\ncache is cleared (delete file) and starts fresh. This handles format changes.\n\nUses `structuredClone` to track changes - only writes to disk if data modified.\nFormatted with Prettier before writing for version control friendliness.",
-						"source_line": 32,
-						"type_signature": "(name: string, dir?: string): Promise<FetchCache>",
-						"return_type": "Promise<FetchCache>",
-						"return_description": "cache object with Map-based data and save() method",
-						"parameters": [
-							{
-								"name": "name",
-								"type": "string",
-								"description": "cache filename (without .json extension)"
-							},
-							{
-								"name": "dir",
-								"type": "string",
-								"description": "cache directory (defaults to `.gro/build/fetch/`)",
-								"default_value": "join(paths.build, 'fetch')"
-							}
-						]
-					}
-				],
-				"dependents": ["gitops_sync.task.ts"]
-			},
-			{
 				"path": "git_operations.ts",
 				"declarations": [
 					{
@@ -1609,12 +1557,7 @@
 			{
 				"path": "gitops_sync.task.ts",
 				"declarations": [],
-				"dependencies": [
-					"fetch_repo_data.ts",
-					"fs_fetch_value_cache.ts",
-					"gitops_constants.ts",
-					"gitops_task_helpers.ts"
-				]
+				"dependencies": ["fetch_repo_data.ts", "gitops_constants.ts", "gitops_task_helpers.ts"]
 			},
 			{
 				"path": "gitops_task_helpers.ts",
@@ -2598,50 +2541,44 @@
 					{
 						"name": "default_changeset_operations",
 						"kind": "variable",
-						"source_line": 70,
+						"source_line": 68,
 						"type_signature": "ChangesetOperations"
 					},
 					{
 						"name": "default_git_operations",
 						"kind": "variable",
-						"source_line": 95,
+						"source_line": 93,
 						"type_signature": "GitOperations"
 					},
 					{
 						"name": "default_process_operations",
 						"kind": "variable",
-						"source_line": 192,
+						"source_line": 190,
 						"type_signature": "ProcessOperations"
 					},
 					{
 						"name": "default_npm_operations",
 						"kind": "variable",
-						"source_line": 216,
+						"source_line": 214,
 						"type_signature": "NpmOperations"
 					},
 					{
 						"name": "default_preflight_operations",
 						"kind": "variable",
-						"source_line": 287,
+						"source_line": 285,
 						"type_signature": "PreflightOperations"
-					},
-					{
-						"name": "default_fs_operations",
-						"kind": "variable",
-						"source_line": 293,
-						"type_signature": "FsOperations"
 					},
 					{
 						"name": "default_build_operations",
 						"kind": "variable",
-						"source_line": 305,
+						"source_line": 294,
 						"type_signature": "BuildOperations"
 					},
 					{
 						"name": "default_gitops_operations",
 						"kind": "variable",
 						"doc_comment": "Combined default operations for all gitops functionality.",
-						"source_line": 329,
+						"source_line": 318,
 						"type_signature": "GitopsOperations"
 					}
 				],
@@ -2892,31 +2829,10 @@
 						]
 					},
 					{
-						"name": "FsOperations",
-						"kind": "type",
-						"doc_comment": "File system operations for reading and writing files.",
-						"source_line": 306,
-						"type_signature": "FsOperations",
-						"properties": [
-							{
-								"name": "readFile",
-								"kind": "variable",
-								"type_signature": "(options: {\n\t\tpath: string;\n\t\tencoding: BufferEncoding;\n\t}) => Promise<Result<{value: string}, {message: string}>>",
-								"doc_comment": "Reads a file from the file system."
-							},
-							{
-								"name": "writeFile",
-								"kind": "variable",
-								"type_signature": "(options: {\n\t\tpath: string;\n\t\tcontent: string;\n\t}) => Promise<Result<object, {message: string}>>",
-								"doc_comment": "Writes a file to the file system."
-							}
-						]
-					},
-					{
 						"name": "GitopsOperations",
 						"kind": "type",
 						"doc_comment": "Combined operations interface grouping all gitops functionality.\nThis is the main interface injected into publishing and validation workflows.",
-						"source_line": 328,
+						"source_line": 310,
 						"type_signature": "GitopsOperations",
 						"properties": [
 							{
