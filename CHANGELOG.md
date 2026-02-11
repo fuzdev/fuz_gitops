@@ -297,7 +297,7 @@
 
 ### Minor Changes
 
-- upgrade `node@22.3` and `@ryanatkn/gro@0.120.0` ([eca969a](https://github.com/ryanatkn/fuz_gitops/commit/eca969a))
+- upgrade `node@22.3` and `@fuzdev/gro@0.120.0` ([eca969a](https://github.com/ryanatkn/fuz_gitops/commit/eca969a))
 
 ## 0.27.0
 

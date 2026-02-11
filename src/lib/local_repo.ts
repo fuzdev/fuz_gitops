@@ -3,7 +3,7 @@ import type {LibraryJson} from '@fuzdev/fuz_util/library_json.js';
 import {Library} from '@fuzdev/fuz_ui/library.svelte.js';
 import {existsSync} from 'node:fs';
 import {join} from 'node:path';
-import {TaskError} from '@ryanatkn/gro';
+import {TaskError} from '@fuzdev/gro';
 import type {Logger} from '@fuzdev/fuz_util/log.js';
 import {spawn} from '@fuzdev/fuz_util/process.js';
 import {map_concurrent_settled} from '@fuzdev/fuz_util/async.js';

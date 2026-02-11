@@ -386,7 +386,7 @@ gro test src/test/fixtures/check     # validate gitops commands against fixture 
 
 ## Dependencies
 
-- `@ryanatkn/gro` - build tool and task runner
+- `@fuzdev/gro` - build tool and task runner
 - `@fuzdev/fuz_ui` - UI components and utilities
 - `@fuzdev/fuz_util` - utility functions
 - `@fuzdev/fuz_css` - CSS framework and design tokens
@@ -412,7 +412,7 @@ For packages you control, use `>=` instead of `^` for peer dependencies:
 ```json
 "peerDependencies": {
   "@fuzdev/fuz_util": ">=0.38.0", // controlled package - use >=
-  "@ryanatkn/gro": ">=0.174.0",   // controlled package - use >=
+  "@fuzdev/gro": ">=0.174.0",   // controlled package - use >=
   "@sveltejs/kit": "^2",          // third-party - use ^
   "svelte": "^5"                  // third-party - use ^
 }

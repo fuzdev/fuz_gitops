@@ -1,4 +1,4 @@
-import type {Task} from '@ryanatkn/gro';
+import type {Task} from '@fuzdev/gro';
 import {z} from 'zod';
 import {styleText as st} from 'node:util';
 import type {Logger} from '@fuzdev/fuz_util/log.js';

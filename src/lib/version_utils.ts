@@ -25,9 +25,18 @@ export const get_version_prefix = (version: string): string => {
  * Strips prefixes (^, ~, >=) to get bare version number.
  * Handles wildcards as-is. Used by needs_update to compare versions.
  *
- * @example normalize_version_for_comparison('^1.2.3') // '1.2.3'
- * @example normalize_version_for_comparison('>=2.0.0') // '2.0.0'
- * @example normalize_version_for_comparison('*') // '*'
+ * @example
+ * ```ts
+ * normalize_version_for_comparison('^1.2.3') // '1.2.3'
+ * ```
+ * @example
+ * ```ts
+ * normalize_version_for_comparison('>=2.0.0') // '2.0.0'
+ * ```
+ * @example
+ * ```ts
+ * normalize_version_for_comparison('*') // '*'
+ * ```
  */
 export const normalize_version_for_comparison = (version: string): string => {
 	// Handle wildcards

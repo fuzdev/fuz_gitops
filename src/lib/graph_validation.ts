@@ -14,7 +14,7 @@
  */
 
 import type {Logger} from '@fuzdev/fuz_util/log.js';
-import {TaskError} from '@ryanatkn/gro';
+import {TaskError} from '@fuzdev/gro';
 import {styleText as st} from 'node:util';
 
 import {DependencyGraph, DependencyGraphBuilder} from './dependency_graph.js';

@@ -1,5 +1,5 @@
 import type {Logger} from '@fuzdev/fuz_util/log.js';
-import {TaskError} from '@ryanatkn/gro';
+import {TaskError} from '@fuzdev/gro';
 import {join} from 'node:path';
 import {styleText as st} from 'node:util';
 

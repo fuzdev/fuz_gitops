@@ -35,15 +35,24 @@ export interface RawGitopsConfig {
 export interface GitopsRepoConfig {
 	/**
 	 * The HTTPS URL to the repo. Does not include a `.git` suffix.
-	 * @example 'https://github.com/fuzdev/fuz_ui'
+	 * @example
+	 * ```ts
+	 * 'https://github.com/fuzdev/fuz_ui'
+	 * ```
 	 */
 	repo_url: Url;
 
 	/**
 	 * Relative or absolute path to the repo's local directory.
 	 * If `null`, the directory is inferred from the URL and cwd.
-	 * @example 'relative/path/to/repo'
-	 * @example '/absolute/path/to/repo'
+	 * @example
+	 * ```ts
+	 * 'relative/path/to/repo'
+	 * ```
+	 * @example
+	 * ```ts
+	 * '/absolute/path/to/repo'
+	 * ```
 	 */
 	repo_dir: string | null;
 

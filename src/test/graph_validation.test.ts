@@ -1,5 +1,5 @@
 import {describe, it, expect} from 'vitest';
-import {TaskError} from '@ryanatkn/gro';
+import {TaskError} from '@fuzdev/gro';
 
 import {validate_dependency_graph} from '$lib/graph_validation.js';
 import {create_mock_repo} from './test_helpers.ts';

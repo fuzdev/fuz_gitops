@@ -1,11 +1,11 @@
-import {TaskError, type Task} from '@ryanatkn/gro';
+import {TaskError, type Task} from '@fuzdev/gro';
 import {z} from 'zod';
 import {readFile, writeFile} from 'node:fs/promises';
-import {format_file} from '@ryanatkn/gro/format_file.js';
+import {format_file} from '@fuzdev/gro/format_file.js';
 import {basename, resolve} from 'node:path';
-import {print_path} from '@ryanatkn/gro/paths.js';
-import {load_from_env} from '@ryanatkn/gro/env.js';
-import {package_json_load} from '@ryanatkn/gro/package_json.js';
+import {print_path} from '@fuzdev/gro/paths.js';
+import {load_from_env} from '@fuzdev/gro/env.js';
+import {package_json_load} from '@fuzdev/gro/package_json.js';
 import {existsSync} from 'node:fs';
 
 import {fetch_repo_data} from './fetch_repo_data.js';

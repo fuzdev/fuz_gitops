@@ -16,10 +16,10 @@
  * @module
  */
 
-import {TaskError} from '@ryanatkn/gro';
+import {TaskError} from '@fuzdev/gro';
 import {styleText as st} from 'node:util';
 import {resolve, dirname} from 'node:path';
-import {print_path} from '@ryanatkn/gro/paths.js';
+import {print_path} from '@fuzdev/gro/paths.js';
 import type {Logger} from '@fuzdev/fuz_util/log.js';
 
 import {load_gitops_config, type GitopsConfig} from './gitops_config.js';

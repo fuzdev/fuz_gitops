@@ -8,7 +8,7 @@
 
 	const {
 		repos,
-		deps = ['@fuzdev/fuz_ui', '@ryanatkn/gro'],
+		deps = ['@fuzdev/fuz_ui', '@fuzdev/gro'],
 	}: {
 		repos: Array<Repo>;
 		deps?: Array<string>;

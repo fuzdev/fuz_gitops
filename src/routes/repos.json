@@ -12630,7 +12630,7 @@
 			"logo_url": "https://gro.ryanatkn.com/logo.svg",
 			"logo_alt": "a pixelated green oak acorn with a glint of sun",
 			"npm_url": "https://www.npmjs.com/package/@ryanatkn/gro",
-			"changelog_url": "https://github.com/ryanatkn/gro/blob/main/CHANGELOG.md",
+			"changelog_url": "https://github.com/fuzdev/gro/blob/main/CHANGELOG.md",
 			"published": true,
 			"package_json": {
 				"name": "@ryanatkn/gro",
@@ -12648,7 +12648,7 @@
 					"url": "https://www.ryanatkn.com/"
 				},
 				"repository": {"type": "git", "url": "git+https://github.com/ryanatkn/gro.git"},
-				"bugs": "https://github.com/ryanatkn/gro/issues",
+				"bugs": "https://github.com/fuzdev/gro/issues",
 				"funding": "https://www.ryanatkn.com/funding",
 				"scripts": {
 					"bootstrap": "rm -rf .gro dist && svelte-kit sync && svelte-package && chmod +x ./dist/gro.js && npm link -f",
@@ -14594,7 +14594,7 @@
 								"name": "GroConfig",
 								"kind": "type",
 								"doc_comment": "The config that users can extend via `gro.config.ts`.\nThis is exposed to users in places like tasks and genfiles.",
-								"see_also": ["https://github.com/ryanatkn/gro/blob/main/src/docs/config.md"],
+								"see_also": ["https://github.com/fuzdev/gro/blob/main/src/docs/config.md"],
 								"source_line": 35,
 								"type_signature": "GroConfig",
 								"extends": ["RawGroConfig"],
@@ -14654,7 +14654,7 @@
 								"name": "RawGroConfig",
 								"kind": "type",
 								"doc_comment": "The relaxed variant of `GroConfig` that users can provide via `gro.config.ts`.\nSuperset of `GroConfig`.",
-								"see_also": ["https://github.com/ryanatkn/gro/blob/main/src/docs/config.md"],
+								"see_also": ["https://github.com/fuzdev/gro/blob/main/src/docs/config.md"],
 								"source_line": 80,
 								"type_signature": "RawGroConfig",
 								"properties": [
