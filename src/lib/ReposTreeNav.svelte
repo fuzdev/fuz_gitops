@@ -16,7 +16,7 @@
 </script>
 
 <nav>
-	<menu class="names panel p_md">
+	<menu class="panel p_md">
 		{#each repos as repo (repo.name)}
 			{@const selected = repo === selected_repo}
 			<li style:display="contents">
@@ -43,15 +43,5 @@
 		width: var(--nav_width, 240px);
 		padding: var(--space_lg);
 		padding-right: 0;
-	}
-	.names {
-		padding: var(--space_md);
-	}
-	/* TODO should be a CSS class or variable, probably add :focus behavior */
-	.names a:hover {
-		background-color: var(--fg_50);
-	}
-	.names a:is(:active, .selected) {
-		background-color: var(--fg_70);
 	}
 </style>
