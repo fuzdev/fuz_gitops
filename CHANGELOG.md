@@ -1,5 +1,11 @@
 # @fuzdev/fuz_gitops
 
+## 0.65.1
+
+### Patch Changes
+
+- fix some component styles ([72226e8](https://github.com/fuzdev/fuz_gitops/commit/72226e8))
+
 ## 0.65.0
 
 ### Minor Changes
