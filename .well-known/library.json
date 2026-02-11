@@ -11,7 +11,7 @@
 	"published": true,
 	"package_json": {
 		"name": "@fuzdev/fuz_gitops",
-		"version": "0.64.0",
+		"version": "0.65.0",
 		"description": "a tool for managing many repos",
 		"glyph": "🪄",
 		"logo": "logo.svg",
@@ -43,20 +43,20 @@
 			"@fuzdev/fuz_css": ">=0.44.1",
 			"@fuzdev/fuz_ui": ">=0.179.0",
 			"@fuzdev/fuz_util": ">=0.45.3",
-			"@ryanatkn/gro": ">=0.186.0",
+			"@fuzdev/gro": "^0.192.1",
 			"@sveltejs/kit": "^2",
 			"svelte": "^5",
 			"zod": "^4.1.13"
 		},
 		"devDependencies": {
 			"@changesets/changelog-git": "^0.2.1",
-			"@fuzdev/fuz_code": "^0.44.1",
-			"@fuzdev/fuz_css": "^0.47.0",
-			"@fuzdev/fuz_ui": "^0.182.0",
+			"@fuzdev/fuz_code": "^0.45.0",
+			"@fuzdev/fuz_css": "^0.49.0",
+			"@fuzdev/fuz_ui": "^0.183.0",
 			"@fuzdev/fuz_util": "^0.50.1",
+			"@fuzdev/gro": "^0.192.1",
 			"@jridgewell/trace-mapping": "^0.3.31",
 			"@ryanatkn/eslint-config": "^0.9.0",
-			"@ryanatkn/gro": "^0.191.0",
 			"@sveltejs/adapter-static": "^3.0.10",
 			"@sveltejs/kit": "^2.50.1",
 			"@sveltejs/package": "^2.5.7",
@@ -125,7 +125,7 @@
 	},
 	"source_json": {
 		"name": "@fuzdev/fuz_gitops",
-		"version": "0.64.0",
+		"version": "0.65.0",
 		"modules": [
 			{
 				"path": "changeset_generator.ts",
@@ -1473,7 +1473,7 @@
 					{
 						"name": "RawGitopsRepoConfig",
 						"kind": "type",
-						"source_line": 56,
+						"source_line": 65,
 						"type_signature": "RawGitopsRepoConfig",
 						"properties": [
 							{
@@ -1496,7 +1496,7 @@
 					{
 						"name": "create_empty_gitops_config",
 						"kind": "function",
-						"source_line": 62,
+						"source_line": 71,
 						"type_signature": "(): GitopsConfig",
 						"return_type": "GitopsConfig",
 						"parameters": []
@@ -1505,7 +1505,7 @@
 						"name": "normalize_gitops_config",
 						"kind": "function",
 						"doc_comment": "Transforms a `RawGitopsConfig` to the more strict `GitopsConfig`.\nThis allows users to provide a more relaxed config.",
-						"source_line": 71,
+						"source_line": 80,
 						"type_signature": "(raw_config: RawGitopsConfig): GitopsConfig",
 						"return_type": "GitopsConfig",
 						"parameters": [
@@ -1518,7 +1518,7 @@
 					{
 						"name": "GitopsConfigModule",
 						"kind": "type",
-						"source_line": 94,
+						"source_line": 103,
 						"type_signature": "GitopsConfigModule",
 						"properties": [
 							{
@@ -1534,7 +1534,7 @@
 					{
 						"name": "load_gitops_config",
 						"kind": "function",
-						"source_line": 98,
+						"source_line": 107,
 						"type_signature": "(config_path: string): Promise<GitopsConfig | null>",
 						"return_type": "Promise<GitopsConfig | null>",
 						"parameters": [
@@ -1547,7 +1547,7 @@
 					{
 						"name": "validate_gitops_config_module",
 						"kind": "function",
-						"source_line": 113,
+						"source_line": 122,
 						"type_signature": "(config_module: any, config_path: string): asserts config_module is GitopsConfigModule",
 						"return_type": "void",
 						"parameters": [
@@ -4646,11 +4646,11 @@
 						"kind": "function",
 						"doc_comment": "Normalizes version string for comparison.\n\nStrips prefixes (^, ~, >=) to get bare version number.\nHandles wildcards as-is. Used by needs_update to compare versions.",
 						"examples": [
-							"normalize_version_for_comparison('^1.2.3') // '1.2.3'",
-							"normalize_version_for_comparison('>=2.0.0') // '2.0.0'",
-							"normalize_version_for_comparison('*') // '*'"
+							"```ts\nnormalize_version_for_comparison('^1.2.3') // '1.2.3'\n```",
+							"```ts\nnormalize_version_for_comparison('>=2.0.0') // '2.0.0'\n```",
+							"```ts\nnormalize_version_for_comparison('*') // '*'\n```"
 						],
-						"source_line": 32,
+						"source_line": 41,
 						"type_signature": "(version: string): string",
 						"return_type": "string",
 						"parameters": [
@@ -4663,7 +4663,7 @@
 					{
 						"name": "needs_update",
 						"kind": "function",
-						"source_line": 45,
+						"source_line": 54,
 						"type_signature": "(current: string, new_version: string): boolean",
 						"return_type": "boolean",
 						"parameters": [
@@ -4681,7 +4681,7 @@
 						"name": "get_update_prefix",
 						"kind": "function",
 						"doc_comment": "Determines version prefix to use when updating dependencies.\n\nStrategy:\n- Wildcard (*): Use caret (^) as default\n- Has existing prefix: Preserve it (^, ~, >=, <=, etc)\n- No prefix: Use default_strategy\n\nThis preserves user intent while handling wildcard replacements sensibly.",
-						"source_line": 68,
+						"source_line": 77,
 						"type_signature": "(current_version: string, default_strategy?: \"\" | \"^\" | \"~\" | \">=\"): string",
 						"return_type": "string",
 						"parameters": [
@@ -4701,7 +4701,7 @@
 						"name": "is_breaking_change",
 						"kind": "function",
 						"doc_comment": "Determines if a bump is a breaking change based on semver rules.\nPre-1.0: minor bumps are breaking\n1.0+: major bumps are breaking",
-						"source_line": 92,
+						"source_line": 101,
 						"type_signature": "(old_version: string, bump_type: \"major\" | \"minor\" | \"patch\"): boolean",
 						"return_type": "boolean",
 						"parameters": [
@@ -4718,7 +4718,7 @@
 					{
 						"name": "detect_bump_type",
 						"kind": "function",
-						"source_line": 108,
+						"source_line": 117,
 						"type_signature": "(old_version: string, new_version: string): \"major\" | \"minor\" | \"patch\"",
 						"return_type": "\"major\" | \"minor\" | \"patch\"",
 						"parameters": [
@@ -4736,7 +4736,7 @@
 						"name": "compare_bump_types",
 						"kind": "function",
 						"doc_comment": "Compares bump types. Returns positive if a > b, negative if a < b, 0 if equal.",
-						"source_line": 123,
+						"source_line": 132,
 						"type_signature": "(a: BumpType, b: BumpType): number",
 						"return_type": "number",
 						"parameters": [
@@ -4753,7 +4753,7 @@
 					{
 						"name": "calculate_next_version",
 						"kind": "function",
-						"source_line": 132,
+						"source_line": 141,
 						"type_signature": "(current_version: string, bump_type: BumpType): string",
 						"return_type": "string",
 						"parameters": [
