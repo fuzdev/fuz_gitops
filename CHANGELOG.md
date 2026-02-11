@@ -1,5 +1,11 @@
 # @fuzdev/fuz_gitops
 
+## 0.65.0
+
+### Minor Changes
+
+- migrate to @fuzdev/gro from @ryanatkn/gro ([7d3bd02](https://github.com/fuzdev/fuz_gitops/commit/7d3bd02))
+
 ## 0.64.0
 
 ### Minor Changes
