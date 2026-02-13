@@ -5,7 +5,7 @@
 fuz_gitops (`@fuzdev/fuz_gitops`) loosely couples repos with cascade publishing
 and cross-repo automation.
 
-For coding conventions, see [`fuz-stack`](../fuz-stack/CLAUDE.md).
+For coding conventions, see Skill(fuz-stack).
 
 ## Table of Contents
 
