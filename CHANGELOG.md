@@ -1,5 +1,13 @@
 # @fuzdev/fuz_gitops
 
+## 0.65.2
+
+### Patch Changes
+
+- - replace topological sort with `@fuzdev/fuz_util/sort.js` ([9f49904](https://github.com/fuzdev/fuz_gitops/commit/9f49904))
+  - remove unused `detect_cycles()` method
+  - deduplicate DFS cycle detection into `#find_cycles` helper
+
 ## 0.65.1
 
 ### Patch Changes

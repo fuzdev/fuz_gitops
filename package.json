@@ -1,6 +1,6 @@
 {
   "name": "@fuzdev/fuz_gitops",
-  "version": "0.65.1",
+  "version": "0.65.2",
   "description": "a tool for managing many repos",
   "glyph": "🪄",
   "logo": "logo.svg",
