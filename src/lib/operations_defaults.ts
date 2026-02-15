@@ -8,7 +8,8 @@
  */
 
 import {spawn, spawn_out} from '@fuzdev/fuz_util/process.js';
-import {readFile, writeFile} from 'node:fs/promises';
+import {readFile, writeFile, mkdir} from 'node:fs/promises';
+import {existsSync} from 'node:fs';
 import {git_checkout, type GitBranch, type GitOrigin} from '@fuzdev/fuz_util/git.js';
 import {EMPTY_OBJECT} from '@fuzdev/fuz_util/object.js';
 
@@ -299,6 +300,15 @@ export const default_fs_operations: FsOperations = {
 	writeFile: async (options) => {
 		const {path, content} = options;
 		return wrap_void(() => writeFile(path, content));
+	},
+
+	mkdir: async (options) => {
+		const {path, recursive} = options;
+		return wrap_void(() => mkdir(path, {recursive}));
+	},
+
+	exists: (options) => {
+		return existsSync(options.path);
 	},
 };
 

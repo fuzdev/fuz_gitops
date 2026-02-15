@@ -7,13 +7,13 @@
  * @module
  */
 
-import {writeFile, mkdir} from 'node:fs/promises';
 import {join} from 'node:path';
-import {existsSync} from 'node:fs';
 import type {Logger} from '@fuzdev/fuz_util/log.js';
 import type {LocalRepo} from './local_repo.js';
 import type {PublishedVersion} from './multi_repo_publisher.js';
 import {strip_version_prefix} from './version_utils.js';
+import type {FsOperations} from './operations.js';
+import {default_fs_operations} from './operations_defaults.js';
 
 export interface DependencyVersionChange {
 	package_name: string;
@@ -30,14 +30,17 @@ export interface DependencyVersionChange {
 export const create_changeset_for_dependency_updates = async (
 	repo: LocalRepo,
 	updates: Array<DependencyVersionChange>,
-	options: {log?: Logger} = {},
+	options: {log?: Logger; fs_ops?: FsOperations} = {},
 ): Promise<string> => {
-	const {log} = options;
+	const {log, fs_ops = default_fs_operations} = options;
 	const changesets_dir = join(repo.repo_dir, '.changeset');
 
 	// Ensure .changeset directory exists
-	if (!existsSync(changesets_dir)) {
-		await mkdir(changesets_dir, {recursive: true});
+	if (!fs_ops.exists({path: changesets_dir})) {
+		const mkdir_result = await fs_ops.mkdir({path: changesets_dir, recursive: true});
+		if (!mkdir_result.ok) {
+			throw new Error(`Failed to create .changeset directory: ${mkdir_result.message}`);
+		}
 	}
 
 	// Generate a unique filename
@@ -53,7 +56,10 @@ export const create_changeset_for_dependency_updates = async (
 	const content = generate_changeset_content(repo.library.name, updates, required_bump);
 
 	// Write the changeset file
-	await writeFile(filepath, content, 'utf8');
+	const write_result = await fs_ops.writeFile({path: filepath, content});
+	if (!write_result.ok) {
+		throw new Error(`Failed to write changeset file: ${write_result.message}`);
+	}
 
 	log?.info(`  Created changeset: ${filename}`);
 

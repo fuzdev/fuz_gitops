@@ -319,6 +319,19 @@ export interface FsOperations {
 		path: string;
 		content: string;
 	}) => Promise<Result<object, {message: string}>>;
+
+	/**
+	 * Creates a directory, optionally with recursive creation.
+	 */
+	mkdir: (options: {
+		path: string;
+		recursive?: boolean;
+	}) => Promise<Result<object, {message: string}>>;
+
+	/**
+	 * Checks if a path exists on the file system.
+	 */
+	exists: (options: {path: string}) => boolean;
 }
 
 /**

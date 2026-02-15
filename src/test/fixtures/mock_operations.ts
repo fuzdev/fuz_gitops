@@ -154,6 +154,10 @@ export const create_mock_fs_ops = (fixture: RepoFixtureSet): FsOperations => {
 		},
 
 		writeFile: async () => ({ok: true}),
+
+		mkdir: async () => ({ok: true}),
+
+		exists: () => true,
 	};
 };
 

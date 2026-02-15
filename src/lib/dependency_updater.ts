@@ -145,7 +145,7 @@ export const update_package_json = async (
 			const changeset_path = await create_changeset_for_dependency_updates(
 				repo,
 				dependency_updates,
-				{log},
+				{log, fs_ops},
 			);
 
 			// Add changeset to git

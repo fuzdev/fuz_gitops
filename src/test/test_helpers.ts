@@ -129,6 +129,8 @@ export const create_mock_gitops_ops = (
 	fs: {
 		readFile: async () => ({ok: true, value: '{}'}),
 		writeFile: async () => ({ok: true}),
+		mkdir: async () => ({ok: true}),
+		exists: () => true,
 		...overrides.fs,
 	},
 	build: create_mock_build_ops(overrides.build),
@@ -280,6 +282,7 @@ export const create_mock_fs_ops = (): FsOperations & {
 	set: (path: string, content: string) => void;
 } => {
 	const files: Map<string, string> = new Map();
+	const dirs: Set<string> = new Set();
 
 	return {
 		readFile: async (options) => {
@@ -292,6 +295,13 @@ export const create_mock_fs_ops = (): FsOperations & {
 		writeFile: async (options) => {
 			files.set(options.path, options.content);
 			return {ok: true};
+		},
+		mkdir: async (options) => {
+			dirs.add(options.path);
+			return {ok: true};
+		},
+		exists: (options) => {
+			return files.has(options.path) || dirs.has(options.path);
 		},
 		get: (path: string): string | undefined => files.get(path),
 		set: (path: string, content: string): void => {
