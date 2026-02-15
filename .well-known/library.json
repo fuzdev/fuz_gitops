@@ -11,7 +11,7 @@
 	"published": true,
 	"package_json": {
 		"name": "@fuzdev/fuz_gitops",
-		"version": "0.65.1",
+		"version": "0.65.2",
 		"description": "a tool for managing many repos",
 		"glyph": "🪄",
 		"logo": "logo.svg",
@@ -43,18 +43,18 @@
 			"@fuzdev/fuz_css": ">=0.44.1",
 			"@fuzdev/fuz_ui": ">=0.179.0",
 			"@fuzdev/fuz_util": ">=0.45.3",
-			"@fuzdev/gro": "^0.192.1",
+			"@fuzdev/gro": "^0.194.0",
 			"@sveltejs/kit": "^2",
 			"svelte": "^5",
 			"zod": "^4.1.13"
 		},
 		"devDependencies": {
 			"@changesets/changelog-git": "^0.2.1",
-			"@fuzdev/fuz_code": "^0.45.0",
+			"@fuzdev/fuz_code": "^0.45.1",
 			"@fuzdev/fuz_css": "^0.50.0",
-			"@fuzdev/fuz_ui": "^0.183.1",
+			"@fuzdev/fuz_ui": "^0.183.2",
 			"@fuzdev/fuz_util": "^0.50.1",
-			"@fuzdev/gro": "^0.192.1",
+			"@fuzdev/gro": "^0.194.0",
 			"@jridgewell/trace-mapping": "^0.3.31",
 			"@ryanatkn/eslint-config": "^0.9.0",
 			"@sveltejs/adapter-static": "^3.0.10",
@@ -125,7 +125,7 @@
 	},
 	"source_json": {
 		"name": "@fuzdev/fuz_gitops",
-		"version": "0.65.1",
+		"version": "0.65.2",
 		"modules": [
 			{
 				"path": "changeset_generator.ts",
@@ -391,19 +391,19 @@
 					{
 						"name": "DEPENDENCY_TYPE",
 						"kind": "variable",
-						"source_line": 13,
+						"source_line": 16,
 						"type_signature": "{ readonly PROD: \"prod\"; readonly PEER: \"peer\"; readonly DEV: \"dev\"; }"
 					},
 					{
 						"name": "DependencyType",
 						"kind": "type",
-						"source_line": 19,
+						"source_line": 22,
 						"type_signature": "DependencyType"
 					},
 					{
 						"name": "DependencySpec",
 						"kind": "type",
-						"source_line": 21,
+						"source_line": 24,
 						"type_signature": "DependencySpec",
 						"properties": [
 							{
@@ -426,7 +426,7 @@
 					{
 						"name": "DependencyGraphJson",
 						"kind": "type",
-						"source_line": 27,
+						"source_line": 30,
 						"type_signature": "DependencyGraphJson",
 						"properties": [
 							{
@@ -444,7 +444,7 @@
 					{
 						"name": "DependencyNode",
 						"kind": "type",
-						"source_line": 38,
+						"source_line": 41,
 						"type_signature": "DependencyNode",
 						"properties": [
 							{
@@ -482,7 +482,7 @@
 					{
 						"name": "DependencyGraph",
 						"kind": "class",
-						"source_line": 47,
+						"source_line": 50,
 						"members": [
 							{
 								"name": "nodes",
@@ -554,7 +554,7 @@
 							{
 								"name": "topological_sort",
 								"kind": "function",
-								"doc_comment": "Computes topological sort order for dependency graph.\n\nUses Kahn's algorithm with alphabetical ordering within tiers for\ndeterministic results. Throws if cycles detected.",
+								"doc_comment": "Computes topological sort order for dependency graph.\n\nDelegates to `@fuzdev/fuz_util/sort.js` for the sorting algorithm.\nThrows if cycles detected.",
 								"type_signature": "(exclude_dev?: boolean): string[]",
 								"return_type": "string[]",
 								"return_description": "array of package names in dependency order (dependencies before dependents)",
@@ -572,13 +572,6 @@
 										"description": "circular dependencies detected in included dependency types"
 									}
 								]
-							},
-							{
-								"name": "detect_cycles",
-								"kind": "function",
-								"type_signature": "(): string[][]",
-								"return_type": "string[][]",
-								"parameters": []
 							},
 							{
 								"name": "detect_cycles_by_type",
@@ -602,7 +595,7 @@
 						"name": "DependencyGraphBuilder",
 						"kind": "class",
 						"doc_comment": "Builder for creating and analyzing dependency graphs.",
-						"source_line": 371,
+						"source_line": 242,
 						"members": [
 							{
 								"name": "build_from_repos",
@@ -653,7 +646,7 @@
 						]
 					}
 				],
-				"module_comment": "Dependency graph data structure and algorithms for multi-repo publishing.\n\nProvides `DependencyGraph` class with topological sort and cycle detection.\nFor validation workflow and publishing order computation, see `graph_validation.ts`.",
+				"module_comment": "Dependency graph data structure and algorithms for multi-repo publishing.\n\nProvides `DependencyGraph` class with topological sort (via `@fuzdev/fuz_util/sort.js`)\nand cycle detection by dependency type.\nFor validation workflow and publishing order computation, see `graph_validation.ts`.",
 				"dependents": [
 					"gitops_analyze.task.ts",
 					"gitops_validate.task.ts",
@@ -4334,13 +4327,13 @@
 						"see_also": [
 							"https://semver.org/"
 						],
-						"source_line": 8,
+						"source_line": 10,
 						"type_signature": "BumpType"
 					},
 					{
 						"name": "Semver",
 						"kind": "type",
-						"source_line": 10,
+						"source_line": 12,
 						"type_signature": "Semver",
 						"properties": [
 							{
@@ -4374,7 +4367,7 @@
 						"name": "semver_compare_versions",
 						"kind": "function",
 						"doc_comment": "Compares two semver versions according to SemVer 2.0.0 spec.\nReturns -1 if a < b, 0 if a === b, 1 if a > b.\nBuild metadata is ignored in precedence comparison.",
-						"source_line": 118,
+						"source_line": 120,
 						"type_signature": "(a: string, b: string): number",
 						"return_type": "number",
 						"parameters": [
@@ -4392,7 +4385,7 @@
 						"name": "semver_bump_version",
 						"kind": "function",
 						"doc_comment": "Bumps a version according to the specified type.\nResets lower version numbers per SemVer spec.",
-						"source_line": 145,
+						"source_line": 147,
 						"type_signature": "(version: string, type: BumpType): string",
 						"return_type": "string",
 						"parameters": [
@@ -4603,7 +4596,7 @@
 					{
 						"name": "is_wildcard",
 						"kind": "function",
-						"source_line": 3,
+						"source_line": 5,
 						"type_signature": "(version: string): boolean",
 						"return_type": "boolean",
 						"parameters": [
@@ -4617,7 +4610,7 @@
 						"name": "strip_version_prefix",
 						"kind": "function",
 						"doc_comment": "Strips version prefix (^, ~, >=, <=, etc) from a version string.",
-						"source_line": 10,
+						"source_line": 12,
 						"type_signature": "(version: string): string",
 						"return_type": "string",
 						"parameters": [
@@ -4631,7 +4624,7 @@
 						"name": "get_version_prefix",
 						"kind": "function",
 						"doc_comment": "Gets the version prefix (^, ~, >=, <=, or empty string).",
-						"source_line": 17,
+						"source_line": 19,
 						"type_signature": "(version: string): string",
 						"return_type": "string",
 						"parameters": [
@@ -4650,7 +4643,7 @@
 							"```ts\nnormalize_version_for_comparison('>=2.0.0') // '2.0.0'\n```",
 							"```ts\nnormalize_version_for_comparison('*') // '*'\n```"
 						],
-						"source_line": 41,
+						"source_line": 43,
 						"type_signature": "(version: string): string",
 						"return_type": "string",
 						"parameters": [
@@ -4663,7 +4656,7 @@
 					{
 						"name": "needs_update",
 						"kind": "function",
-						"source_line": 54,
+						"source_line": 56,
 						"type_signature": "(current: string, new_version: string): boolean",
 						"return_type": "boolean",
 						"parameters": [
@@ -4681,7 +4674,7 @@
 						"name": "get_update_prefix",
 						"kind": "function",
 						"doc_comment": "Determines version prefix to use when updating dependencies.\n\nStrategy:\n- Wildcard (*): Use caret (^) as default\n- Has existing prefix: Preserve it (^, ~, >=, <=, etc)\n- No prefix: Use default_strategy\n\nThis preserves user intent while handling wildcard replacements sensibly.",
-						"source_line": 77,
+						"source_line": 79,
 						"type_signature": "(current_version: string, default_strategy?: \"\" | \"^\" | \"~\" | \">=\"): string",
 						"return_type": "string",
 						"parameters": [
@@ -4701,7 +4694,7 @@
 						"name": "is_breaking_change",
 						"kind": "function",
 						"doc_comment": "Determines if a bump is a breaking change based on semver rules.\nPre-1.0: minor bumps are breaking\n1.0+: major bumps are breaking",
-						"source_line": 101,
+						"source_line": 103,
 						"type_signature": "(old_version: string, bump_type: \"major\" | \"minor\" | \"patch\"): boolean",
 						"return_type": "boolean",
 						"parameters": [
@@ -4718,7 +4711,7 @@
 					{
 						"name": "detect_bump_type",
 						"kind": "function",
-						"source_line": 117,
+						"source_line": 119,
 						"type_signature": "(old_version: string, new_version: string): \"major\" | \"minor\" | \"patch\"",
 						"return_type": "\"major\" | \"minor\" | \"patch\"",
 						"parameters": [
@@ -4736,7 +4729,7 @@
 						"name": "compare_bump_types",
 						"kind": "function",
 						"doc_comment": "Compares bump types. Returns positive if a > b, negative if a < b, 0 if equal.",
-						"source_line": 132,
+						"source_line": 134,
 						"type_signature": "(a: BumpType, b: BumpType): number",
 						"return_type": "number",
 						"parameters": [
@@ -4753,7 +4746,7 @@
 					{
 						"name": "calculate_next_version",
 						"kind": "function",
-						"source_line": 141,
+						"source_line": 143,
 						"type_signature": "(current_version: string, bump_type: BumpType): string",
 						"return_type": "string",
 						"parameters": [
