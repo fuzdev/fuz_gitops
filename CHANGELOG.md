@@ -1,5 +1,11 @@
 # @fuzdev/fuz_gitops
 
+## 0.66.0
+
+### Minor Changes
+
+- refactor to use fs ops pattern more ([c342a0a](https://github.com/fuzdev/fuz_gitops/commit/c342a0a))
+
 ## 0.65.2
 
 ### Patch Changes
