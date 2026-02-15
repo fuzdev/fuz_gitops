@@ -1,3 +1,5 @@
+// TODO: candidate for extraction to `@fuzdev/fuz_util`
+
 /**
  * Semantic Versioning 2.0.0 utilities
  * @see https://semver.org/

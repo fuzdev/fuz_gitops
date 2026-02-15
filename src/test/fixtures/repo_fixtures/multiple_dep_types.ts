@@ -81,8 +81,7 @@ Small fix in plugin`,
 	expected_outcomes: {
 		// Note: adapter has only devDep on core (no prod/peer deps)
 		// With exclude_dev=true in topological sort, adapter and core are both tier 0
-		// So they're ordered alphabetically: adapter < core
-		publishing_order: ['@test/adapter', '@test/core', '@test/plugin'],
+		publishing_order: ['@test/core', '@test/adapter', '@test/plugin'],
 
 		version_changes: [
 			{

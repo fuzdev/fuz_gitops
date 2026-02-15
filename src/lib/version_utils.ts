@@ -1,3 +1,5 @@
+// TODO: candidate for extraction to `@fuzdev/fuz_util`
+
 import type {BumpType} from './semver.js';
 
 export const is_wildcard = (version: string): boolean => {

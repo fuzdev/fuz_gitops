@@ -130,8 +130,7 @@ The system uses topological sort with dev dependency exclusion:
     cycles
 - **Publishing order**: Computed via topological sort on prod/peer deps only
   - Ensures dependencies publish before dependents
-  - Deterministic and reproducible (alphabetically sorted within dependency
-    tiers)
+  - Deterministic and reproducible
   - Dev dependencies updated in separate phase after all publishing completes
 - **Dependency priority**: When a package appears in multiple dependency types,
   production/peer takes priority over dev

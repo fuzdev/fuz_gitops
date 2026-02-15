@@ -221,7 +221,7 @@ describe('DependencyGraph', () => {
 			const graph = new DependencyGraph();
 			graph.init_from_repos(repos);
 
-			expect(() => graph.topological_sort()).toThrow(/Circular dependency/);
+			expect(() => graph.topological_sort()).toThrow(/cycle/);
 		});
 
 		it('handles complex dependency chains', () => {
@@ -304,81 +304,6 @@ describe('DependencyGraph', () => {
 
 			// Verify alpha comes before gamma (dependency constraint)
 			expect(orders[0]!.indexOf('alpha')).toBeLessThan(orders[0]!.indexOf('gamma'));
-		});
-	});
-
-	describe('detect_cycles', () => {
-		it('detects simple cycle', () => {
-			const repos = [
-				create_mock_repo({name: 'pkg-a', version: '1.0.0', deps: {'pkg-b': '^1.0.0'}}),
-				create_mock_repo({name: 'pkg-b', version: '1.0.0', deps: {'pkg-a': '^1.0.0'}}),
-			];
-
-			const graph = new DependencyGraph();
-			graph.init_from_repos(repos);
-			const cycles = graph.detect_cycles();
-
-			expect(cycles.length).toBe(1);
-			expect(cycles[0]).toContain('pkg-a');
-			expect(cycles[0]).toContain('pkg-b');
-		});
-
-		it('detects no cycles in acyclic graph', () => {
-			const repos = [
-				create_mock_repo({name: 'lib', version: '1.0.0'}),
-				create_mock_repo({name: 'app', version: '1.0.0', deps: {lib: '^1.0.0'}}),
-			];
-
-			const graph = new DependencyGraph();
-			graph.init_from_repos(repos);
-			const cycles = graph.detect_cycles();
-
-			expect(cycles).toEqual([]);
-		});
-
-		it('detects multiple cycles', () => {
-			const repos = [
-				// Cycle 1: a ↔ b
-				create_mock_repo({name: 'pkg-a', version: '1.0.0', deps: {'pkg-b': '^1.0.0'}}),
-				create_mock_repo({name: 'pkg-b', version: '1.0.0', deps: {'pkg-a': '^1.0.0'}}),
-				// Cycle 2: c ↔ d
-				create_mock_repo({name: 'pkg-c', version: '1.0.0', deps: {'pkg-d': '^1.0.0'}}),
-				create_mock_repo({name: 'pkg-d', version: '1.0.0', deps: {'pkg-c': '^1.0.0'}}),
-			];
-
-			const graph = new DependencyGraph();
-			graph.init_from_repos(repos);
-			const cycles = graph.detect_cycles();
-
-			expect(cycles.length).toBe(2);
-		});
-
-		it('detects longer cycles (3+ packages)', () => {
-			const repos = [
-				create_mock_repo({name: 'pkg-a', version: '1.0.0', deps: {'pkg-b': '^1.0.0'}}),
-				create_mock_repo({name: 'pkg-b', version: '1.0.0', deps: {'pkg-c': '^1.0.0'}}),
-				create_mock_repo({name: 'pkg-c', version: '1.0.0', deps: {'pkg-a': '^1.0.0'}}), // completes cycle
-			];
-
-			const graph = new DependencyGraph();
-			graph.init_from_repos(repos);
-			const cycles = graph.detect_cycles();
-
-			expect(cycles.length).toBe(1);
-			expect(cycles[0]).toHaveLength(4); // a -> b -> c -> a (includes duplicate)
-		});
-
-		it('handles self-dependency (pathological case)', () => {
-			const repos = [
-				create_mock_repo({name: 'self-dep', version: '1.0.0', deps: {'self-dep': '^1.0.0'}}),
-			];
-
-			const graph = new DependencyGraph();
-			graph.init_from_repos(repos);
-			const cycles = graph.detect_cycles();
-
-			expect(cycles.length).toBe(1);
-			expect(cycles[0]).toContain('self-dep');
 		});
 	});
 

@@ -1,14 +1,17 @@
 /**
  * Dependency graph data structure and algorithms for multi-repo publishing.
  *
- * Provides `DependencyGraph` class with topological sort and cycle detection.
+ * Provides `DependencyGraph` class with topological sort (via `@fuzdev/fuz_util/sort.js`)
+ * and cycle detection by dependency type.
  * For validation workflow and publishing order computation, see `graph_validation.ts`.
  *
  * @module
  */
 
-import type {LocalRepo} from './local_repo.js';
 import {EMPTY_OBJECT} from '@fuzdev/fuz_util/object.js';
+import {topological_sort as topological_sort_generic} from '@fuzdev/fuz_util/sort.js';
+
+import type {LocalRepo} from './local_repo.js';
 
 export const DEPENDENCY_TYPE = {
 	PROD: 'prod',
@@ -121,8 +124,8 @@ export class DependencyGraph {
 	/**
 	 * Computes topological sort order for dependency graph.
 	 *
-	 * Uses Kahn's algorithm with alphabetical ordering within tiers for
-	 * deterministic results. Throws if cycles detected.
+	 * Delegates to `@fuzdev/fuz_util/sort.js` for the sorting algorithm.
+	 * Throws if cycles detected.
 	 *
 	 * @param exclude_dev if true, excludes dev dependencies to break cycles.
 	 *   Publishing uses exclude_dev=true to handle circular dev deps.
@@ -130,111 +133,20 @@ export class DependencyGraph {
 	 * @throws {Error} if circular dependencies detected in included dependency types
 	 */
 	topological_sort(exclude_dev = false): Array<string> {
-		const visited: Set<string> = new Set();
-		const result: Array<string> = [];
-
-		// Count incoming edges for each node
-		const in_degree: Map<string, number> = new Map();
-		for (const name of this.nodes.keys()) {
-			in_degree.set(name, 0);
+		const items = Array.from(this.nodes.values()).map((node) => ({
+			id: node.name,
+			depends_on: Array.from(node.dependencies.entries())
+				.filter(([dep_name, spec]) => {
+					if (exclude_dev && spec.type === DEPENDENCY_TYPE.DEV) return false;
+					return this.nodes.has(dep_name);
+				})
+				.map(([dep_name]) => dep_name),
+		}));
+		const result = topological_sort_generic(items, 'package');
+		if (!result.ok) {
+			throw new Error(result.error);
 		}
-		for (const node of this.nodes.values()) {
-			for (const [dep_name, spec] of node.dependencies) {
-				// Skip dev dependencies if requested
-				if (exclude_dev && spec.type === DEPENDENCY_TYPE.DEV) continue;
-
-				if (this.nodes.has(dep_name)) {
-					in_degree.set(node.name, in_degree.get(node.name)! + 1);
-				}
-			}
-		}
-
-		// Start with nodes that have no dependencies
-		const queue: Array<string> = [];
-		for (const [name, degree] of in_degree) {
-			if (degree === 0) {
-				queue.push(name);
-			}
-		}
-
-		// Sort initial queue alphabetically for deterministic ordering within tier
-		queue.sort();
-
-		// Process nodes
-		while (queue.length > 0) {
-			const name = queue.shift()!;
-			result.push(name);
-			visited.add(name);
-
-			// Reduce in-degree for dependents
-			const node = this.nodes.get(name);
-			if (node) {
-				// Find packages that depend on this one
-				// Sort nodes to ensure deterministic iteration order
-				const sorted_nodes = Array.from(this.nodes.values()).sort((a, b) =>
-					a.name.localeCompare(b.name),
-				);
-				for (const other_node of sorted_nodes) {
-					for (const [dep_name, spec] of other_node.dependencies) {
-						// Skip dev dependencies if requested
-						if (exclude_dev && spec.type === DEPENDENCY_TYPE.DEV) continue;
-
-						if (dep_name === name) {
-							const new_degree = in_degree.get(other_node.name)! - 1;
-							in_degree.set(other_node.name, new_degree);
-							if (new_degree === 0) {
-								queue.push(other_node.name);
-							}
-						}
-					}
-				}
-			}
-		}
-
-		// Check for cycles
-		if (result.length !== this.nodes.size) {
-			const unvisited = Array.from(this.nodes.keys()).filter((n) => !visited.has(n));
-			throw new Error(`Circular dependency detected involving: ${unvisited.join(', ')}`);
-		}
-
-		return result;
-	}
-
-	detect_cycles(): Array<Array<string>> {
-		const cycles: Array<Array<string>> = [];
-		const visited: Set<string> = new Set();
-		const rec_stack: Set<string> = new Set();
-
-		const dfs = (name: string, path: Array<string>): void => {
-			visited.add(name);
-			rec_stack.add(name);
-			path.push(name);
-
-			const node = this.nodes.get(name);
-			if (node) {
-				for (const [dep_name] of node.dependencies) {
-					if (this.nodes.has(dep_name)) {
-						if (!visited.has(dep_name)) {
-							dfs(dep_name, [...path]);
-						} else if (rec_stack.has(dep_name)) {
-							// Found a cycle
-							const cycle_start = path.indexOf(dep_name);
-							cycles.push(path.slice(cycle_start).concat(dep_name));
-						}
-					}
-				}
-			}
-
-			rec_stack.delete(name);
-		};
-
-		for (const name of this.nodes.keys()) {
-			if (!visited.has(name)) {
-				dfs(name, []);
-			}
-		}
-
-		return cycles;
+		return result.sorted.map((item) => item.id);
 	}
 
 	/**
@@ -252,94 +164,53 @@ export class DependencyGraph {
 		production_cycles: Array<Array<string>>;
 		dev_cycles: Array<Array<string>>;
 	} {
-		const production_cycles: Array<Array<string>> = [];
-		const dev_cycles: Array<Array<string>> = [];
-		const visited_prod: Set<string> = new Set();
-		const visited_dev: Set<string> = new Set();
-		const rec_stack_prod: Set<string> = new Set();
-		const rec_stack_dev: Set<string> = new Set();
-
-		// DFS for production/peer dependencies only
-		const dfs_prod = (name: string, path: Array<string>): void => {
-			visited_prod.add(name);
-			rec_stack_prod.add(name);
-			path.push(name);
-
-			const node = this.nodes.get(name);
-			if (node) {
-				for (const [dep_name, spec] of node.dependencies) {
-					// Skip dev dependencies
-					if (spec.type === DEPENDENCY_TYPE.DEV) continue;
-
-					if (this.nodes.has(dep_name)) {
-						if (!visited_prod.has(dep_name)) {
-							dfs_prod(dep_name, [...path]);
-						} else if (rec_stack_prod.has(dep_name)) {
-							// Found a production cycle
-							const cycle_start = path.indexOf(dep_name);
-							const cycle = path.slice(cycle_start).concat(dep_name);
-							// Check if this cycle is unique
-							const cycle_key = [...cycle].sort().join(',');
-							const exists = production_cycles.some((c) => [...c].sort().join(',') === cycle_key);
-							if (!exists) {
-								production_cycles.push(cycle);
-							}
-						}
-					}
-				}
-			}
-
-			rec_stack_prod.delete(name);
-		};
-
-		// DFS for dev dependencies only
-		const dfs_dev = (name: string, path: Array<string>): void => {
-			visited_dev.add(name);
-			rec_stack_dev.add(name);
-			path.push(name);
-
-			const node = this.nodes.get(name);
-			if (node) {
-				for (const [dep_name, spec] of node.dependencies) {
-					// Only check dev dependencies
-					if (spec.type !== DEPENDENCY_TYPE.DEV) continue;
-
-					if (this.nodes.has(dep_name)) {
-						if (!visited_dev.has(dep_name)) {
-							dfs_dev(dep_name, [...path]);
-						} else if (rec_stack_dev.has(dep_name)) {
-							// Found a dev cycle
-							const cycle_start = path.indexOf(dep_name);
-							const cycle = path.slice(cycle_start).concat(dep_name);
-							// Check if this cycle is unique
-							const cycle_key = [...cycle].sort().join(',');
-							const exists = dev_cycles.some((c) => [...c].sort().join(',') === cycle_key);
-							if (!exists) {
-								dev_cycles.push(cycle);
-							}
-						}
-					}
-				}
-			}
-
-			rec_stack_dev.delete(name);
-		};
-
-		// Check for production/peer cycles
-		for (const name of this.nodes.keys()) {
-			if (!visited_prod.has(name)) {
-				dfs_prod(name, []);
-			}
-		}
-
-		// Check for dev cycles
-		for (const name of this.nodes.keys()) {
-			if (!visited_dev.has(name)) {
-				dfs_dev(name, []);
-			}
-		}
-
+		const production_cycles = this.#find_cycles((spec) => spec.type !== DEPENDENCY_TYPE.DEV);
+		const dev_cycles = this.#find_cycles((spec) => spec.type === DEPENDENCY_TYPE.DEV);
 		return {production_cycles, dev_cycles};
+	}
+
+	/** DFS cycle detection following only edges that match the filter. */
+	#find_cycles(include: (spec: DependencySpec) => boolean): Array<Array<string>> {
+		const cycles: Array<Array<string>> = [];
+		const visited: Set<string> = new Set();
+		const rec_stack: Set<string> = new Set();
+
+		const dfs = (name: string, path: Array<string>): void => {
+			visited.add(name);
+			rec_stack.add(name);
+			path.push(name);
+
+			const node = this.nodes.get(name);
+			if (node) {
+				for (const [dep_name, spec] of node.dependencies) {
+					if (!include(spec)) continue;
+
+					if (this.nodes.has(dep_name)) {
+						if (!visited.has(dep_name)) {
+							dfs(dep_name, [...path]);
+						} else if (rec_stack.has(dep_name)) {
+							const cycle_start = path.indexOf(dep_name);
+							const cycle = path.slice(cycle_start).concat(dep_name);
+							const cycle_key = [...cycle].sort().join(',');
+							const exists = cycles.some((c) => [...c].sort().join(',') === cycle_key);
+							if (!exists) {
+								cycles.push(cycle);
+							}
+						}
+					}
+				}
+			}
+
+			rec_stack.delete(name);
+		};
+
+		for (const name of this.nodes.keys()) {
+			if (!visited.has(name)) {
+				dfs(name, []);
+			}
+		}
+
+		return cycles;
 	}
 
 	toJSON(): DependencyGraphJson {

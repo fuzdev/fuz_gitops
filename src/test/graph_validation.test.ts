@@ -128,7 +128,7 @@ describe('validate_dependency_graph', () => {
 			expect(result.production_cycles[0]).toContain('pkg-a');
 			expect(result.production_cycles[0]).toContain('pkg-b');
 			expect(result.sort_error).toMatch(/Failed to compute publishing order/);
-			expect(result.sort_error).toMatch(/Circular dependency/);
+			expect(result.sort_error).toMatch(/cycle/);
 		});
 
 		it('captures multiple production cycles', () => {
@@ -394,8 +394,8 @@ describe('validate_dependency_graph', () => {
 			const result = validate_dependency_graph(repos, {throw_on_prod_cycles: false});
 
 			// Verify we can call graph methods
-			const cycles = result.graph.detect_cycles();
-			expect(cycles.length).toBeGreaterThan(0);
+			const {production_cycles} = result.graph.detect_cycles_by_type();
+			expect(production_cycles.length).toBeGreaterThan(0);
 		});
 	});
 });

@@ -84,10 +84,10 @@ test('always fails fast on publish errors', async () => {
 		ops: mock_ops,
 	});
 
-	// With fail-fast behavior: only pkg-a fails, no other packages are attempted
+	// With fail-fast behavior: only the first package in topo order fails, no other packages are attempted
 	expect(result.ok).toBe(false);
 	expect(result.failed.length).toBe(1);
-	expect(result.failed[0]!.name).toBe('pkg-a');
+	expect(result.failed[0]!.name).toBe('pkg-c');
 	expect(result.published.length).toBe(0); // No packages published after failure
 });
 
@@ -229,8 +229,8 @@ test('waits for npm propagation after each publish', async () => {
 
 	// Should wait for both packages
 	expect(wait_calls.length).toBe(2);
-	expect(wait_calls[0]!.pkg).toBe('pkg-a');
-	expect(wait_calls[1]!.pkg).toBe('pkg-b');
+	expect(wait_calls[0]!.pkg).toBe('pkg-b');
+	expect(wait_calls[1]!.pkg).toBe('pkg-a');
 });
 
 test('updates prod dependencies after publishing (Phase 1)', async () => {

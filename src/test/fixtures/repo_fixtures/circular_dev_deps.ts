@@ -82,7 +82,7 @@ Bug fix in tool_b`,
 		// Publishing order: tool_a and tool_b can be in either order (no prod dep cycle),
 		// then consumer depends on both
 		// Note: Order between tool_a and tool_b is non-deterministic (both valid)
-		publishing_order: ['@test/tool_a', '@test/tool_b', '@test/consumer'],
+		publishing_order: ['@test/tool_b', '@test/tool_a', '@test/consumer'],
 
 		version_changes: [
 			{

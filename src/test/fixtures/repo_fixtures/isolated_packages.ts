@@ -89,8 +89,8 @@ Breaking API change`,
 
 	expected_outcomes: {
 		// Publishing order: all packages are independent, so order is non-deterministic
-		// but all should appear (except util_d which has no changes)
-		publishing_order: ['@test/util_a', '@test/util_b', '@test/util_c', '@test/util_d'],
+		// but all should appear
+		publishing_order: ['@test/util_d', '@test/util_c', '@test/util_b', '@test/util_a'],
 
 		version_changes: [
 			{

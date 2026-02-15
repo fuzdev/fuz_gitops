@@ -78,7 +78,7 @@ Bug fix in pkg_b`,
 		// 1. Topological sort fails with the circular dependency
 		// 2. Cycle detection reports the specific cycle
 		errors: [
-			'Failed to compute publishing order: Error: Circular dependency detected involving: @test/pkg_a, @test/pkg_b',
+			'Failed to compute publishing order: Error: dependency cycle detected: @test/pkg_a -> @test/pkg_b -> @test/pkg_a',
 			'Production dependency cycle: @test/pkg_a → @test/pkg_b → @test/pkg_a',
 		],
 	},

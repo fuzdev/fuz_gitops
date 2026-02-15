@@ -112,13 +112,13 @@ Small fix (should escalate to minor due to core breaking change)`,
 
 	expected_outcomes: {
 		// Note: plugin_a, plugin_b, and adapter have no dependency relationship,
-		// so they're ordered deterministically (but not strictly alphabetically) within their tier
+		// so they're ordered deterministically within their tier
 		publishing_order: [
-			'@test/core',
 			'@test/utils',
-			'@test/plugin_a',
+			'@test/core',
 			'@test/adapter',
 			'@test/plugin_b',
+			'@test/plugin_a',
 		],
 
 		version_changes: [
