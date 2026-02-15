@@ -11,7 +11,7 @@
 	"published": true,
 	"package_json": {
 		"name": "@fuzdev/fuz_gitops",
-		"version": "0.65.2",
+		"version": "0.66.0",
 		"description": "a tool for managing many repos",
 		"glyph": "🪄",
 		"logo": "logo.svg",
@@ -125,7 +125,7 @@
 	},
 	"source_json": {
 		"name": "@fuzdev/fuz_gitops",
-		"version": "0.65.2",
+		"version": "0.66.0",
 		"modules": [
 			{
 				"path": "changeset_generator.ts",
@@ -168,7 +168,7 @@
 						"kind": "function",
 						"doc_comment": "Creates a changeset file for dependency updates.\nReturns the path to the created changeset file.",
 						"source_line": 30,
-						"type_signature": "(repo: LocalRepo, updates: DependencyVersionChange[], options?: { log?: Logger | undefined; }): Promise<string>",
+						"type_signature": "(repo: LocalRepo, updates: DependencyVersionChange[], options?: { log?: Logger | undefined; fs_ops?: FsOperations | undefined; }): Promise<...>",
 						"return_type": "Promise<string>",
 						"parameters": [
 							{
@@ -181,7 +181,7 @@
 							},
 							{
 								"name": "options",
-								"type": "{ log?: Logger | undefined; }",
+								"type": "{ log?: Logger | undefined; fs_ops?: FsOperations | undefined; }",
 								"default_value": "{}"
 							}
 						]
@@ -190,7 +190,7 @@
 						"name": "generate_changeset_content",
 						"kind": "function",
 						"doc_comment": "Generates markdown changeset content for dependency updates.\n\nCreates properly formatted changeset with YAML frontmatter, summary,\nand categorized list of breaking vs regular updates. Output format\nmatches changesets CLI for consistency.",
-						"source_line": 97,
+						"source_line": 103,
 						"type_signature": "(package_name: string, updates: DependencyVersionChange[], bump_type: \"major\" | \"minor\" | \"patch\"): string",
 						"return_type": "string",
 						"return_description": "markdown content ready to write to .changeset/*.md file",
@@ -215,7 +215,7 @@
 					{
 						"name": "create_dependency_updates",
 						"kind": "function",
-						"source_line": 141,
+						"source_line": 147,
 						"type_signature": "(dependencies: Map<string, string>, published_versions: Map<string, PublishedVersion>): DependencyVersionChange[]",
 						"return_type": "DependencyVersionChange[]",
 						"parameters": [
@@ -232,6 +232,7 @@
 				],
 				"module_comment": "Auto-generation of changesets for dependency updates during publishing.\n\nCreates changesets when packages need to republish due to updated dependencies.\nFor parsing existing changesets, see `changeset_reader.ts`.",
 				"dependencies": [
+					"operations_defaults.ts",
 					"version_utils.ts"
 				],
 				"dependents": [
@@ -2672,50 +2673,50 @@
 					{
 						"name": "default_changeset_operations",
 						"kind": "variable",
-						"source_line": 70,
+						"source_line": 71,
 						"type_signature": "ChangesetOperations"
 					},
 					{
 						"name": "default_git_operations",
 						"kind": "variable",
-						"source_line": 95,
+						"source_line": 96,
 						"type_signature": "GitOperations"
 					},
 					{
 						"name": "default_process_operations",
 						"kind": "variable",
-						"source_line": 192,
+						"source_line": 193,
 						"type_signature": "ProcessOperations"
 					},
 					{
 						"name": "default_npm_operations",
 						"kind": "variable",
-						"source_line": 216,
+						"source_line": 217,
 						"type_signature": "NpmOperations"
 					},
 					{
 						"name": "default_preflight_operations",
 						"kind": "variable",
-						"source_line": 287,
+						"source_line": 288,
 						"type_signature": "PreflightOperations"
 					},
 					{
 						"name": "default_fs_operations",
 						"kind": "variable",
-						"source_line": 293,
+						"source_line": 294,
 						"type_signature": "FsOperations"
 					},
 					{
 						"name": "default_build_operations",
 						"kind": "variable",
-						"source_line": 305,
+						"source_line": 315,
 						"type_signature": "BuildOperations"
 					},
 					{
 						"name": "default_gitops_operations",
 						"kind": "variable",
 						"doc_comment": "Combined default operations for all gitops functionality.",
-						"source_line": 329,
+						"source_line": 339,
 						"type_signature": "GitopsOperations"
 					}
 				],
@@ -2727,6 +2728,7 @@
 					"preflight_checks.ts"
 				],
 				"dependents": [
+					"changeset_generator.ts",
 					"dependency_updater.ts",
 					"local_repo.ts",
 					"multi_repo_publisher.ts",
@@ -2983,6 +2985,18 @@
 								"kind": "variable",
 								"type_signature": "(options: {\n\t\tpath: string;\n\t\tcontent: string;\n\t}) => Promise<Result<object, {message: string}>>",
 								"doc_comment": "Writes a file to the file system."
+							},
+							{
+								"name": "mkdir",
+								"kind": "variable",
+								"type_signature": "(options: {\n\t\tpath: string;\n\t\trecursive?: boolean;\n\t}) => Promise<Result<object, {message: string}>>",
+								"doc_comment": "Creates a directory, optionally with recursive creation."
+							},
+							{
+								"name": "exists",
+								"kind": "variable",
+								"type_signature": "(options: {path: string}) => boolean",
+								"doc_comment": "Checks if a path exists on the file system."
 							}
 						]
 					},
@@ -2990,7 +3004,7 @@
 						"name": "GitopsOperations",
 						"kind": "type",
 						"doc_comment": "Combined operations interface grouping all gitops functionality.\nThis is the main interface injected into publishing and validation workflows.",
-						"source_line": 328,
+						"source_line": 341,
 						"type_signature": "GitopsOperations",
 						"properties": [
 							{
