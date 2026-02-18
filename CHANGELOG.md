@@ -1,5 +1,11 @@
 # @fuzdev/fuz_gitops
 
+## 0.67.0
+
+### Minor Changes
+
+- upgrade `fuz_util` and `gro` ([98f8fe1](https://github.com/fuzdev/fuz_gitops/commit/98f8fe1))
+
 ## 0.66.1
 
 ### Patch Changes
