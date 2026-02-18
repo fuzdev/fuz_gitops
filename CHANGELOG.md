@@ -1,5 +1,11 @@
 # @fuzdev/fuz_gitops
 
+## 0.66.1
+
+### Patch Changes
+
+- fix gro peer dep ([afb8263](https://github.com/fuzdev/fuz_gitops/commit/afb8263))
+
 ## 0.66.0
 
 ### Minor Changes
