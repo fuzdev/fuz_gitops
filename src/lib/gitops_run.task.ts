@@ -56,50 +56,46 @@ export const task: Task<Args> = {
 		const start_time = performance.now();
 
 		// Run command in parallel across all repos
-		const results = await map_concurrent_settled(
-			repos,
-			async (repo) => {
-				const repo_start = performance.now();
-				const repo_name = repo.name;
-				const repo_dir = repo.path;
+		const results = await map_concurrent_settled(repos, concurrency, async (repo) => {
+			const repo_start = performance.now();
+			const repo_name = repo.name;
+			const repo_dir = repo.path;
 
-				try {
-					// Parse command into cmd + args for spawn
-					// For now, we use shell mode to support pipes/redirects/etc
-					const spawned = await spawn_out('sh', ['-c', command], {
-						cwd: repo_dir,
-					});
+			try {
+				// Parse command into cmd + args for spawn
+				// For now, we use shell mode to support pipes/redirects/etc
+				const spawned = await spawn_out('sh', ['-c', command], {
+					cwd: repo_dir,
+				});
 
-					const duration_ms = performance.now() - repo_start;
-					const success = spawned.result.ok;
+				const duration_ms = performance.now() - repo_start;
+				const success = spawned.result.ok;
 
-					const result: RunResult = {
-						repo_name,
-						repo_dir,
-						status: success ? 'success' : 'failure',
-						exit_code: spawned.result.code ?? 0,
-						stdout: spawned.stdout || '',
-						stderr: spawned.stderr || '',
-						duration_ms,
-					};
+				const result: RunResult = {
+					repo_name,
+					repo_dir,
+					status: success ? 'success' : 'failure',
+					exit_code: spawned.result.code ?? 0,
+					stdout: spawned.stdout || '',
+					stderr: spawned.stderr || '',
+					duration_ms,
+				};
 
-					return result;
-				} catch (error) {
-					const duration_ms = performance.now() - repo_start;
-					return {
-						repo_name,
-						repo_dir,
-						status: 'failure' as const,
-						exit_code: -1,
-						stdout: '',
-						stderr: '',
-						duration_ms,
-						error: String(error),
-					};
-				}
-			},
-			concurrency,
-		);
+				return result;
+			} catch (error) {
+				const duration_ms = performance.now() - repo_start;
+				return {
+					repo_name,
+					repo_dir,
+					status: 'failure' as const,
+					exit_code: -1,
+					stdout: '',
+					stderr: '',
+					duration_ms,
+					error: String(error),
+				};
+			}
+		});
 
 		const total_duration_ms = performance.now() - start_time;
 

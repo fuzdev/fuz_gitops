@@ -304,10 +304,10 @@ export const local_repos_load = async ({
 	// Parallel loading with concurrency limit
 	const results = await map_concurrent_settled(
 		local_repo_paths,
+		concurrency,
 		async (local_repo_path) => {
 			return local_repo_load({local_repo_path, log, git_ops, npm_ops});
 		},
-		concurrency,
 	);
 
 	// Check for failures and collect successes
