@@ -11,8 +11,6 @@ import {
 } from '$lib/npm_registry.js';
 import {create_mock_logger} from './test_helpers.ts';
 
-/* eslint-disable @typescript-eslint/require-await */
-
 // Mock spawn_out from @fuzdev/fuz_util/process.js
 vi.mock('@fuzdev/fuz_util/process.js', () => ({
 	spawn_out: vi.fn(),

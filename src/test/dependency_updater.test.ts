@@ -9,8 +9,6 @@ import {
 import {create_mock_repo, create_mock_git_ops, create_mock_fs_ops} from './test_helpers.ts';
 import type {GitOperations} from '$lib/operations.js';
 
-/* eslint-disable @typescript-eslint/require-await */
-
 /**
  * Creates mock git operations that track calls
  */

@@ -13,8 +13,6 @@ import {
 	create_mock_logger,
 } from './test_helpers.ts';
 
-/* eslint-disable @typescript-eslint/require-await */
-
 test('wetrun=false predicts versions without publishing', async () => {
 	const repos: Array<LocalRepo> = [
 		create_mock_repo({name: 'pkg-a', version: '0.1.0'}),

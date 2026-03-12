@@ -2,7 +2,7 @@
 	import '$routes/fuz.css';
 	import '@fuzdev/fuz_code/theme.css';
 
-	import Themed from '@fuzdev/fuz_ui/Themed.svelte';
+	import ThemeRoot from '@fuzdev/fuz_ui/ThemeRoot.svelte';
 	import Dialog from '@fuzdev/fuz_ui/Dialog.svelte';
 	import ContextmenuRoot from '@fuzdev/fuz_ui/ContextmenuRoot.svelte';
 	import {
@@ -64,7 +64,7 @@
 	])}
 />
 
-<Themed>
+<ThemeRoot>
 	<ContextmenuRoot {contextmenu}>
 		{@render children()}
 	</ContextmenuRoot>
@@ -75,4 +75,4 @@
 			</div>
 		</Dialog>
 	{/if}
-</Themed>
+</ThemeRoot>

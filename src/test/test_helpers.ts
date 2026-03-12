@@ -15,8 +15,6 @@ import type {
 } from '$lib/operations.js';
 import type {BumpType} from '$lib/semver.js';
 
-/* eslint-disable @typescript-eslint/require-await */
-
 export interface MockRepoOptions {
 	name: string;
 	version?: string;

@@ -2,8 +2,6 @@ import {test, assert, describe} from 'vitest';
 
 import {create_mock_npm_ops} from './test_helpers.ts';
 
-/* eslint-disable @typescript-eslint/require-await */
-
 describe('install operation', () => {
 	test('returns ok:true on success', async () => {
 		const mock_ops = create_mock_npm_ops();

@@ -5,8 +5,6 @@ import {generate_publishing_plan} from '$lib/publishing_plan.js';
 import type {ChangesetOperations} from '$lib/operations.js';
 import {create_mock_repo} from './test_helpers.ts';
 
-/* eslint-disable @typescript-eslint/require-await */
-
 test('detects breaking change cascades', async () => {
 	const repos: Array<LocalRepo> = [
 		create_mock_repo({name: 'pkg-a', version: '0.1.0'}),

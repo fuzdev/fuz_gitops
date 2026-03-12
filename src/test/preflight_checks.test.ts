@@ -9,8 +9,6 @@ import {
 } from './test_helpers.ts';
 import type {LocalRepo} from '$lib/local_repo.js';
 
-/* eslint-disable @typescript-eslint/require-await */
-
 describe('preflight_checks', () => {
 	describe('workspace cleanliness', () => {
 		it('passes when all workspaces are clean', async () => {

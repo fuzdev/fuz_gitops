@@ -83,7 +83,7 @@ export interface RepoPath {
  * Get repo paths from gitops config without full git sync.
  * Lighter weight than `get_gitops_ready()` - just resolves paths.
  *
- * @param config_path Path to gitops.config.ts (defaults to ./gitops.config.ts)
+ * @param config_path Path to gitops.config.ts (defaults to `./gitops.config.ts`)
  * @returns Array of repo info with name, path, and url
  */
 export const get_repo_paths = async (config_path?: string): Promise<Array<RepoPath>> => {

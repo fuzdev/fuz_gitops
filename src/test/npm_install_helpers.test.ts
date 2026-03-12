@@ -4,8 +4,6 @@ import {install_with_cache_healing} from '$lib/npm_install_helpers.js';
 import type {NpmOperations} from '$lib/operations.js';
 import {create_mock_gitops_ops, create_mock_repo} from './test_helpers.ts';
 
-/* eslint-disable @typescript-eslint/require-await */
-
 // Test: Install succeeds on first attempt (no cache healing needed)
 test('install succeeds on first attempt', async ({expect}) => {
 	const repo = create_mock_repo({name: 'test-pkg'});
@@ -95,7 +93,7 @@ test('detects ETARGET in various formats', async ({expect}) => {
 			} as NpmOperations,
 		});
 
-		await install_with_cache_healing(repo, ops); // eslint-disable-line no-await-in-loop
+		await install_with_cache_healing(repo, ops);
 		expect(cache_clean_called).toBe(true);
 	}
 });
