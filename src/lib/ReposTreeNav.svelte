@@ -21,7 +21,7 @@
 			{@const selected = repo === selected_repo}
 			<li style:display="contents">
 				{#if repo.package_json}<a
-						class="menu_item"
+						class="menuitem"
 						class:selected
 						href={resolve(`/tree/${repo.repo_name}`)}
 						><div class="ellipsis">
