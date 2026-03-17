@@ -545,7 +545,7 @@
 									{
 										"name": "exclude_dev",
 										"type": "boolean",
-										"description": "If true, excludes dev dependencies to break cycles.\nPublishing uses exclude_dev=true to handle circular dev deps.",
+										"description": "if true, excludes dev dependencies to break cycles\nPublishing uses exclude_dev=true to handle circular dev deps.",
 										"default_value": "false"
 									}
 								],
@@ -784,7 +784,7 @@
 						"source_line": 24,
 						"type_signature": "(resolved_repos: LocalRepo[], token?: string | undefined, cache?: Map<string, { key: string; url: string; params: any; value: any; etag: string | null; last_modified: string | null; }> | undefined, log?: Logger | undefined, delay?: number, github_api_version?: string | undefined): Promise<...>",
 						"return_type": "Promise<RepoJson[]>",
-						"return_description": "array of Repo objects with GitHub metadata attached",
+						"return_description": "array of `Repo` objects with GitHub metadata attached",
 						"parameters": [
 							{
 								"name": "resolved_repos",

@@ -19,7 +19,7 @@ import type {LocalRepo} from './local_repo.js';
  *
  * @param delay - milliseconds between API requests (default: 33ms)
  * @param cache - optional cache from fuz_util's fetch.js for response memoization
- * @returns array of Repo objects with GitHub metadata attached
+ * @returns array of `Repo` objects with GitHub metadata attached
  */
 export const fetch_repo_data = async (
 	resolved_repos: Array<LocalRepo>,

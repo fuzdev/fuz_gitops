@@ -127,7 +127,7 @@ export class DependencyGraph {
 	 * Delegates to `@fuzdev/fuz_util/sort.js` for the sorting algorithm.
 	 * Throws if cycles detected.
 	 *
-	 * @param exclude_dev - If true, excludes dev dependencies to break cycles.
+	 * @param exclude_dev - if true, excludes dev dependencies to break cycles
 	 *   Publishing uses exclude_dev=true to handle circular dev deps.
 	 * @returns array of package names in dependency order (dependencies before dependents)
 	 * @throws {Error} if circular dependencies detected in included dependency types
