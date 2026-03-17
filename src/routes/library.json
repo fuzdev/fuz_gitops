@@ -545,7 +545,7 @@
 									{
 										"name": "exclude_dev",
 										"type": "boolean",
-										"description": "if true, excludes dev dependencies to break cycles.\nPublishing uses exclude_dev=true to handle circular dev deps.",
+										"description": "If true, excludes dev dependencies to break cycles.\nPublishing uses exclude_dev=true to handle circular dev deps.",
 										"default_value": "false"
 									}
 								],
@@ -2423,18 +2423,18 @@
 							{
 								"name": "repo",
 								"type": "LocalRepo",
-								"description": "The repository to install dependencies for"
+								"description": "the repository to install dependencies for"
 							},
 							{
 								"name": "ops",
 								"type": "GitopsOperations",
-								"description": "Gitops operations (for dependency injection)"
+								"description": "gitops operations (for dependency injection)"
 							},
 							{
 								"name": "log",
 								"type": "Logger | undefined",
 								"optional": true,
-								"description": "Optional logger"
+								"description": "optional logger"
 							}
 						]
 					}
@@ -3818,13 +3818,13 @@
 							{
 								"name": "dir",
 								"type": "string",
-								"description": "Directory to walk"
+								"description": "directory to walk"
 							},
 							{
 								"name": "options",
 								"type": "WalkOptions | undefined",
 								"optional": true,
-								"description": "Walk options for exclusions and filtering"
+								"description": "walk options for exclusions and filtering"
 							}
 						]
 					},
@@ -3910,13 +3910,13 @@
 						"source_line": 89,
 						"type_signature": "(config_path?: string | undefined): Promise<RepoPath[]>",
 						"return_type": "Promise<RepoPath[]>",
-						"return_description": "Array of repo info with name, path, and url",
+						"return_description": "array of repo info with name, path, and url",
 						"parameters": [
 							{
 								"name": "config_path",
 								"type": "string | undefined",
 								"optional": true,
-								"description": "Path to gitops.config.ts (defaults to `./gitops.config.ts`)"
+								"description": "path to gitops.config.ts (defaults to `./gitops.config.ts`)"
 							}
 						]
 					},

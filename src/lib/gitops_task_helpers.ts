@@ -53,10 +53,10 @@ export interface GetGitopsReadyOptions {
  * - Config `repos_dir` setting
  * - `DEFAULT_REPOS_DIR` constant
  *
- * @param options.git_ops for testing (defaults to real git operations)
- * @param options.npm_ops for testing (defaults to real npm operations)
- * @param options.parallel whether to load repos in parallel (default: true)
- * @param options.concurrency max concurrent repo loads (default: 5)
+ * @param options.git_ops - for testing (defaults to real git operations)
+ * @param options.npm_ops - for testing (defaults to real npm operations)
+ * @param options.parallel - whether to load repos in parallel (default: true)
+ * @param options.concurrency - max concurrent repo loads (default: 5)
  * @returns initialized config and fully loaded repos ready for operations
  * @throws {TaskError} if config loading or repo resolution fails
  */

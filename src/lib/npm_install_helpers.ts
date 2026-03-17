@@ -34,9 +34,9 @@ const is_etarget_error = (message: string, stderr: string): boolean => {
  * npm's local cache may still have stale "404" metadata. This healing
  * strategy clears the cache to force fresh metadata fetch.
  *
- * @param repo - The repository to install dependencies for
- * @param ops - Gitops operations (for dependency injection)
- * @param log - Optional logger
+ * @param repo - the repository to install dependencies for
+ * @param ops - gitops operations (for dependency injection)
+ * @param log - optional logger
  * @throws Error if install fails (with details about cache healing attempts)
  */
 export const install_with_cache_healing = async (

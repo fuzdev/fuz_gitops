@@ -74,7 +74,7 @@ export const needs_update = (current: string, new_version: string): boolean => {
  *
  * This preserves user intent while handling wildcard replacements sensibly.
  *
- * @param default_strategy prefix to use when no existing prefix found
+ * @param default_strategy - prefix to use when no existing prefix found
  */
 export const get_update_prefix = (
 	current_version: string,

@@ -25,8 +25,8 @@ export interface FetchCache {
  * Uses `structuredClone` to track changes - only writes to disk if data modified.
  * Formatted with Prettier before writing for version control friendliness.
  *
- * @param name cache filename (without .json extension)
- * @param dir cache directory (defaults to `.gro/build/fetch/`)
+ * @param name - cache filename (without .json extension)
+ * @param dir - cache directory (defaults to `.gro/build/fetch/`)
  * @returns cache object with Map-based data and save() method
  */
 export const create_fs_fetch_value_cache = async (

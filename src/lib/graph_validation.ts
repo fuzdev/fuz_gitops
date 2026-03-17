@@ -32,9 +32,9 @@ export interface GraphValidationResult {
  * Shared utility for building dependency graph, detecting cycles, and computing publishing order.
  * This centralizes logic that was duplicated across multi_repo_publisher, publishing_plan, and gitops_analyze.
  *
- * @param options.throw_on_prod_cycles whether to throw an error if production cycles are detected (default: true)
- * @param options.log_cycles whether to log cycle information (default: true)
- * @param options.log_order whether to log publishing order (default: true)
+ * @param options.throw_on_prod_cycles - whether to throw an error if production cycles are detected (default: true)
+ * @param options.log_cycles - whether to log cycle information (default: true)
+ * @param options.log_order - whether to log publishing order (default: true)
  * @returns graph validation result with graph, publishing order, and detected cycles
  * @throws {TaskError} if production cycles detected and throw_on_prod_cycles is true
  */

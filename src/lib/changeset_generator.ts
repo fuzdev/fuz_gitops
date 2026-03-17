@@ -95,9 +95,9 @@ const calculate_required_bump = (
  * and categorized list of breaking vs regular updates. Output format
  * matches changesets CLI for consistency.
  *
- * @param package_name package receiving the dependency updates
- * @param updates list of dependency changes with version info
- * @param bump_type required bump type (calculated from breaking changes)
+ * @param package_name - package receiving the dependency updates
+ * @param updates - list of dependency changes with version info
+ * @param bump_type - required bump type (calculated from breaking changes)
  * @returns markdown content ready to write to .changeset/*.md file
  */
 export const generate_changeset_content = (

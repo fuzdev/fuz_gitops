@@ -37,8 +37,8 @@ export interface ChangesetInfo {
  *
  * Summary of changes
  *
- * @param content changeset markdown with YAML frontmatter
- * @param filename optional filename for error reporting context
+ * @param content - changeset markdown with YAML frontmatter
+ * @param filename - optional filename for error reporting context
  * @returns parsed changeset info or null if invalid format
  */
 export const parse_changeset_content = (

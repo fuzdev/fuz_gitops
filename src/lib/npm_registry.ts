@@ -48,10 +48,10 @@ export const check_package_available = async (
  * Critical for multi-repo publishing: ensures published packages are available
  * before updating dependent packages.
  *
- * @param options.max_attempts max poll attempts (default 30)
- * @param options.initial_delay starting delay in ms (default 1000)
- * @param options.max_delay max delay between attempts (default 60000)
- * @param options.timeout total timeout in ms (default 300000 = 5min)
+ * @param options.max_attempts - max poll attempts (default 30)
+ * @param options.initial_delay - starting delay in ms (default 1000)
+ * @param options.max_delay - max delay between attempts (default 60000)
+ * @param options.timeout - total timeout in ms (default 300000 = 5min)
  * @throws {Error} if timeout reached or max attempts exceeded
  */
 export const wait_for_package = async (
