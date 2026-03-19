@@ -15,8 +15,8 @@ import type {ResolvedGitopsConfig} from './resolved_gitops_config.js';
 import {GITOPS_CONCURRENCY_DEFAULT} from './gitops_constants.js';
 
 /**
- * Fully loaded local repo with Library and extracted dependency data.
- * Does not extend LocalRepoPath - Library is source of truth for name/repo_url/etc.
+ * Fully loaded local repo with `Library` and extracted dependency data.
+ * Does not extend `LocalRepoPath` - `Library` is source of truth for name/repo_url/etc.
  */
 export interface LocalRepo {
 	library: Library;
@@ -61,14 +61,14 @@ export interface LocalRepoMissing {
  * 2. Switches to target branch if needed (requires clean workspace)
  * 3. Pulls latest changes from remote (skipped for local-only repos)
  * 4. Validates workspace is clean after pull
- * 5. Auto-installs dependencies if package.json changed
- * 6. Imports library_json from src/routes/library.ts
- * 7. Creates Library and extracts dependency maps
+ * 5. Auto-installs dependencies if `package.json` changed
+ * 6. Imports `library_json` from `src/routes/library.ts`
+ * 7. Creates `Library` and extracts dependency maps
  *
  * This ensures repos are always in sync with their configured branch
  * before being used by gitops commands.
  *
- * @throws {TaskError} if workspace dirty, branch switch fails, install fails, or library.ts missing
+ * @throws {TaskError} if workspace dirty, branch switch fails, install fails, or `library.ts` missing
  */
 export const local_repo_load = async ({
 	local_repo_path,

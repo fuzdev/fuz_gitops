@@ -30,12 +30,14 @@ export interface ChangesetInfo {
  * Returns null if format is invalid or no packages found.
  *
  * Expected format:
+ * ```
  * ---
  * "package-name": patch
  * "@scope/package": minor
  * ---
  *
  * Summary of changes
+ * ```
  *
  * @param content - changeset markdown with YAML frontmatter
  * @param filename - optional filename for error reporting context
@@ -161,8 +163,8 @@ export const determine_bump_from_changesets = (
  * Checks if a repo has any changeset files (excluding README.md).
  *
  * Used by preflight checks and publishing workflow to determine which packages
- * need to be published. Returns false if .changeset directory doesn't exist
- * or contains only README.md.
+ * need to be published. Returns false if `.changeset` directory doesn't exist
+ * or contains only `README.md`.
  *
  * @returns true if repo has unpublished changesets
  */

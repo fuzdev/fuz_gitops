@@ -29,7 +29,7 @@
  * ```
  *
  * See `operations_defaults.ts` for real implementations.
- * See test files (*.test.ts) for mock implementations.
+ * See test files (`*.test.ts`) for mock implementations.
  *
  * @module
  */
@@ -67,7 +67,7 @@ export interface ChangesetOperations {
 	/**
 	 * Predicts the next version based on changesets.
 	 * Returns null if no changesets found (expected, not an error).
-	 * Returns error Result if changesets exist but can't be read/parsed.
+	 * Returns error `Result` if changesets exist but can't be read/parsed.
 	 */
 	predict_next_version: (options: {
 		repo: LocalRepo;
@@ -225,7 +225,7 @@ export interface ProcessOperations {
  */
 export interface BuildOperations {
 	/**
-	 * Builds a package using gro build.
+	 * Builds a package using `gro build`.
 	 */
 	build_package: (options: {
 		repo: LocalRepo;

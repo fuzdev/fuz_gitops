@@ -46,7 +46,7 @@ export interface GetGitopsReadyOptions {
  * 1. Loads and normalizes config from `gitops.config.ts`
  * 2. Resolves local repo paths (creates missing with `--download`)
  * 3. Switches branches and pulls latest changes (in parallel by default)
- * 4. Auto-installs deps if package.json changed during pull
+ * 4. Auto-installs deps if `package.json` changed during pull
  *
  * Priority for path resolution:
  * - `dir` argument (explicit override)

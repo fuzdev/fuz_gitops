@@ -1,7 +1,7 @@
 /**
  * Helper functions for publishing plan calculations.
  *
- * Extracted from publishing_plan.ts to reduce file size.
+ * Extracted from `publishing_plan.ts` to reduce file size.
  *
  * @module
  */

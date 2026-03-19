@@ -36,9 +36,9 @@ export type Args = z.infer<typeof Args>;
  * Shows version changes, dependency updates, and breaking change cascades.
  *
  * Usage:
- *   gro gitops_plan
- *   gro gitops_plan --dir ../repos
- *   gro gitops_plan --config ./custom.config.ts
+ *   `gro gitops_plan`
+ *   `gro gitops_plan --dir ../repos`
+ *   `gro gitops_plan --config ./custom.config.ts`
  *
  * @nodocs
  */

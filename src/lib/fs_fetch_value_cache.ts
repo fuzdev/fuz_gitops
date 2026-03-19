@@ -17,7 +17,7 @@ export interface FetchCache {
 }
 
 /**
- * Creates file-system backed cache for fuz_util's fetch.js API responses.
+ * Creates file-system backed cache for `fuz_util`'s `fetch.js` API responses.
  *
  * Cache invalidation strategy: If cache file can't be read or parsed, entire
  * cache is cleared (delete file) and starts fresh. This handles format changes.
@@ -27,7 +27,7 @@ export interface FetchCache {
  *
  * @param name - cache filename (without .json extension)
  * @param dir - cache directory (defaults to `.gro/build/fetch/`)
- * @returns cache object with Map-based data and save() method
+ * @returns cache object with Map-based data and `save()` method
  */
 export const create_fs_fetch_value_cache = async (
 	name: string,

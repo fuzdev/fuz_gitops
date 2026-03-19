@@ -98,7 +98,7 @@ const calculate_required_bump = (
  * @param package_name - package receiving the dependency updates
  * @param updates - list of dependency changes with version info
  * @param bump_type - required bump type (calculated from breaking changes)
- * @returns markdown content ready to write to .changeset/*.md file
+ * @returns markdown content ready to write to `.changeset/*.md` file
  */
 export const generate_changeset_content = (
 	package_name: string,

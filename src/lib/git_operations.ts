@@ -160,7 +160,7 @@ export const git_switch_branch = async (
 };
 
 /**
- * Wrapper for gro's git_current_branch_name that throws if null.
+ * Wrapper for gro's `git_current_branch_name` that throws if null.
  */
 export const git_current_branch_name_required = async (options?: SpawnOptions): Promise<string> => {
 	const branch = await gro_git_current_branch_name(options);
@@ -171,7 +171,7 @@ export const git_current_branch_name_required = async (options?: SpawnOptions): 
 };
 
 /**
- * Wrapper for gro's git_current_commit_hash that throws if null.
+ * Wrapper for gro's `git_current_commit_hash` that throws if null.
  */
 export const git_current_commit_hash_required = async (
 	branch?: string,
@@ -185,7 +185,7 @@ export const git_current_commit_hash_required = async (
 };
 
 /**
- * Wrapper for gro's git_check_clean_workspace that returns a boolean.
+ * Wrapper for gro's `git_check_clean_workspace` that returns a boolean.
  */
 export const git_check_clean_workspace_as_boolean = async (
 	options?: SpawnOptions,

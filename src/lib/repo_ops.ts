@@ -6,7 +6,7 @@
  * - Walking files in repos with sensible exclusions
  * - Common exclusion patterns for node/svelte projects
  *
- * For full git sync/clone functionality, use `get_gitops_ready()` from gitops_task_helpers.
+ * For full git sync/clone functionality, use `get_gitops_ready()` from `gitops_task_helpers`.
  *
  * @module
  */
@@ -83,7 +83,7 @@ export interface RepoPath {
  * Get repo paths from gitops config without full git sync.
  * Lighter weight than `get_gitops_ready()` - just resolves paths.
  *
- * @param config_path - path to gitops.config.ts (defaults to `./gitops.config.ts`)
+ * @param config_path - path to `gitops.config.ts` (defaults to `./gitops.config.ts`)
  * @returns array of repo info with name, path, and url
  */
 export const get_repo_paths = async (config_path?: string): Promise<Array<RepoPath>> => {
@@ -201,7 +201,7 @@ export async function* walk_repo_files(
 }
 
 /**
- * Collect all files from walk_repo_files into an array.
+ * Collect all files from `walk_repo_files` into an array.
  * Convenience function for when you need all paths upfront.
  */
 export const collect_repo_files = async (

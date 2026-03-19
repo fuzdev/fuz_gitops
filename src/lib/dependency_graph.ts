@@ -128,7 +128,7 @@ export class DependencyGraph {
 	 * Throws if cycles detected.
 	 *
 	 * @param exclude_dev - if true, excludes dev dependencies to break cycles
-	 *   Publishing uses exclude_dev=true to handle circular dev deps.
+	 *   Publishing uses `exclude_dev`=true to handle circular dev deps.
 	 * @returns array of package names in dependency order (dependencies before dependents)
 	 * @throws {Error} if circular dependencies detected in included dependency types
 	 */
@@ -158,7 +158,7 @@ export class DependencyGraph {
 	 * Uses DFS traversal with recursion stack to identify back edges.
 	 * Deduplicates cycles using sorted cycle keys.
 	 *
-	 * @returns object with production_cycles (errors) and dev_cycles (info)
+	 * @returns object with `production_cycles` (errors) and `dev_cycles` (info)
 	 */
 	detect_cycles_by_type(): {
 		production_cycles: Array<Array<string>>;

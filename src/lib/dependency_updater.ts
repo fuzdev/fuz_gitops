@@ -22,13 +22,13 @@ export interface UpdatePackageJsonOptions {
 }
 
 /**
- * Updates package.json dependencies and creates changeset if needed.
+ * Updates `package.json` dependencies and creates changeset if needed.
  *
  * Workflow:
  * 1. Updates all dependency types (dependencies, devDependencies, peerDependencies)
- * 2. Writes updated package.json with tabs formatting
- * 3. Creates auto-changeset if published_versions provided (for transitive updates)
- * 4. Commits both package.json and changeset with standard message
+ * 2. Writes updated `package.json` with tabs formatting
+ * 3. Creates auto-changeset if `published_versions` provided (for transitive updates)
+ * 4. Commits both `package.json` and changeset with standard message
  *
  * Uses version strategy to determine prefix (exact, caret, tilde) while preserving
  * existing prefixes when possible.

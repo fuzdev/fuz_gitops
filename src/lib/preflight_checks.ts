@@ -51,7 +51,7 @@ export interface RunPreflightChecksOptions {
  * Performs comprehensive pre-flight validation:
  * - Clean workspaces (100% clean required - no uncommitted changes)
  * - Correct branch (usually main)
- * - Changesets present (unless skip_changesets=true)
+ * - Changesets present (unless `skip_changesets`=true)
  * - Builds successful (fail-fast to prevent broken state)
  * - Git remote reachability
  * - NPM authentication with username
@@ -60,7 +60,7 @@ export interface RunPreflightChecksOptions {
  * Build validation runs BEFORE any publishing to prevent the scenario where
  * version is bumped but build fails, leaving repo in broken state.
  *
- * @returns result with ok=false if any errors, plus warnings and detailed status
+ * @returns result with `ok`=false if any errors, plus warnings and detailed status
  */
 export const run_preflight_checks = async ({
 	repos,

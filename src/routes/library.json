@@ -186,7 +186,7 @@
 						"source_line": 103,
 						"type_signature": "(package_name: string, updates: DependencyVersionChange[], bump_type: \"major\" | \"minor\" | \"patch\"): string",
 						"return_type": "string",
-						"return_description": "markdown content ready to write to .changeset/*.md file",
+						"return_description": "markdown content ready to write to `.changeset/*.md` file",
 						"parameters": [
 							{
 								"name": "package_name",
@@ -256,8 +256,8 @@
 					{
 						"name": "parse_changeset_content",
 						"kind": "function",
-						"doc_comment": "Parses changeset content string from markdown format.\n\nPure function for testability - no file I/O, just string parsing.\nExtracts package names, bump types, and summary from YAML frontmatter format.\nReturns null if format is invalid or no packages found.\n\nExpected format:\n---\n\"package-name\": patch\n\"@scope/package\": minor\n---\n\nSummary of changes",
-						"source_line": 44,
+						"doc_comment": "Parses changeset content string from markdown format.\n\nPure function for testability - no file I/O, just string parsing.\nExtracts package names, bump types, and summary from YAML frontmatter format.\nReturns null if format is invalid or no packages found.\n\nExpected format:\n```\n---\n\"package-name\": patch\n\"@scope/package\": minor\n---\n\nSummary of changes\n```",
+						"source_line": 46,
 						"type_signature": "(content: string, filename?: string): ChangesetInfo | null",
 						"return_type": "ChangesetInfo | null",
 						"return_description": "parsed changeset info or null if invalid format",
@@ -278,7 +278,7 @@
 					{
 						"name": "parse_changeset_file",
 						"kind": "function",
-						"source_line": 84,
+						"source_line": 86,
 						"type_signature": "(filepath: string, log?: Logger | undefined): Promise<ChangesetInfo | null>",
 						"return_type": "Promise<ChangesetInfo | null>",
 						"parameters": [
@@ -296,7 +296,7 @@
 					{
 						"name": "read_changesets",
 						"kind": "function",
-						"source_line": 105,
+						"source_line": 107,
 						"type_signature": "(repo: LocalRepo, log?: Logger | undefined): Promise<ChangesetInfo[]>",
 						"return_type": "Promise<ChangesetInfo[]>",
 						"parameters": [
@@ -315,7 +315,7 @@
 						"name": "determine_bump_from_changesets",
 						"kind": "function",
 						"doc_comment": "Determines the bump type for a package from its changesets.\n\nWhen multiple changesets exist for the same package, returns the highest\nbump type (major > minor > patch) to ensure the most significant change\nis reflected in the version bump.",
-						"source_line": 141,
+						"source_line": 143,
 						"type_signature": "(changesets: ChangesetInfo[], package_name: string): BumpType | null",
 						"return_type": "BumpType | null",
 						"return_description": "the highest bump type, or null if package has no changesets",
@@ -333,8 +333,8 @@
 					{
 						"name": "has_changesets",
 						"kind": "function",
-						"doc_comment": "Checks if a repo has any changeset files (excluding README.md).\n\nUsed by preflight checks and publishing workflow to determine which packages\nneed to be published. Returns false if .changeset directory doesn't exist\nor contains only README.md.",
-						"source_line": 169,
+						"doc_comment": "Checks if a repo has any changeset files (excluding README.md).\n\nUsed by preflight checks and publishing workflow to determine which packages\nneed to be published. Returns false if `.changeset` directory doesn't exist\nor contains only `README.md`.",
+						"source_line": 171,
 						"type_signature": "(repo: LocalRepo): Promise<boolean>",
 						"return_type": "Promise<boolean>",
 						"return_description": "true if repo has unpublished changesets",
@@ -349,7 +349,7 @@
 						"name": "predict_next_version",
 						"kind": "function",
 						"doc_comment": "Predicts the next version by analyzing all changesets in a repo.\n\nReads all changesets, determines the highest bump type for the package,\nand calculates the next version. Returns null if no changesets found.\n\nCritical for dry-run mode accuracy - allows simulating publishes without\nactually running `gro publish` which consumes changesets.",
-						"source_line": 195,
+						"source_line": 197,
 						"type_signature": "(repo: LocalRepo, log?: Logger | undefined): Promise<{ version: string; bump_type: BumpType; } | null>",
 						"return_type": "Promise<{ version: string; bump_type: BumpType; } | null>",
 						"return_description": "predicted version and bump type, or null if no changesets",
@@ -545,7 +545,7 @@
 									{
 										"name": "exclude_dev",
 										"type": "boolean",
-										"description": "if true, excludes dev dependencies to break cycles\nPublishing uses exclude_dev=true to handle circular dev deps.",
+										"description": "if true, excludes dev dependencies to break cycles\nPublishing uses `exclude_dev`=true to handle circular dev deps.",
 										"default_value": "false"
 									}
 								],
@@ -562,7 +562,7 @@
 								"doc_comment": "Detects circular dependencies, categorized by severity.\n\nProduction/peer cycles prevent publishing (impossible to order packages).\nDev cycles are normal (test utils, shared configs) and safely ignored.\n\nUses DFS traversal with recursion stack to identify back edges.\nDeduplicates cycles using sorted cycle keys.",
 								"type_signature": "(): { production_cycles: string[][]; dev_cycles: string[][]; }",
 								"return_type": "{ production_cycles: string[][]; dev_cycles: string[][]; }",
-								"return_description": "object with production_cycles (errors) and dev_cycles (info)",
+								"return_description": "object with `production_cycles` (errors) and `dev_cycles` (info)",
 								"parameters": []
 							},
 							{
@@ -677,7 +677,7 @@
 					{
 						"name": "update_package_json",
 						"kind": "function",
-						"doc_comment": "Updates package.json dependencies and creates changeset if needed.\n\nWorkflow:\n1. Updates all dependency types (dependencies, devDependencies, peerDependencies)\n2. Writes updated package.json with tabs formatting\n3. Creates auto-changeset if published_versions provided (for transitive updates)\n4. Commits both package.json and changeset with standard message\n\nUses version strategy to determine prefix (exact, caret, tilde) while preserving\nexisting prefixes when possible.",
+						"doc_comment": "Updates `package.json` dependencies and creates changeset if needed.\n\nWorkflow:\n1. Updates all dependency types (dependencies, devDependencies, peerDependencies)\n2. Writes updated `package.json` with tabs formatting\n3. Creates auto-changeset if `published_versions` provided (for transitive updates)\n4. Commits both `package.json` and changeset with standard message\n\nUses version strategy to determine prefix (exact, caret, tilde) while preserving\nexisting prefixes when possible.",
 						"throws": [
 							{
 								"type": "if",
@@ -780,7 +780,7 @@
 					{
 						"name": "fetch_repo_data",
 						"kind": "function",
-						"doc_comment": "Fetches GitHub metadata (CI status, PRs) for all repos.\n\nFetches sequentially with delay between requests to respect GitHub API rate limits.\nUses `await_in_loop` intentionally to avoid parallel requests overwhelming the API.\n\nError handling: Logs fetch failures but continues processing remaining repos.\nRepos with failed fetches will have `null` for check_runs or pull_requests.",
+						"doc_comment": "Fetches GitHub metadata (CI status, PRs) for all repos.\n\nFetches sequentially with delay between requests to respect GitHub API rate limits.\nUses `await_in_loop` intentionally to avoid parallel requests overwhelming the API.\n\nError handling: Logs fetch failures but continues processing remaining repos.\nRepos with failed fetches will have `null` for `check_runs` or `pull_requests`.",
 						"source_line": 24,
 						"type_signature": "(resolved_repos: LocalRepo[], token?: string | undefined, cache?: Map<string, { key: string; url: string; params: any; value: any; etag: string | null; last_modified: string | null; }> | undefined, log?: Logger | undefined, delay?: number, github_api_version?: string | undefined): Promise<...>",
 						"return_type": "Promise<RepoJson[]>",
@@ -799,7 +799,7 @@
 								"name": "cache",
 								"type": "Map<string, { key: string; url: string; params: any; value: any; etag: string | null; last_modified: string | null; }> | undefined",
 								"optional": true,
-								"description": "optional cache from fuz_util's fetch.js for response memoization"
+								"description": "optional cache from `fuz_util`'s `fetch.js` for response memoization"
 							},
 							{
 								"name": "log",
@@ -853,11 +853,11 @@
 					{
 						"name": "create_fs_fetch_value_cache",
 						"kind": "function",
-						"doc_comment": "Creates file-system backed cache for fuz_util's fetch.js API responses.\n\nCache invalidation strategy: If cache file can't be read or parsed, entire\ncache is cleared (delete file) and starts fresh. This handles format changes.\n\nUses `structuredClone` to track changes - only writes to disk if data modified.\nFormatted with Prettier before writing for version control friendliness.",
+						"doc_comment": "Creates file-system backed cache for `fuz_util`'s `fetch.js` API responses.\n\nCache invalidation strategy: If cache file can't be read or parsed, entire\ncache is cleared (delete file) and starts fresh. This handles format changes.\n\nUses `structuredClone` to track changes - only writes to disk if data modified.\nFormatted with Prettier before writing for version control friendliness.",
 						"source_line": 32,
 						"type_signature": "(name: string, dir?: string): Promise<FetchCache>",
 						"return_type": "Promise<FetchCache>",
-						"return_description": "cache object with Map-based data and save() method",
+						"return_description": "cache object with Map-based data and `save()` method",
 						"parameters": [
 							{
 								"name": "name",
@@ -1104,7 +1104,7 @@
 					{
 						"name": "git_current_branch_name_required",
 						"kind": "function",
-						"doc_comment": "Wrapper for gro's git_current_branch_name that throws if null.",
+						"doc_comment": "Wrapper for gro's `git_current_branch_name` that throws if null.",
 						"source_line": 165,
 						"type_signature": "(options?: SpawnOptions | undefined): Promise<string>",
 						"return_type": "Promise<string>",
@@ -1119,7 +1119,7 @@
 					{
 						"name": "git_current_commit_hash_required",
 						"kind": "function",
-						"doc_comment": "Wrapper for gro's git_current_commit_hash that throws if null.",
+						"doc_comment": "Wrapper for gro's `git_current_commit_hash` that throws if null.",
 						"source_line": 176,
 						"type_signature": "(branch?: string | undefined, options?: SpawnOptions | undefined): Promise<string>",
 						"return_type": "Promise<string>",
@@ -1139,7 +1139,7 @@
 					{
 						"name": "git_check_clean_workspace_as_boolean",
 						"kind": "function",
-						"doc_comment": "Wrapper for gro's git_check_clean_workspace that returns a boolean.",
+						"doc_comment": "Wrapper for gro's `git_check_clean_workspace` that returns a boolean.",
 						"source_line": 190,
 						"type_signature": "(options?: SpawnOptions | undefined): Promise<boolean>",
 						"return_type": "Promise<boolean>",
@@ -1244,7 +1244,7 @@
 					{
 						"name": "GithubRepoInfo",
 						"kind": "type",
-						"doc_comment": "Minimal interface for GitHub API calls - works with both Pkg and Repo.",
+						"doc_comment": "Minimal interface for GitHub API calls - works with both `Pkg` and `Repo`.",
 						"source_line": 8,
 						"type_signature": "GithubRepoInfo",
 						"properties": [
@@ -1665,7 +1665,7 @@
 					{
 						"name": "get_gitops_ready",
 						"kind": "function",
-						"doc_comment": "Central initialization function for all gitops tasks.\n\nInitialization sequence:\n1. Loads and normalizes config from `gitops.config.ts`\n2. Resolves local repo paths (creates missing with `--download`)\n3. Switches branches and pulls latest changes (in parallel by default)\n4. Auto-installs deps if package.json changed during pull\n\nPriority for path resolution:\n- `dir` argument (explicit override)\n- Config `repos_dir` setting\n- `DEFAULT_REPOS_DIR` constant",
+						"doc_comment": "Central initialization function for all gitops tasks.\n\nInitialization sequence:\n1. Loads and normalizes config from `gitops.config.ts`\n2. Resolves local repo paths (creates missing with `--download`)\n3. Switches branches and pulls latest changes (in parallel by default)\n4. Auto-installs deps if `package.json` changed during pull\n\nPriority for path resolution:\n- `dir` argument (explicit override)\n- Config `repos_dir` setting\n- `DEFAULT_REPOS_DIR` constant",
 						"throws": [
 							{
 								"type": "if",
@@ -1800,11 +1800,11 @@
 					{
 						"name": "validate_dependency_graph",
 						"kind": "function",
-						"doc_comment": "Shared utility for building dependency graph, detecting cycles, and computing publishing order.\nThis centralizes logic that was duplicated across multi_repo_publisher, publishing_plan, and gitops_analyze.",
+						"doc_comment": "Shared utility for building dependency graph, detecting cycles, and computing publishing order.\nThis centralizes logic that was duplicated across `multi_repo_publisher`, `publishing_plan`, and `gitops_analyze`.",
 						"throws": [
 							{
 								"type": "if",
-								"description": "production cycles detected and throw_on_prod_cycles is true"
+								"description": "production cycles detected and `throw_on_prod_cycles` is true"
 							}
 						],
 						"source_line": 41,
@@ -1839,7 +1839,7 @@
 					{
 						"name": "LocalRepo",
 						"kind": "type",
-						"doc_comment": "Fully loaded local repo with Library and extracted dependency data.\nDoes not extend LocalRepoPath - Library is source of truth for name/repo_url/etc.",
+						"doc_comment": "Fully loaded local repo with `Library` and extracted dependency data.\nDoes not extend `LocalRepoPath` - `Library` is source of truth for name/repo_url/etc.",
 						"source_line": 21,
 						"type_signature": "LocalRepo",
 						"properties": [
@@ -1961,11 +1961,11 @@
 					{
 						"name": "local_repo_load",
 						"kind": "function",
-						"doc_comment": "Loads repo data with automatic syncing and dependency management.\n\nWorkflow:\n1. Records current commit hash (for detecting changes)\n2. Switches to target branch if needed (requires clean workspace)\n3. Pulls latest changes from remote (skipped for local-only repos)\n4. Validates workspace is clean after pull\n5. Auto-installs dependencies if package.json changed\n6. Imports library_json from src/routes/library.ts\n7. Creates Library and extracts dependency maps\n\nThis ensures repos are always in sync with their configured branch\nbefore being used by gitops commands.",
+						"doc_comment": "Loads repo data with automatic syncing and dependency management.\n\nWorkflow:\n1. Records current commit hash (for detecting changes)\n2. Switches to target branch if needed (requires clean workspace)\n3. Pulls latest changes from remote (skipped for local-only repos)\n4. Validates workspace is clean after pull\n5. Auto-installs dependencies if `package.json` changed\n6. Imports `library_json` from `src/routes/library.ts`\n7. Creates `Library` and extracts dependency maps\n\nThis ensures repos are always in sync with their configured branch\nbefore being used by gitops commands.",
 						"throws": [
 							{
 								"type": "if",
-								"description": "workspace dirty, branch switch fails, install fails, or library.ts missing"
+								"description": "workspace dirty, branch switch fails, install fails, or `library.ts` missing"
 							}
 						],
 						"source_line": 73,
@@ -2682,7 +2682,7 @@
 								"name": "predict_next_version",
 								"kind": "variable",
 								"type_signature": "(options: {\n\t\trepo: LocalRepo;\n\t\tlog?: Logger;\n\t}) => Promise<Result<{version: string; bump_type: BumpType}, {message: string}> | null>",
-								"doc_comment": "Predicts the next version based on changesets.\nReturns null if no changesets found (expected, not an error).\nReturns error Result if changesets exist but can't be read/parsed."
+								"doc_comment": "Predicts the next version based on changesets.\nReturns null if no changesets found (expected, not an error).\nReturns error `Result` if changesets exist but can't be read/parsed."
 							}
 						]
 					},
@@ -2823,7 +2823,7 @@
 								"name": "build_package",
 								"kind": "variable",
 								"type_signature": "(options: {\n\t\trepo: LocalRepo;\n\t\tlog?: Logger;\n\t}) => Promise<Result<object, {message: string; output?: string}>>",
-								"doc_comment": "Builds a package using gro build."
+								"doc_comment": "Builds a package using `gro build`."
 							}
 						]
 					},
@@ -2965,7 +2965,7 @@
 						]
 					}
 				],
-				"module_comment": "Operations interfaces for dependency injection.\n\nThis is the core pattern enabling testability without mocks.\nAll side effects (git, npm, fs, process) are abstracted into interfaces.\n\n**Design principles:**\n- All operations accept a single `options` object parameter\n- All fallible operations return `Result` from `@fuzdev/fuz_util`\n- Never throw `Error` in operations - return `Result` with `ok: false`\n- Use `null` for expected \"not found\" cases (not errors)\n- Include `log?: Logger` in options where logging is useful\n\n**Production usage:**\n```typescript\nimport {default_gitops_operations} from './operations_defaults.js';\nconst result = await ops.git.current_branch_name({cwd: '/path'});\nif (!result.ok) {\n  throw new TaskError(result.message);\n}\nconst branch = result.value;\n```\n\n**Test usage:**\n```typescript\nconst mock_ops = create_mock_operations();\nconst result = await publish_repos(repos, {...options, ops: mock_ops});\n// Assert on result without any real git/npm calls\n```\n\nSee `operations_defaults.ts` for real implementations.\nSee test files (*.test.ts) for mock implementations."
+				"module_comment": "Operations interfaces for dependency injection.\n\nThis is the core pattern enabling testability without mocks.\nAll side effects (git, npm, fs, process) are abstracted into interfaces.\n\n**Design principles:**\n- All operations accept a single `options` object parameter\n- All fallible operations return `Result` from `@fuzdev/fuz_util`\n- Never throw `Error` in operations - return `Result` with `ok: false`\n- Use `null` for expected \"not found\" cases (not errors)\n- Include `log?: Logger` in options where logging is useful\n\n**Production usage:**\n```typescript\nimport {default_gitops_operations} from './operations_defaults.js';\nconst result = await ops.git.current_branch_name({cwd: '/path'});\nif (!result.ok) {\n  throw new TaskError(result.message);\n}\nconst branch = result.value;\n```\n\n**Test usage:**\n```typescript\nconst mock_ops = create_mock_operations();\nconst result = await publish_repos(repos, {...options, ops: mock_ops});\n// Assert on result without any real git/npm calls\n```\n\nSee `operations_defaults.ts` for real implementations.\nSee test files (`*.test.ts`) for mock implementations."
 			},
 			{
 				"path": "output_helpers.ts",
@@ -3031,11 +3031,11 @@
 					{
 						"name": "format_and_output",
 						"kind": "function",
-						"doc_comment": "Formats data and outputs to file or stdout based on options.\n\nSupports three formats:\n- stdout: Uses logger for colored/styled output (cannot use with --outfile)\n- json: Stringified JSON\n- markdown: Formatted markdown text",
+						"doc_comment": "Formats data and outputs to file or stdout based on options.\n\nSupports three formats:\n- stdout: Uses logger for colored/styled output (cannot use with `--outfile`)\n- json: Stringified JSON\n- markdown: Formatted markdown text",
 						"throws": [
 							{
 								"type": "if",
-								"description": "stdout format used with outfile, or if logger missing for stdout"
+								"description": "stdout format used with `outfile`, or if logger missing for stdout"
 							}
 						],
 						"source_line": 31,
@@ -3132,7 +3132,7 @@
 					{
 						"name": "DEFAULT_REPOS_DIR",
 						"kind": "variable",
-						"doc_comment": "Default repos directory relative to gitops config file.\nResolves to the parent of the directory with the config\n(e.g., ~/dev/repo/gitops.config.ts resolves to ~/dev/).",
+						"doc_comment": "Default repos directory relative to gitops config file.\nResolves to the parent of the directory with the config\n(e.g., `~/dev/repo/gitops.config.ts` resolves to `~/dev/`).",
 						"source_line": 11,
 						"type_signature": "\"..\""
 					}
@@ -3264,11 +3264,11 @@
 					{
 						"name": "run_preflight_checks",
 						"kind": "function",
-						"doc_comment": "Validates all requirements before publishing can proceed.\n\nPerforms comprehensive pre-flight validation:\n- Clean workspaces (100% clean required - no uncommitted changes)\n- Correct branch (usually main)\n- Changesets present (unless skip_changesets=true)\n- Builds successful (fail-fast to prevent broken state)\n- Git remote reachability\n- NPM authentication with username\n- NPM registry connectivity\n\nBuild validation runs BEFORE any publishing to prevent the scenario where\nversion is bumped but build fails, leaving repo in broken state.",
+						"doc_comment": "Validates all requirements before publishing can proceed.\n\nPerforms comprehensive pre-flight validation:\n- Clean workspaces (100% clean required - no uncommitted changes)\n- Correct branch (usually main)\n- Changesets present (unless `skip_changesets`=true)\n- Builds successful (fail-fast to prevent broken state)\n- Git remote reachability\n- NPM authentication with username\n- NPM registry connectivity\n\nBuild validation runs BEFORE any publishing to prevent the scenario where\nversion is bumped but build fails, leaving repo in broken state.",
 						"source_line": 65,
 						"type_signature": "({ repos, preflight_options, git_ops, npm_ops, build_ops, changeset_ops, }: RunPreflightChecksOptions): Promise<PreflightResult>",
 						"return_type": "Promise<PreflightResult>",
-						"return_description": "result with ok=false if any errors, plus warnings and detailed status",
+						"return_description": "result with `ok`=false if any errors, plus warnings and detailed status",
 						"parameters": [
 							{
 								"name": "__0",
@@ -3328,7 +3328,7 @@
 						]
 					}
 				],
-				"module_comment": "Helper functions for publishing plan calculations.\n\nExtracted from publishing_plan.ts to reduce file size.",
+				"module_comment": "Helper functions for publishing plan calculations.\n\nExtracted from `publishing_plan.ts` to reduce file size.",
 				"dependencies": ["version_utils.ts"],
 				"dependents": ["publishing_plan.ts"]
 			},
@@ -3916,7 +3916,7 @@
 								"name": "config_path",
 								"type": "string | undefined",
 								"optional": true,
-								"description": "path to gitops.config.ts (defaults to `./gitops.config.ts`)"
+								"description": "path to `gitops.config.ts` (defaults to `./gitops.config.ts`)"
 							}
 						]
 					},
@@ -3942,7 +3942,7 @@
 					{
 						"name": "collect_repo_files",
 						"kind": "function",
-						"doc_comment": "Collect all files from walk_repo_files into an array.\nConvenience function for when you need all paths upfront.",
+						"doc_comment": "Collect all files from `walk_repo_files` into an array.\nConvenience function for when you need all paths upfront.",
 						"source_line": 207,
 						"type_signature": "(dir: string, options?: WalkOptions | undefined): Promise<string[]>",
 						"return_type": "Promise<string[]>",
@@ -3959,7 +3959,7 @@
 						]
 					}
 				],
-				"module_comment": "Generic repository operations for scripts that work across repos.\n\nProvides lightweight utilities for:\n- Getting repo paths from gitops config (without full git sync)\n- Walking files in repos with sensible exclusions\n- Common exclusion patterns for node/svelte projects\n\nFor full git sync/clone functionality, use `get_gitops_ready()` from gitops_task_helpers.",
+				"module_comment": "Generic repository operations for scripts that work across repos.\n\nProvides lightweight utilities for:\n- Getting repo paths from gitops config (without full git sync)\n- Walking files in repos with sensible exclusions\n- Common exclusion patterns for node/svelte projects\n\nFor full git sync/clone functionality, use `get_gitops_ready()` from `gitops_task_helpers`.",
 				"dependencies": ["gitops_config.ts", "gitops_constants.ts", "paths.ts"],
 				"dependents": ["gitops_run.task.ts"]
 			},
@@ -3969,7 +3969,7 @@
 					{
 						"name": "RepoJson",
 						"kind": "type",
-						"doc_comment": "Serialized repo data as stored in repos.ts (JSON).",
+						"doc_comment": "Serialized repo data as stored in `repos.ts` (JSON).",
 						"source_line": 14,
 						"type_signature": "RepoJson",
 						"properties": [
@@ -3993,7 +3993,7 @@
 					{
 						"name": "Repo",
 						"kind": "class",
-						"doc_comment": "Runtime repo with Library composition for package metadata.\n\nWraps a Library instance and adds GitHub-specific data (CI status, PRs).\nConvenience getters delegate to `this.library.*` for common properties.",
+						"doc_comment": "Runtime repo with `Library` composition for package metadata.\n\nWraps a `Library` instance and adds GitHub-specific data (CI status, PRs).\nConvenience getters delegate to `this.library.*` for common properties.",
 						"source_line": 26,
 						"members": [
 							{
@@ -4498,7 +4498,7 @@
 					{
 						"name": "normalize_version_for_comparison",
 						"kind": "function",
-						"doc_comment": "Normalizes version string for comparison.\n\nStrips prefixes (^, ~, >=) to get bare version number.\nHandles wildcards as-is. Used by needs_update to compare versions.",
+						"doc_comment": "Normalizes version string for comparison.\n\nStrips prefixes (^, ~, >=) to get bare version number.\nHandles wildcards as-is. Used by `needs_update` to compare versions.",
 						"examples": [
 							"```ts\nnormalize_version_for_comparison('^1.2.3') // '1.2.3'\n```",
 							"```ts\nnormalize_version_for_comparison('>=2.0.0') // '2.0.0'\n```",

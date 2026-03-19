@@ -25,7 +25,7 @@ export const get_version_prefix = (version: string): string => {
  * Normalizes version string for comparison.
  *
  * Strips prefixes (^, ~, >=) to get bare version number.
- * Handles wildcards as-is. Used by needs_update to compare versions.
+ * Handles wildcards as-is. Used by `needs_update` to compare versions.
  *
  * @example
  * ```ts

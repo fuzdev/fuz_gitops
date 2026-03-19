@@ -9,7 +9,7 @@ import type {Module} from '@fuzdev/fuz_ui/module.svelte.js';
 import {GithubCheckRunsItem, type GithubPullRequest} from './github.js';
 
 /**
- * Serialized repo data as stored in repos.ts (JSON).
+ * Serialized repo data as stored in `repos.ts` (JSON).
  */
 export interface RepoJson {
 	library_json: LibraryJson;
@@ -18,9 +18,9 @@ export interface RepoJson {
 }
 
 /**
- * Runtime repo with Library composition for package metadata.
+ * Runtime repo with `Library` composition for package metadata.
  *
- * Wraps a Library instance and adds GitHub-specific data (CI status, PRs).
+ * Wraps a `Library` instance and adds GitHub-specific data (CI status, PRs).
  * Convenience getters delegate to `this.library.*` for common properties.
  */
 export class Repo {

@@ -3,7 +3,7 @@ import {z} from 'zod';
 import {fetch_value, type FetchValueCache} from '@fuzdev/fuz_util/fetch.js';
 
 /**
- * Minimal interface for GitHub API calls - works with both Pkg and Repo.
+ * Minimal interface for GitHub API calls - works with both `Pkg` and `Repo`.
  */
 export interface GithubRepoInfo {
 	owner_name: string | null;
