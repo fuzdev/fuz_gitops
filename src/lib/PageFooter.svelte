@@ -7,7 +7,7 @@
 </script>
 
 <section class="box mb_xl7">
-	<DocsFooter {library}>
+	<DocsFooter {library} root_url="https://www.fuz.dev/">
 		<nav class="mb_xl5">
 			<Breadcrumb>{library.package_json.glyph}</Breadcrumb>
 		</nav>
