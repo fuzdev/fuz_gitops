@@ -237,14 +237,18 @@ export const create_configurable_git_ops = (
 	// Branch operations
 	checkout: async () => {
 		if (config.checkout_fails) {
-			return {ok: false, message: 'Failed to checkout branch'};
+			return {ok: false, message: "error: pathspec 'main' did not match any file(s) known to git"};
 		}
 		return {ok: true};
 	},
 
 	pull: async () => {
 		if (config.pull_fails) {
-			return {ok: false, message: 'Failed to pull from remote'};
+			return {
+				ok: false,
+				message:
+					'cannot pull with rebase: You have unstaged changes.\nPlease commit or stash them.',
+			};
 		}
 		return {ok: true};
 	},

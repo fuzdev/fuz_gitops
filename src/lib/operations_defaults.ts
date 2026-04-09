@@ -7,7 +7,7 @@
  * @module
  */
 
-import {spawn, spawn_out} from '@fuzdev/fuz_util/process.js';
+import {spawn_out} from '@fuzdev/fuz_util/process.js';
 import {readFile, writeFile, mkdir} from 'node:fs/promises';
 import {existsSync} from 'node:fs';
 import {git_checkout, type GitBranch, type GitOrigin} from '@fuzdev/fuz_util/git.js';
@@ -118,9 +118,20 @@ export const default_git_operations: GitOperations = {
 
 	pull: async (options) => {
 		const {origin, branch, cwd} = options ?? EMPTY_OBJECT;
-		return wrap_void(() =>
-			spawn('git', ['pull', origin || 'origin', branch || ''], cwd ? {cwd} : undefined),
-		);
+		try {
+			const spawned = await spawn_out(
+				'git',
+				['pull', origin || 'origin', branch || ''],
+				cwd ? {cwd} : undefined,
+			);
+			if (spawned.result.ok) {
+				return {ok: true};
+			} else {
+				return {ok: false, message: spawned.stderr || 'Pull failed'};
+			}
+		} catch (error) {
+			return {ok: false, message: String(error)};
+		}
 	},
 
 	switch_branch: async (options) => {

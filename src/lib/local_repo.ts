@@ -5,7 +5,7 @@ import {existsSync} from 'node:fs';
 import {join} from 'node:path';
 import {TaskError} from '@fuzdev/gro';
 import type {Logger} from '@fuzdev/fuz_util/log.js';
-import {spawn} from '@fuzdev/fuz_util/process.js';
+import {spawn_out} from '@fuzdev/fuz_util/process.js';
 import {map_concurrent_settled} from '@fuzdev/fuz_util/async.js';
 import type {GitOperations, NpmOperations} from './operations.js';
 import {default_git_operations, default_npm_operations} from './operations_defaults.js';
@@ -383,10 +383,17 @@ const download_repos = async ({
 	const resolved: Array<LocalRepoPath> = [];
 	for (const {repo_config, repo_git_ssh_url} of local_repos_missing) {
 		log?.info(`cloning repo ${repo_git_ssh_url} to ${repos_dir}`);
-		await spawn('git', ['clone', repo_git_ssh_url], {cwd: repos_dir}); // eslint-disable-line no-await-in-loop
+		const clone_result = await spawn_out('git', ['clone', repo_git_ssh_url], {cwd: repos_dir}); // eslint-disable-line no-await-in-loop
+		if (!clone_result.result.ok) {
+			throw new TaskError(
+				`Failed to clone repo ${repo_git_ssh_url} to ${repos_dir}${clone_result.stderr ? ': ' + clone_result.stderr.trim() : ''}`,
+			);
+		}
 		const local_repo = local_repo_locate({repo_config, repos_dir});
 		if (local_repo.type === 'local_repo_missing') {
-			throw new TaskError(`Failed to clone repo ${repo_git_ssh_url} to ${repos_dir}`);
+			throw new TaskError(
+				`Failed to clone repo ${repo_git_ssh_url} to ${repos_dir}: directory not found after clone`,
+			);
 		}
 		// Always install dependencies after cloning
 		log?.info(`installing dependencies for newly cloned repo ${local_repo.repo_dir}`);
