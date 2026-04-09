@@ -13,7 +13,7 @@
 			"published": true,
 			"package_json": {
 				"name": "@fuzdev/fuz_app",
-				"version": "0.2.1",
+				"version": "0.4.0",
 				"description": "fullstack app library",
 				"glyph": "🗝",
 				"logo": "logo.svg",
@@ -54,7 +54,7 @@
 					"@fuzdev/fuz_css": "^0.58.0",
 					"@fuzdev/fuz_ui": "^0.191.2",
 					"@fuzdev/fuz_util": "^0.55.0",
-					"@fuzdev/gro": "^0.197.2",
+					"@fuzdev/gro": "^0.197.3",
 					"@jridgewell/trace-mapping": "^0.3.31",
 					"@node-rs/argon2": "^2.0.2",
 					"@ryanatkn/eslint-config": "^0.10.1",
@@ -109,7 +109,7 @@
 			},
 			"source_json": {
 				"name": "@fuzdev/fuz_app",
-				"version": "0.2.1",
+				"version": "0.4.0",
 				"modules": [
 					{
 						"path": "actions/action_bridge.ts",
@@ -1996,7 +1996,7 @@
 										"doc_comment": "Path to the bootstrap token file on disk."
 									},
 									{
-										"name": "read_file",
+										"name": "read_text_file",
 										"kind": "variable",
 										"type_signature": "(path: string) => Promise<string>",
 										"doc_comment": "Read a file's contents as a string."
@@ -2290,13 +2290,13 @@
 								"kind": "function",
 								"doc_comment": "Start daemon token rotation.\n\nGenerates an initial token, writes it to disk, resolves the keeper account,\nand sets up periodic rotation. Returns the mutable state object and a stop function.",
 								"source_line": 123,
-								"type_signature": "(runtime: Pick<EnvDeps, \"env_get\"> & FsWriteDeps & { chmod?: ((path: string, mode: number) => Promise<void>) | undefined; } & FsRemoveDeps, deps: QueryDeps, options: DaemonTokenRotationOptions, log: Logger): Promise<...>",
+								"type_signature": "(runtime: Pick<EnvDeps, \"env_get\"> & Pick<FsWriteDeps, \"mkdir\" | \"write_text_file\" | \"rename\"> & { chmod?: ((path: string, mode: number) => Promise<...>) | undefined; } & FsRemoveDeps, deps: QueryDeps, options: DaemonTokenRotationOptions, log: Logger): Promise<...>",
 								"return_type": "Promise<DaemonTokenRotation>",
 								"return_description": "rotation state and stop function",
 								"parameters": [
 									{
 										"name": "runtime",
-										"type": "Pick<EnvDeps, \"env_get\"> & FsWriteDeps & { chmod?: ((path: string, mode: number) => Promise<void>) | undefined; } & FsRemoveDeps",
+										"type": "Pick<EnvDeps, \"env_get\"> & Pick<FsWriteDeps, \"mkdir\" | \"write_text_file\" | \"rename\"> & { chmod?: ((path: string, mode: number) => Promise<void>) | undefined; } & FsRemoveDeps",
 										"description": "runtime with file, env, and remove capabilities"
 									},
 									{
@@ -2560,7 +2560,7 @@
 										"doc_comment": "Get file/directory stats, or null if path doesn't exist."
 									},
 									{
-										"name": "read_file",
+										"name": "read_text_file",
 										"kind": "variable",
 										"type_signature": "(path: string) => Promise<string>",
 										"doc_comment": "Read a file as text."
@@ -2855,8 +2855,8 @@
 							{
 								"name": "validate_keyring",
 								"kind": "function",
-								"doc_comment": "Validate key ring configuration.",
-								"source_line": 105,
+								"doc_comment": "Validate key ring configuration.\n\nReturns an error when no keys are configured (undefined, empty string,\nor all-separator input like `'____'`), and for each key shorter than\n characters.",
+								"source_line": 109,
 								"type_signature": "(env_value: string | undefined): string[]",
 								"return_type": "string[]",
 								"return_description": "array of validation errors (empty if valid)",
@@ -2872,14 +2872,14 @@
 								"name": "ValidatedKeyringResult",
 								"kind": "type",
 								"doc_comment": "Result of `create_validated_keyring`.\nDiscriminated union — callers handle the error case their own way.",
-								"source_line": 165,
+								"source_line": 172,
 								"type_signature": "ValidatedKeyringResult"
 							},
 							{
 								"name": "create_validated_keyring",
 								"kind": "function",
 								"doc_comment": "Validate and create a keyring in one step.\n\nReturns a discriminated union so callers handle exit/logging their own way\n(e.g. `Deno.exit(1)` vs `runtime.exit(1)`).",
-								"source_line": 178,
+								"source_line": 185,
 								"type_signature": "(env_value: string | undefined): ValidatedKeyringResult",
 								"return_type": "ValidatedKeyringResult",
 								"return_description": "`{ok: true, keyring}` or `{ok: false, errors}`",
@@ -4406,13 +4406,13 @@
 								"kind": "function",
 								"doc_comment": "Load CLI configuration from a JSON file with Zod schema validation.",
 								"source_line": 47,
-								"type_signature": "<T>(runtime: FsReadDeps & LogDeps, path: string, schema: ZodType<T, unknown, $ZodTypeInternals<T, unknown>>): Promise<T | null>",
+								"type_signature": "<T>(runtime: Pick<FsReadDeps, \"stat\" | \"read_text_file\"> & LogDeps, path: string, schema: ZodType<T, unknown, $ZodTypeInternals<T, unknown>>): Promise<...>",
 								"return_type": "Promise<T | null>",
 								"return_description": "parsed config, or null if file doesn't exist or is invalid",
 								"parameters": [
 									{
 										"name": "runtime",
-										"type": "FsReadDeps & LogDeps",
+										"type": "Pick<FsReadDeps, \"stat\" | \"read_text_file\"> & LogDeps",
 										"description": "runtime with file read capability"
 									},
 									{"name": "path", "type": "string", "description": "path to the config JSON file"},
@@ -4428,12 +4428,12 @@
 								"kind": "function",
 								"doc_comment": "Save CLI configuration to a JSON file.\n\nCreates parent directories if they don't exist.",
 								"source_line": 83,
-								"type_signature": "<T>(runtime: FsWriteDeps, path: string, dir: string, config: T): Promise<void>",
+								"type_signature": "<T>(runtime: Pick<FsWriteDeps, \"mkdir\" | \"write_text_file\">, path: string, dir: string, config: T): Promise<void>",
 								"return_type": "Promise<void>",
 								"parameters": [
 									{
 										"name": "runtime",
-										"type": "FsWriteDeps",
+										"type": "Pick<FsWriteDeps, \"mkdir\" | \"write_text_file\">",
 										"description": "runtime with file write capability"
 									},
 									{"name": "path", "type": "string", "description": "path to the config JSON file"},
@@ -4456,14 +4456,14 @@
 								"name": "DaemonInfo",
 								"kind": "type",
 								"doc_comment": "Daemon info schema for `~/.{name}/run/daemon.json`.",
-								"source_line": 27,
+								"source_line": 28,
 								"type_signature": "ZodObject<{ version: ZodNumber; pid: ZodNumber; port: ZodNumber; started: ZodString; app_version: ZodString; }, $strict>"
 							},
 							{
 								"name": "get_daemon_info_path",
 								"kind": "function",
 								"doc_comment": "Get the daemon info file path (`~/.{name}/run/daemon.json`).",
-								"source_line": 48,
+								"source_line": 49,
 								"type_signature": "(runtime: Pick<EnvDeps, \"env_get\">, name: string): string | null",
 								"return_type": "string | null",
 								"return_description": "path to `daemon.json`, or null if `$HOME` is not set",
@@ -4480,13 +4480,13 @@
 								"name": "write_daemon_info",
 								"kind": "function",
 								"doc_comment": "Write daemon info to the PID file, creating directories as needed.",
-								"source_line": 63,
-								"type_signature": "(runtime: Pick<EnvDeps, \"env_get\"> & FsWriteDeps, name: string, info: { version: number; pid: number; port: number; started: string; app_version: string; }): Promise<...>",
+								"source_line": 64,
+								"type_signature": "(runtime: Pick<EnvDeps, \"env_get\"> & Pick<FsWriteDeps, \"mkdir\" | \"write_text_file\" | \"rename\">, name: string, info: { version: number; pid: number; port: number; started: string; app_version: string; }): Promise<...>",
 								"return_type": "Promise<void>",
 								"parameters": [
 									{
 										"name": "runtime",
-										"type": "Pick<EnvDeps, \"env_get\"> & FsWriteDeps",
+										"type": "Pick<EnvDeps, \"env_get\"> & Pick<FsWriteDeps, \"mkdir\" | \"write_text_file\" | \"rename\">",
 										"description": "runtime with file write and env capabilities"
 									},
 									{"name": "name", "type": "string", "description": "application name"},
@@ -4501,14 +4501,14 @@
 								"name": "read_daemon_info",
 								"kind": "function",
 								"doc_comment": "Read and validate daemon info from the PID file.",
-								"source_line": 87,
-								"type_signature": "(runtime: Pick<EnvDeps, \"env_get\"> & FsReadDeps & LogDeps, name: string): Promise<{ version: number; pid: number; port: number; started: string; app_version: string; } | null>",
+								"source_line": 88,
+								"type_signature": "(runtime: Pick<EnvDeps, \"env_get\"> & Pick<FsReadDeps, \"stat\" | \"read_text_file\"> & LogDeps, name: string): Promise<{ version: number; pid: number; port: number; started: string; app_version: string; } | null>",
 								"return_type": "Promise<{ version: number; pid: number; port: number; started: string; app_version: string; } | null>",
 								"return_description": "parsed daemon info, or null if missing or invalid",
 								"parameters": [
 									{
 										"name": "runtime",
-										"type": "Pick<EnvDeps, \"env_get\"> & FsReadDeps & LogDeps",
+										"type": "Pick<EnvDeps, \"env_get\"> & Pick<FsReadDeps, \"stat\" | \"read_text_file\"> & LogDeps",
 										"description": "runtime with file read and env capabilities"
 									},
 									{"name": "name", "type": "string", "description": "application name"}
@@ -4518,7 +4518,7 @@
 								"name": "is_daemon_running",
 								"kind": "function",
 								"doc_comment": "Check if a process is running by PID.",
-								"source_line": 123,
+								"source_line": 124,
 								"type_signature": "(runtime: CommandDeps, pid: number): Promise<boolean>",
 								"return_type": "Promise<boolean>",
 								"return_description": "`true` if the process is running",
@@ -4532,10 +4532,43 @@
 								]
 							},
 							{
+								"name": "check_daemon_health",
+								"kind": "function",
+								"doc_comment": "Check if a daemon is healthy by probing its `/health` endpoint.\n\nComplements `is_daemon_running` (PID check) with an HTTP liveness probe.\nRequires the daemon to register a `/health` route (e.g. via `create_health_route_spec`).",
+								"source_line": 141,
+								"type_signature": "(deps: FetchDeps, port: number, host?: string, timeout_ms?: number): Promise<boolean>",
+								"return_type": "Promise<boolean>",
+								"return_description": "`true` if the health endpoint responds with 2xx",
+								"parameters": [
+									{
+										"name": "deps",
+										"type": "FetchDeps",
+										"description": "runtime with fetch capability"
+									},
+									{
+										"name": "port",
+										"type": "number",
+										"description": "port the daemon should be listening on"
+									},
+									{
+										"name": "host",
+										"type": "string",
+										"description": "hostname (default `localhost`)",
+										"default_value": "'localhost'"
+									},
+									{
+										"name": "timeout_ms",
+										"type": "number",
+										"description": "request timeout in milliseconds (default 2000)",
+										"default_value": "2000"
+									}
+								]
+							},
+							{
 								"name": "StopDaemonResult",
 								"kind": "type",
 								"doc_comment": "Result of a `stop_daemon` operation.",
-								"source_line": 131,
+								"source_line": 163,
 								"type_signature": "StopDaemonResult",
 								"properties": [
 									{
@@ -4562,14 +4595,14 @@
 								"name": "stop_daemon",
 								"kind": "function",
 								"doc_comment": "Stop a running daemon by sending SIGTERM and cleaning up the PID file.\n\nReturns a result object instead of logging directly, separating\nlifecycle from presentation.",
-								"source_line": 150,
-								"type_signature": "(runtime: Pick<EnvDeps, \"env_get\"> & FsReadDeps & FsRemoveDeps & CommandDeps & LogDeps, name: string): Promise<...>",
+								"source_line": 182,
+								"type_signature": "(runtime: Pick<EnvDeps, \"env_get\"> & Pick<FsReadDeps, \"stat\" | \"read_text_file\"> & FsRemoveDeps & CommandDeps & LogDeps, name: string): Promise<...>",
 								"return_type": "Promise<StopDaemonResult>",
 								"return_description": "result describing the outcome",
 								"parameters": [
 									{
 										"name": "runtime",
-										"type": "Pick<EnvDeps, \"env_get\"> & FsReadDeps & FsRemoveDeps & CommandDeps & LogDeps",
+										"type": "Pick<EnvDeps, \"env_get\"> & Pick<FsReadDeps, \"stat\" | \"read_text_file\"> & FsRemoveDeps & CommandDeps & LogDeps",
 										"description": "runtime with command, file, and env capabilities"
 									},
 									{"name": "name", "type": "string", "description": "application name"}
@@ -5607,11 +5640,15 @@
 								"kind": "function",
 								"doc_comment": "Read a single env var from a dotenv-style file.",
 								"source_line": 142,
-								"type_signature": "(deps: FsReadDeps, env_path: string, name: string): Promise<string | undefined>",
+								"type_signature": "(deps: Pick<FsReadDeps, \"stat\" | \"read_text_file\">, env_path: string, name: string): Promise<string | undefined>",
 								"return_type": "Promise<string | undefined>",
 								"return_description": "the value, or `undefined` if the file or variable doesn't exist",
 								"parameters": [
-									{"name": "deps", "type": "FsReadDeps", "description": "file read capability"},
+									{
+										"name": "deps",
+										"type": "Pick<FsReadDeps, \"stat\" | \"read_text_file\">",
+										"description": "file read capability"
+									},
 									{"name": "env_path", "type": "string", "description": "path to the .env file"},
 									{"name": "name", "type": "string", "description": "the variable name to read"}
 								]
@@ -5771,14 +5808,14 @@
 								"kind": "function",
 								"doc_comment": "Load and parse an env file.",
 								"source_line": 48,
-								"type_signature": "(runtime: Pick<FsReadDeps, \"read_file\">, path: string): Promise<Record<string, string> | null>",
+								"type_signature": "(runtime: Pick<FsReadDeps, \"read_text_file\">, path: string): Promise<Record<string, string> | null>",
 								"return_type": "Promise<Record<string, string> | null>",
 								"return_description": "parsed env record, or null if file doesn't exist",
 								"parameters": [
 									{
 										"name": "runtime",
-										"type": "Pick<FsReadDeps, \"read_file\">",
-										"description": "runtime with `read_file` capability"
+										"type": "Pick<FsReadDeps, \"read_text_file\">",
+										"description": "runtime with `read_text_file` capability"
 									},
 									{"name": "path", "type": "string", "description": "path to env file"}
 								]
@@ -7170,7 +7207,7 @@
 							{
 								"name": "is_null_schema",
 								"kind": "function",
-								"doc_comment": "Check if a schema is exactly `z.null()`.\n\nUses Zod 4 type introspection (`_zod.def.type`) rather than runtime parsing\nto avoid false positives from `z.nullable(z.string())` or similar schemas\nthat accept null but also accept other values.",
+								"doc_comment": "Check if a schema is exactly `z.null()`.\n\nUses `instanceof` rather than runtime parsing to avoid false positives\nfrom `z.nullable(z.string())` or similar schemas that accept null\nbut also accept other values.",
 								"source_line": 23,
 								"type_signature": "(schema: ZodType<unknown, unknown, $ZodTypeInternals<unknown, unknown>>): boolean",
 								"return_type": "boolean",
@@ -7199,7 +7236,7 @@
 								"name": "schema_to_surface",
 								"kind": "function",
 								"doc_comment": "Convert a Zod schema to a JSON-serializable representation for the surface.\n\nReturns `null` for null schemas, JSON Schema for object schemas.",
-								"source_line": 42,
+								"source_line": 39,
 								"type_signature": "(schema: ZodType<unknown, unknown, $ZodTypeInternals<unknown, unknown>>): unknown",
 								"return_type": "unknown",
 								"parameters": [
@@ -7213,7 +7250,7 @@
 								"name": "middleware_applies",
 								"kind": "function",
 								"doc_comment": "Check if a middleware path pattern applies to a route path.\n\nSupports Hono-style patterns:\n- `/api/*` matches `/api/anything`\n- `/api/tx/*` matches `/api/tx/runs` but not `/api/account/login`\n- Exact match: `/health` matches `/health`",
-								"source_line": 69,
+								"source_line": 66,
 								"type_signature": "(mw_path: string, route_path: string): boolean",
 								"return_type": "boolean",
 								"parameters": [
@@ -7229,7 +7266,7 @@
 								"name": "merge_error_schemas",
 								"kind": "function",
 								"doc_comment": "Merge auto-derived, middleware, and explicit error schemas for a route spec.\n\nMerge order: derived -> middleware -> explicit route errors.\nLater layers override earlier ones for the same status code.",
-								"source_line": 89,
+								"source_line": 86,
 								"type_signature": "(spec: { auth: RouteAuth; input: ZodType<unknown, unknown, $ZodTypeInternals<unknown, unknown>>; params?: ZodObject<$ZodLooseShape, $strip> | undefined; query?: ZodObject<...> | undefined; rate_limit?: RateLimitKey | undefined; errors?: Partial<...> | undefined; }, middleware_errors?: Partial<...> | ... 1 more ... | undefined): Partial<...> | null",
 								"return_type": "Partial<Record<number, ZodType<unknown, unknown, $ZodTypeInternals<unknown, unknown>>>> | null",
 								"return_description": "merged error schemas, or `null` if empty",
@@ -8224,7 +8261,7 @@
 								"name": "create_deno_runtime",
 								"kind": "function",
 								"doc_comment": "Create a runtime backed by Deno APIs.\n\nReturns an object satisfying all `*Deps` interfaces from `deps.ts`.\nPass to shared functions that accept `EnvDeps`, `FsReadDeps`, etc.",
-								"source_line": 56,
+								"source_line": 58,
 								"type_signature": "(args: readonly string[]): RuntimeDeps",
 								"return_type": "RuntimeDeps",
 								"return_description": "runtime implementation using Deno APIs",
@@ -8301,10 +8338,16 @@
 										"doc_comment": "Get file/directory stats, or null if path doesn't exist."
 									},
 									{
-										"name": "read_file",
+										"name": "read_text_file",
 										"kind": "variable",
 										"type_signature": "(path: string) => Promise<string>",
 										"doc_comment": "Read a file as text."
+									},
+									{
+										"name": "read_file",
+										"kind": "variable",
+										"type_signature": "(path: string) => Promise<Uint8Array>",
+										"doc_comment": "Read a file as bytes."
 									}
 								]
 							},
@@ -8312,7 +8355,7 @@
 								"name": "FsWriteDeps",
 								"kind": "type",
 								"doc_comment": "File system write operations.",
-								"source_line": 52,
+								"source_line": 54,
 								"type_signature": "FsWriteDeps",
 								"properties": [
 									{
@@ -8322,10 +8365,16 @@
 										"doc_comment": "Create a directory."
 									},
 									{
-										"name": "write_file",
+										"name": "write_text_file",
 										"kind": "variable",
 										"type_signature": "(path: string, content: string) => Promise<void>",
 										"doc_comment": "Write text to a file."
+									},
+									{
+										"name": "write_file",
+										"kind": "variable",
+										"type_signature": "(path: string, data: Uint8Array) => Promise<void>",
+										"doc_comment": "Write bytes to a file."
 									},
 									{
 										"name": "rename",
@@ -8339,7 +8388,7 @@
 								"name": "FsRemoveDeps",
 								"kind": "type",
 								"doc_comment": "File system remove operations.",
-								"source_line": 64,
+								"source_line": 68,
 								"type_signature": "FsRemoveDeps",
 								"properties": [
 									{
@@ -8354,7 +8403,7 @@
 								"name": "CommandDeps",
 								"kind": "type",
 								"doc_comment": "Command execution.",
-								"source_line": 72,
+								"source_line": 76,
 								"type_signature": "CommandDeps",
 								"properties": [
 									{
@@ -8366,10 +8415,25 @@
 								]
 							},
 							{
+								"name": "FetchDeps",
+								"kind": "type",
+								"doc_comment": "HTTP fetch capability.",
+								"source_line": 84,
+								"type_signature": "FetchDeps",
+								"properties": [
+									{
+										"name": "fetch",
+										"kind": "variable",
+										"type_signature": "typeof globalThis.fetch",
+										"doc_comment": "Fetch a URL. Same signature as the global `fetch`."
+									}
+								]
+							},
+							{
 								"name": "LogDeps",
 								"kind": "type",
 								"doc_comment": "Warning/diagnostic output.",
-								"source_line": 80,
+								"source_line": 92,
 								"type_signature": "LogDeps",
 								"properties": [
 									{
@@ -8384,7 +8448,7 @@
 								"name": "TerminalDeps",
 								"kind": "type",
 								"doc_comment": "Terminal I/O operations.",
-								"source_line": 88,
+								"source_line": 100,
 								"type_signature": "TerminalDeps",
 								"properties": [
 									{
@@ -8405,7 +8469,7 @@
 								"name": "ProcessDeps",
 								"kind": "type",
 								"doc_comment": "Process lifecycle.",
-								"source_line": 98,
+								"source_line": 110,
 								"type_signature": "ProcessDeps",
 								"properties": [
 									{
@@ -8420,7 +8484,7 @@
 								"name": "RuntimeDeps",
 								"kind": "type",
 								"doc_comment": "Full runtime capabilities returned by `create_deno_runtime` or `create_node_runtime`.\n\nExtends all `*Deps` interfaces with additional app-level capabilities.\nFunctions should accept narrow `*Deps` interfaces, not this full type —\nthis type is for the wiring layer that creates and passes the runtime.",
-								"source_line": 110,
+								"source_line": 122,
 								"type_signature": "RuntimeDeps",
 								"extends": [
 									"EnvDeps",
@@ -8428,6 +8492,7 @@
 									"FsWriteDeps",
 									"FsRemoveDeps",
 									"CommandDeps",
+									"FetchDeps",
 									"TerminalDeps",
 									"ProcessDeps",
 									"LogDeps"
@@ -8471,12 +8536,12 @@
 								"kind": "function",
 								"doc_comment": "Write a file atomically via temp file + rename.",
 								"source_line": 16,
-								"type_signature": "(deps: Pick<FsWriteDeps, \"write_file\" | \"rename\">, path: string, content: string): Promise<void>",
+								"type_signature": "(deps: Pick<FsWriteDeps, \"write_text_file\" | \"rename\">, path: string, content: string): Promise<void>",
 								"return_type": "Promise<void>",
 								"parameters": [
 									{
 										"name": "deps",
-										"type": "Pick<FsWriteDeps, \"write_file\" | \"rename\">",
+										"type": "Pick<FsWriteDeps, \"write_text_file\" | \"rename\">",
 										"description": "deps with file write capabilities"
 									},
 									{"name": "path", "type": "string", "description": "destination file path"},
@@ -8509,6 +8574,12 @@
 										"kind": "variable",
 										"type_signature": "Map<string, string>",
 										"doc_comment": "Mock file system (path -> content)."
+									},
+									{
+										"name": "mock_fs_bytes",
+										"kind": "variable",
+										"type_signature": "Map<string, Uint8Array>",
+										"doc_comment": "Mock binary file system (path -> bytes)."
 									},
 									{
 										"name": "mock_dirs",
@@ -8551,6 +8622,18 @@
 										"kind": "variable",
 										"type_signature": "Uint8Array | null",
 										"doc_comment": "Stdin buffer for input simulation."
+									},
+									{
+										"name": "fetch_calls",
+										"kind": "variable",
+										"type_signature": "Array<{input: string | URL | Request; init?: RequestInit}>",
+										"doc_comment": "Fetch calls recorded."
+									},
+									{
+										"name": "mock_fetch_responses",
+										"kind": "variable",
+										"type_signature": "Map<string, Response>",
+										"doc_comment": "Mock fetch responses (URL substring -> Response)."
 									}
 								]
 							},
@@ -8561,7 +8644,7 @@
 								"examples": [
 									"```ts\nconst runtime = create_mock_runtime(['apply', 'tx.ts']);\nruntime.mock_env.set('HOME', '/home/test');\nruntime.mock_fs.set('/home/test/.app/config.json', '{}');\n\nawait some_function(runtime);\n\nassert.strictEqual(runtime.command_calls.length, 1);\nassert.deepStrictEqual(runtime.exit_calls, [0]);\n```"
 								],
-								"source_line": 57,
+								"source_line": 63,
 								"type_signature": "(args?: string[]): MockRuntime",
 								"return_type": "MockRuntime",
 								"return_description": "`MockRuntime` with controllable state",
@@ -8578,7 +8661,7 @@
 								"name": "reset_mock_runtime",
 								"kind": "function",
 								"doc_comment": "Reset a mock runtime to initial state.",
-								"source_line": 201,
+								"source_line": 242,
 								"type_signature": "(runtime: MockRuntime): void",
 								"return_type": "void",
 								"parameters": [
@@ -8593,7 +8676,7 @@
 								"name": "set_mock_stdin",
 								"kind": "function",
 								"doc_comment": "Set stdin buffer for simulating user input.",
-								"source_line": 219,
+								"source_line": 263,
 								"type_signature": "(runtime: MockRuntime, input: string): void",
 								"return_type": "void",
 								"parameters": [
@@ -8613,7 +8696,7 @@
 								"name": "MockExitError",
 								"kind": "class",
 								"doc_comment": "Error thrown when mock `runtime.exit()` is called.\n\nTests can catch this to verify exit behavior.",
-								"source_line": 228,
+								"source_line": 272,
 								"extends": ["Error"],
 								"implements": [],
 								"members": [
@@ -8734,7 +8817,7 @@
 										"doc_comment": "Get file/directory stats, or null if path doesn't exist."
 									},
 									{
-										"name": "read_file",
+										"name": "read_text_file",
 										"kind": "variable",
 										"type_signature": "(path: string) => Promise<string>",
 										"doc_comment": "Read a file as text."
@@ -9244,8 +9327,8 @@
 								"name": "create_static_middleware",
 								"kind": "function",
 								"doc_comment": "Create static file serving middleware for SvelteKit static builds.\n\nReturns an array of middleware handlers to register on `'/*'`.",
-								"source_line": 39,
-								"type_signature": "(serve_static: ServeStaticFactory, options?: { root?: string | undefined; spa_fallback?: string | undefined; } | undefined): MiddlewareHandler[]",
+								"source_line": 42,
+								"type_signature": "(serve_static: ServeStaticFactory, options?: { root?: string | undefined; spa_fallback?: string | undefined; is_spa_route?: ((path: string) => boolean) | undefined; } | undefined): MiddlewareHandler[]",
 								"return_type": "MiddlewareHandler[]",
 								"return_description": "array of middleware handlers to apply in order",
 								"parameters": [
@@ -9256,7 +9339,7 @@
 									},
 									{
 										"name": "options",
-										"type": "{ root?: string | undefined; spa_fallback?: string | undefined; } | undefined",
+										"type": "{ root?: string | undefined; spa_fallback?: string | undefined; is_spa_route?: ((path: string) => boolean) | undefined; } | undefined",
 										"optional": true,
 										"description": "optional root directory and SPA fallback path"
 									}
@@ -12979,7 +13062,7 @@
 								]
 							}
 						],
-						"module_comment": "Reactive form state for controlling when field errors appear and focusing invalid fields.\n\nTracks per-field `touched` state (set on blur via delegated `focusout`) and form-level\n`attempted` state (set on submit attempt). Errors show after a field is blurred or\nafter a submit attempt, avoiding premature validation while the user is still typing.\n\nThe {@link FormState.form | form} attachment also handles Enter key advancing\nbetween focusable elements.\n\nAll trackable inputs must have a `name` attribute — an error is thrown in dev\nif an input without `name` loses focus.\n\n@example\n```svelte\n<script>\n  const form_state = new FormState();\n  let username = $state('');\n  const username_valid = $derived(Username.safeParse(username).success);\n  const can_submit = $derived(username.trim() && username_valid);\n\n  const handle_submit = async () => {\n    form_state.attempt();\n    if (!can_submit) {\n      if (!username.trim() || !username_valid) form_state.focus('username');\n      return;\n    }\n    // submit...\n  };\n</script>\n\n<form {@attach form_state.form()} onsubmit={(e) => { e.preventDefault(); void handle_submit(); }}>\n  <input name=\"username\" bind:value={username} />\n  {#if form_state.show('username') && username && !username_valid}\n    <p>error message</p>\n  {/if}\n  <PendingButton onclick={handle_submit}>submit</PendingButton>\n</form>\n```",
+						"module_comment": "Reactive form state for controlling when field errors appear and focusing invalid fields.\n\nTracks per-field `touched` state (set on blur via delegated `focusout`) and form-level\n`attempted` state (set on submit attempt). Errors show after a field is blurred or\nafter a submit attempt, avoiding premature validation while the user is still typing.\n\nThe {@link FormState.form | form} attachment also handles Enter key advancing\nbetween focusable elements.\n\nAll trackable inputs must have a `name` attribute — an error is thrown in dev\nif an input without `name` loses focus.\n\n@example\n```svelte\n<script>\n  const form_state = new FormState();\n  let username = $state.raw('');\n  const username_valid = $derived(Username.safeParse(username).success);\n  const can_submit = $derived(username.trim() && username_valid);\n\n  const handle_submit = async () => {\n    form_state.attempt();\n    if (!can_submit) {\n      if (!username.trim() || !username_valid) form_state.focus('username');\n      return;\n    }\n    // submit...\n  };\n</script>\n\n<form {@attach form_state.form()} onsubmit={(e) => { e.preventDefault(); void handle_submit(); }}>\n  <input name=\"username\" bind:value={username} />\n  {#if form_state.show('username') && username && !username_valid}\n    <p>error message</p>\n  {/if}\n  <PendingButton onclick={handle_submit}>submit</PendingButton>\n</form>\n```",
 						"dependents": ["ui/BootstrapForm.svelte", "ui/LoginForm.svelte", "ui/SignupForm.svelte"]
 					},
 					{
@@ -12990,7 +13073,7 @@
 								"kind": "class",
 								"doc_comment": "Base reactive state class with loading/error management.\n\nProvides the common loading/error pattern shared by all state classes.\nSubclasses add domain-specific `$state` fields and methods that call\nthe protected `run` helper for async operations.",
 								"examples": [
-									"```ts\nclass ItemsState extends Loadable {\n\titems: Array<Item> = $state([]);\n\n\tasync fetch(): Promise<void> {\n\t\tawait this.run(async () => {\n\t\t\tconst response = await fetch('/api/items');\n\t\t\tif (!response.ok) throw new Error('failed to fetch');\n\t\t\tthis.items = await response.json();\n\t\t});\n\t}\n}\n```",
+									"```ts\nclass ItemsState extends Loadable {\n\titems: Array<Item> = $state.raw([]);\n\n\tasync fetch(): Promise<void> {\n\t\tawait this.run(async () => {\n\t\t\tconst response = await fetch('/api/items');\n\t\t\tif (!response.ok) throw new Error('failed to fetch');\n\t\t\tthis.items = await response.json();\n\t\t});\n\t}\n}\n```",
 									"```ts\n// structured errors via map_error\nclass FormState extends Loadable<{field: string; message: string}> {\n\tasync submit(data: FormData): Promise<void> {\n\t\tawait this.run(\n\t\t\t() => post_form(data),\n\t\t\t(e) => ({field: 'form', message: e instanceof Error ? e.message : 'unknown'}),\n\t\t);\n\t}\n}\n```"
 								],
 								"source_line": 39,
@@ -13032,7 +13115,7 @@
 								]
 							}
 						],
-						"module_comment": "Base reactive state class with loading/error management.\n\nProvides the common loading/error pattern shared by all state classes.\nSubclasses add domain-specific `$state` fields and methods that call\nthe protected `run` helper for async operations.\n\n@example\n```ts\nclass ItemsState extends Loadable {\n\titems: Array<Item> = $state([]);\n\n\tasync fetch(): Promise<void> {\n\t\tawait this.run(async () => {\n\t\t\tconst response = await fetch('/api/items');\n\t\t\tif (!response.ok) throw new Error('failed to fetch');\n\t\t\tthis.items = await response.json();\n\t\t});\n\t}\n}\n```\n\n@example\n```ts\n// structured errors via map_error\nclass FormState extends Loadable<{field: string; message: string}> {\n\tasync submit(data: FormData): Promise<void> {\n\t\tawait this.run(\n\t\t\t() => post_form(data),\n\t\t\t(e) => ({field: 'form', message: e instanceof Error ? e.message : 'unknown'}),\n\t\t);\n\t}\n}\n```",
+						"module_comment": "Base reactive state class with loading/error management.\n\nProvides the common loading/error pattern shared by all state classes.\nSubclasses add domain-specific `$state` fields and methods that call\nthe protected `run` helper for async operations.\n\n@example\n```ts\nclass ItemsState extends Loadable {\n\titems: Array<Item> = $state.raw([]);\n\n\tasync fetch(): Promise<void> {\n\t\tawait this.run(async () => {\n\t\t\tconst response = await fetch('/api/items');\n\t\t\tif (!response.ok) throw new Error('failed to fetch');\n\t\t\tthis.items = await response.json();\n\t\t});\n\t}\n}\n```\n\n@example\n```ts\n// structured errors via map_error\nclass FormState extends Loadable<{field: string; message: string}> {\n\tasync submit(data: FormData): Promise<void> {\n\t\tawait this.run(\n\t\t\t() => post_form(data),\n\t\t\t(e) => ({field: 'form', message: e instanceof Error ? e.message : 'unknown'}),\n\t\t);\n\t}\n}\n```",
 						"dependents": [
 							"ui/account_sessions_state.svelte.ts",
 							"ui/admin_accounts_state.svelte.ts",
@@ -27071,6 +27154,12 @@
 		"check_runs": {"status": "completed", "conclusion": "success"},
 		"pull_requests": [
 			{
+				"number": 121,
+				"title": "add mdz opcode streaming",
+				"user": {"login": "ryanatkn"},
+				"draft": false
+			},
+			{
 				"number": 107,
 				"title": "extract docinfo library",
 				"user": {"login": "ryanatkn"},
@@ -27098,7 +27187,7 @@
 			"published": true,
 			"package_json": {
 				"name": "@fuzdev/gro",
-				"version": "0.197.2",
+				"version": "0.197.3",
 				"description": "task runner and toolkit extending SvelteKit",
 				"tagline": "generate, run, optimize",
 				"glyph": "🌰",
@@ -27210,7 +27299,7 @@
 			},
 			"source_json": {
 				"name": "@fuzdev/gro",
-				"version": "0.197.2",
+				"version": "0.197.3",
 				"modules": [
 					{
 						"path": "args.ts",
@@ -31909,7 +31998,7 @@
 		"pull_requests": [
 			{
 				"number": 603,
-				"title": "upgrade to @fuzdev/svelte-docinfo",
+				"title": "upgrade to svelte-docinfo",
 				"user": {"login": "ryanatkn"},
 				"draft": false
 			}
@@ -31982,11 +32071,11 @@
 				},
 				"devDependencies": {
 					"@changesets/changelog-git": "^0.2.1",
-					"@fuzdev/blake3_wasm": "^0.1.0",
+					"@fuzdev/blake3_wasm": "^0.1.1",
 					"@fuzdev/fuz_code": "^0.45.1",
 					"@fuzdev/fuz_css": "^0.58.0",
 					"@fuzdev/fuz_ui": "^0.191.3",
-					"@fuzdev/gro": "^0.197.2",
+					"@fuzdev/gro": "^0.197.3",
 					"@jridgewell/trace-mapping": "^0.3.31",
 					"@ryanatkn/eslint-config": "^0.10.1",
 					"@sveltejs/acorn-typescript": "^1.0.9",
@@ -35141,12 +35230,12 @@
 								"kind": "function",
 								"doc_comment": "Creates a `LibraryJson` with computed properties from package.json and source metadata.",
 								"source_line": 39,
-								"type_signature": "(package_json: { [x: string]: unknown; name: string; version: string; private?: boolean | undefined; description?: string | undefined; tagline?: string | undefined; glyph?: string | undefined; logo?: string | undefined; ... 23 more ...; exports?: string | ... 2 more ... | undefined; }, source_json: { ...; }): LibraryJson",
+								"type_signature": "(package_json: { [x: string]: unknown; name: string; version?: string | undefined; private?: boolean | undefined; description?: string | undefined; tagline?: string | undefined; glyph?: string | undefined; ... 24 more ...; exports?: string | ... 2 more ... | undefined; }, source_json: { ...; }): LibraryJson",
 								"return_type": "LibraryJson",
 								"parameters": [
 									{
 										"name": "package_json",
-										"type": "{ [x: string]: unknown; name: string; version: string; private?: boolean | undefined; description?: string | undefined; tagline?: string | undefined; glyph?: string | undefined; logo?: string | undefined; ... 23 more ...; exports?: string | ... 2 more ... | undefined; }"
+										"type": "{ [x: string]: unknown; name: string; version?: string | undefined; private?: boolean | undefined; description?: string | undefined; tagline?: string | undefined; glyph?: string | undefined; logo?: string | undefined; ... 23 more ...; exports?: string | ... 2 more ... | undefined; }"
 									},
 									{
 										"name": "source_json",
@@ -35749,7 +35838,7 @@
 								"doc_comment": "",
 								"see_also": ["https://docs.npmjs.com/cli/v10/configuring-npm/package-json"],
 								"source_line": 66,
-								"type_signature": "ZodObject<{ name: ZodString; version: ZodString; private: ZodOptional<ZodBoolean>; description: ZodOptional<ZodString>; ... 26 more ...; exports: ZodOptional<...>; }, $loose>"
+								"type_signature": "ZodObject<{ name: ZodString; version: ZodOptional<ZodString>; private: ZodOptional<ZodBoolean>; description: ZodOptional<ZodString>; ... 26 more ...; exports: ZodOptional<...>; }, $loose>"
 							}
 						],
 						"dependencies": ["object.ts", "string.ts", "url.ts"]
@@ -38738,7 +38827,7 @@
 				]
 			}
 		},
-		"check_runs": {"status": "completed", "conclusion": "success"},
+		"check_runs": {"status": "in_progress", "conclusion": null},
 		"pull_requests": [
 			{
 				"number": 62,
@@ -38784,14 +38873,14 @@
 				"devDependencies": {
 					"@fuzdev/fuz_code": "^0.45.1",
 					"@fuzdev/fuz_css": "^0.58.0",
-					"@fuzdev/fuz_ui": "^0.191.3",
+					"@fuzdev/fuz_ui": "^0.191.4",
 					"@fuzdev/fuz_util": "^0.55.0",
-					"@fuzdev/gro": "^0.197.2",
+					"@fuzdev/gro": "^0.197.3",
 					"@jridgewell/trace-mapping": "^0.3.31",
 					"@ryanatkn/eslint-config": "^0.10.1",
 					"@sveltejs/acorn-typescript": "^1.0.9",
 					"@sveltejs/adapter-static": "^3.0.10",
-					"@sveltejs/kit": "^2.55.0",
+					"@sveltejs/kit": "^2.57.0",
 					"@sveltejs/vite-plugin-svelte": "^6.2.4",
 					"@types/estree": "^1.0.8",
 					"@webref/css": "^8.2.0",
@@ -38801,9 +38890,9 @@
 					"magic-string": "^0.30.21",
 					"prettier": "^3.7.4",
 					"prettier-plugin-svelte": "^3.5.1",
-					"svelte": "^5.55.0",
-					"svelte-check": "^4.4.5",
-					"svelte2tsx": "^0.7.52",
+					"svelte": "^5.55.2",
+					"svelte-check": "^4.4.6",
+					"svelte2tsx": "^0.7.53",
 					"tslib": "^2.8.1",
 					"typescript": "^5.9.3",
 					"typescript-eslint": "^8.48.1",
@@ -38911,14 +39000,14 @@
 					"@fuzdev/fuz_code": "^0.45.1",
 					"@fuzdev/fuz_css": "^0.58.0",
 					"@fuzdev/fuz_mastodon": "^0.39.0",
-					"@fuzdev/fuz_ui": "^0.191.3",
+					"@fuzdev/fuz_ui": "^0.191.4",
 					"@fuzdev/fuz_util": "^0.55.0",
-					"@fuzdev/gro": "^0.197.2",
+					"@fuzdev/gro": "^0.197.3",
 					"@jridgewell/trace-mapping": "^0.3.31",
 					"@ryanatkn/eslint-config": "^0.10.1",
 					"@sveltejs/acorn-typescript": "^1.0.9",
 					"@sveltejs/adapter-static": "^3.0.10",
-					"@sveltejs/kit": "^2.55.0",
+					"@sveltejs/kit": "^2.57.0",
 					"@sveltejs/package": "^2.5.7",
 					"@sveltejs/vite-plugin-svelte": "^6.2.4",
 					"@types/estree": "^1.0.8",
@@ -38931,7 +39020,7 @@
 					"magic-string": "^0.30.21",
 					"prettier": "^3.7.4",
 					"prettier-plugin-svelte": "^3.5.1",
-					"svelte": "^5.55.0",
+					"svelte": "^5.55.2",
 					"svelte-check": "^4.4.5",
 					"svelte2tsx": "^0.7.52",
 					"tslib": "^2.8.1",
@@ -40110,14 +40199,14 @@
 				"devDependencies": {
 					"@changesets/changelog-git": "^0.2.1",
 					"@fuzdev/fuz_css": "^0.58.0",
-					"@fuzdev/fuz_ui": "^0.191.3",
+					"@fuzdev/fuz_ui": "^0.191.4",
 					"@fuzdev/fuz_util": "^0.55.0",
-					"@fuzdev/gro": "^0.197.2",
+					"@fuzdev/gro": "^0.197.3",
 					"@jridgewell/trace-mapping": "^0.3.31",
 					"@ryanatkn/eslint-config": "^0.10.1",
 					"@sveltejs/acorn-typescript": "^1.0.9",
 					"@sveltejs/adapter-static": "^3.0.10",
-					"@sveltejs/kit": "^2.50.1",
+					"@sveltejs/kit": "^2.57.0",
 					"@sveltejs/package": "^2.5.7",
 					"@sveltejs/vite-plugin-svelte": "^6.2.4",
 					"@types/estree": "^1.0.8",
@@ -40129,7 +40218,7 @@
 					"magic-string": "^0.30.21",
 					"prettier": "^3.7.4",
 					"prettier-plugin-svelte": "^3.4.1",
-					"svelte": "^5.55.0",
+					"svelte": "^5.55.2",
 					"svelte-check": "^4.3.6",
 					"svelte2tsx": "^0.7.47",
 					"tslib": "^2.8.1",
@@ -41182,14 +41271,14 @@
 					"@fuzdev/fuz_code": "^0.45.1",
 					"@fuzdev/fuz_css": "^0.58.0",
 					"@fuzdev/fuz_mastodon": "^0.39.0",
-					"@fuzdev/fuz_ui": "^0.191.3",
+					"@fuzdev/fuz_ui": "^0.191.4",
 					"@fuzdev/fuz_util": "^0.55.0",
-					"@fuzdev/gro": "^0.197.2",
+					"@fuzdev/gro": "^0.197.3",
 					"@jridgewell/trace-mapping": "^0.3.31",
 					"@ryanatkn/eslint-config": "^0.10.1",
 					"@sveltejs/acorn-typescript": "^1.0.9",
 					"@sveltejs/adapter-static": "^3.0.10",
-					"@sveltejs/kit": "^2.55.0",
+					"@sveltejs/kit": "^2.57.0",
 					"@sveltejs/vite-plugin-svelte": "^6.2.4",
 					"@types/estree": "^1.0.8",
 					"@types/node": "^24.10.13",
@@ -41201,7 +41290,7 @@
 					"magic-string": "^0.30.21",
 					"prettier": "^3.7.4",
 					"prettier-plugin-svelte": "^3.5.1",
-					"svelte": "^5.55.0",
+					"svelte": "^5.55.2",
 					"svelte-check": "^4.4.5",
 					"svelte2tsx": "^0.7.52",
 					"tslib": "^2.8.1",
@@ -41320,14 +41409,14 @@
 					"@changesets/changelog-git": "^0.2.1",
 					"@fuzdev/fuz_code": "^0.45.1",
 					"@fuzdev/fuz_css": "^0.58.0",
-					"@fuzdev/fuz_ui": "^0.191.3",
+					"@fuzdev/fuz_ui": "^0.191.4",
 					"@fuzdev/fuz_util": "^0.55.0",
-					"@fuzdev/gro": "^0.197.2",
+					"@fuzdev/gro": "^0.197.3",
 					"@jridgewell/trace-mapping": "^0.3.31",
 					"@ryanatkn/eslint-config": "^0.10.1",
 					"@sveltejs/acorn-typescript": "^1.0.9",
 					"@sveltejs/adapter-static": "^3.0.10",
-					"@sveltejs/kit": "^2.55.0",
+					"@sveltejs/kit": "^2.57.0",
 					"@sveltejs/package": "^2.5.7",
 					"@sveltejs/vite-plugin-svelte": "^6.2.4",
 					"@types/estree": "^1.0.8",
@@ -41339,7 +41428,7 @@
 					"magic-string": "^0.30.21",
 					"prettier": "^3.7.4",
 					"prettier-plugin-svelte": "^3.5.1",
-					"svelte": "^5.55.0",
+					"svelte": "^5.55.2",
 					"svelte-check": "^4.4.5",
 					"svelte2tsx": "^0.7.52",
 					"tslib": "^2.8.1",
@@ -41974,7 +42063,7 @@
 								"name": "git_push_tag",
 								"kind": "function",
 								"doc_comment": "Pushes a tag to origin and throws if anything goes wrong.",
-								"source_line": 68,
+								"source_line": 70,
 								"type_signature": "(tag_name: string, origin?: GitOrigin, options?: SpawnOptions | undefined): Promise<void>",
 								"return_type": "Promise<void>",
 								"parameters": [
@@ -41986,7 +42075,7 @@
 							{
 								"name": "git_has_changes",
 								"kind": "function",
-								"source_line": 79,
+								"source_line": 83,
 								"type_signature": "(options?: SpawnOptions | undefined): Promise<boolean>",
 								"return_type": "Promise<boolean>",
 								"parameters": [
@@ -41997,7 +42086,7 @@
 								"name": "git_get_changed_files",
 								"kind": "function",
 								"doc_comment": "Returns list of changed files compared to HEAD.",
-								"source_line": 87,
+								"source_line": 91,
 								"type_signature": "(options?: SpawnOptions | undefined): Promise<string[]>",
 								"return_type": "Promise<string[]>",
 								"parameters": [
@@ -42007,7 +42096,7 @@
 							{
 								"name": "git_has_file_changed",
 								"kind": "function",
-								"source_line": 97,
+								"source_line": 101,
 								"type_signature": "(from_commit: string, to_commit: string, file_path: string, options?: SpawnOptions | undefined): Promise<boolean>",
 								"return_type": "Promise<boolean>",
 								"parameters": [
@@ -42021,7 +42110,7 @@
 								"name": "git_stash",
 								"kind": "function",
 								"doc_comment": "Stashes current changes and throws if anything goes wrong.",
-								"source_line": 114,
+								"source_line": 118,
 								"type_signature": "(message?: string | undefined, options?: SpawnOptions | undefined): Promise<void>",
 								"return_type": "Promise<void>",
 								"parameters": [
@@ -42033,7 +42122,7 @@
 								"name": "git_stash_pop",
 								"kind": "function",
 								"doc_comment": "Applies stashed changes and throws if anything goes wrong.",
-								"source_line": 126,
+								"source_line": 130,
 								"type_signature": "(options?: SpawnOptions | undefined): Promise<void>",
 								"return_type": "Promise<void>",
 								"parameters": [
@@ -42044,7 +42133,7 @@
 								"name": "git_switch_branch",
 								"kind": "function",
 								"doc_comment": "Switches to a branch with safety checks and throws if workspace is not clean.",
-								"source_line": 136,
+								"source_line": 142,
 								"type_signature": "(branch: GitBranch, pull?: boolean, options?: SpawnOptions | undefined): Promise<void>",
 								"return_type": "Promise<void>",
 								"parameters": [
@@ -42057,7 +42146,7 @@
 								"name": "git_current_branch_name_required",
 								"kind": "function",
 								"doc_comment": "Wrapper for gro's `git_current_branch_name` that throws if null.",
-								"source_line": 165,
+								"source_line": 171,
 								"type_signature": "(options?: SpawnOptions | undefined): Promise<string>",
 								"return_type": "Promise<string>",
 								"parameters": [
@@ -42068,7 +42157,7 @@
 								"name": "git_current_commit_hash_required",
 								"kind": "function",
 								"doc_comment": "Wrapper for gro's `git_current_commit_hash` that throws if null.",
-								"source_line": 176,
+								"source_line": 182,
 								"type_signature": "(branch?: string | undefined, options?: SpawnOptions | undefined): Promise<string>",
 								"return_type": "Promise<string>",
 								"parameters": [
@@ -42080,7 +42169,7 @@
 								"name": "git_check_clean_workspace_as_boolean",
 								"kind": "function",
 								"doc_comment": "Wrapper for gro's `git_check_clean_workspace` that returns a boolean.",
-								"source_line": 190,
+								"source_line": 196,
 								"type_signature": "(options?: SpawnOptions | undefined): Promise<boolean>",
 								"return_type": "Promise<boolean>",
 								"parameters": [
@@ -42090,7 +42179,7 @@
 							{
 								"name": "git_has_remote",
 								"kind": "function",
-								"source_line": 197,
+								"source_line": 203,
 								"type_signature": "(remote?: string, options?: SpawnOptions | undefined): Promise<boolean>",
 								"return_type": "Promise<boolean>",
 								"parameters": [
@@ -43161,38 +43250,38 @@
 							{
 								"name": "default_process_operations",
 								"kind": "variable",
-								"source_line": 193,
+								"source_line": 204,
 								"type_signature": "ProcessOperations"
 							},
 							{
 								"name": "default_npm_operations",
 								"kind": "variable",
-								"source_line": 217,
+								"source_line": 228,
 								"type_signature": "NpmOperations"
 							},
 							{
 								"name": "default_preflight_operations",
 								"kind": "variable",
-								"source_line": 288,
+								"source_line": 299,
 								"type_signature": "PreflightOperations"
 							},
 							{
 								"name": "default_fs_operations",
 								"kind": "variable",
-								"source_line": 294,
+								"source_line": 305,
 								"type_signature": "FsOperations"
 							},
 							{
 								"name": "default_build_operations",
 								"kind": "variable",
-								"source_line": 315,
+								"source_line": 326,
 								"type_signature": "BuildOperations"
 							},
 							{
 								"name": "default_gitops_operations",
 								"kind": "variable",
 								"doc_comment": "Combined default operations for all gitops functionality.",
-								"source_line": 339,
+								"source_line": 350,
 								"type_signature": "GitopsOperations"
 							}
 						],
@@ -44653,7 +44742,7 @@
 				]
 			}
 		},
-		"check_runs": {"status": "completed", "conclusion": "success"},
+		"check_runs": {"status": "completed", "conclusion": "failure"},
 		"pull_requests": []
 	},
 	{
@@ -44733,7 +44822,7 @@
 			},
 			"source_json": {"name": "fuz.dev", "version": "0.0.1", "modules": []}
 		},
-		"check_runs": {"status": "completed", "conclusion": "success"},
-		"pull_requests": []
+		"check_runs": null,
+		"pull_requests": null
 	}
 ]
