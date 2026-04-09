@@ -1003,7 +1003,7 @@
 						"name": "git_push_tag",
 						"kind": "function",
 						"doc_comment": "Pushes a tag to origin and throws if anything goes wrong.",
-						"source_line": 68,
+						"source_line": 70,
 						"type_signature": "(tag_name: string, origin?: GitOrigin, options?: SpawnOptions | undefined): Promise<void>",
 						"return_type": "Promise<void>",
 						"parameters": [
@@ -1026,7 +1026,7 @@
 					{
 						"name": "git_has_changes",
 						"kind": "function",
-						"source_line": 79,
+						"source_line": 83,
 						"type_signature": "(options?: SpawnOptions | undefined): Promise<boolean>",
 						"return_type": "Promise<boolean>",
 						"parameters": [
@@ -1041,7 +1041,7 @@
 						"name": "git_get_changed_files",
 						"kind": "function",
 						"doc_comment": "Returns list of changed files compared to HEAD.",
-						"source_line": 87,
+						"source_line": 91,
 						"type_signature": "(options?: SpawnOptions | undefined): Promise<string[]>",
 						"return_type": "Promise<string[]>",
 						"parameters": [
@@ -1055,7 +1055,7 @@
 					{
 						"name": "git_has_file_changed",
 						"kind": "function",
-						"source_line": 97,
+						"source_line": 101,
 						"type_signature": "(from_commit: string, to_commit: string, file_path: string, options?: SpawnOptions | undefined): Promise<boolean>",
 						"return_type": "Promise<boolean>",
 						"parameters": [
@@ -1082,7 +1082,7 @@
 						"name": "git_stash",
 						"kind": "function",
 						"doc_comment": "Stashes current changes and throws if anything goes wrong.",
-						"source_line": 114,
+						"source_line": 118,
 						"type_signature": "(message?: string | undefined, options?: SpawnOptions | undefined): Promise<void>",
 						"return_type": "Promise<void>",
 						"parameters": [
@@ -1102,7 +1102,7 @@
 						"name": "git_stash_pop",
 						"kind": "function",
 						"doc_comment": "Applies stashed changes and throws if anything goes wrong.",
-						"source_line": 126,
+						"source_line": 130,
 						"type_signature": "(options?: SpawnOptions | undefined): Promise<void>",
 						"return_type": "Promise<void>",
 						"parameters": [
@@ -1117,7 +1117,7 @@
 						"name": "git_switch_branch",
 						"kind": "function",
 						"doc_comment": "Switches to a branch with safety checks and throws if workspace is not clean.",
-						"source_line": 136,
+						"source_line": 142,
 						"type_signature": "(branch: GitBranch, pull?: boolean, options?: SpawnOptions | undefined): Promise<void>",
 						"return_type": "Promise<void>",
 						"parameters": [
@@ -1141,7 +1141,7 @@
 						"name": "git_current_branch_name_required",
 						"kind": "function",
 						"doc_comment": "Wrapper for gro's `git_current_branch_name` that throws if null.",
-						"source_line": 165,
+						"source_line": 171,
 						"type_signature": "(options?: SpawnOptions | undefined): Promise<string>",
 						"return_type": "Promise<string>",
 						"parameters": [
@@ -1156,7 +1156,7 @@
 						"name": "git_current_commit_hash_required",
 						"kind": "function",
 						"doc_comment": "Wrapper for gro's `git_current_commit_hash` that throws if null.",
-						"source_line": 176,
+						"source_line": 182,
 						"type_signature": "(branch?: string | undefined, options?: SpawnOptions | undefined): Promise<string>",
 						"return_type": "Promise<string>",
 						"parameters": [
@@ -1176,7 +1176,7 @@
 						"name": "git_check_clean_workspace_as_boolean",
 						"kind": "function",
 						"doc_comment": "Wrapper for gro's `git_check_clean_workspace` that returns a boolean.",
-						"source_line": 190,
+						"source_line": 196,
 						"type_signature": "(options?: SpawnOptions | undefined): Promise<boolean>",
 						"return_type": "Promise<boolean>",
 						"parameters": [
@@ -1190,7 +1190,7 @@
 					{
 						"name": "git_has_remote",
 						"kind": "function",
-						"source_line": 197,
+						"source_line": 203,
 						"type_signature": "(remote?: string, options?: SpawnOptions | undefined): Promise<boolean>",
 						"return_type": "Promise<boolean>",
 						"parameters": [
@@ -2687,38 +2687,38 @@
 					{
 						"name": "default_process_operations",
 						"kind": "variable",
-						"source_line": 193,
+						"source_line": 204,
 						"type_signature": "ProcessOperations"
 					},
 					{
 						"name": "default_npm_operations",
 						"kind": "variable",
-						"source_line": 217,
+						"source_line": 228,
 						"type_signature": "NpmOperations"
 					},
 					{
 						"name": "default_preflight_operations",
 						"kind": "variable",
-						"source_line": 288,
+						"source_line": 299,
 						"type_signature": "PreflightOperations"
 					},
 					{
 						"name": "default_fs_operations",
 						"kind": "variable",
-						"source_line": 294,
+						"source_line": 305,
 						"type_signature": "FsOperations"
 					},
 					{
 						"name": "default_build_operations",
 						"kind": "variable",
-						"source_line": 315,
+						"source_line": 326,
 						"type_signature": "BuildOperations"
 					},
 					{
 						"name": "default_gitops_operations",
 						"kind": "variable",
 						"doc_comment": "Combined default operations for all gitops functionality.",
-						"source_line": 339,
+						"source_line": 350,
 						"type_signature": "GitopsOperations"
 					}
 				],
