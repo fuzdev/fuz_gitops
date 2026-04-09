@@ -32,7 +32,7 @@
 	repos_context.set(repos);
 	library_context.set(new Library(library_json));
 
-	let show_settings = $state(false);
+	let show_settings = $state.raw(false);
 </script>
 
 <svelte:head>
