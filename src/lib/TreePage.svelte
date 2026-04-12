@@ -28,7 +28,7 @@
 	<section class="tree">
 		<ReposTree {repos}>
 			{#snippet nav()}
-				<div class="repos_tree_nav">
+				<div class="repos-tree-nav">
 					<Breadcrumb>{repo.package_json.glyph}</Breadcrumb>
 				</div>
 			{/snippet}
@@ -54,12 +54,12 @@
 		flex-direction: row;
 		align-items: flex-start;
 	}
-	.repos_tree_nav {
+	.repos-tree-nav {
 		display: flex;
 		margin-top: var(--space_xl);
 	}
 	/* TODO hacky */
-	.repos_tree_nav :global(.breadcrumb) {
+	.repos-tree-nav :global(.breadcrumb) {
 		justify-content: flex-start;
 	}
 </style>

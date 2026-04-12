@@ -13,7 +13,7 @@
 	<title>about {library.package_json.glyph} {library.package_json.name}</title>
 </svelte:head>
 
-<main class="width_atmost_md">
+<main class="width_atmost_md box mx_auto">
 	<div class="p_lg">
 		<PageHeader repo={library}></PageHeader>
 	</div>
@@ -25,12 +25,3 @@
 	</section>
 	<PageFooter />
 </main>
-
-<style>
-	main {
-		display: flex;
-		flex-direction: column;
-		align-items: center;
-		margin: 0 auto;
-	}
-</style>

@@ -13,7 +13,7 @@
 	<title>{library.package_json.name}</title>
 </svelte:head>
 
-<main class="box">
+<main class="box mx_auto">
 	<section style:margin-top="var(--docs_primary_nav_height, 60px)">
 		<MainHeader />
 	</section>
@@ -47,12 +47,6 @@
 </main>
 
 <style>
-	main {
-		display: flex;
-		flex-direction: column;
-		align-items: center;
-		margin: 0 auto;
-	}
 	menu {
 		gap: var(--space_lg);
 		width: 100%;

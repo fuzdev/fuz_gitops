@@ -17,7 +17,7 @@
 	// TODO add favicon (from library? gro?)
 </script>
 
-<nav class="modules_nav">
+<nav class="modules-nav">
 	<h6>packages</h6>
 	<ul class="unstyled">
 		{#each repos_modules as pkg_modules (pkg_modules)}
@@ -31,7 +31,7 @@
 </nav>
 
 <style>
-	.modules_nav {
+	.modules-nav {
 		width: 100%;
 	}
 	h6 {

@@ -38,7 +38,7 @@
 			deps.map((dep) => {
 				const repo = repos.find((repo) => repo.package_json.name === dep);
 				if (!repo?.package_json) return [dep, null];
-				return [dep, repo.package_json.version];
+				return [dep, repo.package_json.version ?? null];
 			}),
 		),
 	);

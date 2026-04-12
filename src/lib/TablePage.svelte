@@ -17,7 +17,7 @@
 	<title>table {repo.package_json.glyph} {repo.package_json.name}</title>
 </svelte:head>
 
-<main class="box">
+<main class="box mx_auto">
 	<div class="p_lg">
 		<PageHeader {repo} />
 	</div>
@@ -32,12 +32,6 @@
 </main>
 
 <style>
-	main {
-		display: flex;
-		flex-direction: column;
-		align-items: center;
-		margin: 0 auto;
-	}
 	section {
 		margin-bottom: var(--space_xl4);
 	}

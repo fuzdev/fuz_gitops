@@ -19,12 +19,12 @@
 	} = $props();
 </script>
 
-<div class="repos_tree">
+<div class="repos-tree">
 	<ReposTreeNav {repos} {selected_repo}>
 		{@render nav()}
 	</ReposTreeNav>
 	{#if selected_repo}
-		<section class="detail_wrapper">
+		<section class="detail-wrapper">
 			<div class="panel detail p_md">
 				<LibraryDetail library={selected_repo.library} />
 			</div>
@@ -36,7 +36,7 @@
 					{#if repo.package_json}
 						<LibrarySummary library={repo.library}>
 							{#snippet repo_name(repo_name)}
-								<a href={resolve(`/tree/${repo_name}`)} class="repo_name">{repo_name}</a>
+								<a href={resolve(`/tree/${repo_name}`)} class="repo-name">{repo_name}</a>
 							{/snippet}
 						</LibrarySummary>
 					{:else}
@@ -56,7 +56,7 @@
 </div>
 
 <style>
-	.repos_tree {
+	.repos-tree {
 		width: 100%;
 		display: flex;
 		flex-direction: row;
@@ -74,13 +74,13 @@
 	.summaries li {
 		margin-bottom: var(--space_xl);
 	}
-	.repo_name {
+	.repo-name {
 		font-size: var(--font_size_xl2);
 		font-weight: 500;
 		text-align: center;
 		margin-bottom: var(--space_xl);
 	}
-	.detail_wrapper {
+	.detail-wrapper {
 		padding: var(--space_lg);
 		width: 100%;
 	}

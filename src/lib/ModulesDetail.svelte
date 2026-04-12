@@ -33,8 +33,8 @@
 	// TODO add favicon (from library? gro?)
 </script>
 
-<div class="modules_detail">
-	<div class="nav_wrapper">
+<div class="modules-detail">
+	<div class="nav-wrapper">
 		<section>
 			<ModulesNav {repos_modules} />
 		</section>
@@ -43,7 +43,7 @@
 	<ul class="width_atmost_md box unstyled">
 		{#each repos_modules as repo_modules (repo_modules)}
 			{@const {repo, modules} = repo_modules}
-			<li class="repo_module">
+			<li class="repo-module">
 				<header class="width:100% position:relative">
 					<a href="#{repo.name}" id={repo.name} class="subtitle">🔗</a>
 					<a href={resolve(`/tree/${repo.repo_name}`)}>{repo.name}</a>
@@ -58,7 +58,7 @@
 							class:css={path.endsWith('.css')}
 							class:json={path.endsWith('.json')}
 						>
-							<div class="module_file">
+							<div class="module-file">
 								{#if repo.repo_url}
 									<div class="chip row">
 										<!-- TODO this is a hack that could be fixed by adding an optional `base: './'` that defaults to './src/lib/'  -->
@@ -76,7 +76,7 @@
 								<ul class="declarations unstyled">
 									{#each declarations as { name, kind } (name)}
 										{#if name !== 'default'}
-											<li class="declaration chip {kind}_declaration">
+											<li class="declaration chip {kind}-declaration">
 												{name}
 											</li>
 										{/if}
@@ -94,7 +94,7 @@
 <!-- TODO better rendering, also show author, etc -->
 
 <style>
-	.modules_detail {
+	.modules-detail {
 		position: relative;
 		padding: var(--space_lg);
 		display: flex;
@@ -109,13 +109,13 @@
 		top: 0;
 		text-align: right;
 	}
-	.repo_module {
+	.repo-module {
 		width: 100%;
 		display: flex;
 		flex-direction: column;
 		margin-bottom: var(--space_xl5);
 	}
-	.repo_module > header {
+	.repo-module > header {
 		display: flex;
 		padding: var(--space_xs) var(--space_md);
 		font-size: var(--font_size_lg);
@@ -130,7 +130,7 @@
 		margin-bottom: var(--space_lg);
 		--link_color: var(--text_70);
 	}
-	.module_file {
+	.module-file {
 		margin-bottom: var(--space_xs);
 	}
 	.ts {
@@ -159,20 +159,20 @@
 		font-family: var(--font_family_mono);
 		font-size: var(--font_size_sm);
 	}
-	.variable_declaration {
+	.variable-declaration {
 		color: var(--color_d_50);
 	}
-	.function_declaration {
+	.function-declaration {
 		color: var(--color_c_50);
 	}
-	.type_declaration {
+	.type-declaration {
 		color: var(--color_g_50);
 	}
-	.class_declaration {
+	.class-declaration {
 		color: var(--color_f_50);
 	}
 	/* TODO extract  */
-	.nav_wrapper {
+	.nav-wrapper {
 		position: sticky;
 		top: var(--space_xl);
 		display: flex;
