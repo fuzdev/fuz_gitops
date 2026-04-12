@@ -1,11 +1,12 @@
-import {test} from 'vitest';
+import {assert, test} from 'vitest';
+import {assert_rejects} from '@fuzdev/fuz_util/testing.js';
 
 import {install_with_cache_healing} from '$lib/npm_install_helpers.js';
 import type {NpmOperations} from '$lib/operations.js';
-import {create_mock_gitops_ops, create_mock_repo} from './test_helpers.ts';
+import {create_mock_gitops_ops, create_mock_repo} from './test_helpers.js';
 
 // Test: Install succeeds on first attempt (no cache healing needed)
-test('install succeeds on first attempt', async ({expect}) => {
+test('install succeeds on first attempt', async () => {
 	const repo = create_mock_repo({name: 'test-pkg'});
 	const ops = create_mock_gitops_ops({
 		npm: {
@@ -16,11 +17,10 @@ test('install succeeds on first attempt', async ({expect}) => {
 
 	// Should not throw
 	await install_with_cache_healing(repo, ops);
-	expect(true).toBe(true);
 });
 
 // Test: Install fails with ETARGET → cache clean → retry succeeds
-test('ETARGET error triggers cache clean and retry', async ({expect}) => {
+test('ETARGET error triggers cache clean and retry', async () => {
 	const repo = create_mock_repo({name: 'test-pkg'});
 
 	let install_call_count = 0;
@@ -51,12 +51,12 @@ test('ETARGET error triggers cache clean and retry', async ({expect}) => {
 
 	await install_with_cache_healing(repo, ops);
 
-	expect(install_call_count).toBe(2); // First attempt + retry
-	expect(cache_clean_called).toBe(true);
+	assert.strictEqual(install_call_count, 2); // First attempt + retry
+	assert.strictEqual(cache_clean_called, true);
 });
 
 // Test: ETARGET detection with various error message formats
-test('detects ETARGET in various formats', async ({expect}) => {
+test('detects ETARGET in various formats', async () => {
 	const repo = create_mock_repo({name: 'test-pkg'});
 
 	const test_cases = [
@@ -94,12 +94,12 @@ test('detects ETARGET in various formats', async ({expect}) => {
 		});
 
 		await install_with_cache_healing(repo, ops);
-		expect(cache_clean_called).toBe(true);
+		assert.strictEqual(cache_clean_called, true);
 	}
 });
 
 // Test: Non-ETARGET error fails immediately without cache clean
-test('non-ETARGET error fails immediately', async ({expect}) => {
+test('non-ETARGET error fails immediately', async () => {
 	const repo = create_mock_repo({name: 'test-pkg'});
 
 	let cache_clean_called = false;
@@ -118,16 +118,17 @@ test('non-ETARGET error fails immediately', async ({expect}) => {
 		} as NpmOperations,
 	});
 
-	await expect(async () => {
-		await install_with_cache_healing(repo, ops);
-	}).rejects.toThrow('Failed to install dependencies in test-pkg');
+	await assert_rejects(
+		() => install_with_cache_healing(repo, ops),
+		/Failed to install dependencies in test-pkg/,
+	);
 
 	// Cache clean should NOT have been called
-	expect(cache_clean_called).toBe(false);
+	assert.strictEqual(cache_clean_called, false);
 });
 
 // Test: ETARGET error but cache clean fails
-test('ETARGET triggers cache clean but clean fails', async ({expect}) => {
+test('ETARGET triggers cache clean but clean fails', async () => {
 	const repo = create_mock_repo({name: 'test-pkg'});
 
 	const ops = create_mock_gitops_ops({
@@ -144,13 +145,14 @@ test('ETARGET triggers cache clean but clean fails', async ({expect}) => {
 		} as NpmOperations,
 	});
 
-	await expect(async () => {
-		await install_with_cache_healing(repo, ops);
-	}).rejects.toThrow('Failed to clean npm cache: Cache clean failed: permission denied');
+	await assert_rejects(
+		() => install_with_cache_healing(repo, ops),
+		/Failed to clean npm cache: Cache clean failed: permission denied/,
+	);
 });
 
 // Test: ETARGET error, cache clean succeeds, but retry install fails
-test('cache clean succeeds but retry install fails', async ({expect}) => {
+test('cache clean succeeds but retry install fails', async () => {
 	const repo = create_mock_repo({name: 'test-pkg'});
 
 	let install_call_count = 0;
@@ -178,13 +180,14 @@ test('cache clean succeeds but retry install fails', async ({expect}) => {
 		} as NpmOperations,
 	});
 
-	await expect(async () => {
-		await install_with_cache_healing(repo, ops);
-	}).rejects.toThrow('Failed to install dependencies after cache clean in test-pkg');
+	await assert_rejects(
+		() => install_with_cache_healing(repo, ops),
+		/Failed to install dependencies after cache clean in test-pkg/,
+	);
 });
 
 // Test: Error message includes stderr details
-test('error message includes stderr details', async ({expect}) => {
+test('error message includes stderr details', async () => {
 	const repo = create_mock_repo({name: 'test-pkg'});
 
 	const ops = create_mock_gitops_ops({
@@ -197,13 +200,14 @@ test('error message includes stderr details', async ({expect}) => {
 		} as NpmOperations,
 	});
 
-	await expect(async () => {
-		await install_with_cache_healing(repo, ops);
-	}).rejects.toThrow(/Install failed\nnpm ERR! detailed error log/);
+	await assert_rejects(
+		() => install_with_cache_healing(repo, ops),
+		/Install failed\nnpm ERR! detailed error log/,
+	);
 });
 
 // Test: Successful install with no stderr
-test('successful install with no stderr', async ({expect}) => {
+test('successful install with no stderr', async () => {
 	const repo = create_mock_repo({name: 'test-pkg'});
 
 	const ops = create_mock_gitops_ops({
@@ -214,11 +218,10 @@ test('successful install with no stderr', async ({expect}) => {
 
 	// Should complete without error
 	await install_with_cache_healing(repo, ops);
-	expect(true).toBe(true);
 });
 
 // Test: Multiple ETARGET variations in same error message
-test('detects ETARGET with multiple indicators', async ({expect}) => {
+test('detects ETARGET with multiple indicators', async () => {
 	const repo = create_mock_repo({name: 'test-pkg'});
 
 	let cache_clean_called = false;
@@ -238,9 +241,7 @@ test('detects ETARGET with multiple indicators', async ({expect}) => {
 		} as NpmOperations,
 	});
 
-	await expect(async () => {
-		await install_with_cache_healing(repo, ops);
-	}).rejects.toThrow();
+	await assert_rejects(() => install_with_cache_healing(repo, ops));
 
-	expect(cache_clean_called).toBe(true);
+	assert.strictEqual(cache_clean_called, true);
 });

@@ -1,4 +1,4 @@
-import {describe, it, expect} from 'vitest';
+import {assert, describe, test} from 'vitest';
 import {
 	generate_changeset_content,
 	create_dependency_updates,
@@ -8,7 +8,7 @@ import type {PublishedVersion} from '$lib/multi_repo_publisher.js';
 
 describe('changeset_generator', () => {
 	describe('generate_changeset_content', () => {
-		it('generates content for patch updates', () => {
+		test('generates content for patch updates', () => {
 			const updates: Array<DependencyVersionChange> = [
 				{
 					package_name: 'lib-a',
@@ -28,15 +28,15 @@ describe('changeset_generator', () => {
 
 			const content = generate_changeset_content('my-package', updates, 'patch');
 
-			expect(content).toContain('"my-package": patch');
-			expect(content).toContain('Update dependencies');
-			expect(content).toContain('Updated dependencies:');
-			expect(content).toContain('- lib-a: 1.0.0 → 1.0.1 (patch)');
-			expect(content).toContain('- lib-b: 2.1.0 → 2.1.5 (patch)');
-			expect(content).not.toContain('BREAKING');
+			assert.ok(content.includes('"my-package": patch'));
+			assert.ok(content.includes('Update dependencies'));
+			assert.ok(content.includes('Updated dependencies:'));
+			assert.ok(content.includes('- lib-a: 1.0.0 → 1.0.1 (patch)'));
+			assert.ok(content.includes('- lib-b: 2.1.0 → 2.1.5 (patch)'));
+			assert.ok(!content.includes('BREAKING'));
 		});
 
-		it('generates content for breaking changes', () => {
+		test('generates content for breaking changes', () => {
 			const updates: Array<DependencyVersionChange> = [
 				{
 					package_name: 'lib-breaking',
@@ -49,13 +49,13 @@ describe('changeset_generator', () => {
 
 			const content = generate_changeset_content('my-package', updates, 'minor');
 
-			expect(content).toContain('"my-package": minor');
-			expect(content).toContain('Update dependencies (BREAKING CHANGES)');
-			expect(content).toContain('Breaking dependency changes:');
-			expect(content).toContain('- lib-breaking: 0.5.0 → 0.6.0 (minor)');
+			assert.ok(content.includes('"my-package": minor'));
+			assert.ok(content.includes('Update dependencies (BREAKING CHANGES)'));
+			assert.ok(content.includes('Breaking dependency changes:'));
+			assert.ok(content.includes('- lib-breaking: 0.5.0 → 0.6.0 (minor)'));
 		});
 
-		it('generates content for mixed breaking and regular updates', () => {
+		test('generates content for mixed breaking and regular updates', () => {
 			const updates: Array<DependencyVersionChange> = [
 				{
 					package_name: 'breaking-lib',
@@ -75,24 +75,24 @@ describe('changeset_generator', () => {
 
 			const content = generate_changeset_content('my-package', updates, 'major');
 
-			expect(content).toContain('"my-package": major');
-			expect(content).toContain('Update dependencies (BREAKING CHANGES)');
-			expect(content).toContain('Breaking dependency changes:');
-			expect(content).toContain('- breaking-lib: 1.0.0 → 2.0.0 (major)');
-			expect(content).toContain('Other dependency updates:');
-			expect(content).toContain('- regular-lib: 1.0.0 → 1.0.1 (patch)');
+			assert.ok(content.includes('"my-package": major'));
+			assert.ok(content.includes('Update dependencies (BREAKING CHANGES)'));
+			assert.ok(content.includes('Breaking dependency changes:'));
+			assert.ok(content.includes('- breaking-lib: 1.0.0 → 2.0.0 (major)'));
+			assert.ok(content.includes('Other dependency updates:'));
+			assert.ok(content.includes('- regular-lib: 1.0.0 → 1.0.1 (patch)'));
 		});
 
-		it('handles empty updates array', () => {
+		test('handles empty updates array', () => {
 			const content = generate_changeset_content('my-package', [], 'patch');
 
-			expect(content).toContain('"my-package": patch');
-			expect(content).toContain('Update dependencies');
-			expect(content).not.toContain('Updated dependencies:');
-			expect(content).not.toContain('Breaking dependency changes:');
+			assert.ok(content.includes('"my-package": patch'));
+			assert.ok(content.includes('Update dependencies'));
+			assert.ok(!content.includes('Updated dependencies:'));
+			assert.ok(!content.includes('Breaking dependency changes:'));
 		});
 
-		it('generates valid changeset format', () => {
+		test('generates valid changeset format', () => {
 			const updates: Array<DependencyVersionChange> = [
 				{
 					package_name: 'lib',
@@ -106,26 +106,26 @@ describe('changeset_generator', () => {
 			const content = generate_changeset_content('test-pkg', updates, 'minor');
 
 			// Should start with frontmatter
-			expect(content).toMatch(/^---\n/);
+			assert.match(content, /^---\n/);
 			// Should have package declaration
-			expect(content).toContain('"test-pkg": minor');
+			assert.ok(content.includes('"test-pkg": minor'));
 			// Should close frontmatter
-			expect(content).toMatch(/\n---\n/);
+			assert.match(content, /\n---\n/);
 			// Should have summary after frontmatter
-			expect(content).toMatch(/---\n\nUpdate dependencies/);
+			assert.match(content, /---\n\nUpdate dependencies/);
 		});
 
-		it('escapes package names in frontmatter', () => {
+		test('escapes package names in frontmatter', () => {
 			const updates: Array<DependencyVersionChange> = [];
 
 			const content = generate_changeset_content('@scope/package-name', updates, 'patch');
 
-			expect(content).toContain('"@scope/package-name": patch');
+			assert.ok(content.includes('"@scope/package-name": patch'));
 		});
 	});
 
 	describe('create_dependency_updates', () => {
-		it('creates updates from published versions', () => {
+		test('creates updates from published versions', () => {
 			const dependencies = new Map([
 				['lib-a', '^1.0.0'],
 				['lib-b', '~2.0.0'],
@@ -161,10 +161,10 @@ describe('changeset_generator', () => {
 
 			const updates = create_dependency_updates(dependencies, published_versions);
 
-			expect(updates).toHaveLength(2);
+			assert.strictEqual(updates.length, 2);
 
 			const lib_a_update = updates.find((u) => u.package_name === 'lib-a')!;
-			expect(lib_a_update).toEqual({
+			assert.deepEqual(lib_a_update, {
 				package_name: 'lib-a',
 				from_version: '1.0.0', // stripped prefix
 				to_version: '1.1.0',
@@ -173,7 +173,7 @@ describe('changeset_generator', () => {
 			});
 
 			const lib_b_update = updates.find((u) => u.package_name === 'lib-b')!;
-			expect(lib_b_update).toEqual({
+			assert.deepEqual(lib_b_update, {
 				package_name: 'lib-b',
 				from_version: '2.0.0', // stripped prefix
 				to_version: '2.0.1',
@@ -182,10 +182,13 @@ describe('changeset_generator', () => {
 			});
 
 			// Should not include external-lib (not published)
-			expect(updates.find((u) => u.package_name === 'external-lib')).toBeUndefined();
+			assert.strictEqual(
+				updates.find((u) => u.package_name === 'external-lib'),
+				undefined,
+			);
 		});
 
-		it('handles breaking changes', () => {
+		test('handles breaking changes', () => {
 			const dependencies = new Map([['breaking-lib', '^0.5.0']]);
 
 			const published_versions: Map<string, PublishedVersion> = new Map([
@@ -205,11 +208,11 @@ describe('changeset_generator', () => {
 
 			const updates = create_dependency_updates(dependencies, published_versions);
 
-			expect(updates).toHaveLength(1);
-			expect(updates[0]!.breaking).toBe(true);
+			assert.strictEqual(updates.length, 1);
+			assert.strictEqual(updates[0]!.breaking, true);
 		});
 
-		it('strips version prefixes from current versions', () => {
+		test('strips version prefixes from current versions', () => {
 			const dependencies = new Map([
 				['caret-lib', '^1.0.0'],
 				['tilde-lib', '~1.0.0'],
@@ -271,17 +274,26 @@ describe('changeset_generator', () => {
 			const updates = create_dependency_updates(dependencies, published_versions);
 
 			// All should have stripped version prefixes
-			expect(updates.find((u) => u.package_name === 'caret-lib')?.from_version).toBe('1.0.0');
-			expect(updates.find((u) => u.package_name === 'tilde-lib')?.from_version).toBe('1.0.0');
-			expect(updates.find((u) => u.package_name === 'exact-lib')?.from_version).toBe('1.0.0');
-			expect(updates.find((u) => u.package_name === 'gte-lib')?.from_version).toBe('1.0.0'); // >= fully stripped
+			assert.strictEqual(
+				updates.find((u) => u.package_name === 'caret-lib')?.from_version,
+				'1.0.0',
+			);
+			assert.strictEqual(
+				updates.find((u) => u.package_name === 'tilde-lib')?.from_version,
+				'1.0.0',
+			);
+			assert.strictEqual(
+				updates.find((u) => u.package_name === 'exact-lib')?.from_version,
+				'1.0.0',
+			);
+			assert.strictEqual(updates.find((u) => u.package_name === 'gte-lib')?.from_version, '1.0.0'); // >= fully stripped
 		});
 
-		it('handles empty inputs', () => {
+		test('handles empty inputs', () => {
 			const empty_deps = new Map();
 			const empty_published = new Map();
 
-			expect(create_dependency_updates(empty_deps, empty_published)).toEqual([]);
+			assert.deepEqual(create_dependency_updates(empty_deps, empty_published), []);
 		});
 	});
 });

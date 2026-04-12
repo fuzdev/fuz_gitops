@@ -1,12 +1,12 @@
-import {describe, it, expect} from 'vitest';
+import {assert, describe, test} from 'vitest';
 import {TaskError} from '@fuzdev/gro';
 
 import {validate_dependency_graph} from '$lib/graph_validation.js';
-import {create_mock_repo} from './test_helpers.ts';
+import {create_mock_repo} from './test_helpers.js';
 
 describe('validate_dependency_graph', () => {
 	describe('basic functionality', () => {
-		it('builds graph and returns publishing order for simple chain', () => {
+		test('builds graph and returns publishing order for simple chain', () => {
 			const repos = [
 				create_mock_repo({name: 'lib', version: '1.0.0'}),
 				create_mock_repo({name: 'app', version: '1.0.0', deps: {lib: '^1.0.0'}}),
@@ -14,13 +14,13 @@ describe('validate_dependency_graph', () => {
 
 			const result = validate_dependency_graph(repos);
 
-			expect(result.publishing_order).toEqual(['lib', 'app']);
-			expect(result.production_cycles).toEqual([]);
-			expect(result.dev_cycles).toEqual([]);
-			expect(result.sort_error).toBeUndefined();
+			assert.deepEqual(result.publishing_order, ['lib', 'app']);
+			assert.deepEqual(result.production_cycles, []);
+			assert.deepEqual(result.dev_cycles, []);
+			assert.strictEqual(result.sort_error, undefined);
 		});
 
-		it('handles multiple independent packages', () => {
+		test('handles multiple independent packages', () => {
 			const repos = [
 				create_mock_repo({name: 'pkg-a', version: '1.0.0'}),
 				create_mock_repo({name: 'pkg-b', version: '1.0.0'}),
@@ -28,22 +28,22 @@ describe('validate_dependency_graph', () => {
 
 			const result = validate_dependency_graph(repos);
 
-			expect(result.publishing_order).toHaveLength(2);
-			expect(result.publishing_order).toContain('pkg-a');
-			expect(result.publishing_order).toContain('pkg-b');
-			expect(result.production_cycles).toEqual([]);
-			expect(result.dev_cycles).toEqual([]);
+			assert.strictEqual(result.publishing_order.length, 2);
+			assert.ok(result.publishing_order.includes('pkg-a'));
+			assert.ok(result.publishing_order.includes('pkg-b'));
+			assert.deepEqual(result.production_cycles, []);
+			assert.deepEqual(result.dev_cycles, []);
 		});
 
-		it('handles empty repos array', () => {
+		test('handles empty repos array', () => {
 			const result = validate_dependency_graph([]);
 
-			expect(result.publishing_order).toEqual([]);
-			expect(result.production_cycles).toEqual([]);
-			expect(result.dev_cycles).toEqual([]);
+			assert.deepEqual(result.publishing_order, []);
+			assert.deepEqual(result.production_cycles, []);
+			assert.deepEqual(result.dev_cycles, []);
 		});
 
-		it('handles complex dependency diamond', () => {
+		test('handles complex dependency diamond', () => {
 			const repos = [
 				create_mock_repo({name: 'base', version: '1.0.0'}),
 				create_mock_repo({name: 'mid-a', version: '1.0.0', deps: {base: '^1.0.0'}}),
@@ -58,64 +58,69 @@ describe('validate_dependency_graph', () => {
 			const result = validate_dependency_graph(repos);
 
 			// base must come first, top must come last
-			expect(result.publishing_order[0]).toBe('base');
-			expect(result.publishing_order[3]).toBe('top');
-			expect(result.production_cycles).toEqual([]);
+			assert.strictEqual(result.publishing_order[0], 'base');
+			assert.strictEqual(result.publishing_order[3], 'top');
+			assert.deepEqual(result.production_cycles, []);
 		});
 	});
 
 	describe('production cycles with throw_on_prod_cycles=true', () => {
-		it('throws on simple production cycle', () => {
+		test('throws on simple production cycle', () => {
 			const repos = [
 				create_mock_repo({name: 'pkg-a', version: '1.0.0', deps: {'pkg-b': '^1.0.0'}}),
 				create_mock_repo({name: 'pkg-b', version: '1.0.0', deps: {'pkg-a': '^1.0.0'}}),
 			];
 
-			expect(() => validate_dependency_graph(repos, {throw_on_prod_cycles: true})).toThrow(
+			assert.throws(
+				() => validate_dependency_graph(repos, {throw_on_prod_cycles: true}),
 				TaskError,
 			);
-			expect(() => validate_dependency_graph(repos, {throw_on_prod_cycles: true})).toThrow(
+			assert.throws(
+				() => validate_dependency_graph(repos, {throw_on_prod_cycles: true}),
 				/Cannot publish with production\/peer dependency cycles/,
 			);
 		});
 
-		it('throws on peer dependency cycle', () => {
+		test('throws on peer dependency cycle', () => {
 			const repos = [
 				create_mock_repo({name: 'pkg-a', version: '1.0.0', peer_deps: {'pkg-b': '^1.0.0'}}),
 				create_mock_repo({name: 'pkg-b', version: '1.0.0', peer_deps: {'pkg-a': '^1.0.0'}}),
 			];
 
-			expect(() => validate_dependency_graph(repos, {throw_on_prod_cycles: true})).toThrow(
+			assert.throws(
+				() => validate_dependency_graph(repos, {throw_on_prod_cycles: true}),
 				TaskError,
 			);
 		});
 
-		it('throws on mixed prod/peer cycle', () => {
+		test('throws on mixed prod/peer cycle', () => {
 			const repos = [
 				create_mock_repo({name: 'pkg-a', version: '1.0.0', deps: {'pkg-b': '^1.0.0'}}),
 				create_mock_repo({name: 'pkg-b', version: '1.0.0', peer_deps: {'pkg-a': '^1.0.0'}}),
 			];
 
-			expect(() => validate_dependency_graph(repos, {throw_on_prod_cycles: true})).toThrow(
+			assert.throws(
+				() => validate_dependency_graph(repos, {throw_on_prod_cycles: true}),
 				TaskError,
 			);
 		});
 
-		it('throws on longer cycle (3+ packages)', () => {
+		test('throws on longer cycle (3+ packages)', () => {
 			const repos = [
 				create_mock_repo({name: 'pkg-a', version: '1.0.0', deps: {'pkg-b': '^1.0.0'}}),
 				create_mock_repo({name: 'pkg-b', version: '1.0.0', deps: {'pkg-c': '^1.0.0'}}),
 				create_mock_repo({name: 'pkg-c', version: '1.0.0', deps: {'pkg-a': '^1.0.0'}}),
 			];
 
-			expect(() => validate_dependency_graph(repos, {throw_on_prod_cycles: true})).toThrow(
+			assert.throws(
+				() => validate_dependency_graph(repos, {throw_on_prod_cycles: true}),
 				TaskError,
 			);
 		});
 	});
 
 	describe('production cycles with throw_on_prod_cycles=false', () => {
-		it('returns empty order and sort_error for simple production cycle', () => {
+		test('returns empty order and sort_error for simple production cycle', () => {
 			const repos = [
 				create_mock_repo({name: 'pkg-a', version: '1.0.0', deps: {'pkg-b': '^1.0.0'}}),
 				create_mock_repo({name: 'pkg-b', version: '1.0.0', deps: {'pkg-a': '^1.0.0'}}),
@@ -123,15 +128,15 @@ describe('validate_dependency_graph', () => {
 
 			const result = validate_dependency_graph(repos, {throw_on_prod_cycles: false});
 
-			expect(result.publishing_order).toEqual([]);
-			expect(result.production_cycles).toHaveLength(1);
-			expect(result.production_cycles[0]).toContain('pkg-a');
-			expect(result.production_cycles[0]).toContain('pkg-b');
-			expect(result.sort_error).toMatch(/Failed to compute publishing order/);
-			expect(result.sort_error).toMatch(/cycle/);
+			assert.deepEqual(result.publishing_order, []);
+			assert.strictEqual(result.production_cycles.length, 1);
+			assert.ok(result.production_cycles[0]!.includes('pkg-a'));
+			assert.ok(result.production_cycles[0]!.includes('pkg-b'));
+			assert.match(result.sort_error!, /Failed to compute publishing order/);
+			assert.match(result.sort_error!, /cycle/);
 		});
 
-		it('captures multiple production cycles', () => {
+		test('captures multiple production cycles', () => {
 			const repos = [
 				// Cycle 1
 				create_mock_repo({name: 'pkg-a', version: '1.0.0', deps: {'pkg-b': '^1.0.0'}}),
@@ -143,12 +148,12 @@ describe('validate_dependency_graph', () => {
 
 			const result = validate_dependency_graph(repos, {throw_on_prod_cycles: false});
 
-			expect(result.publishing_order).toEqual([]);
-			expect(result.production_cycles).toHaveLength(2);
-			expect(result.sort_error).toBeDefined();
+			assert.deepEqual(result.publishing_order, []);
+			assert.strictEqual(result.production_cycles.length, 2);
+			assert.ok(result.sort_error !== undefined);
 		});
 
-		it('returns cycle info for peer dependency cycle', () => {
+		test('returns cycle info for peer dependency cycle', () => {
 			const repos = [
 				create_mock_repo({name: 'plugin-a', version: '1.0.0', peer_deps: {'plugin-b': '^1.0.0'}}),
 				create_mock_repo({name: 'plugin-b', version: '1.0.0', peer_deps: {'plugin-a': '^1.0.0'}}),
@@ -156,14 +161,14 @@ describe('validate_dependency_graph', () => {
 
 			const result = validate_dependency_graph(repos, {throw_on_prod_cycles: false});
 
-			expect(result.publishing_order).toEqual([]);
-			expect(result.production_cycles).toHaveLength(1);
-			expect(result.sort_error).toBeDefined();
+			assert.deepEqual(result.publishing_order, []);
+			assert.strictEqual(result.production_cycles.length, 1);
+			assert.ok(result.sort_error !== undefined);
 		});
 	});
 
 	describe('dev cycles', () => {
-		it('returns valid order with dev cycle present', () => {
+		test('returns valid order with dev cycle present', () => {
 			const repos = [
 				create_mock_repo({name: 'pkg-a', version: '1.0.0', dev_deps: {'pkg-b': '^1.0.0'}}),
 				create_mock_repo({name: 'pkg-b', version: '1.0.0', dev_deps: {'pkg-a': '^1.0.0'}}),
@@ -172,15 +177,15 @@ describe('validate_dependency_graph', () => {
 			const result = validate_dependency_graph(repos);
 
 			// Dev cycles don't block topological sort (dev deps excluded)
-			expect(result.publishing_order).toHaveLength(2);
-			expect(result.production_cycles).toEqual([]);
-			expect(result.dev_cycles).toHaveLength(1);
-			expect(result.dev_cycles[0]).toContain('pkg-a');
-			expect(result.dev_cycles[0]).toContain('pkg-b');
-			expect(result.sort_error).toBeUndefined();
+			assert.strictEqual(result.publishing_order.length, 2);
+			assert.deepEqual(result.production_cycles, []);
+			assert.strictEqual(result.dev_cycles.length, 1);
+			assert.ok(result.dev_cycles[0]!.includes('pkg-a'));
+			assert.ok(result.dev_cycles[0]!.includes('pkg-b'));
+			assert.strictEqual(result.sort_error, undefined);
 		});
 
-		it('handles multiple dev cycles', () => {
+		test('handles multiple dev cycles', () => {
 			const repos = [
 				// Dev cycle 1
 				create_mock_repo({name: 'test-a', version: '1.0.0', dev_deps: {'test-b': '^1.0.0'}}),
@@ -192,12 +197,12 @@ describe('validate_dependency_graph', () => {
 
 			const result = validate_dependency_graph(repos);
 
-			expect(result.publishing_order).toHaveLength(4);
-			expect(result.production_cycles).toEqual([]);
-			expect(result.dev_cycles).toHaveLength(2);
+			assert.strictEqual(result.publishing_order.length, 4);
+			assert.deepEqual(result.production_cycles, []);
+			assert.strictEqual(result.dev_cycles.length, 2);
 		});
 
-		it('computes order correctly ignoring dev deps', () => {
+		test('computes order correctly ignoring dev deps', () => {
 			const repos = [
 				create_mock_repo({name: 'lib', version: '1.0.0'}),
 				create_mock_repo({
@@ -210,13 +215,13 @@ describe('validate_dependency_graph', () => {
 
 			const result = validate_dependency_graph(repos);
 
-			expect(result.publishing_order).toEqual(['lib', 'app']);
-			expect(result.dev_cycles).toEqual([]);
+			assert.deepEqual(result.publishing_order, ['lib', 'app']);
+			assert.deepEqual(result.dev_cycles, []);
 		});
 	});
 
 	describe('mixed cycles', () => {
-		it('separates production and dev cycles correctly', () => {
+		test('separates production and dev cycles correctly', () => {
 			const repos = [
 				// Production cycle
 				create_mock_repo({name: 'prod-a', version: '1.0.0', deps: {'prod-b': '^1.0.0'}}),
@@ -228,13 +233,13 @@ describe('validate_dependency_graph', () => {
 
 			const result = validate_dependency_graph(repos, {throw_on_prod_cycles: false});
 
-			expect(result.production_cycles).toHaveLength(1);
-			expect(result.dev_cycles).toHaveLength(1);
-			expect(result.publishing_order).toEqual([]); // blocked by prod cycle
-			expect(result.sort_error).toBeDefined();
+			assert.strictEqual(result.production_cycles.length, 1);
+			assert.strictEqual(result.dev_cycles.length, 1);
+			assert.deepEqual(result.publishing_order, []); // blocked by prod cycle
+			assert.ok(result.sort_error !== undefined);
 		});
 
-		it('handles mixed dep types without cycles', () => {
+		test('handles mixed dep types without cycles', () => {
 			// a -> b (prod), b -> a (dev) - NOT a cycle in either analysis
 			const repos = [
 				create_mock_repo({name: 'pkg-a', version: '1.0.0', deps: {'pkg-b': '^1.0.0'}}),
@@ -245,14 +250,14 @@ describe('validate_dependency_graph', () => {
 
 			// pkg-b must come first (pkg-a depends on it via prod dep)
 			// The dev dep from pkg-b to pkg-a is ignored in topological sort
-			expect(result.publishing_order).toEqual(['pkg-b', 'pkg-a']);
-			expect(result.production_cycles).toEqual([]);
-			expect(result.dev_cycles).toEqual([]);
+			assert.deepEqual(result.publishing_order, ['pkg-b', 'pkg-a']);
+			assert.deepEqual(result.production_cycles, []);
+			assert.deepEqual(result.dev_cycles, []);
 		});
 	});
 
 	describe('logging options', () => {
-		it('respects log_cycles=false (no crashes)', () => {
+		test('respects log_cycles=false (no crashes)', () => {
 			const repos = [
 				create_mock_repo({name: 'pkg-a', version: '1.0.0', deps: {'pkg-b': '^1.0.0'}}),
 				create_mock_repo({name: 'pkg-b', version: '1.0.0', deps: {'pkg-a': '^1.0.0'}}),
@@ -264,10 +269,10 @@ describe('validate_dependency_graph', () => {
 				log_cycles: false,
 			});
 
-			expect(result.production_cycles).toHaveLength(1);
+			assert.strictEqual(result.production_cycles.length, 1);
 		});
 
-		it('respects log_order=false (no crashes)', () => {
+		test('respects log_order=false (no crashes)', () => {
 			const repos = [
 				create_mock_repo({name: 'lib', version: '1.0.0'}),
 				create_mock_repo({name: 'app', version: '1.0.0', deps: {lib: '^1.0.0'}}),
@@ -275,10 +280,10 @@ describe('validate_dependency_graph', () => {
 
 			const result = validate_dependency_graph(repos, {log_order: false});
 
-			expect(result.publishing_order).toEqual(['lib', 'app']);
+			assert.deepEqual(result.publishing_order, ['lib', 'app']);
 		});
 
-		it('works with all logging disabled', () => {
+		test('works with all logging disabled', () => {
 			const repos = [
 				create_mock_repo({name: 'pkg-a', version: '1.0.0', dev_deps: {'pkg-b': '^1.0.0'}}),
 				create_mock_repo({name: 'pkg-b', version: '1.0.0', dev_deps: {'pkg-a': '^1.0.0'}}),
@@ -290,23 +295,23 @@ describe('validate_dependency_graph', () => {
 				log_order: false,
 			});
 
-			expect(result.dev_cycles).toHaveLength(1);
-			expect(result.publishing_order).toHaveLength(2);
+			assert.strictEqual(result.dev_cycles.length, 1);
+			assert.strictEqual(result.publishing_order.length, 2);
 		});
 	});
 
 	describe('edge cases', () => {
-		it('handles single package', () => {
+		test('handles single package', () => {
 			const repos = [create_mock_repo({name: 'solo', version: '1.0.0'})];
 
 			const result = validate_dependency_graph(repos);
 
-			expect(result.publishing_order).toEqual(['solo']);
-			expect(result.production_cycles).toEqual([]);
-			expect(result.dev_cycles).toEqual([]);
+			assert.deepEqual(result.publishing_order, ['solo']);
+			assert.deepEqual(result.production_cycles, []);
+			assert.deepEqual(result.dev_cycles, []);
 		});
 
-		it('handles packages with only external dependencies', () => {
+		test('handles packages with only external dependencies', () => {
 			const repos = [
 				create_mock_repo({
 					name: 'app',
@@ -317,23 +322,23 @@ describe('validate_dependency_graph', () => {
 
 			const result = validate_dependency_graph(repos);
 
-			expect(result.publishing_order).toEqual(['app']);
-			expect(result.production_cycles).toEqual([]);
+			assert.deepEqual(result.publishing_order, ['app']);
+			assert.deepEqual(result.production_cycles, []);
 		});
 
-		it('handles self-dependency (pathological)', () => {
+		test('handles self-dependency (pathological)', () => {
 			const repos = [
 				create_mock_repo({name: 'self-dep', version: '1.0.0', deps: {'self-dep': '^1.0.0'}}),
 			];
 
 			const result = validate_dependency_graph(repos, {throw_on_prod_cycles: false});
 
-			expect(result.publishing_order).toEqual([]);
-			expect(result.production_cycles).toHaveLength(1);
-			expect(result.sort_error).toBeDefined();
+			assert.deepEqual(result.publishing_order, []);
+			assert.strictEqual(result.production_cycles.length, 1);
+			assert.ok(result.sort_error !== undefined);
 		});
 
-		it('handles private packages', () => {
+		test('handles private packages', () => {
 			const repos = [
 				create_mock_repo({name: 'private', version: '1.0.0', private: true}),
 				create_mock_repo({name: 'public', version: '1.0.0', deps: {private: '^1.0.0'}}),
@@ -342,22 +347,22 @@ describe('validate_dependency_graph', () => {
 			const result = validate_dependency_graph(repos);
 
 			// Both included in order (graph_validation doesn't filter by private)
-			expect(result.publishing_order).toEqual(['private', 'public']);
+			assert.deepEqual(result.publishing_order, ['private', 'public']);
 		});
 	});
 
 	describe('default options behavior', () => {
-		it('defaults to throw_on_prod_cycles=true', () => {
+		test('defaults to throw_on_prod_cycles=true', () => {
 			const repos = [
 				create_mock_repo({name: 'pkg-a', version: '1.0.0', deps: {'pkg-b': '^1.0.0'}}),
 				create_mock_repo({name: 'pkg-b', version: '1.0.0', deps: {'pkg-a': '^1.0.0'}}),
 			];
 
 			// Default behavior should throw
-			expect(() => validate_dependency_graph(repos)).toThrow(TaskError);
+			assert.throws(() => validate_dependency_graph(repos), TaskError);
 		});
 
-		it('defaults to log_cycles=true (no crash with undefined logger)', () => {
+		test('defaults to log_cycles=true (no crash with undefined logger)', () => {
 			const repos = [
 				create_mock_repo({name: 'lib', version: '1.0.0'}),
 				create_mock_repo({name: 'app', version: '1.0.0', deps: {lib: '^1.0.0'}}),
@@ -366,12 +371,12 @@ describe('validate_dependency_graph', () => {
 			// Should not crash with undefined logger even though log_cycles defaults to true
 			const result = validate_dependency_graph(repos);
 
-			expect(result.publishing_order).toEqual(['lib', 'app']);
+			assert.deepEqual(result.publishing_order, ['lib', 'app']);
 		});
 	});
 
 	describe('graph property', () => {
-		it('returns valid graph object', () => {
+		test('returns valid graph object', () => {
 			const repos = [
 				create_mock_repo({name: 'lib', version: '1.0.0'}),
 				create_mock_repo({name: 'app', version: '1.0.0', deps: {lib: '^1.0.0'}}),
@@ -379,13 +384,13 @@ describe('validate_dependency_graph', () => {
 
 			const result = validate_dependency_graph(repos);
 
-			expect(result.graph).toBeDefined();
-			expect(result.graph.nodes.size).toBe(2);
-			expect(result.graph.get_node('lib')).toBeDefined();
-			expect(result.graph.get_node('app')).toBeDefined();
+			assert.ok(result.graph !== undefined);
+			assert.strictEqual(result.graph.nodes.size, 2);
+			assert.ok(result.graph.get_node('lib') !== undefined);
+			assert.ok(result.graph.get_node('app') !== undefined);
 		});
 
-		it('graph contains cycle information', () => {
+		test('graph contains cycle information', () => {
 			const repos = [
 				create_mock_repo({name: 'pkg-a', version: '1.0.0', deps: {'pkg-b': '^1.0.0'}}),
 				create_mock_repo({name: 'pkg-b', version: '1.0.0', deps: {'pkg-a': '^1.0.0'}}),
@@ -395,7 +400,7 @@ describe('validate_dependency_graph', () => {
 
 			// Verify we can call graph methods
 			const {production_cycles} = result.graph.detect_cycles_by_type();
-			expect(production_cycles.length).toBeGreaterThan(0);
+			assert.ok(production_cycles.length > 0);
 		});
 	});
 });

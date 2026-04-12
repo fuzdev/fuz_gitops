@@ -1,4 +1,4 @@
-import {describe, it, expect} from 'vitest';
+import {assert, describe, test} from 'vitest';
 import {join} from 'node:path';
 import {mkdtemp, writeFile, mkdir, rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
@@ -13,66 +13,66 @@ import {
 
 describe('repo_ops', () => {
 	describe('DEFAULT_EXCLUDE_DIRS', () => {
-		it('includes common directories to skip', () => {
-			expect(DEFAULT_EXCLUDE_DIRS).toContain('node_modules');
-			expect(DEFAULT_EXCLUDE_DIRS).toContain('.git');
-			expect(DEFAULT_EXCLUDE_DIRS).toContain('.svelte-kit');
-			expect(DEFAULT_EXCLUDE_DIRS).toContain('dist');
+		test('includes common directories to skip', () => {
+			assert.ok(DEFAULT_EXCLUDE_DIRS.includes('node_modules'));
+			assert.ok(DEFAULT_EXCLUDE_DIRS.includes('.git'));
+			assert.ok(DEFAULT_EXCLUDE_DIRS.includes('.svelte-kit'));
+			assert.ok(DEFAULT_EXCLUDE_DIRS.includes('dist'));
 		});
 	});
 
 	describe('DEFAULT_EXCLUDE_EXTENSIONS', () => {
-		it('includes binary file extensions', () => {
-			expect(DEFAULT_EXCLUDE_EXTENSIONS).toContain('.png');
-			expect(DEFAULT_EXCLUDE_EXTENSIONS).toContain('.jpg');
-			expect(DEFAULT_EXCLUDE_EXTENSIONS).toContain('.woff2');
+		test('includes binary file extensions', () => {
+			assert.ok(DEFAULT_EXCLUDE_EXTENSIONS.includes('.png'));
+			assert.ok(DEFAULT_EXCLUDE_EXTENSIONS.includes('.jpg'));
+			assert.ok(DEFAULT_EXCLUDE_EXTENSIONS.includes('.woff2'));
 		});
 
-		it('includes lock files', () => {
-			expect(DEFAULT_EXCLUDE_EXTENSIONS).toContain('.lock');
+		test('includes lock files', () => {
+			assert.ok(DEFAULT_EXCLUDE_EXTENSIONS.includes('.lock'));
 		});
 	});
 
 	describe('should_exclude_path', () => {
-		it('excludes paths containing default excluded directories', () => {
-			expect(should_exclude_path('/project/node_modules/foo.js')).toBe(true);
-			expect(should_exclude_path('/project/.git/config')).toBe(true);
-			expect(should_exclude_path('/project/.svelte-kit/output/foo.js')).toBe(true);
-			expect(should_exclude_path('/project/dist/bundle.js')).toBe(true);
+		test('excludes paths containing default excluded directories', () => {
+			assert.strictEqual(should_exclude_path('/project/node_modules/foo.js'), true);
+			assert.strictEqual(should_exclude_path('/project/.git/config'), true);
+			assert.strictEqual(should_exclude_path('/project/.svelte-kit/output/foo.js'), true);
+			assert.strictEqual(should_exclude_path('/project/dist/bundle.js'), true);
 		});
 
-		it('excludes paths with default excluded extensions', () => {
-			expect(should_exclude_path('/project/image.png')).toBe(true);
-			expect(should_exclude_path('/project/font.woff2')).toBe(true);
-			expect(should_exclude_path('/project/package-lock.lock')).toBe(true);
+		test('excludes paths with default excluded extensions', () => {
+			assert.strictEqual(should_exclude_path('/project/image.png'), true);
+			assert.strictEqual(should_exclude_path('/project/font.woff2'), true);
+			assert.strictEqual(should_exclude_path('/project/package-lock.lock'), true);
 		});
 
-		it('does not exclude normal source files', () => {
-			expect(should_exclude_path('/project/src/lib/foo.ts')).toBe(false);
-			expect(should_exclude_path('/project/src/routes/+page.svelte')).toBe(false);
-			expect(should_exclude_path('/project/README.md')).toBe(false);
+		test('does not exclude normal source files', () => {
+			assert.strictEqual(should_exclude_path('/project/src/lib/foo.ts'), false);
+			assert.strictEqual(should_exclude_path('/project/src/routes/+page.svelte'), false);
+			assert.strictEqual(should_exclude_path('/project/README.md'), false);
 		});
 
-		it('respects custom exclude_dirs option', () => {
+		test('respects custom exclude_dirs option', () => {
 			const options = {exclude_dirs: ['custom_dir']};
-			expect(should_exclude_path('/project/custom_dir/foo.ts', options)).toBe(true);
+			assert.strictEqual(should_exclude_path('/project/custom_dir/foo.ts', options), true);
 			// Default dirs are still excluded
-			expect(should_exclude_path('/project/node_modules/foo.ts', options)).toBe(true);
+			assert.strictEqual(should_exclude_path('/project/node_modules/foo.ts', options), true);
 		});
 
-		it('respects custom exclude_extensions option', () => {
+		test('respects custom exclude_extensions option', () => {
 			const options = {exclude_extensions: ['.custom']};
-			expect(should_exclude_path('/project/file.custom', options)).toBe(true);
+			assert.strictEqual(should_exclude_path('/project/file.custom', options), true);
 			// Default extensions are still excluded
-			expect(should_exclude_path('/project/image.png', options)).toBe(true);
+			assert.strictEqual(should_exclude_path('/project/image.png', options), true);
 		});
 
-		it('respects no_defaults option', () => {
+		test('respects no_defaults option', () => {
 			const options = {no_defaults: true, exclude_dirs: ['only_this']};
 			// Default dirs no longer excluded
-			expect(should_exclude_path('/project/node_modules/foo.ts', options)).toBe(false);
+			assert.strictEqual(should_exclude_path('/project/node_modules/foo.ts', options), false);
 			// Custom dir is excluded
-			expect(should_exclude_path('/project/only_this/foo.ts', options)).toBe(true);
+			assert.strictEqual(should_exclude_path('/project/only_this/foo.ts', options), true);
 		});
 	});
 
@@ -103,29 +103,29 @@ describe('repo_ops', () => {
 			await rm(dir, {recursive: true, force: true});
 		};
 
-		it('walks files excluding default directories', async () => {
+		test('walks files excluding default directories', async () => {
 			temp_dir = await setup_temp_dir();
 			try {
 				const files = await collect_repo_files(temp_dir);
 
 				// Should include source files
-				expect(files.some((f) => f.endsWith('foo.ts'))).toBe(true);
-				expect(files.some((f) => f.endsWith('bar.ts'))).toBe(true);
-				expect(files.some((f) => f.endsWith('index.ts'))).toBe(true);
-				expect(files.some((f) => f.endsWith('README.md'))).toBe(true);
+				assert.ok(files.some((f) => f.endsWith('foo.ts')));
+				assert.ok(files.some((f) => f.endsWith('bar.ts')));
+				assert.ok(files.some((f) => f.endsWith('index.ts')));
+				assert.ok(files.some((f) => f.endsWith('README.md')));
 
 				// Should exclude node_modules and .git
-				expect(files.some((f) => f.includes('node_modules'))).toBe(false);
-				expect(files.some((f) => f.includes('.git'))).toBe(false);
+				assert.ok(!files.some((f) => f.includes('node_modules')));
+				assert.ok(!files.some((f) => f.includes('.git')));
 
 				// Should exclude binary files
-				expect(files.some((f) => f.endsWith('.png'))).toBe(false);
+				assert.ok(!files.some((f) => f.endsWith('.png')));
 			} finally {
 				await cleanup_temp_dir(temp_dir);
 			}
 		});
 
-		it('yields files via async generator', async () => {
+		test('yields files via async generator', async () => {
 			temp_dir = await setup_temp_dir();
 			try {
 				const files: Array<string> = [];
@@ -133,27 +133,27 @@ describe('repo_ops', () => {
 					files.push(file);
 				}
 
-				expect(files.length).toBeGreaterThan(0);
-				expect(files.some((f) => f.endsWith('.ts'))).toBe(true);
+				assert.ok(files.length > 0);
+				assert.ok(files.some((f) => f.endsWith('.ts')));
 			} finally {
 				await cleanup_temp_dir(temp_dir);
 			}
 		});
 
-		it('includes directories when include_dirs is true', async () => {
+		test('includes directories when include_dirs is true', async () => {
 			temp_dir = await setup_temp_dir();
 			try {
 				const files = await collect_repo_files(temp_dir, {include_dirs: true});
 
 				// Should include the src and src/lib directories
-				expect(files.some((f) => f.endsWith('/src'))).toBe(true);
-				expect(files.some((f) => f.endsWith('/src/lib'))).toBe(true);
+				assert.ok(files.some((f) => f.endsWith('/src')));
+				assert.ok(files.some((f) => f.endsWith('/src/lib')));
 			} finally {
 				await cleanup_temp_dir(temp_dir);
 			}
 		});
 
-		it('respects custom exclusions', async () => {
+		test('respects custom exclusions', async () => {
 			temp_dir = await setup_temp_dir();
 			try {
 				// Exclude .md files
@@ -161,21 +161,21 @@ describe('repo_ops', () => {
 					exclude_extensions: ['.md'],
 				});
 
-				expect(files.some((f) => f.endsWith('README.md'))).toBe(false);
-				expect(files.some((f) => f.endsWith('.ts'))).toBe(true);
+				assert.ok(!files.some((f) => f.endsWith('README.md')));
+				assert.ok(files.some((f) => f.endsWith('.ts')));
 			} finally {
 				await cleanup_temp_dir(temp_dir);
 			}
 		});
 
-		it('handles non-existent directories gracefully', async () => {
+		test('handles non-existent directories gracefully', async () => {
 			const files = await collect_repo_files('/non/existent/path');
-			expect(files).toEqual([]);
+			assert.deepEqual(files, []);
 		});
 	});
 
 	describe('collect_repo_files', () => {
-		it('returns array of all walked files', async () => {
+		test('returns array of all walked files', async () => {
 			const temp_dir = await mkdtemp(join(tmpdir(), 'repo_ops_collect_'));
 			try {
 				await writeFile(join(temp_dir, 'a.ts'), 'a');
@@ -183,10 +183,10 @@ describe('repo_ops', () => {
 
 				const files = await collect_repo_files(temp_dir);
 
-				expect(Array.isArray(files)).toBe(true);
-				expect(files.length).toBe(2);
-				expect(files.some((f) => f.endsWith('a.ts'))).toBe(true);
-				expect(files.some((f) => f.endsWith('b.ts'))).toBe(true);
+				assert.strictEqual(Array.isArray(files), true);
+				assert.strictEqual(files.length, 2);
+				assert.ok(files.some((f) => f.endsWith('a.ts')));
+				assert.ok(files.some((f) => f.endsWith('b.ts')));
 			} finally {
 				await rm(temp_dir, {recursive: true, force: true});
 			}

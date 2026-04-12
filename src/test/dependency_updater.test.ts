@@ -1,4 +1,4 @@
-import {describe, it, expect} from 'vitest';
+import {assert, describe, test} from 'vitest';
 import {join} from 'node:path';
 
 import {
@@ -6,7 +6,7 @@ import {
 	update_all_repos,
 	find_updates_needed,
 } from '$lib/dependency_updater.js';
-import {create_mock_repo, create_mock_git_ops, create_mock_fs_ops} from './test_helpers.ts';
+import {create_mock_repo, create_mock_git_ops, create_mock_fs_ops} from './test_helpers.js';
 import type {GitOperations} from '$lib/operations.js';
 
 /**
@@ -52,7 +52,7 @@ const create_trackable_git_ops = (): GitOperations & {
 
 describe('dependency_updater', () => {
 	describe('update_package_json', () => {
-		it('updates production dependencies with caret prefix', async () => {
+		test('updates production dependencies with caret prefix', async () => {
 			const fs = create_mock_fs_ops();
 			const repo = create_mock_repo({
 				name: 'test-pkg',
@@ -85,14 +85,14 @@ describe('dependency_updater', () => {
 			await update_package_json(repo, updates, {git_ops, fs_ops: fs});
 
 			const updated = fs.get(package_json_path);
-			expect(updated).toBeDefined();
+			assert.ok(updated !== undefined);
 
 			const parsed = JSON.parse(updated!);
-			expect(parsed.dependencies['dep-a']).toBe('^1.1.0');
-			expect(parsed.dependencies['dep-b']).toBe('^2.0.0'); // unchanged
+			assert.strictEqual(parsed.dependencies['dep-a'], '^1.1.0');
+			assert.strictEqual(parsed.dependencies['dep-b'], '^2.0.0'); // unchanged
 		});
 
-		it('updates devDependencies', async () => {
+		test('updates devDependencies', async () => {
 			const fs = create_mock_fs_ops();
 			const repo = create_mock_repo({
 				name: 'test-pkg',
@@ -124,10 +124,10 @@ describe('dependency_updater', () => {
 
 			const updated = fs.get(package_json_path);
 			const parsed = JSON.parse(updated!);
-			expect(parsed.devDependencies['dev-a']).toBe('^2.0.0');
+			assert.strictEqual(parsed.devDependencies['dev-a'], '^2.0.0');
 		});
 
-		it('updates peerDependencies', async () => {
+		test('updates peerDependencies', async () => {
 			const fs = create_mock_fs_ops();
 			const repo = create_mock_repo({
 				name: 'test-pkg',
@@ -159,10 +159,10 @@ describe('dependency_updater', () => {
 
 			const updated = fs.get(package_json_path);
 			const parsed = JSON.parse(updated!);
-			expect(parsed.peerDependencies['peer-a']).toBe('^3.1.0');
+			assert.strictEqual(parsed.peerDependencies['peer-a'], '^3.1.0');
 		});
 
-		it('preserves tilde prefix when using tilde strategy', async () => {
+		test('preserves tilde prefix when using tilde strategy', async () => {
 			const fs = create_mock_fs_ops();
 			const repo = create_mock_repo({
 				name: 'test-pkg',
@@ -194,10 +194,10 @@ describe('dependency_updater', () => {
 
 			const updated = fs.get(package_json_path);
 			const parsed = JSON.parse(updated!);
-			expect(parsed.dependencies['dep-a']).toBe('~1.1.0');
+			assert.strictEqual(parsed.dependencies['dep-a'], '~1.1.0');
 		});
 
-		it('uses exact versions with exact strategy', async () => {
+		test('uses exact versions with exact strategy', async () => {
 			const fs = create_mock_fs_ops();
 			const repo = create_mock_repo({
 				name: 'test-pkg',
@@ -229,10 +229,10 @@ describe('dependency_updater', () => {
 
 			const updated = fs.get(package_json_path);
 			const parsed = JSON.parse(updated!);
-			expect(parsed.dependencies['dep-a']).toBe('1.1.0'); // no prefix
+			assert.strictEqual(parsed.dependencies['dep-a'], '1.1.0'); // no prefix
 		});
 
-		it('preserves >= prefix in peerDependencies', async () => {
+		test('preserves >= prefix in peerDependencies', async () => {
 			const fs = create_mock_fs_ops();
 			const repo = create_mock_repo({
 				name: 'test-pkg',
@@ -264,10 +264,10 @@ describe('dependency_updater', () => {
 
 			const updated = fs.get(package_json_path);
 			const parsed = JSON.parse(updated!);
-			expect(parsed.peerDependencies['@fuzdev/fuz_util']).toBe('>=0.39.0');
+			assert.strictEqual(parsed.peerDependencies['@fuzdev/fuz_util'], '>=0.39.0');
 		});
 
-		it('uses gte strategy for >= prefix on new deps', async () => {
+		test('uses gte strategy for >= prefix on new deps', async () => {
 			const fs = create_mock_fs_ops();
 			const repo = create_mock_repo({
 				name: 'test-pkg',
@@ -299,10 +299,10 @@ describe('dependency_updater', () => {
 
 			const updated = fs.get(package_json_path);
 			const parsed = JSON.parse(updated!);
-			expect(parsed.dependencies['dep-a']).toBe('>=1.1.0');
+			assert.strictEqual(parsed.dependencies['dep-a'], '>=1.1.0');
 		});
 
-		it('updates multiple dependencies at once', async () => {
+		test('updates multiple dependencies at once', async () => {
 			const fs = create_mock_fs_ops();
 			const repo = create_mock_repo({
 				name: 'test-pkg',
@@ -346,12 +346,12 @@ describe('dependency_updater', () => {
 
 			const updated = fs.get(package_json_path);
 			const parsed = JSON.parse(updated!);
-			expect(parsed.dependencies['dep-a']).toBe('^1.2.0');
-			expect(parsed.dependencies['dep-b']).toBe('^2.5.0');
-			expect(parsed.devDependencies['dev-a']).toBe('^3.1.0');
+			assert.strictEqual(parsed.dependencies['dep-a'], '^1.2.0');
+			assert.strictEqual(parsed.dependencies['dep-b'], '^2.5.0');
+			assert.strictEqual(parsed.devDependencies['dev-a'], '^3.1.0');
 		});
 
-		it('preserves JSON formatting with tabs', async () => {
+		test('preserves JSON formatting with tabs', async () => {
 			const fs = create_mock_fs_ops();
 			const repo = create_mock_repo({
 				name: 'test-pkg',
@@ -379,11 +379,11 @@ describe('dependency_updater', () => {
 
 			const updated = fs.get(package_json_path);
 			// Check it has tabs (JSON.stringify uses tabs)
-			expect(updated).toContain('\t');
-			expect(updated).toMatch(/\n$/); // ends with newline
+			assert.ok(updated!.includes('\t'));
+			assert.match(updated!, /\n$/); // ends with newline
 		});
 
-		it('creates git commit with correct message', async () => {
+		test('creates git commit with correct message', async () => {
 			const fs = create_mock_fs_ops();
 			const repo = create_mock_repo({
 				name: 'test-pkg',
@@ -409,12 +409,12 @@ describe('dependency_updater', () => {
 
 			await update_package_json(repo, updates, {git_ops, fs_ops: fs});
 
-			expect(git_ops.added_files).toContain('package.json');
-			expect(git_ops.commits).toHaveLength(1);
-			expect(git_ops.commits[0]).toContain('update dependencies after publishing');
+			assert.ok(git_ops.added_files.includes('package.json'));
+			assert.strictEqual(git_ops.commits.length, 1);
+			assert.ok(git_ops.commits[0]!.includes('update dependencies after publishing'));
 		});
 
-		it('does nothing when updates map is empty', async () => {
+		test('does nothing when updates map is empty', async () => {
 			const fs = create_mock_fs_ops();
 			const repo = create_mock_repo({name: 'test-pkg'});
 
@@ -423,11 +423,11 @@ describe('dependency_updater', () => {
 
 			await update_package_json(repo, updates, {git_ops, fs_ops: fs});
 
-			expect(git_ops.added_files).toHaveLength(0);
-			expect(git_ops.commits).toHaveLength(0);
+			assert.strictEqual(git_ops.added_files.length, 0);
+			assert.strictEqual(git_ops.commits.length, 0);
 		});
 
-		it('does nothing when no matching dependencies found', async () => {
+		test('does nothing when no matching dependencies found', async () => {
 			const fs = create_mock_fs_ops();
 			const repo = create_mock_repo({
 				name: 'test-pkg',
@@ -454,12 +454,12 @@ describe('dependency_updater', () => {
 
 			await update_package_json(repo, updates, {git_ops, fs_ops: fs});
 
-			expect(git_ops.commits).toHaveLength(0);
+			assert.strictEqual(git_ops.commits.length, 0);
 		});
 	});
 
 	describe('find_updates_needed', () => {
-		it('identifies dependencies that need updating', () => {
+		test('identifies dependencies that need updating', () => {
 			const repo = create_mock_repo({
 				name: 'test-pkg',
 				deps: {
@@ -475,15 +475,15 @@ describe('dependency_updater', () => {
 
 			const updates = find_updates_needed(repo, published);
 
-			expect(updates.size).toBe(1);
-			expect(updates.get('dep-a')).toEqual({
+			assert.strictEqual(updates.size, 1);
+			assert.deepEqual(updates.get('dep-a'), {
 				current: '^1.0.0',
 				new: '1.1.0',
 				type: 'dependencies',
 			});
 		});
 
-		it('identifies devDependencies needing updates', () => {
+		test('identifies devDependencies needing updates', () => {
 			const repo = create_mock_repo({
 				name: 'test-pkg',
 				dev_deps: {
@@ -495,15 +495,15 @@ describe('dependency_updater', () => {
 
 			const updates = find_updates_needed(repo, published);
 
-			expect(updates.size).toBe(1);
-			expect(updates.get('dev-a')).toEqual({
+			assert.strictEqual(updates.size, 1);
+			assert.deepEqual(updates.get('dev-a'), {
 				current: '^3.0.0',
 				new: '3.5.0',
 				type: 'devDependencies',
 			});
 		});
 
-		it('identifies peerDependencies needing updates', () => {
+		test('identifies peerDependencies needing updates', () => {
 			const repo = create_mock_repo({
 				name: 'test-pkg',
 				peer_deps: {
@@ -515,15 +515,15 @@ describe('dependency_updater', () => {
 
 			const updates = find_updates_needed(repo, published);
 
-			expect(updates.size).toBe(1);
-			expect(updates.get('peer-a')).toEqual({
+			assert.strictEqual(updates.size, 1);
+			assert.deepEqual(updates.get('peer-a'), {
 				current: '^4.0.0',
 				new: '4.1.0',
 				type: 'peerDependencies',
 			});
 		});
 
-		it('returns empty map when no updates needed', () => {
+		test('returns empty map when no updates needed', () => {
 			const repo = create_mock_repo({
 				name: 'test-pkg',
 				deps: {
@@ -535,10 +535,10 @@ describe('dependency_updater', () => {
 
 			const updates = find_updates_needed(repo, published);
 
-			expect(updates.size).toBe(0);
+			assert.strictEqual(updates.size, 0);
 		});
 
-		it('handles multiple dependency types together', () => {
+		test('handles multiple dependency types together', () => {
 			const repo = create_mock_repo({
 				name: 'test-pkg',
 				deps: {'dep-a': '^1.0.0'},
@@ -554,15 +554,15 @@ describe('dependency_updater', () => {
 
 			const updates = find_updates_needed(repo, published);
 
-			expect(updates.size).toBe(3);
-			expect(updates.get('dep-a')?.type).toBe('dependencies');
-			expect(updates.get('dev-a')?.type).toBe('devDependencies');
-			expect(updates.get('peer-a')?.type).toBe('peerDependencies');
+			assert.strictEqual(updates.size, 3);
+			assert.strictEqual(updates.get('dep-a')?.type, 'dependencies');
+			assert.strictEqual(updates.get('dev-a')?.type, 'devDependencies');
+			assert.strictEqual(updates.get('peer-a')?.type, 'peerDependencies');
 		});
 	});
 
 	describe('update_all_repos', () => {
-		it('updates all repos with matching dependencies', async () => {
+		test('updates all repos with matching dependencies', async () => {
 			const fs = create_mock_fs_ops();
 
 			const repos = [
@@ -591,11 +591,11 @@ describe('dependency_updater', () => {
 
 			const result = await update_all_repos(repos, published, {git_ops, fs_ops: fs});
 
-			expect(result.updated).toBe(2);
-			expect(result.failed).toHaveLength(0);
+			assert.strictEqual(result.updated, 2);
+			assert.strictEqual(result.failed.length, 0);
 		});
 
-		it('skips repos without matching dependencies', async () => {
+		test('skips repos without matching dependencies', async () => {
 			const fs = create_mock_fs_ops();
 
 			const repos = [
@@ -624,10 +624,10 @@ describe('dependency_updater', () => {
 
 			const result = await update_all_repos(repos, published, {git_ops, fs_ops: fs});
 
-			expect(result.updated).toBe(1); // only pkg-a
+			assert.strictEqual(result.updated, 1); // only pkg-a
 		});
 
-		it('reports failures for problematic repos', async () => {
+		test('reports failures for problematic repos', async () => {
 			const fs = create_mock_fs_ops();
 
 			const repos = [create_mock_repo({name: 'pkg-a', deps: {lib: '^1.0.0'}})];
@@ -639,10 +639,10 @@ describe('dependency_updater', () => {
 
 			const result = await update_all_repos(repos, published, {git_ops, fs_ops: fs});
 
-			expect(result.updated).toBe(0);
-			expect(result.failed).toHaveLength(1);
-			expect(result.failed[0]!.repo).toBe('pkg-a');
-			expect(result.failed[0]!.error).toBeInstanceOf(Error);
+			assert.strictEqual(result.updated, 0);
+			assert.strictEqual(result.failed.length, 1);
+			assert.strictEqual(result.failed[0]!.repo, 'pkg-a');
+			assert.instanceOf(result.failed[0]!.error, Error);
 		});
 	});
 });

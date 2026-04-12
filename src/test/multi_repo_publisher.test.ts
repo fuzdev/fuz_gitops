@@ -1,4 +1,5 @@
-import {test, expect} from 'vitest';
+import {assert, test} from 'vitest';
+import {create_mock_logger} from '@fuzdev/fuz_util/testing.js';
 
 import type {LocalRepo} from '$lib/local_repo.js';
 import {publish_repos} from '$lib/multi_repo_publisher.js';
@@ -10,8 +11,7 @@ import {
 	create_mock_git_ops,
 	create_preflight_mock,
 	create_populated_fs_ops,
-	create_mock_logger,
-} from './test_helpers.ts';
+} from './test_helpers.js';
 
 test('wetrun=false predicts versions without publishing', async () => {
 	const repos: Array<LocalRepo> = [
@@ -41,12 +41,12 @@ test('wetrun=false predicts versions without publishing', async () => {
 		ops: mock_ops,
 	});
 
-	expect(result.ok).toBe(true);
-	expect(result.published.length).toBe(2);
-	expect(result.published[0]!.name).toBe('pkg-a');
-	expect(result.published[0]!.new_version).toBe('0.1.1');
-	expect(result.published[1]!.name).toBe('pkg-b');
-	expect(result.published[1]!.new_version).toBe('0.2.1');
+	assert.strictEqual(result.ok, true);
+	assert.strictEqual(result.published.length, 2);
+	assert.strictEqual(result.published[0]!.name, 'pkg-a');
+	assert.strictEqual(result.published[0]!.new_version, '0.1.1');
+	assert.strictEqual(result.published[1]!.name, 'pkg-b');
+	assert.strictEqual(result.published[1]!.new_version, '0.2.1');
 });
 
 test('always fails fast on publish errors', async () => {
@@ -83,10 +83,10 @@ test('always fails fast on publish errors', async () => {
 	});
 
 	// With fail-fast behavior: only the first package in topo order fails, no other packages are attempted
-	expect(result.ok).toBe(false);
-	expect(result.failed.length).toBe(1);
-	expect(result.failed[0]!.name).toBe('pkg-c');
-	expect(result.published.length).toBe(0); // No packages published after failure
+	assert.strictEqual(result.ok, false);
+	assert.strictEqual(result.failed.length, 1);
+	assert.strictEqual(result.failed[0]!.name, 'pkg-c');
+	assert.strictEqual(result.published.length, 0); // No packages published after failure
 });
 
 test('handles breaking change cascades when wetrun=false', async () => {
@@ -122,18 +122,18 @@ test('handles breaking change cascades when wetrun=false', async () => {
 		ops: mock_ops,
 	});
 
-	expect(result.ok).toBe(true);
-	expect(result.published.length).toBe(3);
+	assert.strictEqual(result.ok, true);
+	assert.strictEqual(result.published.length, 3);
 
 	// Check versions
 	const core = result.published.find((p) => p.name === 'pkg-core');
 	const mid = result.published.find((p) => p.name === 'pkg-mid');
 	const app = result.published.find((p) => p.name === 'pkg-app');
 
-	expect(core?.new_version).toBe('0.6.0');
-	expect(core?.breaking).toBe(true);
-	expect(mid?.new_version).toBe('0.3.1');
-	expect(app?.new_version).toBe('0.2.1');
+	assert.strictEqual(core?.new_version, '0.6.0');
+	assert.strictEqual(core?.breaking, true);
+	assert.strictEqual(mid?.new_version, '0.3.1');
+	assert.strictEqual(app?.new_version, '0.2.1');
 });
 
 test('skips repos without changesets', async () => {
@@ -164,9 +164,9 @@ test('skips repos without changesets', async () => {
 	});
 
 	// Only pkg-a should be published
-	expect(result.ok).toBe(true);
-	expect(result.published.length).toBe(1);
-	expect(result.published[0]!.name).toBe('pkg-a');
+	assert.strictEqual(result.ok, true);
+	assert.strictEqual(result.published.length, 1);
+	assert.strictEqual(result.published[0]!.name, 'pkg-a');
 });
 
 test('publishes in dependency order', async () => {
@@ -195,7 +195,7 @@ test('publishes in dependency order', async () => {
 	// Should publish in dependency order: lib → middleware → app
 	const publish_commands = get_commands_by_type('publish');
 	const publish_order = get_package_names_from_cwd(publish_commands);
-	expect(publish_order).toEqual(['lib', 'middleware', 'app']);
+	assert.deepEqual(publish_order, ['lib', 'middleware', 'app']);
 });
 
 test('waits for npm propagation after each publish', async () => {
@@ -226,9 +226,9 @@ test('waits for npm propagation after each publish', async () => {
 	await publish_repos(repos, {wetrun: true, update_deps: true, ops: mock_ops});
 
 	// Should wait for both packages
-	expect(wait_calls.length).toBe(2);
-	expect(wait_calls[0]!.pkg).toBe('pkg-b');
-	expect(wait_calls[1]!.pkg).toBe('pkg-a');
+	assert.strictEqual(wait_calls.length, 2);
+	assert.strictEqual(wait_calls[0]!.pkg, 'pkg-b');
+	assert.strictEqual(wait_calls[1]!.pkg, 'pkg-a');
 });
 
 test('updates prod dependencies after publishing (Phase 1)', async () => {
@@ -255,7 +255,7 @@ test('updates prod dependencies after publishing (Phase 1)', async () => {
 
 	// With update_deps enabled and lib having changesets, dependency updates should occur
 	// (Actual behavior depends on implementation - tests document expected outcome)
-	expect(git_commits.length).toBeGreaterThanOrEqual(0);
+	assert.ok(git_commits.length >= 0);
 });
 
 test('updates dev dependencies (Phase 2)', async () => {
@@ -281,7 +281,7 @@ test('updates dev dependencies (Phase 2)', async () => {
 	const result = await publish_repos(repos, {wetrun: true, update_deps: false, ops: mock_ops});
 
 	// Test succeeds if publishing completes
-	expect(result.ok).toBe(true);
+	assert.strictEqual(result.ok, true);
 });
 
 test('deploys all repos when deploy flag is set (Phase 3)', async () => {
@@ -309,9 +309,15 @@ test('deploys all repos when deploy flag is set (Phase 3)', async () => {
 
 	// Should deploy both repos
 	const deploy_commands = get_commands_by_type('deploy');
-	expect(deploy_commands.length).toBe(2);
-	expect(deploy_commands.some((c) => c.cwd.includes('pkg-a'))).toBe(true);
-	expect(deploy_commands.some((c) => c.cwd.includes('pkg-b'))).toBe(true);
+	assert.strictEqual(deploy_commands.length, 2);
+	assert.strictEqual(
+		deploy_commands.some((c) => c.cwd.includes('pkg-a')),
+		true,
+	);
+	assert.strictEqual(
+		deploy_commands.some((c) => c.cwd.includes('pkg-b')),
+		true,
+	);
 });
 
 test('deploys only repos with changes (skips unchanged repos)', async () => {
@@ -349,11 +355,23 @@ test('deploys only repos with changes (skips unchanged repos)', async () => {
 
 	// Should deploy only lib (published) and app-with-dep (dep updated)
 	const deploy_commands = get_commands_by_type('deploy');
-	expect(deploy_commands.length).toBe(2);
-	expect(deploy_commands.some((c) => c.cwd.includes('lib'))).toBe(true);
-	expect(deploy_commands.some((c) => c.cwd.includes('app-with-dep'))).toBe(true);
-	expect(deploy_commands.some((c) => c.cwd.includes('app-no-dep'))).toBe(false);
-	expect(deploy_commands.some((c) => c.cwd.includes('util-isolated'))).toBe(false);
+	assert.strictEqual(deploy_commands.length, 2);
+	assert.strictEqual(
+		deploy_commands.some((c) => c.cwd.includes('lib')),
+		true,
+	);
+	assert.strictEqual(
+		deploy_commands.some((c) => c.cwd.includes('app-with-dep')),
+		true,
+	);
+	assert.strictEqual(
+		deploy_commands.some((c) => c.cwd.includes('app-no-dep')),
+		false,
+	);
+	assert.strictEqual(
+		deploy_commands.some((c) => c.cwd.includes('util-isolated')),
+		false,
+	);
 });
 
 test('wetrun=false skips deployment even with deploy flag', async () => {
@@ -379,7 +397,7 @@ test('wetrun=false skips deployment even with deploy flag', async () => {
 
 	// Dry run should skip deployment entirely
 	const deploy_commands = get_commands_by_type('deploy');
-	expect(deploy_commands.length).toBe(0);
+	assert.strictEqual(deploy_commands.length, 0);
 });
 
 test('no changes results in no deployment', async () => {
@@ -411,7 +429,7 @@ test('no changes results in no deployment', async () => {
 
 	// No changes = no deployment
 	const deploy_commands = get_commands_by_type('deploy');
-	expect(deploy_commands.length).toBe(0);
+	assert.strictEqual(deploy_commands.length, 0);
 });
 
 test('applies version strategy (caret vs tilde vs exact)', async () => {
@@ -438,7 +456,7 @@ test('applies version strategy (caret vs tilde vs exact)', async () => {
 	});
 
 	// Test succeeds if publishing completes
-	expect(result.ok).toBe(true);
+	assert.strictEqual(result.ok, true);
 });
 
 test('handles 4-level transitive dependency chain', async () => {
@@ -473,7 +491,7 @@ test('handles 4-level transitive dependency chain', async () => {
 	// Should publish bottom-up
 	const publish_commands = get_commands_by_type('publish');
 	const publish_order = get_package_names_from_cwd(publish_commands);
-	expect(publish_order).toEqual(['level-1', 'level-2', 'level-3', 'level-4']);
+	assert.deepEqual(publish_order, ['level-1', 'level-2', 'level-3', 'level-4']);
 });
 
 test('handles mixed prod and dev deps on same package', async () => {
@@ -498,7 +516,7 @@ test('handles mixed prod and dev deps on same package', async () => {
 	const result = await publish_repos(repos, {wetrun: true, update_deps: false, ops: mock_ops});
 
 	// Test succeeds if publishing completes
-	expect(result.ok).toBe(true);
+	assert.strictEqual(result.ok, true);
 });
 
 test('reports correct duration in result', async () => {
@@ -513,8 +531,8 @@ test('reports correct duration in result', async () => {
 
 	const result = await publish_repos(repos, {wetrun: true, update_deps: false, ops: mock_ops});
 
-	expect(result.duration).toBeGreaterThanOrEqual(0);
-	expect(typeof result.duration).toBe('number');
+	assert.ok(result.duration >= 0);
+	assert.strictEqual(typeof result.duration, 'number');
 });
 
 test('wetrun=false skips preflight checks', async () => {
@@ -534,7 +552,7 @@ test('wetrun=false skips preflight checks', async () => {
 	await publish_repos(repos, {wetrun: false, update_deps: false, ops: mock_ops});
 
 	// wetrun=false should skip preflight checks
-	expect(preflight_called).toBe(false);
+	assert.strictEqual(preflight_called, false);
 });
 
 test('handles npm propagation failure gracefully', async () => {
@@ -559,9 +577,9 @@ test('handles npm propagation failure gracefully', async () => {
 	const result = await publish_repos(repos, {wetrun: true, update_deps: true, ops: mock_ops});
 
 	// Should fail due to npm propagation timeout
-	expect(result.ok).toBe(false);
-	expect(result.failed.length).toBe(1);
-	expect(result.failed[0]!.error.message).toContain('Timeout waiting for package');
+	assert.strictEqual(result.ok, false);
+	assert.strictEqual(result.failed.length, 1);
+	assert.ok(result.failed[0]!.error.message.includes('Timeout waiting for package'));
 });
 
 test('handles deploy failures without stopping', async () => {
@@ -607,10 +625,10 @@ test('handles deploy failures without stopping', async () => {
 	});
 
 	// Publishing should succeed even if deploy fails
-	expect(result.ok).toBe(true);
+	assert.strictEqual(result.ok, true);
 	// Both deploys should be attempted (deploy doesn't fail-fast)
 	const deploy_commands = get_commands_by_type('deploy');
-	expect(deploy_commands.length).toBe(2);
+	assert.strictEqual(deploy_commands.length, 2);
 });
 
 test('returns correct PublishedVersion metadata', async () => {
@@ -639,15 +657,15 @@ test('returns correct PublishedVersion metadata', async () => {
 
 	const result = await publish_repos(repos, {wetrun: false, update_deps: false, ops: mock_ops});
 
-	expect(result.published.length).toBe(1);
+	assert.strictEqual(result.published.length, 1);
 	const published = result.published[0]!;
 
-	expect(published.name).toBe('pkg-a');
-	expect(published.old_version).toBe('0.5.0');
-	expect(published.new_version).toBe('0.6.0');
-	expect(published.bump_type).toBe('minor');
-	expect(published.breaking).toBe(true); // 0.x minor is breaking
-	expect(published.tag).toBe('v0.6.0');
+	assert.strictEqual(published.name, 'pkg-a');
+	assert.strictEqual(published.old_version, '0.5.0');
+	assert.strictEqual(published.new_version, '0.6.0');
+	assert.strictEqual(published.bump_type, 'minor');
+	assert.strictEqual(published.breaking, true); // 0.x minor is breaking
+	assert.strictEqual(published.tag, 'v0.6.0');
 });
 
 test('converges early when no new packages publish', async () => {
@@ -672,18 +690,18 @@ test('converges early when no new packages publish', async () => {
 	});
 
 	// Should succeed and publish once
-	expect(result.ok).toBe(true);
-	expect(result.published.length).toBe(1);
+	assert.strictEqual(result.ok, true);
+	assert.strictEqual(result.published.length, 1);
 
 	// Should log convergence message (iteration 2, since nothing publishes in iteration 2)
-	const convergence_msg = log.info_calls.find((m) => m.includes('Converged after'));
-	expect(convergence_msg).toBeDefined();
+	const convergence_msg = log.info_calls.find((m) => (m as string).includes('Converged after'));
+	assert.ok(convergence_msg !== undefined);
 
 	// Should NOT warn about max iterations
 	const max_iteration_warning = log.warn_calls.find((m) =>
-		m.includes('Reached maximum iterations'),
+		(m as string).includes('Reached maximum iterations'),
 	);
-	expect(max_iteration_warning).toBeUndefined();
+	assert.strictEqual(max_iteration_warning, undefined);
 });
 
 // NOTE: MAX_ITERATIONS warning test for multi_repo_publisher is complex to simulate
@@ -723,7 +741,7 @@ test('skip_install flag prevents npm install', async () => {
 	});
 
 	// Install should NOT be called
-	expect(install_called).toBe(false);
+	assert.strictEqual(install_called, false);
 });
 
 test('install failures are handled gracefully', async () => {
@@ -762,10 +780,13 @@ test('install failures are handled gracefully', async () => {
 	const result = await publish_repos(repos, {wetrun: true, update_deps: true, ops: mock_ops});
 
 	// Install should have been attempted for both apps
-	expect(install_attempts).toBeGreaterThan(0);
+	assert.ok(install_attempts > 0);
 
 	// One failure should be tracked
-	expect(result.failed.some((f) => f.name === 'app1')).toBe(true);
+	assert.strictEqual(
+		result.failed.some((f) => f.name === 'app1'),
+		true,
+	);
 });
 
 // NOTE: Cache healing during publishing is thoroughly tested in npm_install_helpers.test.ts (9 tests)

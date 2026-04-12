@@ -1,4 +1,4 @@
-import {describe, it, expect} from 'vitest';
+import {assert, describe, test} from 'vitest';
 
 import {run_preflight_checks} from '$lib/preflight_checks.js';
 import {
@@ -6,12 +6,12 @@ import {
 	create_mock_git_ops,
 	create_mock_npm_ops,
 	create_mock_build_ops,
-} from './test_helpers.ts';
+} from './test_helpers.js';
 import type {LocalRepo} from '$lib/local_repo.js';
 
 describe('preflight_checks', () => {
 	describe('workspace cleanliness', () => {
-		it('passes when all workspaces are clean', async () => {
+		test('passes when all workspaces are clean', async () => {
 			const repos = [create_mock_repo({name: 'package-a'}), create_mock_repo({name: 'package-b'})];
 
 			const git_ops = create_mock_git_ops({
@@ -26,11 +26,11 @@ describe('preflight_checks', () => {
 				npm_ops,
 			});
 
-			expect(result.ok).toBe(true);
-			expect(result.errors).toHaveLength(0);
+			assert.strictEqual(result.ok, true);
+			assert.strictEqual(result.errors.length, 0);
 		});
 
-		it('fails when a workspace has uncommitted changes', async () => {
+		test('fails when a workspace has uncommitted changes', async () => {
 			const repos = [create_mock_repo({name: 'package-a'}), create_mock_repo({name: 'package-b'})];
 
 			let call_count = 0;
@@ -50,13 +50,13 @@ describe('preflight_checks', () => {
 				npm_ops,
 			});
 
-			expect(result.ok).toBe(false);
-			expect(result.errors).toHaveLength(1);
-			expect(result.errors[0]).toContain('package-b');
-			expect(result.errors[0]).toContain('uncommitted changes');
+			assert.strictEqual(result.ok, false);
+			assert.strictEqual(result.errors.length, 1);
+			assert.ok(result.errors[0]!.includes('package-b'));
+			assert.ok(result.errors[0]!.includes('uncommitted changes'));
 		});
 
-		it('reports all repos with uncommitted changes', async () => {
+		test('reports all repos with uncommitted changes', async () => {
 			const repos = [
 				create_mock_repo({name: 'package-a'}),
 				create_mock_repo({name: 'package-b'}),
@@ -76,11 +76,11 @@ describe('preflight_checks', () => {
 				npm_ops,
 			});
 
-			expect(result.ok).toBe(false);
-			expect(result.errors).toHaveLength(3);
+			assert.strictEqual(result.ok, false);
+			assert.strictEqual(result.errors.length, 3);
 		});
 
-		it('fails when workspace has changeset files (no filtering)', async () => {
+		test('fails when workspace has changeset files (no filtering)', async () => {
 			const repos = [create_mock_repo({name: 'package-a'})];
 
 			const git_ops = create_mock_git_ops({
@@ -97,12 +97,12 @@ describe('preflight_checks', () => {
 			});
 
 			// Should fail - changeset files are no longer filtered
-			expect(result.ok).toBe(false);
-			expect(result.errors).toHaveLength(1);
-			expect(result.errors[0]).toContain('.changeset/my-change.md');
+			assert.strictEqual(result.ok, false);
+			assert.strictEqual(result.errors.length, 1);
+			assert.ok(result.errors[0]!.includes('.changeset/my-change.md'));
 		});
 
-		it('fails when workspace has package.json changes (no filtering)', async () => {
+		test('fails when workspace has package.json changes (no filtering)', async () => {
 			const repos = [create_mock_repo({name: 'package-a'})];
 
 			const git_ops = create_mock_git_ops({
@@ -119,12 +119,12 @@ describe('preflight_checks', () => {
 			});
 
 			// Should fail - package.json is no longer filtered
-			expect(result.ok).toBe(false);
-			expect(result.errors).toHaveLength(1);
-			expect(result.errors[0]).toContain('package.json');
+			assert.strictEqual(result.ok, false);
+			assert.strictEqual(result.errors.length, 1);
+			assert.ok(result.errors[0]!.includes('package.json'));
 		});
 
-		it('fails when workspace has package-lock.json changes (no filtering)', async () => {
+		test('fails when workspace has package-lock.json changes (no filtering)', async () => {
 			const repos = [create_mock_repo({name: 'package-a'})];
 
 			const git_ops = create_mock_git_ops({
@@ -141,14 +141,14 @@ describe('preflight_checks', () => {
 			});
 
 			// Should fail - package-lock.json is no longer filtered
-			expect(result.ok).toBe(false);
-			expect(result.errors).toHaveLength(1);
-			expect(result.errors[0]).toContain('package-lock.json');
+			assert.strictEqual(result.ok, false);
+			assert.strictEqual(result.errors.length, 1);
+			assert.ok(result.errors[0]!.includes('package-lock.json'));
 		});
 	});
 
 	describe('branch validation', () => {
-		it('passes when all repos are on the required branch', async () => {
+		test('passes when all repos are on the required branch', async () => {
 			const repos = [create_mock_repo({name: 'package-a'}), create_mock_repo({name: 'package-b'})];
 
 			const git_ops = create_mock_git_ops({
@@ -163,11 +163,11 @@ describe('preflight_checks', () => {
 				npm_ops,
 			});
 
-			expect(result.ok).toBe(true);
-			expect(result.errors).toHaveLength(0);
+			assert.strictEqual(result.ok, true);
+			assert.strictEqual(result.errors.length, 0);
 		});
 
-		it('fails when a repo is on wrong branch', async () => {
+		test('fails when a repo is on wrong branch', async () => {
 			const repos = [create_mock_repo({name: 'package-a'}), create_mock_repo({name: 'package-b'})];
 
 			let call_count = 0;
@@ -186,14 +186,14 @@ describe('preflight_checks', () => {
 				npm_ops,
 			});
 
-			expect(result.ok).toBe(false);
-			expect(result.errors).toHaveLength(1);
-			expect(result.errors[0]).toContain('package-b');
-			expect(result.errors[0]).toContain("is on branch 'develop'");
-			expect(result.errors[0]).toContain("expected 'main'");
+			assert.strictEqual(result.ok, false);
+			assert.strictEqual(result.errors.length, 1);
+			assert.ok(result.errors[0]!.includes('package-b'));
+			assert.ok(result.errors[0]!.includes("is on branch 'develop'"));
+			assert.ok(result.errors[0]!.includes("expected 'main'"));
 		});
 
-		it('supports custom required branch', async () => {
+		test('supports custom required branch', async () => {
 			const repos = [create_mock_repo({name: 'package-a'})];
 
 			const git_ops = create_mock_git_ops({
@@ -208,10 +208,10 @@ describe('preflight_checks', () => {
 				npm_ops,
 			});
 
-			expect(result.ok).toBe(true);
+			assert.strictEqual(result.ok, true);
 		});
 
-		it('defaults to main branch if not specified', async () => {
+		test('defaults to main branch if not specified', async () => {
 			const repos = [create_mock_repo({name: 'package-a'})];
 
 			const git_ops = create_mock_git_ops({
@@ -226,13 +226,13 @@ describe('preflight_checks', () => {
 				npm_ops,
 			});
 
-			expect(result.ok).toBe(false);
-			expect(result.errors[0]).toContain("expected 'main'");
+			assert.strictEqual(result.ok, false);
+			assert.ok(result.errors[0]!.includes("expected 'main'"));
 		});
 	});
 
 	describe('changeset validation', () => {
-		it('detects repos with changesets', async () => {
+		test('detects repos with changesets', async () => {
 			const repos = [create_mock_repo({name: 'package-a'}), create_mock_repo({name: 'package-b'})];
 
 			const git_ops = create_mock_git_ops();
@@ -246,11 +246,11 @@ describe('preflight_checks', () => {
 			});
 
 			// Without actual changesets, all should be marked as without
-			expect(result.repos_without_changesets.size).toBe(2);
-			expect(result.repos_with_changesets.size).toBe(0);
+			assert.strictEqual(result.repos_without_changesets.size, 2);
+			assert.strictEqual(result.repos_with_changesets.size, 0);
 		});
 
-		it('warns about packages without changesets', async () => {
+		test('warns about packages without changesets', async () => {
 			const repos = [create_mock_repo({name: 'package-a'}), create_mock_repo({name: 'package-b'})];
 
 			const git_ops = create_mock_git_ops();
@@ -265,10 +265,10 @@ describe('preflight_checks', () => {
 
 			// Filter for changeset-related warnings (may also have npm warnings)
 			const changeset_warnings = result.warnings.filter((w) => w.includes('no changesets'));
-			expect(changeset_warnings).toHaveLength(2);
+			assert.strictEqual(changeset_warnings.length, 2);
 		});
 
-		it('skips changeset checks when skip_changesets is true', async () => {
+		test('skips changeset checks when skip_changesets is true', async () => {
 			const repos = [create_mock_repo({name: 'package-a'})];
 
 			const git_ops = create_mock_git_ops();
@@ -281,11 +281,11 @@ describe('preflight_checks', () => {
 				npm_ops,
 			});
 
-			expect(result.repos_with_changesets.size).toBe(0);
-			expect(result.repos_without_changesets.size).toBe(0);
+			assert.strictEqual(result.repos_with_changesets.size, 0);
+			assert.strictEqual(result.repos_without_changesets.size, 0);
 			// May have npm warnings, but no changeset warnings
 			const changeset_warnings = result.warnings.filter((w) => w.includes('changesets'));
-			expect(changeset_warnings).toHaveLength(0);
+			assert.strictEqual(changeset_warnings.length, 0);
 		});
 	});
 
@@ -294,7 +294,7 @@ describe('preflight_checks', () => {
 		// In real tests, this would need to be mocked at the spawn level
 		// For now, we test the integration assuming npm commands work
 
-		it('passes with valid npm authentication', async () => {
+		test('passes with valid npm authentication', async () => {
 			const repos = [create_mock_repo({name: 'package-a'})];
 			const git_ops = create_mock_git_ops();
 
@@ -310,13 +310,13 @@ describe('preflight_checks', () => {
 
 			// We can't assert npm auth result without mocking spawn
 			// but we can check the structure
-			expect(result).toHaveProperty('ok');
-			expect(result).toHaveProperty('errors');
+			assert.ok('ok' in result);
+			assert.ok('errors' in result);
 		});
 	});
 
 	describe('multiple validation failures', () => {
-		it('reports all types of failures together', async () => {
+		test('reports all types of failures together', async () => {
 			const repos = [
 				create_mock_repo({name: 'dirty-wrong-branch'}),
 				create_mock_repo({name: 'clean-wrong-branch'}),
@@ -345,15 +345,15 @@ describe('preflight_checks', () => {
 				npm_ops,
 			});
 
-			expect(result.ok).toBe(false);
-			expect(result.errors.length).toBe(3); // 1 dirty + 2 wrong branches
-			expect(clean_call).toBe(2); // Check called for both repos
-			expect(branch_call).toBe(2); // Check called for both repos
+			assert.strictEqual(result.ok, false);
+			assert.strictEqual(result.errors.length, 3); // 1 dirty + 2 wrong branches
+			assert.strictEqual(clean_call, 2); // Check called for both repos
+			assert.strictEqual(branch_call, 2); // Check called for both repos
 		});
 	});
 
 	describe('empty repo list', () => {
-		it('passes with empty repo list', async () => {
+		test('passes with empty repo list', async () => {
 			const repos: Array<LocalRepo> = [];
 			const git_ops = create_mock_git_ops();
 
@@ -365,14 +365,14 @@ describe('preflight_checks', () => {
 				npm_ops,
 			});
 
-			expect(result.ok).toBe(true);
-			expect(result.errors).toHaveLength(0);
+			assert.strictEqual(result.ok, true);
+			assert.strictEqual(result.errors.length, 0);
 			// May have npm warnings, but that's acceptable for empty list
 		});
 	});
 
 	describe('result structure', () => {
-		it('returns correct result structure', async () => {
+		test('returns correct result structure', async () => {
 			const repos = [create_mock_repo({name: 'package-a'})];
 			const git_ops = create_mock_git_ops();
 
@@ -384,21 +384,21 @@ describe('preflight_checks', () => {
 				npm_ops,
 			});
 
-			expect(result).toHaveProperty('ok');
-			expect(result).toHaveProperty('warnings');
-			expect(result).toHaveProperty('errors');
-			expect(result).toHaveProperty('repos_with_changesets');
-			expect(result).toHaveProperty('repos_without_changesets');
+			assert.ok('ok' in result);
+			assert.ok('warnings' in result);
+			assert.ok('errors' in result);
+			assert.ok('repos_with_changesets' in result);
+			assert.ok('repos_without_changesets' in result);
 
-			expect(Array.isArray(result.warnings)).toBe(true);
-			expect(Array.isArray(result.errors)).toBe(true);
-			expect(result.repos_with_changesets instanceof Set).toBe(true);
-			expect(result.repos_without_changesets instanceof Set).toBe(true);
+			assert.strictEqual(Array.isArray(result.warnings), true);
+			assert.strictEqual(Array.isArray(result.errors), true);
+			assert.ok(result.repos_with_changesets instanceof Set);
+			assert.ok(result.repos_without_changesets instanceof Set);
 		});
 	});
 
 	describe('build validation', () => {
-		it('skips build validation when skip_build_validation is true', async () => {
+		test('skips build validation when skip_build_validation is true', async () => {
 			const repos = [create_mock_repo({name: 'package-a'})];
 			const git_ops = create_mock_git_ops();
 			const npm_ops = create_mock_npm_ops();
@@ -419,11 +419,11 @@ describe('preflight_checks', () => {
 				build_ops,
 			});
 
-			expect(result.ok).toBe(true);
-			expect(build_called).toBe(false);
+			assert.strictEqual(result.ok, true);
+			assert.strictEqual(build_called, false);
 		});
 
-		it('validates builds for packages with changesets', async () => {
+		test('validates builds for packages with changesets', async () => {
 			const repos = [create_mock_repo({name: 'package-a'}), create_mock_repo({name: 'package-b'})];
 
 			const git_ops = create_mock_git_ops();
@@ -451,11 +451,11 @@ describe('preflight_checks', () => {
 			});
 
 			// Since mock repos don't have actual .changeset/ directories, build count is 0
-			expect(result.ok).toBe(true);
-			expect(build_count).toBe(0);
+			assert.strictEqual(result.ok, true);
+			assert.strictEqual(build_count, 0);
 		});
 
-		it('fails when a build fails', async () => {
+		test('fails when a build fails', async () => {
 			const repos = [create_mock_repo({name: 'package-a'}), create_mock_repo({name: 'package-b'})];
 
 			const git_ops = create_mock_git_ops();
@@ -481,11 +481,11 @@ describe('preflight_checks', () => {
 			});
 
 			// Since mock repos don't have changesets, no builds run
-			expect(result.ok).toBe(true);
-			expect(call_count).toBe(0);
+			assert.strictEqual(result.ok, true);
+			assert.strictEqual(call_count, 0);
 		});
 
-		it('fails preflight when build fails for package with changesets', async () => {
+		test('fails preflight when build fails for package with changesets', async () => {
 			const repos = [create_mock_repo({name: 'package-a'}), create_mock_repo({name: 'package-b'})];
 
 			const git_ops = create_mock_git_ops();
@@ -522,12 +522,12 @@ describe('preflight_checks', () => {
 			});
 
 			// Should fail due to build error
-			expect(result.ok).toBe(false);
-			expect(result.errors.some((e) => e.includes('package-b failed to build'))).toBe(true);
-			expect(result.errors.some((e) => e.includes('syntax error'))).toBe(true);
+			assert.strictEqual(result.ok, false);
+			assert.ok(result.errors.some((e) => e.includes('package-b failed to build')));
+			assert.ok(result.errors.some((e) => e.includes('syntax error')));
 		});
 
-		it('reports build failures with error details', async () => {
+		test('reports build failures with error details', async () => {
 			const repos = [create_mock_repo({name: 'failing-package'})];
 
 			const git_ops = create_mock_git_ops();
@@ -559,14 +559,15 @@ describe('preflight_checks', () => {
 			});
 
 			// Should fail with detailed error message
-			expect(result.ok).toBe(false);
-			expect(result.errors.length).toBe(1);
-			expect(result.errors[0]).toBe(
+			assert.strictEqual(result.ok, false);
+			assert.strictEqual(result.errors.length, 1);
+			assert.strictEqual(
+				result.errors[0],
 				'failing-package failed to build: Syntax error in src/main.ts:42',
 			);
 		});
 
-		it('validates builds only for packages with changesets', async () => {
+		test('validates builds only for packages with changesets', async () => {
 			const repos = [
 				create_mock_repo({name: 'with-changeset'}),
 				create_mock_repo({name: 'without-changeset'}),
@@ -592,10 +593,10 @@ describe('preflight_checks', () => {
 			});
 
 			// With skip_changesets, no builds should run
-			expect(built_packages).toHaveLength(0);
+			assert.strictEqual(built_packages.length, 0);
 		});
 
-		it('continues validation after build failures to report all issues', async () => {
+		test('continues validation after build failures to report all issues', async () => {
 			const repos = [
 				create_mock_repo({name: 'package-a'}),
 				create_mock_repo({name: 'package-b'}),
@@ -637,16 +638,16 @@ describe('preflight_checks', () => {
 			});
 
 			// Should fail but continue to build all packages
-			expect(result.ok).toBe(false);
-			expect(built_packages).toHaveLength(3); // All 3 packages were attempted
-			expect(built_packages).toContain('package-a');
-			expect(built_packages).toContain('package-b');
-			expect(built_packages).toContain('package-c');
+			assert.strictEqual(result.ok, false);
+			assert.strictEqual(built_packages.length, 3); // All 3 packages were attempted
+			assert.ok(built_packages.includes('package-a'));
+			assert.ok(built_packages.includes('package-b'));
+			assert.ok(built_packages.includes('package-c'));
 
 			// Should report both failures
-			expect(result.errors.length).toBe(2);
-			expect(result.errors.some((e) => e.includes('package-a failed to build'))).toBe(true);
-			expect(result.errors.some((e) => e.includes('package-c failed to build'))).toBe(true);
+			assert.strictEqual(result.errors.length, 2);
+			assert.ok(result.errors.some((e) => e.includes('package-a failed to build')));
+			assert.ok(result.errors.some((e) => e.includes('package-c failed to build')));
 		});
 	});
 });

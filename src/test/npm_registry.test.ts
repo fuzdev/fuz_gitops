@@ -1,6 +1,7 @@
-import {describe, it, expect, vi, beforeEach, afterEach} from 'vitest';
+import {assert, describe, test, vi, beforeEach, afterEach} from 'vitest';
 import {spawn_out} from '@fuzdev/fuz_util/process.js';
 import {wait} from '@fuzdev/fuz_util/async.js';
+import {assert_rejects, create_mock_logger} from '@fuzdev/fuz_util/testing.js';
 
 import {
 	check_package_available,
@@ -9,7 +10,6 @@ import {
 	package_exists,
 	type WaitOptions,
 } from '$lib/npm_registry.js';
-import {create_mock_logger} from './test_helpers.ts';
 
 // Mock spawn_out from @fuzdev/fuz_util/process.js
 vi.mock('@fuzdev/fuz_util/process.js', () => ({
@@ -33,102 +33,108 @@ describe('npm_registry', () => {
 	});
 
 	describe('check_package_available', () => {
-		it('returns true when package version exists', async () => {
+		test('returns true when package version exists', async () => {
 			vi.mocked(spawn_out).mockResolvedValue({stdout: '1.2.3'} as any);
 
 			const result = await check_package_available('test-pkg', '1.2.3');
 
-			expect(result).toBe(true);
-			expect(spawn_out).toHaveBeenCalledWith('npm', ['view', 'test-pkg@1.2.3', 'version']);
+			assert.strictEqual(result, true);
+			assert.deepEqual(vi.mocked(spawn_out).mock.calls[0], [
+				'npm',
+				['view', 'test-pkg@1.2.3', 'version'],
+			]);
 		});
 
-		it('returns false when version does not match', async () => {
+		test('returns false when version does not match', async () => {
 			vi.mocked(spawn_out).mockResolvedValue({stdout: '1.2.4'} as any);
 
 			const result = await check_package_available('test-pkg', '1.2.3');
 
-			expect(result).toBe(false);
+			assert.strictEqual(result, false);
 		});
 
-		it('returns false when npm command fails', async () => {
+		test('returns false when npm command fails', async () => {
 			vi.mocked(spawn_out).mockRejectedValue(new Error('npm error'));
 
 			const result = await check_package_available('test-pkg', '1.2.3');
 
-			expect(result).toBe(false);
+			assert.strictEqual(result, false);
 		});
 
-		it('returns false when stdout is empty', async () => {
+		test('returns false when stdout is empty', async () => {
 			vi.mocked(spawn_out).mockResolvedValue({stdout: ''} as any);
 
 			const result = await check_package_available('test-pkg', '1.2.3');
 
-			expect(result).toBe(false);
+			assert.strictEqual(result, false);
 		});
 
-		it('returns false when stdout is undefined', async () => {
+		test('returns false when stdout is undefined', async () => {
 			vi.mocked(spawn_out).mockResolvedValue({} as any);
 
 			const result = await check_package_available('test-pkg', '1.2.3');
 
-			expect(result).toBe(false);
+			assert.strictEqual(result, false);
 		});
 
-		it('trims whitespace from stdout', async () => {
+		test('trims whitespace from stdout', async () => {
 			vi.mocked(spawn_out).mockResolvedValue({stdout: '  1.2.3\n  '} as any);
 
 			const result = await check_package_available('test-pkg', '1.2.3');
 
-			expect(result).toBe(true);
+			assert.strictEqual(result, true);
 		});
 
-		it('logs debug message on error', async () => {
+		test('logs debug message on error', async () => {
 			const log = create_mock_logger();
 			vi.mocked(spawn_out).mockRejectedValue(new Error('network timeout'));
 
 			await check_package_available('test-pkg', '1.2.3', {log});
 
-			expect(log.debug_calls.length).toBe(1);
-			expect(log.debug_calls[0]).toContain('test-pkg@1.2.3');
-			expect(log.debug_calls[0]).toContain('network timeout');
+			assert.strictEqual(log.debug_calls.length, 1);
+			assert.ok((log.debug_calls[0] as string).includes('test-pkg@1.2.3'));
+			assert.ok((log.debug_calls[0] as string).includes('network timeout'));
 		});
 
-		it('handles scoped package names', async () => {
+		test('handles scoped package names', async () => {
 			vi.mocked(spawn_out).mockResolvedValue({stdout: '2.0.0'} as any);
 
 			await check_package_available('@scope/package', '2.0.0');
 
-			expect(spawn_out).toHaveBeenCalledWith('npm', ['view', '@scope/package@2.0.0', 'version']);
+			assert.deepEqual(vi.mocked(spawn_out).mock.calls[0], [
+				'npm',
+				['view', '@scope/package@2.0.0', 'version'],
+			]);
 		});
 
-		it('handles prerelease versions', async () => {
+		test('handles prerelease versions', async () => {
 			vi.mocked(spawn_out).mockResolvedValue({stdout: '1.0.0-beta.1'} as any);
 
 			const result = await check_package_available('test-pkg', '1.0.0-beta.1');
 
-			expect(result).toBe(true);
+			assert.strictEqual(result, true);
 		});
 
-		it('handles build metadata in versions', async () => {
+		test('handles build metadata in versions', async () => {
 			vi.mocked(spawn_out).mockResolvedValue({stdout: '1.0.0+build.123'} as any);
 
 			const result = await check_package_available('test-pkg', '1.0.0+build.123');
 
-			expect(result).toBe(true);
+			assert.strictEqual(result, true);
 		});
 	});
 
 	describe('wait_for_package', () => {
-		it('returns immediately when package is available', async () => {
+		test('returns immediately when package is available', async () => {
 			vi.mocked(spawn_out).mockResolvedValue({stdout: '1.0.0'} as any);
 
 			await wait_for_package('test-pkg', '1.0.0');
 
-			expect(spawn_out).toHaveBeenCalledTimes(1);
-			expect(wait).not.toHaveBeenCalled();
+			assert.strictEqual(vi.mocked(spawn_out).mock.calls.length, 1);
+			assert.strictEqual(vi.mocked(wait).mock.calls.length, 0);
 		});
 
-		it('retries until package becomes available', async () => {
+		test('retries until package becomes available', async () => {
 			let attempt = 0;
 			vi.mocked(spawn_out).mockImplementation(async () => {
 				attempt++;
@@ -140,11 +146,11 @@ describe('npm_registry', () => {
 
 			await wait_for_package('test-pkg', '1.0.0');
 
-			expect(spawn_out).toHaveBeenCalledTimes(3);
-			expect(wait).toHaveBeenCalledTimes(2);
+			assert.strictEqual(vi.mocked(spawn_out).mock.calls.length, 3);
+			assert.strictEqual(vi.mocked(wait).mock.calls.length, 2);
 		});
 
-		it('applies exponential backoff', async () => {
+		test('applies exponential backoff', async () => {
 			let attempt = 0;
 			vi.mocked(spawn_out).mockImplementation(async () => {
 				attempt++;
@@ -162,22 +168,22 @@ describe('npm_registry', () => {
 			await wait_for_package('test-pkg', '1.0.0', options);
 
 			const wait_calls = vi.mocked(wait).mock.calls;
-			expect(wait_calls.length).toBe(3);
+			assert.strictEqual(wait_calls.length, 3);
 
 			// First delay: ~100ms (+ jitter)
-			expect(wait_calls[0]![0]).toBeGreaterThanOrEqual(100);
-			expect(wait_calls[0]![0]).toBeLessThan(120);
+			assert.ok(wait_calls[0]![0]! >= 100);
+			assert.ok(wait_calls[0]![0]! < 120);
 
 			// Second delay: ~150ms (100 * 1.5 + jitter)
-			expect(wait_calls[1]![0]).toBeGreaterThanOrEqual(150);
-			expect(wait_calls[1]![0]).toBeLessThan(180);
+			assert.ok(wait_calls[1]![0]! >= 150);
+			assert.ok(wait_calls[1]![0]! < 180);
 
 			// Third delay: ~225ms (150 * 1.5 + jitter)
-			expect(wait_calls[2]![0]).toBeGreaterThanOrEqual(225);
-			expect(wait_calls[2]![0]).toBeLessThan(270);
+			assert.ok(wait_calls[2]![0]! >= 225);
+			assert.ok(wait_calls[2]![0]! < 270);
 		});
 
-		it('respects max_delay cap', async () => {
+		test('respects max_delay cap', async () => {
 			let attempt = 0;
 			vi.mocked(spawn_out).mockImplementation(async () => {
 				attempt++;
@@ -196,11 +202,11 @@ describe('npm_registry', () => {
 
 			const wait_calls = vi.mocked(wait).mock.calls;
 			for (const [delay] of wait_calls) {
-				expect(delay).toBeLessThanOrEqual(220); // max_delay + 10% jitter
+				assert.ok(delay! <= 220); // max_delay + 10% jitter
 			}
 		});
 
-		it('applies jitter to delays', async () => {
+		test('applies jitter to delays', async () => {
 			let attempt = 0;
 			vi.mocked(spawn_out).mockImplementation(async () => {
 				attempt++;
@@ -220,12 +226,12 @@ describe('npm_registry', () => {
 			// Jitter should add up to 10% variance
 			for (const [delay] of wait_calls) {
 				// Base delay would be 1000, jitter adds 0-100ms
-				expect(delay).toBeGreaterThanOrEqual(1000);
-				expect(delay).toBeLessThan(6000); // With exponential backoff (1000 * 1.5^4 with jitter)
+				assert.ok(delay! >= 1000);
+				assert.ok(delay! < 6000); // With exponential backoff (1000 * 1.5^4 with jitter)
 			}
 		});
 
-		it('throws after max_attempts', async () => {
+		test('throws after max_attempts', async () => {
 			vi.mocked(spawn_out).mockResolvedValue({stdout: ''} as any);
 
 			const options: WaitOptions = {
@@ -233,14 +239,15 @@ describe('npm_registry', () => {
 				initial_delay: 10,
 			};
 
-			await expect(wait_for_package('test-pkg', '1.0.0', options)).rejects.toThrow(
-				'test-pkg@1.0.0 not available after 3 attempts',
+			await assert_rejects(
+				() => wait_for_package('test-pkg', '1.0.0', options),
+				/test-pkg@1\.0\.0 not available after 3 attempts/,
 			);
 
-			expect(spawn_out).toHaveBeenCalledTimes(3);
+			assert.strictEqual(vi.mocked(spawn_out).mock.calls.length, 3);
 		});
 
-		it('throws on timeout', async () => {
+		test('throws on timeout', async () => {
 			vi.mocked(spawn_out).mockResolvedValue({stdout: ''} as any);
 			vi.mocked(wait).mockImplementation(async (ms?: number) => {
 				// Simulate time passing
@@ -252,12 +259,13 @@ describe('npm_registry', () => {
 				initial_delay: 100,
 			};
 
-			await expect(wait_for_package('test-pkg', '1.0.0', options)).rejects.toThrow(
-				'Timeout waiting for test-pkg@1.0.0 after 500ms',
+			await assert_rejects(
+				() => wait_for_package('test-pkg', '1.0.0', options),
+				/Timeout waiting for test-pkg@1\.0\.0 after 500ms/,
 			);
 		});
 
-		it('logs progress every 5 attempts', async () => {
+		test('logs progress every 5 attempts', async () => {
 			const log = create_mock_logger();
 			let attempt = 0;
 			vi.mocked(spawn_out).mockImplementation(async () => {
@@ -275,33 +283,35 @@ describe('npm_registry', () => {
 			await wait_for_package('test-pkg', '1.0.0', {...options, log});
 
 			// Should log at attempts 5 and 10
-			const progress_logs = log.info_calls.filter((log) => log.includes('Still waiting'));
-			expect(progress_logs.length).toBe(2);
-			expect(progress_logs[0]).toContain('attempt 5/30');
-			expect(progress_logs[1]).toContain('attempt 10/30');
+			const progress_logs = log.info_calls.filter((msg) =>
+				(msg as string).includes('Still waiting'),
+			);
+			assert.strictEqual(progress_logs.length, 2);
+			assert.ok((progress_logs[0] as string).includes('attempt 5/30'));
+			assert.ok((progress_logs[1] as string).includes('attempt 10/30'));
 		});
 
-		it('logs success message when package becomes available', async () => {
+		test('logs success message when package becomes available', async () => {
 			const log = create_mock_logger();
 			vi.mocked(spawn_out).mockResolvedValue({stdout: '1.0.0'} as any);
 
 			await wait_for_package('test-pkg', '1.0.0', {log});
 
-			expect(log.info_calls.length).toBe(1);
-			expect(log.info_calls[0]).toContain('test-pkg@1.0.0');
-			expect(log.info_calls[0]).toContain('available on NPM');
+			assert.strictEqual(log.info_calls.length, 1);
+			assert.ok((log.info_calls[0] as string).includes('test-pkg@1.0.0'));
+			assert.ok((log.info_calls[0] as string).includes('available on NPM'));
 		});
 
-		it('uses default options when not specified', async () => {
+		test('uses default options when not specified', async () => {
 			vi.mocked(spawn_out).mockResolvedValue({stdout: '1.0.0'} as any);
 
 			await wait_for_package('test-pkg', '1.0.0');
 
 			// Default: max_attempts = 30, should succeed immediately
-			expect(spawn_out).toHaveBeenCalledTimes(1);
+			assert.strictEqual(vi.mocked(spawn_out).mock.calls.length, 1);
 		});
 
-		it('handles npm command errors during retry', async () => {
+		test('handles npm command errors during retry', async () => {
 			let attempt = 0;
 			vi.mocked(spawn_out).mockImplementation(async () => {
 				attempt++;
@@ -313,10 +323,10 @@ describe('npm_registry', () => {
 
 			await wait_for_package('test-pkg', '1.0.0');
 
-			expect(spawn_out).toHaveBeenCalledTimes(3);
+			assert.strictEqual(vi.mocked(spawn_out).mock.calls.length, 3);
 		});
 
-		it('checks timeout before each attempt', async () => {
+		test('checks timeout before each attempt', async () => {
 			let now = Date.now();
 			vi.spyOn(Date, 'now').mockImplementation(() => now);
 
@@ -330,21 +340,24 @@ describe('npm_registry', () => {
 				initial_delay: 100,
 			};
 
-			await expect(wait_for_package('test-pkg', '1.0.0', options)).rejects.toThrow('Timeout');
+			await assert_rejects(() => wait_for_package('test-pkg', '1.0.0', options), /Timeout/);
 		});
 
-		it('handles very long package names', async () => {
+		test('handles very long package names', async () => {
 			const long_name = '@very-long-scope/' + 'a'.repeat(100);
 			vi.mocked(spawn_out).mockResolvedValue({stdout: '1.0.0'} as any);
 
 			await wait_for_package(long_name, '1.0.0');
 
-			expect(spawn_out).toHaveBeenCalledWith('npm', ['view', `${long_name}@1.0.0`, 'version']);
+			assert.deepEqual(vi.mocked(spawn_out).mock.calls[0], [
+				'npm',
+				['view', `${long_name}@1.0.0`, 'version'],
+			]);
 		});
 	});
 
 	describe('get_package_info', () => {
-		it('returns package info when package exists', async () => {
+		test('returns package info when package exists', async () => {
 			const mock_data = {
 				name: 'test-pkg',
 				version: '1.2.3',
@@ -354,49 +367,49 @@ describe('npm_registry', () => {
 
 			const result = await get_package_info('test-pkg');
 
-			expect(result).toEqual({
+			assert.deepEqual(result, {
 				name: 'test-pkg',
 				version: '1.2.3',
 			});
-			expect(spawn_out).toHaveBeenCalledWith('npm', ['view', 'test-pkg', '--json']);
+			assert.deepEqual(vi.mocked(spawn_out).mock.calls[0], ['npm', ['view', 'test-pkg', '--json']]);
 		});
 
-		it('returns null when npm command fails', async () => {
+		test('returns null when npm command fails', async () => {
 			vi.mocked(spawn_out).mockRejectedValue(new Error('package not found'));
 
 			const result = await get_package_info('nonexistent-pkg');
 
-			expect(result).toBeNull();
+			assert.strictEqual(result, null);
 		});
 
-		it('returns null when stdout is empty', async () => {
+		test('returns null when stdout is empty', async () => {
 			vi.mocked(spawn_out).mockResolvedValue({stdout: ''} as any);
 
 			const result = await get_package_info('test-pkg');
 
-			expect(result).toBeNull();
+			assert.strictEqual(result, null);
 		});
 
-		it('returns null when stdout is undefined', async () => {
+		test('returns null when stdout is undefined', async () => {
 			vi.mocked(spawn_out).mockResolvedValue({} as any);
 
 			const result = await get_package_info('test-pkg');
 
-			expect(result).toBeNull();
+			assert.strictEqual(result, null);
 		});
 
-		it('logs debug message on error', async () => {
+		test('logs debug message on error', async () => {
 			const log = create_mock_logger();
 			vi.mocked(spawn_out).mockRejectedValue(new Error('npm error'));
 
 			await get_package_info('test-pkg', {log});
 
-			expect(log.debug_calls.length).toBe(1);
-			expect(log.debug_calls[0]).toContain('test-pkg');
-			expect(log.debug_calls[0]).toContain('npm error');
+			assert.strictEqual(log.debug_calls.length, 1);
+			assert.ok((log.debug_calls[0] as string).includes('test-pkg'));
+			assert.ok((log.debug_calls[0] as string).includes('npm error'));
 		});
 
-		it('handles scoped packages', async () => {
+		test('handles scoped packages', async () => {
 			const mock_data = {
 				name: '@scope/package',
 				version: '2.0.0',
@@ -405,10 +418,10 @@ describe('npm_registry', () => {
 
 			const result = await get_package_info('@scope/package');
 
-			expect(result?.name).toBe('@scope/package');
+			assert.strictEqual(result?.name, '@scope/package');
 		});
 
-		it('extracts only name and version from full package data', async () => {
+		test('extracts only name and version from full package data', async () => {
 			const mock_data = {
 				name: 'test-pkg',
 				version: '1.2.3',
@@ -422,55 +435,55 @@ describe('npm_registry', () => {
 
 			const result = await get_package_info('test-pkg');
 
-			expect(result).toEqual({
+			assert.deepEqual(result, {
 				name: 'test-pkg',
 				version: '1.2.3',
 			});
-			expect(Object.keys(result!)).toHaveLength(2);
+			assert.strictEqual(Object.keys(result!).length, 2);
 		});
 
-		it('handles invalid JSON response', async () => {
+		test('handles invalid JSON response', async () => {
 			vi.mocked(spawn_out).mockResolvedValue({stdout: 'not valid json'} as any);
 
 			const result = await get_package_info('test-pkg');
 
-			expect(result).toBeNull();
+			assert.strictEqual(result, null);
 		});
 	});
 
 	describe('package_exists', () => {
-		it('returns true when package exists', async () => {
+		test('returns true when package exists', async () => {
 			const mock_data = {name: 'test-pkg', version: '1.0.0'};
 			vi.mocked(spawn_out).mockResolvedValue({stdout: JSON.stringify(mock_data)} as any);
 
 			const result = await package_exists('test-pkg');
 
-			expect(result).toBe(true);
+			assert.strictEqual(result, true);
 		});
 
-		it('returns false when package does not exist', async () => {
+		test('returns false when package does not exist', async () => {
 			vi.mocked(spawn_out).mockRejectedValue(new Error('404'));
 
 			const result = await package_exists('nonexistent-pkg');
 
-			expect(result).toBe(false);
+			assert.strictEqual(result, false);
 		});
 
-		it('returns false when get_package_info returns null', async () => {
+		test('returns false when get_package_info returns null', async () => {
 			vi.mocked(spawn_out).mockResolvedValue({} as any);
 
 			const result = await package_exists('test-pkg');
 
-			expect(result).toBe(false);
+			assert.strictEqual(result, false);
 		});
 
-		it('passes logger to get_package_info', async () => {
+		test('passes logger to get_package_info', async () => {
 			const log = create_mock_logger();
 			vi.mocked(spawn_out).mockRejectedValue(new Error('error'));
 
 			await package_exists('test-pkg', {log});
 
-			expect(log.debug_calls.length).toBe(1);
+			assert.strictEqual(log.debug_calls.length, 1);
 		});
 	});
 });

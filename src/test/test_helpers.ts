@@ -1,5 +1,3 @@
-import type {Logger} from '@fuzdev/fuz_util/log.js';
-import {vi} from 'vitest';
 import type {LibraryJson} from '@fuzdev/fuz_util/library_json.js';
 import {Library} from '@fuzdev/fuz_ui/library.svelte.js';
 
@@ -362,32 +360,5 @@ export const create_tracking_process_ops = (): {
 			spawned_commands.filter((c) => c.cmd === 'gro' && c.args[0] === cmd_name),
 		get_package_names_from_cwd: (commands: Array<TrackedCommand>) =>
 			commands.map((c) => c.cwd.split('/').pop() || ''),
-	};
-};
-
-/**
- * Helper to create mock logger that tracks calls
- */
-export const create_mock_logger = (): Logger & {
-	debug_calls: Array<string>;
-	info_calls: Array<string>;
-	warn_calls: Array<string>;
-} => {
-	const debug_calls: Array<string> = [];
-	const info_calls: Array<string> = [];
-	const warn_calls: Array<string> = [];
-
-	return {
-		debug: vi.fn((msg: string) => debug_calls.push(msg)),
-		info: vi.fn((msg: string) => info_calls.push(msg)),
-		warn: vi.fn((msg: string) => warn_calls.push(msg)),
-		error: vi.fn(),
-		debug_calls,
-		info_calls,
-		warn_calls,
-	} as unknown as Logger & {
-		debug_calls: Array<string>;
-		info_calls: Array<string>;
-		warn_calls: Array<string>;
 	};
 };

@@ -1,4 +1,4 @@
-import {describe, it, expect} from 'vitest';
+import {assert, describe, test} from 'vitest';
 
 import {
 	is_wildcard,
@@ -13,191 +13,191 @@ import {
 
 describe('version_utils', () => {
 	describe('is_wildcard', () => {
-		it('detects wildcard versions', () => {
-			expect(is_wildcard('*')).toBe(true);
-			expect(is_wildcard('^1.0.0')).toBe(false);
-			expect(is_wildcard('1.0.0')).toBe(false);
+		test('detects wildcard versions', () => {
+			assert.strictEqual(is_wildcard('*'), true);
+			assert.strictEqual(is_wildcard('^1.0.0'), false);
+			assert.strictEqual(is_wildcard('1.0.0'), false);
 		});
 	});
 
 	describe('strip_version_prefix', () => {
-		it('removes caret prefix', () => {
-			expect(strip_version_prefix('^1.2.3')).toBe('1.2.3');
+		test('removes caret prefix', () => {
+			assert.strictEqual(strip_version_prefix('^1.2.3'), '1.2.3');
 		});
 
-		it('removes tilde prefix', () => {
-			expect(strip_version_prefix('~1.2.3')).toBe('1.2.3');
+		test('removes tilde prefix', () => {
+			assert.strictEqual(strip_version_prefix('~1.2.3'), '1.2.3');
 		});
 
-		it('removes comparison prefixes', () => {
-			expect(strip_version_prefix('>1.2.3')).toBe('1.2.3');
-			expect(strip_version_prefix('<1.2.3')).toBe('1.2.3');
-			expect(strip_version_prefix('=1.2.3')).toBe('1.2.3');
+		test('removes comparison prefixes', () => {
+			assert.strictEqual(strip_version_prefix('>1.2.3'), '1.2.3');
+			assert.strictEqual(strip_version_prefix('<1.2.3'), '1.2.3');
+			assert.strictEqual(strip_version_prefix('=1.2.3'), '1.2.3');
 		});
 
-		it('removes multi-character comparison prefixes', () => {
-			expect(strip_version_prefix('>=1.2.3')).toBe('1.2.3');
-			expect(strip_version_prefix('<=1.2.3')).toBe('1.2.3');
+		test('removes multi-character comparison prefixes', () => {
+			assert.strictEqual(strip_version_prefix('>=1.2.3'), '1.2.3');
+			assert.strictEqual(strip_version_prefix('<=1.2.3'), '1.2.3');
 		});
 
-		it('leaves exact versions unchanged', () => {
-			expect(strip_version_prefix('1.2.3')).toBe('1.2.3');
+		test('leaves exact versions unchanged', () => {
+			assert.strictEqual(strip_version_prefix('1.2.3'), '1.2.3');
 		});
 	});
 
 	describe('get_version_prefix', () => {
-		it('extracts caret prefix', () => {
-			expect(get_version_prefix('^1.2.3')).toBe('^');
+		test('extracts caret prefix', () => {
+			assert.strictEqual(get_version_prefix('^1.2.3'), '^');
 		});
 
-		it('extracts tilde prefix', () => {
-			expect(get_version_prefix('~1.2.3')).toBe('~');
+		test('extracts tilde prefix', () => {
+			assert.strictEqual(get_version_prefix('~1.2.3'), '~');
 		});
 
-		it('extracts single-character comparison prefixes', () => {
-			expect(get_version_prefix('>1.2.3')).toBe('>');
-			expect(get_version_prefix('<1.2.3')).toBe('<');
-			expect(get_version_prefix('=1.2.3')).toBe('=');
+		test('extracts single-character comparison prefixes', () => {
+			assert.strictEqual(get_version_prefix('>1.2.3'), '>');
+			assert.strictEqual(get_version_prefix('<1.2.3'), '<');
+			assert.strictEqual(get_version_prefix('=1.2.3'), '=');
 		});
 
-		it('extracts multi-character comparison prefixes', () => {
-			expect(get_version_prefix('>=1.2.3')).toBe('>=');
-			expect(get_version_prefix('<=1.2.3')).toBe('<=');
+		test('extracts multi-character comparison prefixes', () => {
+			assert.strictEqual(get_version_prefix('>=1.2.3'), '>=');
+			assert.strictEqual(get_version_prefix('<=1.2.3'), '<=');
 		});
 
-		it('returns empty string for exact versions', () => {
-			expect(get_version_prefix('1.2.3')).toBe('');
+		test('returns empty string for exact versions', () => {
+			assert.strictEqual(get_version_prefix('1.2.3'), '');
 		});
 	});
 
 	describe('normalize_version_for_comparison', () => {
-		it('preserves wildcards', () => {
-			expect(normalize_version_for_comparison('*')).toBe('*');
+		test('preserves wildcards', () => {
+			assert.strictEqual(normalize_version_for_comparison('*'), '*');
 		});
 
-		it('handles >= ranges', () => {
-			expect(normalize_version_for_comparison('>=1.2.3')).toBe('1.2.3');
+		test('handles >= ranges', () => {
+			assert.strictEqual(normalize_version_for_comparison('>=1.2.3'), '1.2.3');
 		});
 
-		it('strips other prefixes', () => {
-			expect(normalize_version_for_comparison('^1.2.3')).toBe('1.2.3');
-			expect(normalize_version_for_comparison('~1.2.3')).toBe('1.2.3');
+		test('strips other prefixes', () => {
+			assert.strictEqual(normalize_version_for_comparison('^1.2.3'), '1.2.3');
+			assert.strictEqual(normalize_version_for_comparison('~1.2.3'), '1.2.3');
 		});
 
-		it('leaves exact versions unchanged', () => {
-			expect(normalize_version_for_comparison('1.2.3')).toBe('1.2.3');
+		test('leaves exact versions unchanged', () => {
+			assert.strictEqual(normalize_version_for_comparison('1.2.3'), '1.2.3');
 		});
 	});
 
 	describe('needs_update', () => {
-		it('always updates wildcards', () => {
-			expect(needs_update('*', '1.0.0')).toBe(true);
-			expect(needs_update('*', '2.0.0')).toBe(true);
+		test('always updates wildcards', () => {
+			assert.strictEqual(needs_update('*', '1.0.0'), true);
+			assert.strictEqual(needs_update('*', '2.0.0'), true);
 		});
 
-		it('updates when normalized versions differ', () => {
-			expect(needs_update('^1.0.0', '1.1.0')).toBe(true);
-			expect(needs_update('~1.0.0', '1.0.1')).toBe(true);
+		test('updates when normalized versions differ', () => {
+			assert.strictEqual(needs_update('^1.0.0', '1.1.0'), true);
+			assert.strictEqual(needs_update('~1.0.0', '1.0.1'), true);
 		});
 
-		it('does not update when normalized versions are same', () => {
-			expect(needs_update('^1.0.0', '1.0.0')).toBe(false);
-			expect(needs_update('~1.2.3', '1.2.3')).toBe(false);
+		test('does not update when normalized versions are same', () => {
+			assert.strictEqual(needs_update('^1.0.0', '1.0.0'), false);
+			assert.strictEqual(needs_update('~1.2.3', '1.2.3'), false);
 		});
 
-		it('handles different prefixes with same version', () => {
-			expect(needs_update('^1.0.0', '~1.0.0')).toBe(false); // normalized to same
+		test('handles different prefixes with same version', () => {
+			assert.strictEqual(needs_update('^1.0.0', '~1.0.0'), false); // normalized to same
 		});
 	});
 
 	describe('get_update_prefix', () => {
-		it('uses caret for wildcard replacements', () => {
-			expect(get_update_prefix('*', '^')).toBe('^');
-			expect(get_update_prefix('*', '~')).toBe('^'); // always caret for wildcards
-			expect(get_update_prefix('*', '>=')).toBe('^'); // always caret for wildcards
+		test('uses caret for wildcard replacements', () => {
+			assert.strictEqual(get_update_prefix('*', '^'), '^');
+			assert.strictEqual(get_update_prefix('*', '~'), '^'); // always caret for wildcards
+			assert.strictEqual(get_update_prefix('*', '>='), '^'); // always caret for wildcards
 		});
 
-		it('preserves existing prefix', () => {
-			expect(get_update_prefix('^1.0.0')).toBe('^');
-			expect(get_update_prefix('~1.0.0')).toBe('~');
+		test('preserves existing prefix', () => {
+			assert.strictEqual(get_update_prefix('^1.0.0'), '^');
+			assert.strictEqual(get_update_prefix('~1.0.0'), '~');
 		});
 
-		it('preserves >= prefix', () => {
-			expect(get_update_prefix('>=1.0.0')).toBe('>=');
-			expect(get_update_prefix('>=0.38.0')).toBe('>=');
+		test('preserves >= prefix', () => {
+			assert.strictEqual(get_update_prefix('>=1.0.0'), '>=');
+			assert.strictEqual(get_update_prefix('>=0.38.0'), '>=');
 		});
 
-		it('preserves other comparison prefixes', () => {
-			expect(get_update_prefix('<=1.0.0')).toBe('<=');
-			expect(get_update_prefix('>1.0.0')).toBe('>');
-			expect(get_update_prefix('<1.0.0')).toBe('<');
+		test('preserves other comparison prefixes', () => {
+			assert.strictEqual(get_update_prefix('<=1.0.0'), '<=');
+			assert.strictEqual(get_update_prefix('>1.0.0'), '>');
+			assert.strictEqual(get_update_prefix('<1.0.0'), '<');
 		});
 
-		it('uses default strategy when no prefix', () => {
-			expect(get_update_prefix('1.0.0')).toBe('^'); // default is caret
-			expect(get_update_prefix('1.0.0', '~')).toBe('~');
-			expect(get_update_prefix('1.0.0', '')).toBe('');
-			expect(get_update_prefix('1.0.0', '>=')).toBe('>=');
+		test('uses default strategy when no prefix', () => {
+			assert.strictEqual(get_update_prefix('1.0.0'), '^'); // default is caret
+			assert.strictEqual(get_update_prefix('1.0.0', '~'), '~');
+			assert.strictEqual(get_update_prefix('1.0.0', ''), '');
+			assert.strictEqual(get_update_prefix('1.0.0', '>='), '>=');
 		});
 	});
 
 	describe('is_breaking_change', () => {
 		describe('pre-1.0 versions (0.x.x)', () => {
-			it('treats minor bumps as breaking', () => {
-				expect(is_breaking_change('0.1.0', 'minor')).toBe(true);
-				expect(is_breaking_change('0.5.10', 'minor')).toBe(true);
+			test('treats minor bumps as breaking', () => {
+				assert.strictEqual(is_breaking_change('0.1.0', 'minor'), true);
+				assert.strictEqual(is_breaking_change('0.5.10', 'minor'), true);
 			});
 
-			it('treats major bumps as breaking', () => {
-				expect(is_breaking_change('0.1.0', 'major')).toBe(true);
-				expect(is_breaking_change('0.5.10', 'major')).toBe(true);
+			test('treats major bumps as breaking', () => {
+				assert.strictEqual(is_breaking_change('0.1.0', 'major'), true);
+				assert.strictEqual(is_breaking_change('0.5.10', 'major'), true);
 			});
 
-			it('does not treat patch bumps as breaking', () => {
-				expect(is_breaking_change('0.1.0', 'patch')).toBe(false);
-				expect(is_breaking_change('0.5.10', 'patch')).toBe(false);
+			test('does not treat patch bumps as breaking', () => {
+				assert.strictEqual(is_breaking_change('0.1.0', 'patch'), false);
+				assert.strictEqual(is_breaking_change('0.5.10', 'patch'), false);
 			});
 		});
 
 		describe('1.0+ versions', () => {
-			it('treats only major bumps as breaking', () => {
-				expect(is_breaking_change('1.0.0', 'major')).toBe(true);
-				expect(is_breaking_change('2.5.10', 'major')).toBe(true);
+			test('treats only major bumps as breaking', () => {
+				assert.strictEqual(is_breaking_change('1.0.0', 'major'), true);
+				assert.strictEqual(is_breaking_change('2.5.10', 'major'), true);
 			});
 
-			it('does not treat minor bumps as breaking', () => {
-				expect(is_breaking_change('1.0.0', 'minor')).toBe(false);
-				expect(is_breaking_change('2.5.10', 'minor')).toBe(false);
+			test('does not treat minor bumps as breaking', () => {
+				assert.strictEqual(is_breaking_change('1.0.0', 'minor'), false);
+				assert.strictEqual(is_breaking_change('2.5.10', 'minor'), false);
 			});
 
-			it('does not treat patch bumps as breaking', () => {
-				expect(is_breaking_change('1.0.0', 'patch')).toBe(false);
-				expect(is_breaking_change('2.5.10', 'patch')).toBe(false);
+			test('does not treat patch bumps as breaking', () => {
+				assert.strictEqual(is_breaking_change('1.0.0', 'patch'), false);
+				assert.strictEqual(is_breaking_change('2.5.10', 'patch'), false);
 			});
 		});
 	});
 
 	describe('detect_bump_type', () => {
-		it('detects major bumps', () => {
-			expect(detect_bump_type('1.2.3', '2.0.0')).toBe('major');
-			expect(detect_bump_type('0.5.0', '1.0.0')).toBe('major');
+		test('detects major bumps', () => {
+			assert.strictEqual(detect_bump_type('1.2.3', '2.0.0'), 'major');
+			assert.strictEqual(detect_bump_type('0.5.0', '1.0.0'), 'major');
 		});
 
-		it('detects minor bumps', () => {
-			expect(detect_bump_type('1.2.3', '1.3.0')).toBe('minor');
-			expect(detect_bump_type('0.5.0', '0.6.0')).toBe('minor');
+		test('detects minor bumps', () => {
+			assert.strictEqual(detect_bump_type('1.2.3', '1.3.0'), 'minor');
+			assert.strictEqual(detect_bump_type('0.5.0', '0.6.0'), 'minor');
 		});
 
-		it('detects patch bumps', () => {
-			expect(detect_bump_type('1.2.3', '1.2.4')).toBe('patch');
-			expect(detect_bump_type('0.5.0', '0.5.1')).toBe('patch');
+		test('detects patch bumps', () => {
+			assert.strictEqual(detect_bump_type('1.2.3', '1.2.4'), 'patch');
+			assert.strictEqual(detect_bump_type('0.5.0', '0.5.1'), 'patch');
 		});
 
-		it('handles complex version changes', () => {
+		test('handles complex version changes', () => {
 			// Major takes precedence even with other changes
-			expect(detect_bump_type('1.2.3', '2.5.10')).toBe('major');
+			assert.strictEqual(detect_bump_type('1.2.3', '2.5.10'), 'major');
 			// Minor takes precedence over patch
-			expect(detect_bump_type('1.2.3', '1.5.0')).toBe('minor');
+			assert.strictEqual(detect_bump_type('1.2.3', '1.5.0'), 'minor');
 		});
 	});
 });

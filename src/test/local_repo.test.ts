@@ -1,4 +1,5 @@
 import {assert, test} from 'vitest';
+import {assert_rejects} from '@fuzdev/fuz_util/testing.js';
 
 import {local_repo_load, local_repos_load, type LocalRepoPath} from '$lib/local_repo.js';
 import {create_mock_git_ops, create_mock_npm_ops} from './test_helpers.js';
@@ -15,18 +16,6 @@ const create_local_repo_path = (name: string = 'test-repo'): LocalRepoPath => ({
 		branch: 'main',
 	},
 });
-
-/** Asserts that `fn` rejects with an Error whose message matches `pattern`. Returns the error. */
-const assert_rejects = async (fn: () => Promise<unknown>, pattern: RegExp): Promise<Error> => {
-	try {
-		await fn();
-	} catch (err) {
-		assert(err instanceof Error);
-		assert.match(err.message, pattern);
-		return err;
-	}
-	assert.fail('Expected to throw');
-};
 
 // -- local_repo_load: operation-level failures --
 

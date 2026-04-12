@@ -1,9 +1,9 @@
-import {test, expect} from 'vitest';
+import {assert, test} from 'vitest';
 
 import type {LocalRepo} from '$lib/local_repo.js';
 import {generate_publishing_plan} from '$lib/publishing_plan.js';
 import type {ChangesetOperations} from '$lib/operations.js';
-import {create_mock_repo} from './test_helpers.ts';
+import {create_mock_repo} from './test_helpers.js';
 
 test('detects breaking change cascades', async () => {
 	const repos: Array<LocalRepo> = [
@@ -31,11 +31,14 @@ test('detects breaking change cascades', async () => {
 	const plan = await generate_publishing_plan(repos, {ops: mock_ops});
 
 	// pkg-a should have a breaking change (0.x.x minor bump)
-	expect(plan.version_changes.find((vc) => vc.package_name === 'pkg-a')?.breaking).toBe(true);
+	assert.strictEqual(
+		plan.version_changes.find((vc) => vc.package_name === 'pkg-a')?.breaking,
+		true,
+	);
 
 	// pkg-b should cascade the breaking change
-	expect(plan.breaking_cascades.has('pkg-a')).toBe(true);
-	expect(plan.breaking_cascades.get('pkg-a')).toContain('pkg-b');
+	assert.strictEqual(plan.breaking_cascades.has('pkg-a'), true);
+	assert.ok(plan.breaking_cascades.get('pkg-a')!.includes('pkg-b'));
 });
 
 test('handles bump escalation', async () => {
@@ -63,8 +66,8 @@ test('handles bump escalation', async () => {
 
 	// pkg-b should have bump escalation due to breaking dep
 	const pkg_b_change = plan.version_changes.find((vc) => vc.package_name === 'pkg-b');
-	expect(pkg_b_change?.needs_bump_escalation).toBe(true);
-	expect(pkg_b_change?.required_bump).toBe('minor');
+	assert.strictEqual(pkg_b_change?.needs_bump_escalation, true);
+	assert.strictEqual(pkg_b_change?.required_bump, 'minor');
 });
 
 test('generates auto-changesets for dependency updates', async () => {
@@ -93,12 +96,12 @@ test('generates auto-changesets for dependency updates', async () => {
 
 	// pkg-b should get auto-changeset for dependency update
 	const pkg_b_change = plan.version_changes.find((vc) => vc.package_name === 'pkg-b');
-	expect(pkg_b_change?.will_generate_changeset).toBe(true);
-	expect(pkg_b_change?.has_changesets).toBe(false);
+	assert.strictEqual(pkg_b_change?.will_generate_changeset, true);
+	assert.strictEqual(pkg_b_change?.has_changesets, false);
 
 	// pkg-c should not get auto-changeset (dev dependency only)
 	const pkg_c_change = plan.version_changes.find((vc) => vc.package_name === 'pkg-c');
-	expect(pkg_c_change).toBeUndefined();
+	assert.strictEqual(pkg_c_change, undefined);
 });
 
 test('handles circular dev dependencies', async () => {
@@ -117,13 +120,13 @@ test('handles circular dev dependencies', async () => {
 	const plan = await generate_publishing_plan(repos, {ops: mock_ops});
 
 	// Should have info about dev cycles (not warnings anymore)
-	expect(plan.info.some((i) => i.includes('dev dependency cycle(s) detected'))).toBe(true);
+	assert.ok(plan.info.some((i) => i.includes('dev dependency cycle(s) detected')));
 
 	// Should still compute publishing order
-	expect(plan.publishing_order.length).toBe(2);
+	assert.strictEqual(plan.publishing_order.length, 2);
 
 	// Should not have errors
-	expect(plan.errors.length).toBe(0);
+	assert.strictEqual(plan.errors.length, 0);
 });
 
 test('detects production circular dependencies', async () => {
@@ -142,10 +145,10 @@ test('detects production circular dependencies', async () => {
 	const plan = await generate_publishing_plan(repos, {ops: mock_ops});
 
 	// Should have errors for production cycles
-	expect(plan.errors.some((e) => e.includes('Production dependency cycle'))).toBe(true);
+	assert.ok(plan.errors.some((e) => e.includes('Production dependency cycle')));
 
 	// Should not compute publishing order
-	expect(plan.publishing_order.length).toBe(0);
+	assert.strictEqual(plan.publishing_order.length, 0);
 });
 
 test('warns when MAX_ITERATIONS reached without convergence', async () => {
@@ -186,14 +189,14 @@ test('warns when MAX_ITERATIONS reached without convergence', async () => {
 
 	// Should have a warning about MAX_ITERATIONS
 	const convergence_warning = plan.warnings.find((w) => w.includes('Reached maximum iterations'));
-	expect(convergence_warning).toBeDefined();
+	assert.ok(convergence_warning !== undefined);
 
 	// Warning should include diagnostics
-	expect(convergence_warning).toContain('package(s) may still need processing');
-	expect(convergence_warning).toContain('Estimated');
-	expect(convergence_warning).toContain('iteration(s) needed');
+	assert.ok(convergence_warning!.includes('package(s) may still need processing'));
+	assert.ok(convergence_warning!.includes('Estimated'));
+	assert.ok(convergence_warning!.includes('iteration(s) needed'));
 
 	// Should still have produced some version changes (just not all of them)
-	expect(plan.version_changes.length).toBeGreaterThan(0);
-	expect(plan.version_changes.length).toBeLessThan(repos.length); // Not all processed
+	assert.ok(plan.version_changes.length > 0);
+	assert.ok(plan.version_changes.length < repos.length); // Not all processed
 });

@@ -1,6 +1,6 @@
 import {test, assert, describe} from 'vitest';
 
-import {create_mock_npm_ops} from './test_helpers.ts';
+import {create_mock_npm_ops} from './test_helpers.js';
 
 describe('install operation', () => {
 	test('returns ok:true on success', async () => {
