@@ -192,9 +192,9 @@ test('warns when MAX_ITERATIONS reached without convergence', async () => {
 	assert.ok(convergence_warning !== undefined);
 
 	// Warning should include diagnostics
-	assert.ok(convergence_warning!.includes('package(s) may still need processing'));
-	assert.ok(convergence_warning!.includes('Estimated'));
-	assert.ok(convergence_warning!.includes('iteration(s) needed'));
+	assert.ok(convergence_warning.includes('package(s) may still need processing'));
+	assert.ok(convergence_warning.includes('Estimated'));
+	assert.ok(convergence_warning.includes('iteration(s) needed'));
 
 	// Should still have produced some version changes (just not all of them)
 	assert.ok(plan.version_changes.length > 0);

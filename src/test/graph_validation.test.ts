@@ -384,7 +384,6 @@ describe('validate_dependency_graph', () => {
 
 			const result = validate_dependency_graph(repos);
 
-			assert.ok(result.graph !== undefined);
 			assert.strictEqual(result.graph.nodes.size, 2);
 			assert.ok(result.graph.get_node('lib') !== undefined);
 			assert.ok(result.graph.get_node('app') !== undefined);

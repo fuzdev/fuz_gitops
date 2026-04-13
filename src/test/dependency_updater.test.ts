@@ -87,7 +87,7 @@ describe('dependency_updater', () => {
 			const updated = fs.get(package_json_path);
 			assert.ok(updated !== undefined);
 
-			const parsed = JSON.parse(updated!);
+			const parsed = JSON.parse(updated);
 			assert.strictEqual(parsed.dependencies['dep-a'], '^1.1.0');
 			assert.strictEqual(parsed.dependencies['dep-b'], '^2.0.0'); // unchanged
 		});
