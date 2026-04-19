@@ -56,7 +56,7 @@
 			"@fuzdev/fuz_util": "^0.56.0",
 			"@fuzdev/gro": "^0.197.3",
 			"@jridgewell/trace-mapping": "^0.3.31",
-			"@ryanatkn/eslint-config": "^0.10.1",
+			"@ryanatkn/eslint-config": "^0.11.0",
 			"@sveltejs/acorn-typescript": "^1.0.9",
 			"@sveltejs/adapter-static": "^3.0.10",
 			"@sveltejs/kit": "^2.57.0",

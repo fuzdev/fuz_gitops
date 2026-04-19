@@ -16,7 +16,7 @@ import {
 } from './gitops_constants.js';
 import {install_with_cache_healing} from './npm_install_helpers.js';
 
-/* eslint-disable no-await-in-loop */
+ 
 
 export interface PublishingOptions {
 	wetrun: boolean;

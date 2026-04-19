@@ -296,7 +296,7 @@ export const local_repos_load = async ({
 		// Sequential loading (original behavior)
 		const loaded: Array<LocalRepo> = [];
 		for (const local_repo_path of local_repo_paths) {
-			loaded.push(await local_repo_load({local_repo_path, log, git_ops, npm_ops})); // eslint-disable-line no-await-in-loop
+			loaded.push(await local_repo_load({local_repo_path, log, git_ops, npm_ops}));  
 		}
 		return loaded;
 	}
@@ -383,7 +383,7 @@ const download_repos = async ({
 	const resolved: Array<LocalRepoPath> = [];
 	for (const {repo_config, repo_git_ssh_url} of local_repos_missing) {
 		log?.info(`cloning repo ${repo_git_ssh_url} to ${repos_dir}`);
-		const clone_result = await spawn_out('git', ['clone', repo_git_ssh_url], {cwd: repos_dir}); // eslint-disable-line no-await-in-loop
+		const clone_result = await spawn_out('git', ['clone', repo_git_ssh_url], {cwd: repos_dir});  
 		if (!clone_result.result.ok) {
 			throw new TaskError(
 				`Failed to clone repo ${repo_git_ssh_url} to ${repos_dir}${clone_result.stderr ? ': ' + clone_result.stderr.trim() : ''}`,
@@ -397,7 +397,7 @@ const download_repos = async ({
 		}
 		// Always install dependencies after cloning
 		log?.info(`installing dependencies for newly cloned repo ${local_repo.repo_dir}`);
-		const install_result = await npm_ops.install({cwd: local_repo.repo_dir}); // eslint-disable-line no-await-in-loop
+		const install_result = await npm_ops.install({cwd: local_repo.repo_dir});  
 		if (!install_result.ok) {
 			throw new TaskError(
 				`Failed to install dependencies in ${local_repo.repo_dir}: ${install_result.message}${install_result.stderr ? `\n${install_result.stderr}` : ''}`,

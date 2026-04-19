@@ -118,7 +118,7 @@ export const read_changesets = async (
 
 		for (const file of changeset_files) {
 			const filepath = join(changesets_dir, file);
-			const changeset = await parse_changeset_file(filepath, log); // eslint-disable-line no-await-in-loop
+			const changeset = await parse_changeset_file(filepath, log);  
 			if (changeset) {
 				changesets.push(changeset);
 			}

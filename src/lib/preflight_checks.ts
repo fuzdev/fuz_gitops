@@ -91,7 +91,7 @@ export const run_preflight_checks = async ({
 	// 1. Check clean workspaces - must be 100% clean before publishing
 	log?.info('  Checking workspace cleanliness...');
 	for (const repo of repos) {
-		const clean_result = await git_ops.check_clean_workspace({cwd: repo.repo_dir}); // eslint-disable-line no-await-in-loop
+		const clean_result = await git_ops.check_clean_workspace({cwd: repo.repo_dir});  
 		if (!clean_result.ok) {
 			errors.push(`${repo.library.name} failed workspace check: ${clean_result.message}`);
 			continue;
@@ -99,7 +99,7 @@ export const run_preflight_checks = async ({
 
 		if (!clean_result.value) {
 			// Get list of changed files for better error message
-			const files_result = await git_ops.list_uncommitted_files({cwd: repo.repo_dir}); // eslint-disable-line no-await-in-loop
+			const files_result = await git_ops.list_uncommitted_files({cwd: repo.repo_dir});  
 			if (files_result.ok) {
 				// No filtering - workspace must be 100% clean
 				const unexpected_files = files_result.value;
@@ -118,7 +118,7 @@ export const run_preflight_checks = async ({
 	// 2. Check correct branch
 	log?.info(`  Checking branches (expecting ${required_branch})...`);
 	for (const repo of repos) {
-		const branch_result = await git_ops.current_branch_name({cwd: repo.repo_dir}); // eslint-disable-line no-await-in-loop
+		const branch_result = await git_ops.current_branch_name({cwd: repo.repo_dir});  
 		if (!branch_result.ok) {
 			errors.push(`${repo.library.name} failed branch check: ${branch_result.message}`);
 			continue;
@@ -135,7 +135,7 @@ export const run_preflight_checks = async ({
 	if (!skip_changesets) {
 		log?.info('  Checking for changesets...');
 		for (const repo of repos) {
-			const has_result = await changeset_ops.has_changesets({repo}); // eslint-disable-line no-await-in-loop
+			const has_result = await changeset_ops.has_changesets({repo});  
 			if (!has_result.ok) {
 				errors.push(`${repo.library.name} failed changeset check: ${has_result.message}`);
 				continue;
@@ -164,7 +164,7 @@ export const run_preflight_checks = async ({
 			log?.info(
 				st('dim', `    [${i + 1}/${repos_to_build.length}] Building ${repo.library.name}...`),
 			);
-			const build_result = await build_ops.build_package({repo, log}); // eslint-disable-line no-await-in-loop
+			const build_result = await build_ops.build_package({repo, log});  
 			if (!build_result.ok) {
 				errors.push(
 					`${repo.library.name} failed to build: ${build_result.output || build_result.message || 'unknown error'}`,
