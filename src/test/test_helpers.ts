@@ -126,7 +126,7 @@ export const create_mock_gitops_ops = (
 		readFile: async () => ({ok: true, value: '{}'}),
 		writeFile: async () => ({ok: true}),
 		mkdir: async () => ({ok: true}),
-		exists: () => true,
+		exists: async () => true,
 		...overrides.fs,
 	},
 	build: create_mock_build_ops(overrides.build),
@@ -214,7 +214,7 @@ export const create_mock_git_ops = (overrides: Partial<GitOperations> = {}): Git
 	commit: async () => ({ok: true}),
 	add_and_commit: async () => ({ok: true}),
 	has_changes: async () => ({ok: true, value: false}),
-	get_changed_files: async () => ({ok: true, value: []}),
+	list_uncommitted_files: async () => ({ok: true, value: []}),
 	tag: async () => ({ok: true}),
 	push_tag: async () => ({ok: true}),
 	stash: async () => ({ok: true}),
@@ -296,7 +296,7 @@ export const create_mock_fs_ops = (): FsOperations & {
 			dirs.add(options.path);
 			return {ok: true};
 		},
-		exists: (options) => {
+		exists: async (options) => {
 			return files.has(options.path) || dirs.has(options.path);
 		},
 		get: (path: string): string | undefined => files.get(path),
@@ -350,7 +350,7 @@ export const create_tracking_process_ops = (): {
 				spawned_commands.push({
 					cmd: options.cmd,
 					args: options.args,
-					cwd: options.spawn_options?.cwd?.toString() || '',
+					cwd: options.cwd ?? '',
 				});
 				return {ok: true};
 			},

@@ -593,10 +593,10 @@ test('handles deploy failures without stopping', async () => {
 
 	// Override spawn to make pkg-a deploy fail
 	const original_spawn = process_ops.spawn;
-	process_ops.spawn = async (spawn_options) => {
-		const result = await original_spawn(spawn_options);
-		if (spawn_options.cmd === 'gro' && spawn_options.args[0] === 'deploy') {
-			const cwd = spawn_options.spawn_options?.cwd?.toString() || '';
+	process_ops.spawn = async (spawn_args) => {
+		const result = await original_spawn(spawn_args);
+		if (spawn_args.cmd === 'gro' && spawn_args.args[0] === 'deploy') {
+			const cwd = spawn_args.cwd ?? '';
 			// Make first deploy fail
 			if (cwd.includes('pkg-a')) {
 				return {ok: false, message: 'Deploy failed'};

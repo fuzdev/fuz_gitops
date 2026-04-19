@@ -86,9 +86,11 @@ export const git_has_changes = async (options?: SpawnOptions): Promise<boolean> 
 };
 
 /**
- * Returns list of changed files compared to HEAD.
+ * Lists uncommitted files in the working tree (`git diff --name-only HEAD`).
  */
-export const git_get_changed_files = async (options?: SpawnOptions): Promise<Array<string>> => {
+export const git_list_uncommitted_files = async (
+	options?: SpawnOptions,
+): Promise<Array<string>> => {
 	const {stdout} = await spawn_out('git', ['diff', '--name-only', 'HEAD'], options);
 	if (!stdout) return [];
 

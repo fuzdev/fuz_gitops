@@ -39,7 +39,7 @@ describe('preflight_checks', () => {
 					call_count++;
 					return {ok: true, value: call_count !== 2}; // Second repo fails
 				},
-				get_changed_files: async () => ({ok: true, value: ['src/main.ts']}), // Simulate changed files
+				list_uncommitted_files: async () => ({ok: true, value: ['src/main.ts']}), // Simulate changed files
 			});
 			const npm_ops = create_mock_npm_ops();
 
@@ -65,7 +65,7 @@ describe('preflight_checks', () => {
 
 			const git_ops = create_mock_git_ops({
 				check_clean_workspace: async () => ({ok: true, value: false}), // All dirty
-				get_changed_files: async () => ({ok: true, value: ['src/file.ts']}), // Simulate changed files
+				list_uncommitted_files: async () => ({ok: true, value: ['src/file.ts']}), // Simulate changed files
 			});
 			const npm_ops = create_mock_npm_ops();
 
@@ -85,7 +85,7 @@ describe('preflight_checks', () => {
 
 			const git_ops = create_mock_git_ops({
 				check_clean_workspace: async () => ({ok: true, value: false}),
-				get_changed_files: async () => ({ok: true, value: ['.changeset/my-change.md']}),
+				list_uncommitted_files: async () => ({ok: true, value: ['.changeset/my-change.md']}),
 			});
 			const npm_ops = create_mock_npm_ops();
 
@@ -107,7 +107,7 @@ describe('preflight_checks', () => {
 
 			const git_ops = create_mock_git_ops({
 				check_clean_workspace: async () => ({ok: true, value: false}),
-				get_changed_files: async () => ({ok: true, value: ['package.json']}),
+				list_uncommitted_files: async () => ({ok: true, value: ['package.json']}),
 			});
 			const npm_ops = create_mock_npm_ops();
 
@@ -129,7 +129,7 @@ describe('preflight_checks', () => {
 
 			const git_ops = create_mock_git_ops({
 				check_clean_workspace: async () => ({ok: true, value: false}),
-				get_changed_files: async () => ({ok: true, value: ['package-lock.json']}),
+				list_uncommitted_files: async () => ({ok: true, value: ['package-lock.json']}),
 			});
 			const npm_ops = create_mock_npm_ops();
 
@@ -330,7 +330,7 @@ describe('preflight_checks', () => {
 					clean_call++;
 					return {ok: true, value: clean_call !== 1}; // First repo is dirty
 				},
-				get_changed_files: async () => ({ok: true, value: ['src/main.ts']}), // Simulate changed files
+				list_uncommitted_files: async () => ({ok: true, value: ['src/main.ts']}), // Simulate changed files
 				current_branch_name: async () => {
 					branch_call++;
 					return {ok: true, value: 'develop'}; // Both on wrong branch

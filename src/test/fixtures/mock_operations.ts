@@ -14,6 +14,7 @@ import type {
 } from '$lib/operations.js';
 import type {RepoFixtureSet} from './repo_fixture_types.js';
 import {create_mock_changeset_ops} from './mock_changeset_operations.js';
+import {create_mock_fs_ops} from '../test_helpers.js';
 
 /* eslint-disable @typescript-eslint/require-await */
 
@@ -77,7 +78,7 @@ export const create_mock_git_ops = (): GitOperations => ({
 
 	// Change detection - fixtures never change
 	has_changes: async () => ({ok: true, value: false}),
-	get_changed_files: async () => ({ok: true, value: []}),
+	list_uncommitted_files: async () => ({ok: true, value: []}),
 	has_file_changed: async () => ({ok: true, value: false}),
 
 	// Tags - no-op for fixtures
@@ -132,33 +133,21 @@ export const create_mock_process_ops = (): ProcessOperations => ({
 });
 
 /**
- * Create basic file system operations.
- * Returns predictable values without actual I/O.
+ * Create fixture-populated file system operations.
+ *
+ * Wraps the shared `create_mock_fs_ops` from `../test_helpers.ts` and pre-populates
+ * each fixture repo's `package.json` content. Any path not explicitly set will
+ * behave per the shared mock's convention (Result<ok:false> on unknown reads),
+ * which surfaces fixture-setup mistakes as loud failures instead of silently
+ * returning `{}`.
  */
-export const create_mock_fs_ops = (fixture: RepoFixtureSet): FsOperations => {
-	// Pre-compute package.json contents for each repo
-	const package_jsons: Map<string, string> = new Map();
+export const create_fixture_fs_ops = (fixture: RepoFixtureSet): FsOperations => {
+	const fs = create_mock_fs_ops();
 	for (const repo of fixture.repos) {
 		const path = `/fixtures/repos/${fixture.name}/${repo.repo_name}/package.json`;
-		package_jsons.set(path, JSON.stringify(repo.package_json, null, '\t'));
+		fs.set(path, JSON.stringify(repo.package_json, null, '\t'));
 	}
-
-	return {
-		readFile: async (options) => {
-			const content = package_jsons.get(options.path);
-			if (content) {
-				return {ok: true, value: content};
-			}
-			// Default for unknown files
-			return {ok: true, value: '{}'};
-		},
-
-		writeFile: async () => ({ok: true}),
-
-		mkdir: async () => ({ok: true}),
-
-		exists: () => true,
-	};
+	return fs;
 };
 
 /**
@@ -205,7 +194,7 @@ export const create_mock_gitops_ops = (fixture: RepoFixtureSet): GitopsOperation
 	git: create_mock_git_ops(),
 	npm: create_mock_npm_ops(),
 	process: create_mock_process_ops(),
-	fs: create_mock_fs_ops(fixture),
+	fs: create_fixture_fs_ops(fixture),
 	build: create_mock_build_ops(),
 	preflight: create_mock_preflight_ops(fixture),
 });
@@ -271,7 +260,7 @@ export const create_configurable_git_ops = (
 		ok: true,
 		value: config.has_changes || false,
 	}),
-	get_changed_files: async () => ({
+	list_uncommitted_files: async () => ({
 		ok: true,
 		value: config.has_changes ? ['package.json'] : [],
 	}),
@@ -407,7 +396,7 @@ export const create_configurable_gitops_ops = (
 	git: create_configurable_git_ops(config.git),
 	npm: create_configurable_npm_ops(config.npm),
 	process: create_mock_process_ops(),
-	fs: create_mock_fs_ops(fixture),
+	fs: create_fixture_fs_ops(fixture),
 	build: create_configurable_build_ops(config.build),
 	preflight: create_configurable_preflight_ops(fixture, config.preflight),
 });
@@ -423,7 +412,7 @@ export const create_dirty_workspace_git_ops = (): GitOperations => ({
 	...create_mock_git_ops(),
 	check_clean_workspace: async () => ({ok: true, value: false}),
 	has_changes: async () => ({ok: true, value: true}),
-	get_changed_files: async () => ({ok: true, value: ['package.json', 'src/index.ts']}),
+	list_uncommitted_files: async () => ({ok: true, value: ['package.json', 'src/index.ts']}),
 });
 
 /**

@@ -337,7 +337,7 @@ export const publish_repos = async (
 				const deploy_result = await ops.process.spawn({
 					cmd: 'gro',
 					args: ['deploy', '--no-build'],
-					spawn_options: {cwd: repo.repo_dir},
+					cwd: repo.repo_dir,
 				});
 
 				if (deploy_result.ok) {
@@ -426,7 +426,7 @@ const publish_single_repo = async (
 	const publish_result = await ops.process.spawn({
 		cmd: 'gro',
 		args: ['publish', '--no-build'],
-		spawn_options: {cwd: repo.repo_dir},
+		cwd: repo.repo_dir,
 	});
 
 	if (!publish_result.ok) {

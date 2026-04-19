@@ -8,8 +8,7 @@
  */
 
 import {spawn_out} from '@fuzdev/fuz_util/process.js';
-import {readFile, writeFile, mkdir} from 'node:fs/promises';
-import {existsSync} from 'node:fs';
+import {readFile, writeFile, mkdir, stat} from 'node:fs/promises';
 import {git_checkout, type GitBranch, type GitOrigin} from '@fuzdev/fuz_util/git.js';
 import {EMPTY_OBJECT} from '@fuzdev/fuz_util/object.js';
 
@@ -23,7 +22,7 @@ import {
 	git_tag,
 	git_push_tag,
 	git_has_changes,
-	git_get_changed_files,
+	git_list_uncommitted_files,
 	git_has_file_changed,
 	git_stash,
 	git_stash_pop,
@@ -165,9 +164,9 @@ export const default_git_operations: GitOperations = {
 		return wrap_with_value(() => git_has_changes(cwd ? {cwd} : undefined));
 	},
 
-	get_changed_files: async (options) => {
+	list_uncommitted_files: async (options) => {
 		const {cwd} = options ?? EMPTY_OBJECT;
-		return wrap_with_value(() => git_get_changed_files(cwd ? {cwd} : undefined));
+		return wrap_with_value(() => git_list_uncommitted_files(cwd ? {cwd} : undefined));
 	},
 
 	// Tagging
@@ -203,9 +202,9 @@ export const default_git_operations: GitOperations = {
 
 export const default_process_operations: ProcessOperations = {
 	spawn: async (options) => {
-		const {cmd, args, spawn_options} = options;
+		const {cmd, args, cwd} = options;
 		try {
-			const spawned = await spawn_out(cmd, args, spawn_options);
+			const spawned = await spawn_out(cmd, args, cwd ? {cwd} : undefined);
 			if (spawned.result.ok) {
 				return {
 					ok: true,
@@ -318,8 +317,13 @@ export const default_fs_operations: FsOperations = {
 		return wrap_void(() => mkdir(path, {recursive}));
 	},
 
-	exists: (options) => {
-		return existsSync(options.path);
+	exists: async (options) => {
+		try {
+			await stat(options.path);
+			return true;
+		} catch {
+			return false;
+		}
 	},
 };
 

@@ -99,7 +99,7 @@ export const run_preflight_checks = async ({
 
 		if (!clean_result.value) {
 			// Get list of changed files for better error message
-			const files_result = await git_ops.get_changed_files({cwd: repo.repo_dir}); // eslint-disable-line no-await-in-loop
+			const files_result = await git_ops.list_uncommitted_files({cwd: repo.repo_dir}); // eslint-disable-line no-await-in-loop
 			if (files_result.ok) {
 				// No filtering - workspace must be 100% clean
 				const unexpected_files = files_result.value;

@@ -36,7 +36,6 @@
 
 import type {Result} from '@fuzdev/fuz_util/result.js';
 import type {Logger} from '@fuzdev/fuz_util/log.js';
-import type {SpawnOptions} from 'node:child_process';
 import type {LocalRepo} from './local_repo.js';
 import type {ChangesetInfo} from './changeset_reader.js';
 import type {BumpType} from './semver.js';
@@ -161,9 +160,13 @@ export interface GitOperations {
 	has_changes: (options?: {cwd?: string}) => Promise<Result<{value: boolean}, {message: string}>>;
 
 	/**
-	 * Gets a list of changed files.
+	 * Lists uncommitted files in the working tree (`git diff --name-only HEAD`).
+	 *
+	 * Renamed from `get_changed_files` in 2026-04 because "changed files" collided
+	 * with mageguild's `get_changed_files` which diffs two refs. This one reports
+	 * uncommitted working-tree changes relative to HEAD.
 	 */
-	get_changed_files: (options?: {
+	list_uncommitted_files: (options?: {
 		cwd?: string;
 	}) => Promise<Result<{value: Array<string>}, {message: string}>>;
 
@@ -216,7 +219,7 @@ export interface ProcessOperations {
 	spawn: (options: {
 		cmd: string;
 		args: Array<string>;
-		spawn_options?: SpawnOptions;
+		cwd?: string;
 	}) => Promise<Result<{stdout?: string; stderr?: string}, {message: string; stderr?: string}>>;
 }
 
@@ -331,7 +334,7 @@ export interface FsOperations {
 	/**
 	 * Checks if a path exists on the file system.
 	 */
-	exists: (options: {path: string}) => boolean;
+	exists: (options: {path: string}) => Promise<boolean>;
 }
 
 /**

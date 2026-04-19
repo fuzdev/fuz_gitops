@@ -36,7 +36,7 @@ export const create_changeset_for_dependency_updates = async (
 	const changesets_dir = join(repo.repo_dir, '.changeset');
 
 	// Ensure .changeset directory exists
-	if (!fs_ops.exists({path: changesets_dir})) {
+	if (!(await fs_ops.exists({path: changesets_dir}))) {
 		const mkdir_result = await fs_ops.mkdir({path: changesets_dir, recursive: true});
 		if (!mkdir_result.ok) {
 			throw new Error(`Failed to create .changeset directory: ${mkdir_result.message}`);
