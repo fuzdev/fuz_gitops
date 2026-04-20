@@ -1,5 +1,17 @@
 # @fuzdev/fuz_gitops
 
+## 0.69.0
+
+### Minor Changes
+
+- chore: improve styling patterns ([57fbd1f](https://github.com/fuzdev/fuz_gitops/commit/57fbd1f))
+- chore: rework some interfaces ([0215a5d](https://github.com/fuzdev/fuz_gitops/commit/0215a5d))
+- feat: rework some interfaces and upgrade fuz_util ([5398f74](https://github.com/fuzdev/fuz_gitops/commit/5398f74))
+
+### Patch Changes
+
+- fix: improve some errors ([c63b1b7](https://github.com/fuzdev/fuz_gitops/commit/c63b1b7))
+
 ## 0.68.0
 
 ### Minor Changes
