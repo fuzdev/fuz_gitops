@@ -16,8 +16,6 @@ import {
 } from './gitops_constants.js';
 import {install_with_cache_healing} from './npm_install_helpers.js';
 
- 
-
 export interface PublishingOptions {
 	wetrun: boolean;
 	update_deps: boolean;

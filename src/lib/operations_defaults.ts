@@ -10,6 +10,7 @@
 import {spawn_out} from '@fuzdev/fuz_util/process.js';
 import {readFile, writeFile, mkdir, stat} from 'node:fs/promises';
 import {git_checkout, type GitBranch, type GitOrigin} from '@fuzdev/fuz_util/git.js';
+import {fs_classify_error} from '@fuzdev/fuz_util/fs.js';
 import {EMPTY_OBJECT} from '@fuzdev/fuz_util/object.js';
 
 import {has_changesets, read_changesets, predict_next_version} from './changeset_reader.js';
@@ -304,17 +305,32 @@ export const default_preflight_operations: PreflightOperations = {
 export const default_fs_operations: FsOperations = {
 	readFile: async (options) => {
 		const {path, encoding} = options;
-		return wrap_with_value(() => readFile(path, encoding));
+		try {
+			const value = await readFile(path, encoding);
+			return {ok: true, value};
+		} catch (error) {
+			return {ok: false, ...fs_classify_error(error)};
+		}
 	},
 
 	writeFile: async (options) => {
 		const {path, content} = options;
-		return wrap_void(() => writeFile(path, content));
+		try {
+			await writeFile(path, content);
+			return {ok: true};
+		} catch (error) {
+			return {ok: false, ...fs_classify_error(error)};
+		}
 	},
 
 	mkdir: async (options) => {
 		const {path, recursive} = options;
-		return wrap_void(() => mkdir(path, {recursive}));
+		try {
+			await mkdir(path, {recursive});
+			return {ok: true};
+		} catch (error) {
+			return {ok: false, ...fs_classify_error(error)};
+		}
 	},
 
 	exists: async (options) => {

@@ -42,7 +42,7 @@
 		"peerDependencies": {
 			"@fuzdev/fuz_css": ">=0.56.0",
 			"@fuzdev/fuz_ui": ">=0.190.0",
-			"@fuzdev/fuz_util": ">=0.54.0",
+			"@fuzdev/fuz_util": ">=0.57.0",
 			"@fuzdev/gro": ">=0.197.0",
 			"@sveltejs/kit": "^2",
 			"svelte": "^5",
@@ -53,8 +53,8 @@
 			"@fuzdev/fuz_code": "^0.45.1",
 			"@fuzdev/fuz_css": "^0.58.0",
 			"@fuzdev/fuz_ui": "^0.191.4",
-			"@fuzdev/fuz_util": "^0.56.0",
-			"@fuzdev/gro": "^0.197.3",
+			"@fuzdev/fuz_util": "^0.57.0",
+			"@fuzdev/gro": "^0.198.0",
 			"@jridgewell/trace-mapping": "^0.3.31",
 			"@ryanatkn/eslint-config": "^0.11.0",
 			"@sveltejs/acorn-typescript": "^1.0.9",
@@ -781,7 +781,7 @@
 						"name": "fetch_repo_data",
 						"kind": "function",
 						"doc_comment": "Fetches GitHub metadata (CI status, PRs) for all repos.\n\nFetches sequentially with delay between requests to respect GitHub API rate limits.\nUses `await_in_loop` intentionally to avoid parallel requests overwhelming the API.\n\nError handling: Logs fetch failures but continues processing remaining repos.\nRepos with failed fetches will have `null` for `check_runs` or `pull_requests`.",
-						"source_line": 24,
+						"source_line": 22,
 						"type_signature": "(resolved_repos: LocalRepo[], token?: string | undefined, cache?: Map<string, { key: string; url: string; params: any; value: any; etag: string | null; last_modified: string | null; }> | undefined, log?: Logger | undefined, delay?: number, github_api_version?: string | undefined): Promise<...>",
 						"return_type": "Promise<RepoJson[]>",
 						"return_description": "array of `Repo` objects with GitHub metadata attached",
@@ -901,7 +901,7 @@
 						"name": "git_commit",
 						"kind": "function",
 						"doc_comment": "Commits staged changes with a message and throws if anything goes wrong.",
-						"source_line": 30,
+						"source_line": 32,
 						"type_signature": "(message: string, options?: SpawnOptions | undefined): Promise<void>",
 						"return_type": "Promise<void>",
 						"parameters": [
@@ -920,7 +920,7 @@
 						"name": "git_add_and_commit",
 						"kind": "function",
 						"doc_comment": "Adds files and commits in one operation and throws if anything goes wrong.",
-						"source_line": 40,
+						"source_line": 44,
 						"type_signature": "(files: string | string[], message: string, options?: SpawnOptions | undefined): Promise<void>",
 						"return_type": "Promise<void>",
 						"parameters": [
@@ -943,7 +943,7 @@
 						"name": "git_tag",
 						"kind": "function",
 						"doc_comment": "Creates a git tag and throws if anything goes wrong.",
-						"source_line": 52,
+						"source_line": 56,
 						"type_signature": "(tag_name: string, message?: string | undefined, options?: SpawnOptions | undefined): Promise<void>",
 						"return_type": "Promise<void>",
 						"parameters": [
@@ -967,7 +967,7 @@
 						"name": "git_push_tag",
 						"kind": "function",
 						"doc_comment": "Pushes a tag to origin and throws if anything goes wrong.",
-						"source_line": 70,
+						"source_line": 74,
 						"type_signature": "(tag_name: string, origin?: GitOrigin, options?: SpawnOptions | undefined): Promise<void>",
 						"return_type": "Promise<void>",
 						"parameters": [
@@ -990,7 +990,7 @@
 					{
 						"name": "git_has_changes",
 						"kind": "function",
-						"source_line": 83,
+						"source_line": 87,
 						"type_signature": "(options?: SpawnOptions | undefined): Promise<boolean>",
 						"return_type": "Promise<boolean>",
 						"parameters": [
@@ -1005,7 +1005,7 @@
 						"name": "git_list_uncommitted_files",
 						"kind": "function",
 						"doc_comment": "Lists uncommitted files in the working tree (`git diff --name-only HEAD`).",
-						"source_line": 91,
+						"source_line": 95,
 						"type_signature": "(options?: SpawnOptions | undefined): Promise<string[]>",
 						"return_type": "Promise<string[]>",
 						"parameters": [
@@ -1019,7 +1019,7 @@
 					{
 						"name": "git_has_file_changed",
 						"kind": "function",
-						"source_line": 103,
+						"source_line": 107,
 						"type_signature": "(from_commit: string, to_commit: string, file_path: string, options?: SpawnOptions | undefined): Promise<boolean>",
 						"return_type": "Promise<boolean>",
 						"parameters": [
@@ -1046,7 +1046,7 @@
 						"name": "git_stash",
 						"kind": "function",
 						"doc_comment": "Stashes current changes and throws if anything goes wrong.",
-						"source_line": 120,
+						"source_line": 124,
 						"type_signature": "(message?: string | undefined, options?: SpawnOptions | undefined): Promise<void>",
 						"return_type": "Promise<void>",
 						"parameters": [
@@ -1066,7 +1066,7 @@
 						"name": "git_stash_pop",
 						"kind": "function",
 						"doc_comment": "Applies stashed changes and throws if anything goes wrong.",
-						"source_line": 132,
+						"source_line": 138,
 						"type_signature": "(options?: SpawnOptions | undefined): Promise<void>",
 						"return_type": "Promise<void>",
 						"parameters": [
@@ -1081,7 +1081,7 @@
 						"name": "git_switch_branch",
 						"kind": "function",
 						"doc_comment": "Switches to a branch with safety checks and throws if workspace is not clean.",
-						"source_line": 144,
+						"source_line": 150,
 						"type_signature": "(branch: GitBranch, pull?: boolean, options?: SpawnOptions | undefined): Promise<void>",
 						"return_type": "Promise<void>",
 						"parameters": [
@@ -1105,7 +1105,7 @@
 						"name": "git_current_branch_name_required",
 						"kind": "function",
 						"doc_comment": "Wrapper for gro's `git_current_branch_name` that throws if null.",
-						"source_line": 173,
+						"source_line": 179,
 						"type_signature": "(options?: SpawnOptions | undefined): Promise<string>",
 						"return_type": "Promise<string>",
 						"parameters": [
@@ -1120,7 +1120,7 @@
 						"name": "git_current_commit_hash_required",
 						"kind": "function",
 						"doc_comment": "Wrapper for gro's `git_current_commit_hash` that throws if null.",
-						"source_line": 184,
+						"source_line": 190,
 						"type_signature": "(branch?: string | undefined, options?: SpawnOptions | undefined): Promise<string>",
 						"return_type": "Promise<string>",
 						"parameters": [
@@ -1140,7 +1140,7 @@
 						"name": "git_check_clean_workspace_as_boolean",
 						"kind": "function",
 						"doc_comment": "Wrapper for gro's `git_check_clean_workspace` that returns a boolean.",
-						"source_line": 198,
+						"source_line": 204,
 						"type_signature": "(options?: SpawnOptions | undefined): Promise<boolean>",
 						"return_type": "Promise<boolean>",
 						"parameters": [
@@ -1154,7 +1154,7 @@
 					{
 						"name": "git_has_remote",
 						"kind": "function",
-						"source_line": 205,
+						"source_line": 211,
 						"type_signature": "(remote?: string, options?: SpawnOptions | undefined): Promise<boolean>",
 						"return_type": "Promise<boolean>",
 						"parameters": [
@@ -2259,7 +2259,7 @@
 					{
 						"name": "PublishingOptions",
 						"kind": "type",
-						"source_line": 21,
+						"source_line": 19,
 						"type_signature": "PublishingOptions",
 						"properties": [
 							{
@@ -2307,7 +2307,7 @@
 					{
 						"name": "PublishedVersion",
 						"kind": "type",
-						"source_line": 32,
+						"source_line": 30,
 						"type_signature": "PublishedVersion",
 						"properties": [
 							{
@@ -2350,7 +2350,7 @@
 					{
 						"name": "PublishingResult",
 						"kind": "type",
-						"source_line": 42,
+						"source_line": 40,
 						"type_signature": "PublishingResult",
 						"properties": [
 							{
@@ -2378,7 +2378,7 @@
 					{
 						"name": "publish_repos",
 						"kind": "function",
-						"source_line": 49,
+						"source_line": 47,
 						"type_signature": "(repos: LocalRepo[], options: PublishingOptions): Promise<PublishingResult>",
 						"return_type": "Promise<PublishingResult>",
 						"parameters": [
@@ -2593,50 +2593,50 @@
 					{
 						"name": "default_changeset_operations",
 						"kind": "variable",
-						"source_line": 70,
+						"source_line": 71,
 						"type_signature": "ChangesetOperations"
 					},
 					{
 						"name": "default_git_operations",
 						"kind": "variable",
-						"source_line": 95,
+						"source_line": 96,
 						"type_signature": "GitOperations"
 					},
 					{
 						"name": "default_process_operations",
 						"kind": "variable",
-						"source_line": 203,
+						"source_line": 204,
 						"type_signature": "ProcessOperations"
 					},
 					{
 						"name": "default_npm_operations",
 						"kind": "variable",
-						"source_line": 227,
+						"source_line": 228,
 						"type_signature": "NpmOperations"
 					},
 					{
 						"name": "default_preflight_operations",
 						"kind": "variable",
-						"source_line": 298,
+						"source_line": 299,
 						"type_signature": "PreflightOperations"
 					},
 					{
 						"name": "default_fs_operations",
 						"kind": "variable",
-						"source_line": 304,
+						"source_line": 305,
 						"type_signature": "FsOperations"
 					},
 					{
 						"name": "default_build_operations",
 						"kind": "variable",
-						"source_line": 330,
+						"source_line": 346,
 						"type_signature": "BuildOperations"
 					},
 					{
 						"name": "default_gitops_operations",
 						"kind": "variable",
 						"doc_comment": "Combined default operations for all gitops functionality.",
-						"source_line": 354,
+						"source_line": 370,
 						"type_signature": "GitopsOperations"
 					}
 				],
@@ -2663,7 +2663,7 @@
 						"name": "ChangesetOperations",
 						"kind": "type",
 						"doc_comment": "Changeset operations for reading and predicting versions from `.changeset/*.md` files.",
-						"source_line": 48,
+						"source_line": 49,
 						"type_signature": "ChangesetOperations",
 						"properties": [
 							{
@@ -2690,7 +2690,7 @@
 						"name": "GitOperations",
 						"kind": "type",
 						"doc_comment": "Git operations for branch management, commits, tags, and workspace state.\nAll operations return `Result` instead of throwing errors.",
-						"source_line": 81,
+						"source_line": 82,
 						"type_signature": "GitOperations",
 						"properties": [
 							{
@@ -2801,7 +2801,7 @@
 						"name": "ProcessOperations",
 						"kind": "type",
 						"doc_comment": "Process spawning operations for running shell commands.",
-						"source_line": 215,
+						"source_line": 216,
 						"type_signature": "ProcessOperations",
 						"properties": [
 							{
@@ -2816,7 +2816,7 @@
 						"name": "BuildOperations",
 						"kind": "type",
 						"doc_comment": "Build operations for validating packages compile before publishing.",
-						"source_line": 229,
+						"source_line": 230,
 						"type_signature": "BuildOperations",
 						"properties": [
 							{
@@ -2831,7 +2831,7 @@
 						"name": "NpmOperations",
 						"kind": "type",
 						"doc_comment": "NPM registry operations for package availability checks and authentication.\nIncludes exponential backoff for waiting on package propagation.",
-						"source_line": 243,
+						"source_line": 244,
 						"type_signature": "NpmOperations",
 						"properties": [
 							{
@@ -2876,7 +2876,7 @@
 						"name": "PreflightOperations",
 						"kind": "type",
 						"doc_comment": "Preflight validation operations to ensure repos are ready for publishing.\nValidates workspace state, branches, builds, and npm authentication.",
-						"source_line": 292,
+						"source_line": 293,
 						"type_signature": "PreflightOperations",
 						"properties": [
 							{
@@ -2890,26 +2890,26 @@
 					{
 						"name": "FsOperations",
 						"kind": "type",
-						"doc_comment": "File system operations for reading and writing files.",
-						"source_line": 309,
+						"doc_comment": "File system operations for reading and writing files.\n\nErrors are typed via `FsError` (`not_found | permission_denied |\nalready_exists | io_error`) so callers can branch on `kind` instead of\nregex-matching `message`. See `@fuzdev/fuz_util/fs.js`.",
+						"source_line": 314,
 						"type_signature": "FsOperations",
 						"properties": [
 							{
 								"name": "readFile",
 								"kind": "variable",
-								"type_signature": "(options: {\n\t\tpath: string;\n\t\tencoding: BufferEncoding;\n\t}) => Promise<Result<{value: string}, {message: string}>>",
+								"type_signature": "(options: {\n\t\tpath: string;\n\t\tencoding: BufferEncoding;\n\t}) => Promise<Result<{value: string}, FsError>>",
 								"doc_comment": "Reads a file from the file system."
 							},
 							{
 								"name": "writeFile",
 								"kind": "variable",
-								"type_signature": "(options: {\n\t\tpath: string;\n\t\tcontent: string;\n\t}) => Promise<Result<object, {message: string}>>",
+								"type_signature": "(options: {path: string; content: string}) => Promise<Result<object, FsError>>",
 								"doc_comment": "Writes a file to the file system."
 							},
 							{
 								"name": "mkdir",
 								"kind": "variable",
-								"type_signature": "(options: {\n\t\tpath: string;\n\t\trecursive?: boolean;\n\t}) => Promise<Result<object, {message: string}>>",
+								"type_signature": "(options: {path: string; recursive?: boolean}) => Promise<Result<object, FsError>>",
 								"doc_comment": "Creates a directory, optionally with recursive creation."
 							},
 							{
@@ -2924,7 +2924,7 @@
 						"name": "GitopsOperations",
 						"kind": "type",
 						"doc_comment": "Combined operations interface grouping all gitops functionality.\nThis is the main interface injected into publishing and validation workflows.",
-						"source_line": 344,
+						"source_line": 343,
 						"type_signature": "GitopsOperations",
 						"properties": [
 							{

@@ -179,7 +179,7 @@ export const generate_publishing_plan = async (
 		if (!repo) continue;
 
 		// Check for changesets
-		const has_result = await ops.has_changesets({repo});  
+		const has_result = await ops.has_changesets({repo});
 
 		if (!has_result.ok) {
 			errors.push(`Failed to check changesets for ${pkg_name}: ${has_result.message}`);
@@ -188,7 +188,7 @@ export const generate_publishing_plan = async (
 
 		if (has_result.value) {
 			// Predict version from changesets
-			const prediction = await ops.predict_next_version({repo, log});  
+			const prediction = await ops.predict_next_version({repo, log});
 
 			if (!prediction) {
 				// No changesets found - this shouldn't happen since has_changesets returned true
@@ -202,7 +202,7 @@ export const generate_publishing_plan = async (
 
 			// Capture changeset details for verbose output
 			if (verbose) {
-				const changesets_result = await ops.read_changesets({repo, log});  
+				const changesets_result = await ops.read_changesets({repo, log});
 				if (changesets_result.ok) {
 					const files = changesets_result.value
 						.filter((cs) => cs.packages.some((p) => p.name === pkg_name))
@@ -445,7 +445,7 @@ export const generate_publishing_plan = async (
 	for (const repo of repos) {
 		const has_version_change = version_changes.some((vc) => vc.package_name === repo.library.name);
 		if (!has_version_change) {
-			const has_result = await ops.has_changesets({repo});  
+			const has_result = await ops.has_changesets({repo});
 			if (has_result.ok && !has_result.value) {
 				info.push(repo.library.name);
 			}

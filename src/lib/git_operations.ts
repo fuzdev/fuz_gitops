@@ -1,4 +1,4 @@
-import {spawn_out} from '@fuzdev/fuz_util/process.js';
+import {spawn_out, spawn_result_to_message} from '@fuzdev/fuz_util/process.js';
 import type {SpawnOptions} from 'node:child_process';
 import {
 	git_check_clean_workspace as gro_git_check_clean_workspace,
@@ -20,7 +20,9 @@ export const git_add = async (
 	const file_list = Array.isArray(files) ? files : [files];
 	const {result, stderr} = await spawn_out('git', ['add', ...file_list], options);
 	if (!result.ok) {
-		throw Error(`git_add failed with code ${result.code}${stderr ? ': ' + stderr.trim() : ''}`);
+		throw Error(
+			`git_add failed with ${spawn_result_to_message(result)}${stderr ? ': ' + stderr.trim() : ''}`,
+		);
 	}
 };
 
@@ -30,7 +32,9 @@ export const git_add = async (
 export const git_commit = async (message: string, options?: SpawnOptions): Promise<void> => {
 	const {result, stderr} = await spawn_out('git', ['commit', '-m', message], options);
 	if (!result.ok) {
-		throw Error(`git_commit failed with code ${result.code}${stderr ? ': ' + stderr.trim() : ''}`);
+		throw Error(
+			`git_commit failed with ${spawn_result_to_message(result)}${stderr ? ': ' + stderr.trim() : ''}`,
+		);
 	}
 };
 
@@ -59,7 +63,7 @@ export const git_tag = async (
 	const {result, stderr} = await spawn_out('git', args, options);
 	if (!result.ok) {
 		throw Error(
-			`git_tag failed for tag '${tag_name}' with code ${result.code}${stderr ? ': ' + stderr.trim() : ''}`,
+			`git_tag failed for tag '${tag_name}' with ${spawn_result_to_message(result)}${stderr ? ': ' + stderr.trim() : ''}`,
 		);
 	}
 };
@@ -75,7 +79,7 @@ export const git_push_tag = async (
 	const {result, stderr} = await spawn_out('git', ['push', origin, tag_name], options);
 	if (!result.ok) {
 		throw Error(
-			`git_push_tag failed for tag '${tag_name}' with code ${result.code}${stderr ? ': ' + stderr.trim() : ''}`,
+			`git_push_tag failed for tag '${tag_name}' with ${spawn_result_to_message(result)}${stderr ? ': ' + stderr.trim() : ''}`,
 		);
 	}
 };
@@ -122,7 +126,9 @@ export const git_stash = async (message?: string, options?: SpawnOptions): Promi
 
 	const {result, stderr} = await spawn_out('git', args, options);
 	if (!result.ok) {
-		throw Error(`git_stash failed with code ${result.code}${stderr ? ': ' + stderr.trim() : ''}`);
+		throw Error(
+			`git_stash failed with ${spawn_result_to_message(result)}${stderr ? ': ' + stderr.trim() : ''}`,
+		);
 	}
 };
 
@@ -133,7 +139,7 @@ export const git_stash_pop = async (options?: SpawnOptions): Promise<void> => {
 	const {result, stderr} = await spawn_out('git', ['stash', 'pop'], options);
 	if (!result.ok) {
 		throw Error(
-			`git_stash_pop failed with code ${result.code}${stderr ? ': ' + stderr.trim() : ''}`,
+			`git_stash_pop failed with ${spawn_result_to_message(result)}${stderr ? ': ' + stderr.trim() : ''}`,
 		);
 	}
 };

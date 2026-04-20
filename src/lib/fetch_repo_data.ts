@@ -6,8 +6,6 @@ import {fetch_github_check_runs, fetch_github_pull_requests} from './github.js';
 import type {RepoJson} from './repo.svelte.js';
 import type {LocalRepo} from './local_repo.js';
 
- 
-
 /**
  * Fetches GitHub metadata (CI status, PRs) for all repos.
  *

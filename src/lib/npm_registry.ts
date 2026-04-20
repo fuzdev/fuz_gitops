@@ -80,7 +80,7 @@ export const wait_for_package = async (
 		}
 
 		// Check if package is available
-		 
+
 		if (await check_package_available(pkg, version, {log})) {
 			log?.info(st('green', `    ✓ ${pkg}@${version} is now available on NPM`));
 			return;
@@ -94,7 +94,7 @@ export const wait_for_package = async (
 		// Wait with exponential backoff + jitter
 		const jitter = Math.random() * delay * 0.1; // 10% jitter
 		const actual_delay = Math.min(delay + jitter, max_delay);
-		await wait(actual_delay);  
+		await wait(actual_delay);
 
 		// Exponential backoff
 		delay = Math.min(delay * 1.5, max_delay);

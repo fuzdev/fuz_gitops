@@ -284,7 +284,7 @@ export const create_mock_fs_ops = (): FsOperations & {
 		readFile: async (options) => {
 			const content = files.get(options.path);
 			if (content === undefined) {
-				return {ok: false, message: `File not found: ${options.path}`};
+				return {ok: false, kind: 'not_found', message: `File not found: ${options.path}`};
 			}
 			return {ok: true, value: content};
 		},

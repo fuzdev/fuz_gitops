@@ -75,7 +75,7 @@ export const task: Task<Args> = {
 					repo_name,
 					repo_dir,
 					status: success ? 'success' : 'failure',
-					exit_code: spawned.result.code ?? 0,
+					exit_code: spawned.result.kind === 'exited' ? spawned.result.code : 0,
 					stdout: spawned.stdout || '',
 					stderr: spawned.stderr || '',
 					duration_ms,

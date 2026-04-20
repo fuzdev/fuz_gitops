@@ -226,7 +226,7 @@ export const update_all_repos = async (
 		if (updates.size === 0) continue;
 
 		try {
-			await update_package_json(repo, updates, {strategy, log, git_ops, fs_ops});  
+			await update_package_json(repo, updates, {strategy, log, git_ops, fs_ops});
 			updated_count++;
 			log?.info(`    Updated ${updates.size} dependencies in ${repo.library.name}`);
 		} catch (error) {

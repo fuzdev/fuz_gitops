@@ -35,6 +35,7 @@
  */
 
 import type {Result} from '@fuzdev/fuz_util/result.js';
+import type {FsError} from '@fuzdev/fuz_util/fs.js';
 import type {Logger} from '@fuzdev/fuz_util/log.js';
 import type {LocalRepo} from './local_repo.js';
 import type {ChangesetInfo} from './changeset_reader.js';
@@ -305,6 +306,10 @@ export interface PreflightOperations {
 
 /**
  * File system operations for reading and writing files.
+ *
+ * Errors are typed via `FsError` (`not_found | permission_denied |
+ * already_exists | io_error`) so callers can branch on `kind` instead of
+ * regex-matching `message`. See `@fuzdev/fuz_util/fs.js`.
  */
 export interface FsOperations {
 	/**
@@ -313,23 +318,17 @@ export interface FsOperations {
 	readFile: (options: {
 		path: string;
 		encoding: BufferEncoding;
-	}) => Promise<Result<{value: string}, {message: string}>>;
+	}) => Promise<Result<{value: string}, FsError>>;
 
 	/**
 	 * Writes a file to the file system.
 	 */
-	writeFile: (options: {
-		path: string;
-		content: string;
-	}) => Promise<Result<object, {message: string}>>;
+	writeFile: (options: {path: string; content: string}) => Promise<Result<object, FsError>>;
 
 	/**
 	 * Creates a directory, optionally with recursive creation.
 	 */
-	mkdir: (options: {
-		path: string;
-		recursive?: boolean;
-	}) => Promise<Result<object, {message: string}>>;
+	mkdir: (options: {path: string; recursive?: boolean}) => Promise<Result<object, FsError>>;
 
 	/**
 	 * Checks if a path exists on the file system.

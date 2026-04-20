@@ -186,7 +186,7 @@ export async function* walk_repo_files(
 			} else if (entry.isFile()) {
 				// Check file size
 				try {
-					const file_stat = await stat(full_path);  
+					const file_stat = await stat(full_path);
 					if (file_stat.size <= max_file_size) {
 						yield full_path;
 					}
