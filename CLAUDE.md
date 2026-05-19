@@ -7,6 +7,11 @@ and cross-repo automation.
 
 For coding conventions, see Skill(fuz-stack).
 
+## Committing
+
+`git add` and `git commit` are denied by `.claude/settings.local.json` in
+this repo — make the edits and stop, the user commits.
+
 ## Table of Contents
 
 - [Core functionality](#core-functionality)
@@ -229,7 +234,7 @@ The publishing workflow automatically installs dependencies after package.json u
 
 #### Changeset Semantics
 
-Four publishing scenarios (see [docs/publishing.md](docs/publishing.md) for
+Four publishing scenarios (see ./docs/publishing.md for
 details):
 
 1. **Explicit changesets** - Normal publishing with version bump from changesets
@@ -262,7 +267,7 @@ Packages with `"private": true` are excluded from publishing order.
 
 #### Publishing Algorithms
 
-See [docs/publishing.md](docs/publishing.md) for detailed algorithm
+See ./docs/publishing.md for detailed algorithm
 descriptions.
 
 **Fixed-Point Iteration**: Publishing uses iterative passes (max 10) to resolve

@@ -113,10 +113,10 @@ gro gitops_publish --wetrun --no-plan  # skip plan confirmation
 
 **Documentation:**
 
-- [CLAUDE.md](CLAUDE.md) - Architecture, commands, testing patterns
-- [docs/publishing.md](docs/publishing.md) - Publishing workflows, changeset
+- ./CLAUDE.md - Architecture, commands, testing patterns
+- ./docs/publishing.md - Publishing workflows, changeset
   semantics, examples
-- [docs/troubleshooting.md](docs/troubleshooting.md) - Common errors and
+- ./docs/troubleshooting.md - Common errors and
   debugging tips
 
 Getting started as a dev? Start with [Gro](https://github.com/grogarden/gro)

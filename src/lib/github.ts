@@ -116,7 +116,7 @@ const reduce_check_runs = (check_runs: Array<GithubCheckRunsItem>): GithubCheckR
 	let status!: GithubCheckRunsItem['status'];
 	let conclusion!: GithubCheckRunsItem['conclusion'];
 	for (const check_run of check_runs) {
-		// eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
+		 
 		if (!status || status === 'completed') {
 			status = check_run.status;
 		}
