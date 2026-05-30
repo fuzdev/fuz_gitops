@@ -1,12 +1,12 @@
 <script lang="ts">
 	import LibrarySummary from '@fuzdev/fuz_ui/LibrarySummary.svelte';
-	import LibraryDetail from '@fuzdev/fuz_ui/LibraryDetail.svelte';
 	import {resolve} from '$app/paths';
 	import {format_url} from '@fuzdev/fuz_util/url.js';
 	import type {Snippet} from 'svelte';
 
 	import type {Repo} from './repo.svelte.js';
 	import ReposTreeNav from './ReposTreeNav.svelte';
+	import RepoLibraryDetail from './RepoLibraryDetail.svelte';
 
 	const {
 		repos,
@@ -26,7 +26,9 @@
 	{#if selected_repo}
 		<section class="detail-wrapper">
 			<div class="panel detail p_md">
-				<LibraryDetail library={selected_repo.library} />
+				{#key selected_repo.name}
+					<RepoLibraryDetail library={selected_repo.library} />
+				{/key}
 			</div>
 		</section>
 	{:else}
