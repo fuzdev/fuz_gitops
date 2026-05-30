@@ -41,7 +41,7 @@ export const task: Task<Args> = {
 	run: async ({args, log}) => {
 		const {command, config, concurrency, format} = args;
 
-		// Get repo paths (lightweight, no library.ts loading needed)
+		// Get repo paths (lightweight, no library-metadata loading needed)
 		const config_path = resolve(config);
 		const repos = await get_repo_paths(config_path);
 

@@ -1,7 +1,6 @@
 import {create_context} from '@fuzdev/fuz_ui/context_helpers.js';
-import type {LibraryJson} from '@fuzdev/fuz_util/library_json.js';
+import type {LibraryJson, SourceJson} from '@fuzdev/fuz_util/library_json.js';
 import type {PackageJson} from '@fuzdev/fuz_util/package_json.js';
-import type {SourceJson} from '@fuzdev/fuz_util/source_json.js';
 import type {Url} from '@fuzdev/fuz_util/url.js';
 import {Library} from '@fuzdev/fuz_ui/library.svelte.js';
 import type {Module} from '@fuzdev/fuz_ui/module.svelte.js';

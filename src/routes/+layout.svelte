@@ -1,5 +1,5 @@
 <script lang="ts">
-	import '$routes/fuz.css';
+	import 'virtual:fuz.css';
 	import '@fuzdev/fuz_code/theme.css';
 
 	import ThemeRoot from '@fuzdev/fuz_ui/ThemeRoot.svelte';
@@ -10,12 +10,17 @@
 		contextmenu_attachment,
 	} from '@fuzdev/fuz_ui/contextmenu_state.svelte.js';
 	import {Library, library_context} from '@fuzdev/fuz_ui/library.svelte.js';
+	import {library_json_from_modules} from '@fuzdev/fuz_util/library_json.js';
+	import {modules} from 'virtual:svelte-docinfo';
 	import type {Snippet} from 'svelte';
 
 	import Settings from '$routes/Settings.svelte';
 	import {repos_json} from '$routes/repos.js';
 	import {Repo, type RepoJson, repos_parse, repos_context} from '$lib/repo.svelte.js';
-	import {library_json} from '$routes/library.js';
+
+	import package_json from '../../package.json' with {type: 'json'};
+
+	const library_json = library_json_from_modules(package_json, modules);
 
 	const {
 		children,

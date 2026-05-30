@@ -4,6 +4,7 @@ import {Library} from '@fuzdev/fuz_ui/library.svelte.js';
 import {existsSync} from 'node:fs';
 import {join} from 'node:path';
 import {TaskError} from '@fuzdev/gro';
+import {library_load_from_repo} from '@fuzdev/gro/library_load.js';
 import type {Logger} from '@fuzdev/fuz_util/log.js';
 import {spawn_out} from '@fuzdev/fuz_util/process.js';
 import {map_concurrent_settled} from '@fuzdev/fuz_util/async.js';
@@ -62,13 +63,13 @@ export interface LocalRepoMissing {
  * 3. Pulls latest changes from remote (skipped for local-only repos)
  * 4. Validates workspace is clean after pull
  * 5. Auto-installs dependencies if `package.json` changed
- * 6. Imports `library_json` from `src/routes/library.ts`
+ * 6. Loads `library_json` via `library_load_from_repo` (svelte-docinfo analysis)
  * 7. Creates `Library` and extracts dependency maps
  *
  * This ensures repos are always in sync with their configured branch
  * before being used by gitops commands.
  *
- * @throws {TaskError} if workspace dirty, branch switch fails, install fails, or `library.ts` missing
+ * @throws {TaskError} if workspace dirty, branch switch fails, install fails, or analysis fails
  */
 export const local_repo_load = async ({
 	local_repo_path,
@@ -179,27 +180,15 @@ export const local_repo_load = async ({
 		}
 	}
 
-	// Validate and load library.ts
-	const library_path = join(repo_dir, 'src/routes/library.ts');
-	if (!existsSync(library_path)) {
+	// Load library metadata via svelte-docinfo analysis (cached under `.gro/library.json`).
+	let library_json: LibraryJson;
+	try {
+		library_json = await library_load_from_repo(repo_dir, {log: _log});
+	} catch (err) {
+		const message = err instanceof Error ? err.message : String(err);
+		_log?.warn(`Failed to load library metadata for repo "${repo_name}" in ${repo_dir}: ${message}`);
 		throw new TaskError(
-			`Repo "${repo_name}" is missing src/routes/library.ts\n` +
-				`This file is required for fuz_gitops. To fix:\n` +
-				`  1. Create src/routes/library.gen.ts with:\n` +
-				`     import {library_gen} from '@fuzdev/fuz_ui/library_gen.js';\n` +
-				`     export const gen = library_gen();\n` +
-				`  2. Run: cd ${repo_dir} && gro gen`,
-		);
-	}
-
-	const library_module = await import(library_path);
-	const {library_json} = library_module as {library_json: LibraryJson | undefined};
-	if (!library_json) {
-		throw new TaskError(
-			`Repo "${repo_name}" has invalid src/routes/library.ts - missing library_json export\n` +
-				`The file must export a library_json object. To fix:\n` +
-				`  1. Ensure src/routes/library.gen.ts uses library_gen from @fuzdev/fuz_ui\n` +
-				`  2. Run: cd ${repo_dir} && gro gen`,
+			`Failed to load library metadata for repo "${repo_name}" in ${repo_dir}: ${message}`,
 		);
 	}
 	const library = new Library(library_json);

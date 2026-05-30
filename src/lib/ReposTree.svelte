@@ -42,7 +42,7 @@
 					{:else}
 						<div class="width_atmost_sm">
 							<p>
-								failed to fetch <code>.well-known/package.json</code> from
+								failed to load library metadata for
 								<!-- eslint-disable-next-line svelte/no-navigation-without-resolve --><a
 									href={repo.repo_url}>{format_url(repo.repo_url)}</a
 								>

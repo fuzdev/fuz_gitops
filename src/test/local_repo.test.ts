@@ -236,12 +236,12 @@ test('local-only repos skip pull', async () => {
 				local_repo_path: create_local_repo_path(),
 				git_ops: create_mock_git_ops({
 					has_remote: async () => ({ok: true, value: false}),
-					// pull would fail if called — reaching library.ts error proves it was skipped
+					// pull would fail if called — reaching library-load error proves it was skipped
 					pull: async () => ({ok: false, message: 'pull should not be called'}),
 				}),
 				npm_ops: create_mock_npm_ops(),
 			}),
-		/missing src\/routes\/library\.ts/,
+		/Failed to load library metadata/,
 	);
 });
 
@@ -255,11 +255,11 @@ test('skips install when no new commits', async () => {
 					// default mock returns same hash for both calls → no new commits
 				}),
 				npm_ops: create_mock_npm_ops({
-					// install would fail if called — reaching library.ts error proves it was skipped
+					// install would fail if called — reaching library-load error proves it was skipped
 					install: async () => ({ok: false, message: 'install should not be called'}),
 				}),
 			}),
-		/missing src\/routes\/library\.ts/,
+		/Failed to load library metadata/,
 	);
 });
 
@@ -278,11 +278,11 @@ test('skips install when package.json unchanged', async () => {
 					has_file_changed: async () => ({ok: true, value: false}),
 				}),
 				npm_ops: create_mock_npm_ops({
-					// install would fail if called — reaching library.ts error proves it was skipped
+					// install would fail if called — reaching library-load error proves it was skipped
 					install: async () => ({ok: false, message: 'install should not be called'}),
 				}),
 			}),
-		/missing src\/routes\/library\.ts/,
+		/Failed to load library metadata/,
 	);
 });
 
@@ -326,9 +326,9 @@ test('local_repos_load includes per-repo error details', async () => {
 	// repo-bad fails at pull with specific message
 	assert.include(err.message, 'repo-bad');
 	assert.include(err.message, 'unstaged changes');
-	// repo-ok fails later at library.ts import
+	// repo-ok fails later at library-metadata load
 	assert.include(err.message, 'repo-ok');
-	assert.include(err.message, 'library.ts');
+	assert.include(err.message, 'Failed to load library metadata');
 });
 
 test('local_repos_load sequential mode throws on first failure', async () => {
