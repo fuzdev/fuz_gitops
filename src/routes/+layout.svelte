@@ -9,18 +9,13 @@
 		ContextmenuState,
 		contextmenu_attachment,
 	} from '@fuzdev/fuz_ui/contextmenu_state.svelte.js';
-	import {Library, library_context} from '@fuzdev/fuz_ui/library.svelte.js';
-	import {library_json_from_modules} from '@fuzdev/fuz_util/library_json.js';
-	import {modules} from 'virtual:svelte-docinfo';
+	import {SiteState, site_context} from '@fuzdev/fuz_ui/site.svelte.js';
+	import {logo_fuz_gitops} from '@fuzdev/fuz_ui/logos.js';
 	import type {Snippet} from 'svelte';
 
 	import Settings from '$routes/Settings.svelte';
 	import {repos_json} from '$routes/repos.js';
 	import {Repo, type RepoJson, repos_parse, repos_context} from '$lib/repo.svelte.js';
-
-	import package_json from '../../package.json' with {type: 'json'};
-
-	const library_json = library_json_from_modules(package_json, modules);
 
 	const {
 		children,
@@ -35,7 +30,13 @@
 		'https://gitops.fuz.dev/',
 	);
 	repos_context.set(repos);
-	library_context.set(new Library(library_json));
+	site_context.set(
+		new SiteState({
+			icon: logo_fuz_gitops,
+			glyph: '🪄',
+			repo_url: 'https://github.com/fuzdev/fuz_gitops',
+		}),
+	);
 
 	let show_settings = $state.raw(false);
 </script>

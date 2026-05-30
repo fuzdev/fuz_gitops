@@ -1,16 +1,19 @@
 <script lang="ts">
 	import LibraryDetail from '@fuzdev/fuz_ui/LibraryDetail.svelte';
 	import EcosystemLinksPanel from '@fuzdev/fuz_ui/EcosystemLinksPanel.svelte';
-	import {library_context} from '@fuzdev/fuz_ui/library.svelte.js';
+	import {Library, library_context} from '@fuzdev/fuz_ui/library.svelte.js';
+	import {site_context} from '@fuzdev/fuz_ui/site.svelte.js';
+	import {library_json} from '$routes/library.js';
 
 	import PageFooter from '$lib/PageFooter.svelte';
 	import PageHeader from '$lib/PageHeader.svelte';
 
-	const library = library_context.get();
+	const library = library_context.set(new Library(library_json));
+	const site = site_context.get();
 </script>
 
 <svelte:head>
-	<title>about {library.package_json.glyph} {library.package_json.name}</title>
+	<title>about {site.glyph} fuz_gitops</title>
 </svelte:head>
 
 <main class="width_atmost_md box mx_auto">

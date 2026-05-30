@@ -1,15 +1,16 @@
 <script lang="ts">
 	import DocsFooter from '@fuzdev/fuz_ui/DocsFooter.svelte';
+	import {site_context} from '@fuzdev/fuz_ui/site.svelte.js';
+	import {FUZ_DEV_URL} from '@fuzdev/fuz_ui/constants.js';
 	import Breadcrumb from '@fuzdev/fuz_ui/Breadcrumb.svelte';
-	import {library_context} from '@fuzdev/fuz_ui/library.svelte.js';
 
-	const library = library_context.get();
+	const site = site_context.get();
 </script>
 
 <section class="box mb_xl7">
-	<DocsFooter {library} root_url="https://www.fuz.dev/">
+	<DocsFooter repo_url={site.repo_url} root_url={FUZ_DEV_URL}>
 		<nav class="mb_xl5">
-			<Breadcrumb>{library.package_json.glyph}</Breadcrumb>
+			<Breadcrumb />
 		</nav>
 	</DocsFooter>
 </section>
