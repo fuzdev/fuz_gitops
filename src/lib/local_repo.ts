@@ -186,7 +186,9 @@ export const local_repo_load = async ({
 		library_json = await library_load_from_repo(repo_dir, {log: _log});
 	} catch (err) {
 		const message = err instanceof Error ? err.message : String(err);
-		_log?.warn(`Failed to load library metadata for repo "${repo_name}" in ${repo_dir}: ${message}`);
+		_log?.warn(
+			`Failed to load library metadata for repo "${repo_name}" in ${repo_dir}: ${message}`,
+		);
 		throw new TaskError(
 			`Failed to load library metadata for repo "${repo_name}" in ${repo_dir}: ${message}`,
 		);
