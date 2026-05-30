@@ -1,5 +1,12 @@
 # @fuzdev/fuz_gitops
 
+## 0.71.0
+
+### Minor Changes
+
+- chore: upgrade peer deps ([47db18e](https://github.com/fuzdev/fuz_gitops/commit/47db18e))
+- feat: add `RepoLibraryDetail.svelte` ([c155491](https://github.com/fuzdev/fuz_gitops/commit/c155491))
+
 ## 0.70.1
 
 ### Patch Changes
