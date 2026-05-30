@@ -1,5 +1,12 @@
 # @fuzdev/fuz_gitops
 
+## 0.70.0
+
+### Minor Changes
+
+- bump node@24.14 ([7dd40b7](https://github.com/fuzdev/fuz_gitops/commit/7dd40b7))
+- chore: upgrade deps ([330a502](https://github.com/fuzdev/fuz_gitops/commit/330a502))
+
 ## 0.69.0
 
 ### Minor Changes
