@@ -1,5 +1,11 @@
 # @fuzdev/fuz_gitops
 
+## 0.70.1
+
+### Patch Changes
+
+- fix: use `compactReplacer` in `gitops_sync.task.ts` ([c08face](https://github.com/fuzdev/fuz_gitops/commit/c08face))
+
 ## 0.70.0
 
 ### Minor Changes
