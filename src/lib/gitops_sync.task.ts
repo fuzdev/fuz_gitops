@@ -7,6 +7,7 @@ import {print_path} from '@fuzdev/gro/paths.js';
 import {load_from_env} from '@fuzdev/gro/env.js';
 import {package_json_load} from '@fuzdev/gro/package_json.js';
 import {existsSync} from 'node:fs';
+import {compactReplacer} from 'svelte-docinfo';
 
 import {fetch_repo_data} from './fetch_repo_data.js';
 import {create_fs_fetch_value_cache} from './fs_fetch_value_cache.js';
@@ -80,7 +81,9 @@ export const task: Task<Args> = {
 		log.info(`generating ${outfile_json} and ${outfile_ts}`);
 
 		// Generate repos.json with the raw data
-		const json_contents = await format_file(JSON.stringify(repos_json), {filepath: outfile_json});
+		const json_contents = await format_file(JSON.stringify(repos_json, compactReplacer), {
+			filepath: outfile_json,
+		});
 		const existing_json = existsSync(outfile_json) ? await readFile(outfile_json, 'utf8') : '';
 		const json_changed = existing_json !== json_contents;
 		if (json_changed) {
