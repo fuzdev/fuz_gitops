@@ -13,7 +13,7 @@
 			"published": true,
 			"package_json": {
 				"name": "@fuzdev/fuz_app",
-				"version": "0.75.0",
+				"version": "0.76.0",
 				"description": "fullstack app library",
 				"glyph": "🗝",
 				"logo": "logo.svg",
@@ -39,8 +39,8 @@
 					"@electric-sql/pglite": "^0.4.5",
 					"@fuzdev/blake3_wasm": "^0.1.1",
 					"@fuzdev/fuz_code": "^0.45.1",
-					"@fuzdev/fuz_css": "^0.61.0",
-					"@fuzdev/fuz_ui": "^0.196.0",
+					"@fuzdev/fuz_css": "^0.61.1",
+					"@fuzdev/fuz_ui": "^0.197.0",
 					"@fuzdev/fuz_util": "^0.63.0",
 					"@fuzdev/gro": "^0.200.0",
 					"@hono/node-server": "^1.19.14",
@@ -68,7 +68,7 @@
 					"prettier-plugin-svelte": "^3.5.1",
 					"svelte": "^5.56.0",
 					"svelte-check": "^4.4.5",
-					"svelte-docinfo": "^0.2.0",
+					"svelte-docinfo": "^0.2.1",
 					"svelte2tsx": "^0.7.52",
 					"tslib": "^2.8.1",
 					"typescript": "^5.9.3",
@@ -124,7 +124,7 @@
 			},
 			"source_json": {
 				"name": "@fuzdev/fuz_app",
-				"version": "0.75.0",
+				"version": "0.76.0",
 				"modules": [
 					{
 						"path": "crypto.ts",
@@ -548,7 +548,7 @@
 			"published": true,
 			"package_json": {
 				"name": "@fuzdev/fuz_css",
-				"version": "0.61.0",
+				"version": "0.61.1",
 				"description": "CSS framework and design system for semantic HTML",
 				"tagline": "CSS with more utility",
 				"glyph": "🪴",
@@ -579,7 +579,7 @@
 					"@changesets/changelog-git": "^0.2.1",
 					"@fuzdev/blake3_wasm": "^0.1.1",
 					"@fuzdev/fuz_code": "^0.45.1",
-					"@fuzdev/fuz_ui": "^0.196.0",
+					"@fuzdev/fuz_ui": "^0.197.0",
 					"@fuzdev/fuz_util": "^0.63.0",
 					"@fuzdev/gro": "^0.200.0",
 					"@jridgewell/trace-mapping": "^0.3.31",
@@ -601,7 +601,7 @@
 					"prettier-plugin-svelte": "^3.4.1",
 					"svelte": "^5.55.5",
 					"svelte-check": "^4.4.6",
-					"svelte-docinfo": "^0.2.0",
+					"svelte-docinfo": "^0.2.1",
 					"svelte2tsx": "^0.7.51",
 					"tslib": "^2.8.1",
 					"typescript": "^5.9.3",
@@ -649,7 +649,7 @@
 			},
 			"source_json": {
 				"name": "@fuzdev/fuz_css",
-				"version": "0.61.0",
+				"version": "0.61.1",
 				"modules": [
 					{
 						"path": "bundled_resources.ts",
@@ -7768,7 +7768,7 @@
 								"kind": "interface",
 								"docComment": "Options for the fuz_css Vite plugin.\nExtends the shared base options (no additional Vite-specific options currently needed).",
 								"typeSignature": "VitePluginFuzCssOptions",
-								"sourceLine": 93,
+								"sourceLine": 111,
 								"extends": ["CssGeneratorBaseOptions"]
 							},
 							{
@@ -7776,7 +7776,7 @@
 								"kind": "function",
 								"docComment": "Creates the fuz_css Vite plugin.\n\nExtracts CSS classes from source files during Vite's transform phase\nand generates optimized CSS via the `virtual:fuz.css` virtual module.",
 								"typeSignature": "(options?: VitePluginFuzCssOptions): Plugin<any>",
-								"sourceLine": 101,
+								"sourceLine": 119,
 								"parameters": [
 									{"name": "options", "type": "VitePluginFuzCssOptions", "defaultValue": "{}"}
 								],
@@ -7822,7 +7822,7 @@
 			"published": true,
 			"package_json": {
 				"name": "@fuzdev/fuz_ui",
-				"version": "0.196.0",
+				"version": "0.198.0",
 				"description": "Svelte UI library",
 				"tagline": "friendly user zystem",
 				"glyph": "🧶",
@@ -7856,7 +7856,7 @@
 					"@changesets/changelog-git": "^0.2.1",
 					"@fuzdev/blake3_wasm": "^0.1.1",
 					"@fuzdev/fuz_code": "^0.45.1",
-					"@fuzdev/fuz_css": "^0.61.0",
+					"@fuzdev/fuz_css": "^0.61.1",
 					"@fuzdev/fuz_util": "^0.63.0",
 					"@fuzdev/gro": "^0.200.0",
 					"@jridgewell/trace-mapping": "^0.3.31",
@@ -7869,20 +7869,20 @@
 					"@types/estree": "^1.0.8",
 					"@types/node": "^24.10.1",
 					"@webref/css": "^8.2.0",
-					"eslint": "^9.39.1",
-					"eslint-plugin-svelte": "^3.13.1",
+					"eslint": "^9.39.4",
+					"eslint-plugin-svelte": "^3.19.0",
 					"esm-env": "^1.2.2",
 					"jsdom": "^27.2.0",
 					"magic-string": "^0.30.21",
 					"prettier": "^3.7.4",
 					"prettier-plugin-svelte": "^3.5.1",
-					"svelte": "^5.55.10",
+					"svelte": "^5.56.0",
 					"svelte-check": "^4.4.8",
 					"svelte-docinfo": "^0.2.0",
 					"svelte2tsx": "^0.7.55",
 					"tslib": "^2.8.1",
 					"typescript": "^5.9.3",
-					"typescript-eslint": "^8.48.1",
+					"typescript-eslint": "^8.60.0",
 					"vite": "^7.3.1",
 					"vitest": "^4.0.15",
 					"zimmerframe": "^1.1.4",
@@ -7935,7 +7935,7 @@
 			},
 			"source_json": {
 				"name": "@fuzdev/fuz_ui",
-				"version": "0.196.0",
+				"version": "0.198.0",
 				"modules": [
 					{
 						"path": "Alert.svelte",
@@ -8207,7 +8207,8 @@
 								],
 								"acceptsChildren": true
 							}
-						]
+						],
+						"dependencies": ["site.svelte.ts"]
 					},
 					{
 						"path": "Card.svelte",
@@ -8261,8 +8262,16 @@
 								"kind": "variable",
 								"typeSignature": "\"calc(60px + var(--space_lg))\"",
 								"sourceLine": 3
+							},
+							{
+								"name": "FUZ_DEV_URL",
+								"kind": "variable",
+								"docComment": "The Fuz ecosystem home url, e.g. for `DocsFooter`'s `root_url`.",
+								"typeSignature": "\"https://www.fuz.dev/\"",
+								"sourceLine": 8
 							}
-						]
+						],
+						"dependents": ["Docs.svelte", "EcosystemLinks.svelte"]
 					},
 					{
 						"path": "context_helpers.ts",
@@ -8298,6 +8307,7 @@
 							"docs_helpers.svelte.ts",
 							"library.svelte.ts",
 							"mdz_components.ts",
+							"site.svelte.ts",
 							"style_variable_helpers.svelte.ts",
 							"theme_state.svelte.ts",
 							"tome.ts"
@@ -8932,7 +8942,7 @@
 								"sourceLine": 1,
 								"genericParams": [{"name": "T", "constraint": "string", "defaultType": "'span'"}],
 								"props": [
-									{"name": "tag", "type": "T", "optional": true, "defaultValue": "'span' as T"},
+									{"name": "tag", "type": "T", "optional": true, "defaultValue": "'span' as any"},
 									{"name": "entries", "type": "Snippet<[]>"},
 									{"name": "children", "type": "Snippet<[]>"}
 								],
@@ -11783,6 +11793,13 @@
 										"type": "string",
 										"optional": true,
 										"description": "URL fragment to append, with or without the `#`."
+									},
+									{
+										"name": "full",
+										"type": "boolean",
+										"optional": true,
+										"description": "Link to the library's own deployed docs (`url_api_full`) instead of a\nsite-local path (`url_api`). Use when rendering a foreign library on a\ndifferent site, e.g. an aggregator, so links don't dangle locally.",
+										"defaultValue": "false"
 									}
 								],
 								"acceptsChildren": true
@@ -12117,7 +12134,6 @@
 							"TomeLink.svelte",
 							"TomeSection.svelte",
 							"TomeSectionHeader.svelte",
-							"library_helpers.ts",
 							"tome.ts"
 						]
 					},
@@ -12133,19 +12149,12 @@
 										"name": "tomes",
 										"type": "{ slug: string; category: string; Component: Component<any, any, string>; related_tomes: string[]; related_modules: string[]; related_declarations: string[]; title?: string | undefined; }[]"
 									},
-									{"name": "library", "type": "Library"},
-									{
-										"name": "breadcrumb_children",
-										"type": "Snippet<[is_primary_nav: boolean]>",
-										"optional": true,
-										"parameters": [{"name": "is_primary_nav", "type": "boolean"}]
-									},
 									{"name": "children", "type": "Snippet<[]>"}
 								],
 								"acceptsChildren": true
 							}
 						],
-						"dependencies": ["docs_helpers.svelte.ts", "library.svelte.ts", "tome.ts"]
+						"dependencies": ["constants.ts", "docs_helpers.svelte.ts", "site.svelte.ts", "tome.ts"]
 					},
 					{
 						"path": "DocsContent.svelte",
@@ -12184,16 +12193,26 @@
 								"sourceLine": 1,
 								"intersects": ["SvelteHTMLElements['footer']"],
 								"props": [
-									{"name": "library", "type": "Library"},
+									{
+										"name": "repo_url",
+										"type": "Url",
+										"optional": true,
+										"description": "Link target for the logo, e.g. the project's source repository."
+									},
 									{"name": "root_url", "type": "Url", "optional": true, "defaultValue": "null"},
-									{"name": "logo", "type": "Snippet<[]>", "optional": true},
+									{
+										"name": "logo",
+										"type": "Snippet<[]>",
+										"optional": true,
+										"description": "Overrides the default GitHub logo mark, e.g. for repos hosted elsewhere."
+									},
 									{"name": "logo_header", "type": "Snippet<[]>", "optional": true},
 									{"name": "logo_footer", "type": "Snippet<[]>", "optional": true}
 								],
 								"acceptsChildren": true
 							}
 						],
-						"dependencies": ["library.svelte.ts", "logos.ts"]
+						"dependencies": ["logos.ts"]
 					},
 					{
 						"path": "DocsLink.svelte",
@@ -12321,20 +12340,10 @@
 								"kind": "component",
 								"sourceLine": 1,
 								"intersects": ["SvelteHTMLElements['div']"],
-								"props": [
-									{"name": "children", "type": "Snippet<[]>", "optional": true},
-									{"name": "library", "type": "Library"},
-									{
-										"name": "breadcrumb_children",
-										"type": "Snippet<[is_primary_nav: boolean]>",
-										"optional": true,
-										"parameters": [{"name": "is_primary_nav", "type": "boolean"}]
-									}
-								],
+								"props": [{"name": "children", "type": "Snippet<[]>", "optional": true}],
 								"acceptsChildren": true
 							}
-						],
-						"dependencies": ["library.svelte.ts"]
+						]
 					},
 					{
 						"path": "DocsSearch.svelte",
@@ -12434,7 +12443,8 @@
 								"sourceLine": 1,
 								"props": [{"name": "selected", "type": "\"fuz.dev\"", "optional": true}]
 							}
-						]
+						],
+						"dependencies": ["constants.ts"]
 					},
 					{
 						"path": "EcosystemLinksPanel.svelte",
@@ -12692,82 +12702,11 @@
 						"path": "library_helpers.ts",
 						"declarations": [
 							{
-								"name": "url_api_declaration",
-								"kind": "function",
-								"docComment": "Build project-relative API documentation URL with hash anchor.",
-								"typeSignature": "(declaration_name: string): string",
-								"sourceLine": 23,
-								"parameters": [
-									{
-										"name": "declaration_name",
-										"type": "string",
-										"description": "name of the declaration to link to"
-									}
-								],
-								"returnType": "string",
-								"returnDescription": "URL path like '/docs/api#declaration_name'"
-							},
-							{
-								"name": "url_api_declaration_full",
-								"kind": "function",
-								"docComment": "Build full API documentation URL with domain and hash anchor.",
-								"typeSignature": "(homepage: string, declaration_name: string): string",
-								"sourceLine": 33,
-								"parameters": [
-									{"name": "homepage", "type": "string", "description": "package homepage URL"},
-									{
-										"name": "declaration_name",
-										"type": "string",
-										"description": "name of the declaration to link to"
-									}
-								],
-								"returnType": "string",
-								"returnDescription": "full URL like 'https://example.com/docs/api#declaration_name'"
-							},
-							{
-								"name": "url_api_module",
-								"kind": "function",
-								"docComment": "Build project-relative module documentation URL.",
-								"typeSignature": "(module_path: string): string",
-								"sourceLine": 42,
-								"parameters": [
-									{
-										"name": "module_path",
-										"type": "string",
-										"description": "module path (e.g., 'helpers.ts')"
-									}
-								],
-								"returnType": "string",
-								"returnDescription": "URL path like '/docs/api/helpers.ts'"
-							},
-							{
-								"name": "url_package_logo",
-								"kind": "function",
-								"docComment": "Build package logo URL with favicon.png fallback.",
-								"typeSignature": "(homepage_url: string | null, logo_path?: string | undefined): string | null",
-								"sourceLine": 51,
-								"parameters": [
-									{
-										"name": "homepage_url",
-										"type": "string | null",
-										"description": "package homepage URL, or null"
-									},
-									{
-										"name": "logo_path",
-										"type": "string | undefined",
-										"optional": true,
-										"description": "optional custom logo path (defaults to 'favicon.png')"
-									}
-								],
-								"returnType": "string | null",
-								"returnDescription": "full URL to the logo, or null if no homepage"
-							},
-							{
 								"name": "url_to_root_relative",
 								"kind": "function",
 								"docComment": "Convert a full URL to root-relative format by removing the origin.\n\nUses SvelteKit's page state for the current origin by default.",
 								"typeSignature": "(url: string, origin?: string): string",
-								"sourceLine": 76,
+								"sourceLine": 31,
 								"examples": [
 									"```ts\n// Assuming page.url.origin is 'https://example.com'\nurl_to_root_relative('https://example.com/docs/api')\n// => '/docs/api'\n```"
 								],
@@ -12785,7 +12724,6 @@
 							}
 						],
 						"moduleComment": "Library documentation URL helpers.\n\nRuntime UI helpers for building URLs in the library documentation system.\nThese depend on fuz_ui's documentation paths and SvelteKit's runtime state.\n\nFor generic package/repository URL helpers, see `package_helpers.ts`.",
-						"dependencies": ["docs_helpers.svelte.ts"],
 						"dependents": ["contextmenu_state.svelte.ts"]
 					},
 					{
@@ -12995,11 +12933,8 @@
 							"ApiIndex.svelte",
 							"ApiModule.svelte",
 							"DeclarationLink.svelte",
-							"Docs.svelte",
 							"DocsContent.svelte",
-							"DocsFooter.svelte",
 							"DocsLink.svelte",
-							"DocsPrimaryNav.svelte",
 							"DocsTertiaryNav.svelte",
 							"LibraryDetail.svelte",
 							"LibrarySummary.svelte",
@@ -13023,6 +12958,13 @@
 								],
 								"props": [
 									{"name": "library", "type": "Library"},
+									{
+										"name": "links_full",
+										"type": "boolean",
+										"optional": true,
+										"description": "Link the module/declaration index to the library's own deployed docs\n(`url_api_full`) instead of site-local paths. Use when rendering a\nforeign library on a different site, e.g. an aggregator.",
+										"defaultValue": "false"
+									},
 									{
 										"name": "repo_name",
 										"type": "Snippet<[repo_name: string]>",
@@ -13214,6 +13156,7 @@
 								"sourceLine": 164
 							}
 						],
+						"dependencies": ["svg.ts"],
 						"dependents": [
 							"DocsFooter.svelte",
 							"GithubLink.svelte",
@@ -18253,6 +18196,13 @@
 										"reactivity": "$derived"
 									},
 									{
+										"name": "url_api_full",
+										"kind": "variable",
+										"docComment": "Public documentation link (if `homepage_url` is available).\n\nAbsolute URL into the library's own deployed docs, for rendering a\nforeign library's modules on a different site (e.g. an aggregator).",
+										"typeSignature": "string | undefined",
+										"reactivity": "$derived"
+									},
+									{
 										"name": "url_github",
 										"kind": "variable",
 										"docComment": "GitHub source URL.",
@@ -18333,6 +18283,13 @@
 										"type": "string",
 										"optional": true,
 										"description": "URL fragment to append, with or without the `#`."
+									},
+									{
+										"name": "full",
+										"type": "boolean",
+										"optional": true,
+										"description": "Link to the library's own deployed docs (`url_api_full`) instead of a\nsite-local path (`url_api`). Use when rendering a foreign library on a\ndifferent site, e.g. an aggregator, so links don't dangle locally.",
+										"defaultValue": "false"
 									}
 								],
 								"acceptsChildren": true
@@ -18571,7 +18528,7 @@
 					{
 						"path": "ProjectLinks.svelte",
 						"declarations": [{"name": "ProjectLinks", "kind": "component", "sourceLine": 1}],
-						"dependencies": ["logos.ts"]
+						"dependencies": ["logos.ts", "svg.ts"]
 					},
 					{
 						"path": "Redirect.svelte",
@@ -18630,6 +18587,82 @@
 							}
 						],
 						"dependents": ["ThemeRoot.svelte"]
+					},
+					{
+						"path": "site.svelte.ts",
+						"declarations": [
+							{
+								"name": "SiteStateOptions",
+								"kind": "interface",
+								"typeSignature": "SiteStateOptions",
+								"sourceLine": 6,
+								"members": [
+									{
+										"name": "icon",
+										"kind": "variable",
+										"docComment": "The site's icon, e.g. a logo from `logos.ts`.",
+										"typeSignature": "SvgData | null",
+										"optional": true
+									},
+									{
+										"name": "glyph",
+										"kind": "variable",
+										"docComment": "The site's glyph, a single unicode character identifying the project.",
+										"typeSignature": "string | null",
+										"optional": true
+									},
+									{
+										"name": "repo_url",
+										"kind": "variable",
+										"docComment": "The site's source repository url, e.g. for `DocsFooter` links.",
+										"typeSignature": "Url | null",
+										"optional": true
+									}
+								]
+							},
+							{
+								"name": "SiteState",
+								"kind": "class",
+								"docComment": "Light site-identity values for app chrome - the icon, glyph, and repo url used\nby components like `Breadcrumb` and `DocsFooter`. Set once per app at the root\nlayout. Distinct from `library_context`, which carries the heavy\nmodule/declaration metadata that only docs and API pages need.",
+								"sourceLine": 27,
+								"members": [
+									{
+										"name": "icon",
+										"kind": "variable",
+										"typeSignature": "SvgData | null",
+										"reactivity": "$state.raw"
+									},
+									{
+										"name": "glyph",
+										"kind": "variable",
+										"typeSignature": "string | null",
+										"reactivity": "$state.raw"
+									},
+									{
+										"name": "repo_url",
+										"kind": "variable",
+										"typeSignature": "Url | null",
+										"reactivity": "$state.raw"
+									},
+									{
+										"name": "constructor",
+										"kind": "constructor",
+										"typeSignature": "(options?: SiteStateOptions): SiteState",
+										"parameters": [
+											{"name": "options", "type": "SiteStateOptions", "defaultValue": "{}"}
+										]
+									}
+								]
+							},
+							{
+								"name": "site_context",
+								"kind": "variable",
+								"typeSignature": "{ get: (error_message?: string | undefined) => SiteState; get_maybe: () => SiteState | undefined; set: (value: SiteState) => SiteState; }",
+								"sourceLine": 39
+							}
+						],
+						"dependencies": ["context_helpers.ts", "svg.ts"],
+						"dependents": ["Breadcrumb.svelte", "Docs.svelte"]
 					},
 					{
 						"path": "Spiders.svelte",
@@ -18848,7 +18881,7 @@
 							{
 								"name": "Svg",
 								"kind": "component",
-								"sourceLine": 28,
+								"sourceLine": 1,
 								"intersects": ["SvelteHTMLElements['svg']"],
 								"props": [
 									{"name": "height", "type": "string", "optional": true},
@@ -18872,12 +18905,18 @@
 									{"name": "shrink", "type": "boolean", "optional": true, "defaultValue": "true"}
 								],
 								"acceptsChildren": true
-							},
+							}
+						],
+						"dependencies": ["svg.ts"]
+					},
+					{
+						"path": "svg.ts",
+						"declarations": [
 							{
 								"name": "SvgData",
 								"kind": "interface",
 								"typeSignature": "SvgData",
-								"sourceLine": 5,
+								"sourceLine": 3,
 								"members": [
 									{
 										"name": "raw",
@@ -18932,7 +18971,8 @@
 									}
 								]
 							}
-						]
+						],
+						"dependents": ["ProjectLinks.svelte", "Svg.svelte", "logos.ts", "site.svelte.ts"]
 					},
 					{
 						"path": "Teleport.svelte",
@@ -21600,8 +21640,8 @@
 					"@changesets/types": "^6.1.0",
 					"@fuzdev/blake3_wasm": "^0.1.1",
 					"@fuzdev/fuz_code": "^0.45.1",
-					"@fuzdev/fuz_css": "^0.61.0",
-					"@fuzdev/fuz_ui": "^0.196.0",
+					"@fuzdev/fuz_css": "^0.61.1",
+					"@fuzdev/fuz_ui": "^0.197.0",
 					"@fuzdev/fuz_util": "^0.63.0",
 					"@jridgewell/trace-mapping": "^0.3.31",
 					"@ryanatkn/eslint-config": "^0.12.1",
@@ -21619,7 +21659,7 @@
 					"magic-string": "^0.30.21",
 					"svelte": "^5.55.4",
 					"svelte-check": "^4.4.6",
-					"svelte-docinfo": "^0.2.0",
+					"svelte-docinfo": "^0.2.1",
 					"svelte2tsx": "^0.7.52",
 					"typescript": "^5.9.3",
 					"typescript-eslint": "^8.48.1",
@@ -26712,8 +26752,8 @@
 					"@changesets/changelog-git": "^0.2.1",
 					"@fuzdev/blake3_wasm": "^0.1.1",
 					"@fuzdev/fuz_code": "^0.45.1",
-					"@fuzdev/fuz_css": "^0.61.0",
-					"@fuzdev/fuz_ui": "^0.196.0",
+					"@fuzdev/fuz_css": "^0.61.1",
+					"@fuzdev/fuz_ui": "^0.197.0",
 					"@fuzdev/gro": "^0.200.0",
 					"@jridgewell/trace-mapping": "^0.3.31",
 					"@ryanatkn/eslint-config": "^0.12.1",
@@ -26735,7 +26775,7 @@
 					"prettier-plugin-svelte": "^3.4.1",
 					"svelte": "^5.56.0",
 					"svelte-check": "^4.4.8",
-					"svelte-docinfo": "^0.2.0",
+					"svelte-docinfo": "^0.2.1",
 					"svelte2tsx": "^0.7.55",
 					"tslib": "^2.8.1",
 					"typescript": "^5.9.3",
@@ -34638,8 +34678,8 @@
 				"devDependencies": {
 					"@fuzdev/blake3_wasm": "^0.1.1",
 					"@fuzdev/fuz_code": "^0.45.1",
-					"@fuzdev/fuz_css": "^0.61.0",
-					"@fuzdev/fuz_ui": "^0.196.0",
+					"@fuzdev/fuz_css": "^0.61.1",
+					"@fuzdev/fuz_ui": "^0.197.0",
 					"@fuzdev/fuz_util": "^0.63.0",
 					"@fuzdev/gro": "^0.200.0",
 					"@jridgewell/trace-mapping": "^0.3.31",
@@ -34659,7 +34699,7 @@
 					"prettier-plugin-svelte": "^3.5.1",
 					"svelte": "^5.55.10",
 					"svelte-check": "^4.4.8",
-					"svelte-docinfo": "^0.2.0",
+					"svelte-docinfo": "^0.2.1",
 					"svelte2tsx": "^0.7.55",
 					"tslib": "^2.8.1",
 					"typescript": "^5.9.3",
@@ -34773,9 +34813,9 @@
 					"@changesets/changelog-git": "^0.2.1",
 					"@fuzdev/blake3_wasm": "^0.1.1",
 					"@fuzdev/fuz_code": "^0.45.1",
-					"@fuzdev/fuz_css": "^0.61.0",
+					"@fuzdev/fuz_css": "^0.61.1",
 					"@fuzdev/fuz_mastodon": "^0.40.0",
-					"@fuzdev/fuz_ui": "^0.196.0",
+					"@fuzdev/fuz_ui": "^0.197.0",
 					"@fuzdev/fuz_util": "^0.63.0",
 					"@fuzdev/gro": "^0.200.0",
 					"@jridgewell/trace-mapping": "^0.3.31",
@@ -34797,7 +34837,7 @@
 					"prettier-plugin-svelte": "^3.5.1",
 					"svelte": "^5.55.5",
 					"svelte-check": "^4.4.6",
-					"svelte-docinfo": "^0.2.0",
+					"svelte-docinfo": "^0.2.1",
 					"svelte2tsx": "^0.7.52",
 					"tslib": "^2.8.1",
 					"typescript": "^5.9.3",
@@ -35251,8 +35291,8 @@
 					"@changesets/changelog-git": "^0.2.1",
 					"@fuzdev/blake3_wasm": "^0.1.1",
 					"@fuzdev/fuz_code": "^0.45.1",
-					"@fuzdev/fuz_css": "^0.61.0",
-					"@fuzdev/fuz_ui": "^0.196.0",
+					"@fuzdev/fuz_css": "^0.61.1",
+					"@fuzdev/fuz_ui": "^0.197.0",
 					"@fuzdev/fuz_util": "^0.63.0",
 					"@fuzdev/gro": "^0.200.0",
 					"@jridgewell/trace-mapping": "^0.3.31",
@@ -35274,7 +35314,7 @@
 					"prettier-plugin-svelte": "^3.5.1",
 					"svelte": "^5.55.5",
 					"svelte-check": "^4.4.6",
-					"svelte-docinfo": "^0.2.0",
+					"svelte-docinfo": "^0.2.1",
 					"svelte2tsx": "^0.7.52",
 					"tslib": "^2.8.1",
 					"typescript": "^5.9.3",
@@ -36019,15 +36059,15 @@
 				"devDependencies": {
 					"@changesets/changelog-git": "^0.2.1",
 					"@fuzdev/blake3_wasm": "^0.1.1",
-					"@fuzdev/fuz_css": "^0.61.0",
-					"@fuzdev/fuz_ui": "^0.196.0",
+					"@fuzdev/fuz_css": "^0.61.1",
+					"@fuzdev/fuz_ui": "^0.197.0",
 					"@fuzdev/fuz_util": "^0.63.0",
 					"@fuzdev/gro": "^0.200.0",
 					"@jridgewell/trace-mapping": "^0.3.31",
-					"@ryanatkn/eslint-config": "^0.11.0",
+					"@ryanatkn/eslint-config": "^0.12.1",
 					"@sveltejs/acorn-typescript": "^1.0.9",
 					"@sveltejs/adapter-static": "^3.0.10",
-					"@sveltejs/kit": "^2.57.0",
+					"@sveltejs/kit": "^2.61.1",
 					"@sveltejs/package": "^2.5.7",
 					"@sveltejs/vite-plugin-svelte": "^6.2.4",
 					"@types/estree": "^1.0.8",
@@ -36039,10 +36079,10 @@
 					"magic-string": "^0.30.21",
 					"prettier": "^3.7.4",
 					"prettier-plugin-svelte": "^3.4.1",
-					"svelte": "^5.55.2",
+					"svelte": "^5.56.0",
 					"svelte-check": "^4.3.6",
-					"svelte-docinfo": "^0.2.0",
-					"svelte2tsx": "^0.7.47",
+					"svelte-docinfo": "^0.2.1",
+					"svelte2tsx": "^0.7.55",
 					"tslib": "^2.8.1",
 					"typescript": "^5.9.3",
 					"typescript-eslint": "^8.48.1",
@@ -39101,8 +39141,8 @@
 				"devDependencies": {
 					"@fuzdev/blake3_wasm": "^0.1.1",
 					"@fuzdev/fuz_code": "^0.45.1",
-					"@fuzdev/fuz_css": "^0.61.0",
-					"@fuzdev/fuz_ui": "^0.196.0",
+					"@fuzdev/fuz_css": "^0.61.1",
+					"@fuzdev/fuz_ui": "^0.198.0",
 					"@fuzdev/fuz_util": "^0.63.0",
 					"@fuzdev/gro": "^0.200.0",
 					"@jridgewell/trace-mapping": "^0.3.31",
@@ -39122,7 +39162,7 @@
 					"prettier-plugin-svelte": "^3.5.1",
 					"svelte": "^5.56.0",
 					"svelte-check": "^4.4.6",
-					"svelte-docinfo": "^0.2.0",
+					"svelte-docinfo": "^0.2.1",
 					"svelte2tsx": "^0.7.52",
 					"tslib": "^2.8.1",
 					"typescript": "^5.9.3",
@@ -39196,7 +39236,7 @@
 			"published": true,
 			"package_json": {
 				"name": "@fuzdev/fuz_gitops",
-				"version": "0.70.0",
+				"version": "0.71.0",
 				"description": "a tool for managing many repos",
 				"glyph": "🪄",
 				"logo": "logo.svg",
@@ -39226,8 +39266,8 @@
 					"@changesets/changelog-git": "^0.2.1",
 					"@fuzdev/blake3_wasm": "^0.1.1",
 					"@fuzdev/fuz_code": "^0.45.1",
-					"@fuzdev/fuz_css": "^0.61.0",
-					"@fuzdev/fuz_ui": "^0.196.0",
+					"@fuzdev/fuz_css": "^0.61.1",
+					"@fuzdev/fuz_ui": "^0.198.0",
 					"@fuzdev/fuz_util": "^0.63.0",
 					"@fuzdev/gro": "^0.200.0",
 					"@jridgewell/trace-mapping": "^0.3.31",
@@ -39248,7 +39288,7 @@
 					"prettier-plugin-svelte": "^3.5.1",
 					"svelte": "^5.56.0",
 					"svelte-check": "^4.4.6",
-					"svelte-docinfo": "^0.2.0",
+					"svelte-docinfo": "^0.2.1",
 					"svelte2tsx": "^0.7.52",
 					"tslib": "^2.8.1",
 					"typescript": "^5.9.3",
@@ -39260,7 +39300,7 @@
 				},
 				"peerDependencies": {
 					"@fuzdev/fuz_css": ">=0.61.0",
-					"@fuzdev/fuz_ui": ">=0.196.0",
+					"@fuzdev/fuz_ui": ">=0.198.0",
 					"@fuzdev/fuz_util": ">=0.63.0",
 					"@fuzdev/gro": ">=0.200.0",
 					"@sveltejs/kit": "^2",
@@ -39289,7 +39329,7 @@
 			},
 			"source_json": {
 				"name": "@fuzdev/fuz_gitops",
-				"version": "0.70.0",
+				"version": "0.71.0",
 				"modules": [
 					{
 						"path": "changeset_generator.ts",
@@ -42569,6 +42609,17 @@
 						]
 					},
 					{
+						"path": "RepoLibraryDetail.svelte",
+						"declarations": [
+							{
+								"name": "RepoLibraryDetail",
+								"kind": "component",
+								"sourceLine": 1,
+								"props": [{"name": "library", "type": "Library"}]
+							}
+						]
+					},
+					{
 						"path": "ReposTable.svelte",
 						"declarations": [
 							{
@@ -42968,6 +43019,6 @@
 				]
 			}
 		},
-		"check_runs": {"status": "in_progress", "conclusion": null}
+		"check_runs": {"status": "completed", "conclusion": "success"}
 	}
 ]
