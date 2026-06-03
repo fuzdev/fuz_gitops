@@ -9,6 +9,7 @@ import {
 	type PublishingOptions,
 	type PublishingResult,
 } from './multi_repo_publisher.js';
+import {stdout_handler} from './publishing_event_handler.js';
 import {generate_publishing_plan, log_publishing_plan} from './publishing_plan.js';
 import {format_and_output, type OutputFormatters} from './output_helpers.js';
 import {GITOPS_CONFIG_PATH_DEFAULT, GITOPS_NPM_WAIT_TIMEOUT_DEFAULT} from './gitops_constants.js';
@@ -46,6 +47,10 @@ export const Args = z.strictObject({
 		.boolean()
 		.meta({description: 'skip npm install after dependency updates'})
 		.default(false),
+	emit_json: z
+		.boolean()
+		.meta({description: 'stream structured publishing events as JSON-lines to stdout'})
+		.default(false),
 	outfile: z.string().meta({description: 'write output to file instead of logging'}).optional(),
 	verbose: z.boolean().meta({description: 'show additional details in plan output'}).default(false),
 });
@@ -66,6 +71,7 @@ export const task: Task<Args> = {
 			plan,
 			max_wait,
 			skip_install,
+			emit_json,
 			outfile,
 			verbose,
 		} = args;
@@ -107,6 +113,8 @@ export const task: Task<Args> = {
 			max_wait,
 			skip_install,
 			log,
+			// Live JSON-lines stream when requested; events also surface on the result.
+			events: emit_json ? stdout_handler() : undefined,
 		};
 
 		// Execute publishing (may throw on fatal errors like circular dependencies)
@@ -124,6 +132,8 @@ export const task: Task<Args> = {
 				// Note: FATAL_ERROR is a placeholder - only fatal_error.message is displayed in output
 				failed: [{name: 'FATAL_ERROR', error: fatal_error}],
 				duration: 0,
+				events: [],
+				summary: {total: 0, published: 0, failed: 1, skipped: 0, duration: 0},
 			};
 		}
 

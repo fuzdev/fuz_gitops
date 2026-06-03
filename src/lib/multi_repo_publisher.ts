@@ -15,6 +15,16 @@ import {
 	GITOPS_NPM_WAIT_TIMEOUT_DEFAULT,
 } from './gitops_constants.js';
 import {install_with_cache_healing} from './npm_install_helpers.js';
+import {
+	type PublishingEvent,
+	type PublishingRunSummary,
+	summarize_events,
+} from './publishing_event.js';
+import {
+	type PublishingEventHandler,
+	capture_handler,
+	multi_handler,
+} from './publishing_event_handler.js';
 
 export interface PublishingOptions {
 	wetrun: boolean;
@@ -25,6 +35,8 @@ export interface PublishingOptions {
 	skip_install?: boolean;
 	log?: Logger;
 	ops?: GitopsOperations;
+	/** Structured event sink; defaults to capture-only (events surface on the result). */
+	events?: PublishingEventHandler;
 }
 
 export interface PublishedVersion {
@@ -42,6 +54,10 @@ export interface PublishingResult {
 	published: Array<PublishedVersion>;
 	failed: Array<{name: string; error: Error}>;
 	duration: number;
+	/** The structured event stream for this run, in emission order. */
+	events: Array<PublishingEvent>;
+	/** Tallied outcome, derived from `events`. */
+	summary: PublishingRunSummary;
 }
 
 export const publish_repos = async (
@@ -50,6 +66,13 @@ export const publish_repos = async (
 ): Promise<PublishingResult> => {
 	const start_time = Date.now();
 	const {wetrun, update_deps, log, ops = default_gitops_operations} = options;
+
+	// Capture every event for the result; also forward to the caller's sink if provided.
+	const capture = capture_handler();
+	const events_handler = options.events ? multi_handler([options.events, capture]) : capture;
+	const emit = (event: PublishingEvent): void => {
+		events_handler.emit(event);
+	};
 
 	// Preflight checks (skip for dry runs since we're not actually publishing)
 	if (wetrun) {
@@ -82,9 +105,12 @@ export const publish_repos = async (
 		log_order: true,
 	});
 
+	emit({event: 'run_started', wetrun, total: order.length});
+
 	const published: Map<string, PublishedVersion> = new Map();
 	const failed: Map<string, Error> = new Map();
 	const changed_repos: Set<string> = new Set(); // Track repos with any changes for selective deployment
+	const skipped_packages: Set<string> = new Set(); // dedupe the package_skipped event across iterations
 
 	// Fixed-point iteration: keep publishing until no new changesets are created
 	// This handles transitive dependency updates (auto-generated changesets)
@@ -93,8 +119,12 @@ export const publish_repos = async (
 
 	while (!converged && iteration < GITOPS_MAX_ITERATIONS_DEFAULT) {
 		iteration++;
+		emit({event: 'iteration_started', iteration, max: GITOPS_MAX_ITERATIONS_DEFAULT});
 		log?.info(
-			st('cyan', `\n🚀 Publishing iteration ${iteration}/${GITOPS_MAX_ITERATIONS_DEFAULT}...\n`),
+			st(
+				'cyan',
+				`\n🚀 ${wetrun ? 'Publishing' : 'Dry run'} iteration ${iteration}/${GITOPS_MAX_ITERATIONS_DEFAULT}...\n`,
+			),
 		);
 
 		// Track if any packages were published in this iteration
@@ -121,6 +151,7 @@ export const publish_repos = async (
 				// Failed to check changesets
 				const err = new Error(`Failed to check changesets: ${has_result.message}`);
 				failed.set(pkg_name, err);
+				emit({event: 'package_failed', name: pkg_name, error: err.message, code: 'dependency'});
 				log?.error(st('red', `  ❌ ${err.message}`));
 				break;
 			}
@@ -129,6 +160,11 @@ export const publish_repos = async (
 				// Skip packages without changesets
 				// In real publish: They might get auto-changesets during dependency updates
 				// In dry run: We can't simulate auto-changesets, so just skip
+				// Emit once per package — the loop revisits no-changeset packages each iteration
+				if (!skipped_packages.has(pkg_name)) {
+					skipped_packages.add(pkg_name);
+					emit({event: 'package_skipped', name: pkg_name, reason: 'no changesets'});
+				}
 				if (!wetrun) {
 					// Silent skip in dry run - plan shows which packages get auto-changesets
 					continue;
@@ -140,7 +176,12 @@ export const publish_repos = async (
 
 			try {
 				// 1. Publish this package
-				log?.info(st('dim', `  [${i + 1}/${order.length}] Publishing ${pkg_name}...`));
+				log?.info(
+					st(
+						'dim',
+						`  [${i + 1}/${order.length}] ${wetrun ? 'Publishing' : 'Would publish'} ${pkg_name}...`,
+					),
+				);
 				const version = await publish_single_repo(repo, options, ops);
 				published.set(pkg_name, version);
 				changed_repos.add(pkg_name); // Mark as changed for deployment
@@ -148,7 +189,21 @@ export const publish_repos = async (
 				// (their dependencies didn't change, only their version)
 				published_in_iteration = true;
 				published_count++;
-				log?.info(st('green', `  ✅ Published ${pkg_name}@${version.new_version}`));
+				emit({
+					event: 'package_completed',
+					name: pkg_name,
+					old_version: version.old_version,
+					new_version: version.new_version,
+					bump_type: version.bump_type,
+					breaking: version.breaking,
+					commit: version.commit,
+					tag: version.tag,
+				});
+				log?.info(
+					wetrun
+						? st('green', `  ✅ Published ${pkg_name}@${version.new_version}`)
+						: st('cyan', `  ◇ Would publish ${pkg_name}@${version.new_version}`),
+				);
 
 				if (wetrun) {
 					// 2. Wait for this package to be available on NPM
@@ -166,9 +221,16 @@ export const publish_repos = async (
 					});
 
 					if (!wait_result.ok) {
-						throw new Error(
+						// Handle inline (don't throw into the generic catch): the npm-wait failure
+						// carries a typed `timeout` signal, so we know this is a network failure
+						// without sniffing the message.
+						const err = new Error(
 							`Failed to wait for package: ${wait_result.message}${wait_result.timeout ? ' (timeout)' : ''}`,
 						);
+						failed.set(pkg_name, err);
+						emit({event: 'package_failed', name: pkg_name, error: err.message, code: 'network'});
+						log?.error(st('red', `  ❌ Failed to publish ${pkg_name}: ${err.message}`));
+						break; // fail fast
 					}
 
 					// 3. Update all repos that have prod/peer deps on this package
@@ -197,6 +259,12 @@ export const publish_repos = async (
 								log?.info(
 									`    Updating ${dependent_repo.library.name}'s dependency on ${pkg_name}`,
 								);
+								emit({
+									event: 'dependency_updated',
+									dependent: dependent_repo.library.name,
+									dependency: pkg_name,
+									version: version.new_version,
+								});
 								changed_repos.add(dependent_repo.library.name); // Mark as changed for deployment
 								changed_in_iteration.add(dependent_repo.library.name); // Track for batch install
 								await update_package_json(dependent_repo, updates, {
@@ -212,6 +280,15 @@ export const publish_repos = async (
 			} catch (error) {
 				const err = error instanceof Error ? error : new Error(String(error));
 				failed.set(pkg_name, err);
+				emit({
+					event: 'package_failed',
+					name: pkg_name,
+					error: err.message,
+					// TODO: emit a precise code once the npm/process ops return typed errors —
+					// today a publish-step cause lives in unstructured stderr, so use the honest
+					// coarse bucket rather than guessing 'auth'/'network'/'build' from the message.
+					code: 'publish',
+				});
 				log?.error(st('red', `  ❌ Failed to publish ${pkg_name}: ${err.message}`));
 				break; // Always fail fast on error
 			}
@@ -221,33 +298,39 @@ export const publish_repos = async (
 		// This ensures workspace stays consistent before next iteration
 		if (wetrun && !options.skip_install && changed_in_iteration.size > 0) {
 			log?.info(st('cyan', '\n📦 Installing dependencies for updated repos...\n'));
-
-			for (const pkg_name of changed_in_iteration) {
-				const repo = repos.find((r) => r.library.name === pkg_name);
-				if (!repo) continue;
-
-				try {
-					log?.info(`  Installing ${pkg_name}...`);
-					await install_with_cache_healing(repo, ops, log);
-					log?.info(st('green', `  ✅ Installed ${pkg_name}`));
-				} catch (error) {
-					const err = error instanceof Error ? error : new Error(String(error));
-					failed.set(pkg_name, err);
-					log?.error(st('red', `  ❌ Failed to install ${pkg_name}: ${err.message}`));
-					// Continue with other installs instead of breaking
-				}
+			for (const [name, err] of await install_repos(changed_in_iteration, repos, ops, emit, log)) {
+				failed.set(name, err);
 			}
 		}
 
 		// Log iteration summary
 		if (published_count > 0) {
-			log?.info(st('dim', `\nIteration ${iteration}: ${published_count} package(s) published\n`));
+			log?.info(
+				st(
+					'dim',
+					`\nIteration ${iteration}: ${published_count} package(s) ${wetrun ? 'published' : 'would be published'}\n`,
+				),
+			);
 		}
+
+		emit({
+			event: 'iteration_finished',
+			iteration,
+			published_count,
+			converged: !published_in_iteration,
+		});
 
 		// Check for convergence: no packages published in this iteration
 		if (!published_in_iteration) {
 			converged = true;
-			log?.info(st('green', `\n✓ Converged after ${iteration} iteration(s) - no new changesets\n`));
+			log?.info(
+				st(
+					'green',
+					wetrun
+						? `\n✓ Converged after ${iteration} iteration(s) - no new changesets\n`
+						: `\n✓ Dry run complete after ${iteration} iteration(s)\n`,
+				),
+			);
 		} else if (iteration === GITOPS_MAX_ITERATIONS_DEFAULT) {
 			// Count packages that still have changesets (not yet published)
 			const pending_count = order.length - published.size;
@@ -285,6 +368,14 @@ export const publish_repos = async (
 
 			if (dev_updates.size > 0) {
 				log?.info(`  Updating ${dev_updates.size} dev dependencies in ${repo.library.name}`);
+				for (const [dep_name, dep_version] of dev_updates) {
+					emit({
+						event: 'dependency_updated',
+						dependent: repo.library.name,
+						dependency: dep_name,
+						version: dep_version,
+					});
+				}
 				changed_repos.add(repo.library.name); // Mark as changed for deployment
 				dev_updated_repos.add(repo.library.name); // Track for batch install
 				await update_package_json(repo, dev_updates, {
@@ -300,21 +391,8 @@ export const publish_repos = async (
 	// Phase 2b: Install dev dependencies for repos with dev dep updates
 	if (wetrun && !options.skip_install && dev_updated_repos.size > 0) {
 		log?.info(st('cyan', '\n📦 Installing dev dependencies for updated repos...\n'));
-
-		for (const pkg_name of dev_updated_repos) {
-			const repo = repos.find((r) => r.library.name === pkg_name);
-			if (!repo) continue;
-
-			try {
-				log?.info(`  Installing ${pkg_name}...`);
-				await install_with_cache_healing(repo, ops, log);
-				log?.info(st('green', `  ✅ Installed ${pkg_name}`));
-			} catch (error) {
-				const err = error instanceof Error ? error : new Error(String(error));
-				failed.set(pkg_name, err);
-				log?.error(st('red', `  ❌ Failed to install ${pkg_name}: ${err.message}`));
-				// Continue with other installs instead of breaking
-			}
+		for (const [name, err] of await install_repos(dev_updated_repos, repos, ops, emit, log)) {
+			failed.set(name, err);
 		}
 	}
 
@@ -331,6 +409,7 @@ export const publish_repos = async (
 
 		for (const repo of repos_to_deploy) {
 			try {
+				emit({event: 'deploy_started', name: repo.library.name});
 				log?.info(`  Deploying ${repo.library.name}...`);
 				const deploy_result = await ops.process.spawn({
 					cmd: 'gro',
@@ -339,12 +418,16 @@ export const publish_repos = async (
 				});
 
 				if (deploy_result.ok) {
+					emit({event: 'deploy_completed', name: repo.library.name});
 					log?.info(st('green', `  ✅ Deployed ${repo.library.name}`));
 				} else {
+					emit({event: 'deploy_failed', name: repo.library.name, error: deploy_result.message});
 					log?.warn(st('yellow', `  ⚠️  Failed to deploy ${repo.library.name}`));
 				}
 			} catch (error) {
-				log?.error(st('red', `  ❌ Error deploying ${repo.library.name}: ${error}`));
+				const err = error instanceof Error ? error : new Error(String(error));
+				emit({event: 'deploy_failed', name: repo.library.name, error: err.message});
+				log?.error(st('red', `  ❌ Error deploying ${repo.library.name}: ${err.message}`));
 			}
 		}
 	}
@@ -352,25 +435,44 @@ export const publish_repos = async (
 	// Summary
 	const duration = Date.now() - start_time;
 	const ok = failed.size === 0;
+	const summary = summarize_events(capture.events, duration);
 
-	log?.info(st('cyan', '\n📋 Publishing Summary\n'));
+	log?.info(st('cyan', `\n📋 ${wetrun ? 'Publishing' : 'Dry Run'} Summary\n`));
 	log?.info(`  Duration: ${(duration / 1000).toFixed(1)}s`);
-	log?.info(`  Published: ${published.size} packages`);
+	log?.info(`  ${wetrun ? 'Published' : 'Would publish'}: ${published.size} packages`);
 	if (failed.size > 0) {
 		log?.info(`  Failed: ${failed.size} packages`);
 	}
 
 	if (ok) {
-		log?.info(st('green', '\n✨ All packages published successfully!\n'));
+		log?.info(
+			st(
+				'green',
+				wetrun
+					? '\n✨ All packages published successfully!\n'
+					: `\n✨ Dry run complete — ${published.size} package(s) would be published. Re-run with --wetrun to publish.\n`,
+			),
+		);
 	} else {
-		log?.error(st('red', '\n❌ Some packages failed to publish\n'));
+		log?.error(
+			st(
+				'red',
+				wetrun
+					? '\n❌ Some packages failed to publish\n'
+					: '\n❌ Some packages failed during dry run\n',
+			),
+		);
 	}
+
+	emit({event: 'run_finished', summary});
 
 	return {
 		ok,
 		published: Array.from(published.values()),
 		failed: Array.from(failed.entries()).map(([name, error]) => ({name, error})),
 		duration,
+		events: capture.events,
+		summary,
 	};
 };
 
@@ -464,4 +566,37 @@ const publish_single_repo = async (
 		commit,
 		tag: `v${new_version}`,
 	};
+};
+
+/**
+ * Installs dependencies for each named repo (with cache healing), emitting install
+ * events and logging progress. A failed install doesn't stop the batch — failures are
+ * collected and returned so the caller can fold them into the run's failures.
+ */
+const install_repos = async (
+	names: Iterable<string>,
+	repos: Array<LocalRepo>,
+	ops: GitopsOperations,
+	emit: (event: PublishingEvent) => void,
+	log?: Logger,
+): Promise<Map<string, Error>> => {
+	const failures: Map<string, Error> = new Map();
+	for (const name of names) {
+		const repo = repos.find((r) => r.library.name === name);
+		if (!repo) continue;
+		try {
+			emit({event: 'install_started', name});
+			log?.info(`  Installing ${name}...`);
+			await install_with_cache_healing(repo, ops, log);
+			emit({event: 'install_completed', name});
+			log?.info(st('green', `  ✅ Installed ${name}`));
+		} catch (error) {
+			const err = error instanceof Error ? error : new Error(String(error));
+			failures.set(name, err);
+			emit({event: 'install_failed', name, error: err.message});
+			log?.error(st('red', `  ❌ Failed to install ${name}: ${err.message}`));
+			// continue with other installs instead of breaking
+		}
+	}
+	return failures;
 };

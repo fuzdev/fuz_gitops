@@ -1,8 +1,9 @@
-import {assert, test} from 'vitest';
+import {assert, test, describe} from 'vitest';
 import {create_mock_logger} from '@fuzdev/fuz_util/testing.js';
 
 import type {LocalRepo} from '$lib/local_repo.js';
 import {publish_repos} from '$lib/multi_repo_publisher.js';
+import {capture_handler} from '$lib/publishing_event_handler.js';
 import {
 	create_mock_repo,
 	create_mock_gitops_ops,
@@ -791,3 +792,96 @@ test('install failures are handled gracefully', async () => {
 
 // NOTE: Cache healing during publishing is thoroughly tested in npm_install_helpers.test.ts (9 tests)
 // Integration testing here is complex due to dependency update flow complexity.
+
+describe('structured events', () => {
+	test('dry run emits run_started{wetrun:false} and predicted (simulated) completions', async () => {
+		const repos: Array<LocalRepo> = [
+			create_mock_repo({name: 'pkg-a', version: '0.1.0'}),
+			create_mock_repo({name: 'pkg-b', version: '0.2.0', deps: {'pkg-a': '0.1.0'}}),
+		];
+
+		const mock_ops = create_mock_gitops_ops({
+			changeset: {
+				predict_next_version: async (options) => {
+					if (options.repo.library.name === 'pkg-a') {
+						return {ok: true, version: '0.1.1', bump_type: 'patch' as const};
+					}
+					if (options.repo.library.name === 'pkg-b') {
+						return {ok: true, version: '0.2.1', bump_type: 'patch' as const};
+					}
+					return null;
+				},
+			},
+			preflight: create_preflight_mock(['pkg-a', 'pkg-b']),
+		});
+
+		const result = await publish_repos(repos, {wetrun: false, update_deps: false, ops: mock_ops});
+
+		// The result carries the stream and a derived summary.
+		const first = result.events[0]!;
+		assert.strictEqual(first.event, 'run_started');
+		assert(first.event === 'run_started');
+		assert.strictEqual(first.wetrun, false);
+		assert.strictEqual(first.total, 2);
+
+		const completions = result.events.filter((e) => e.event === 'package_completed');
+		assert.strictEqual(completions.length, 2);
+		// In a dry run every completion is a prediction: commit is 'simulated'.
+		for (const e of completions) {
+			assert(e.event === 'package_completed');
+			assert.strictEqual(e.commit, 'simulated');
+		}
+
+		const last = result.events.at(-1)!;
+		assert.strictEqual(last.event, 'run_finished');
+		assert(last.event === 'run_finished');
+		assert.strictEqual(last.summary.published, 2);
+		assert.strictEqual(last.summary.total, 2);
+		assert.strictEqual(result.summary.published, 2);
+	});
+
+	test('wetrun emits run_started{wetrun:true} and real commit hashes', async () => {
+		const repos: Array<LocalRepo> = [create_mock_repo({name: 'pkg-a', version: '0.1.0'})];
+
+		const mock_ops = create_mock_gitops_ops({
+			preflight: create_preflight_mock(['pkg-a']),
+			fs: create_populated_fs_ops(repos), // package.json with bumped version for the read-back
+		});
+
+		const result = await publish_repos(repos, {wetrun: true, update_deps: false, ops: mock_ops});
+
+		const first = result.events[0]!;
+		assert(first.event === 'run_started');
+		assert.strictEqual(first.wetrun, true);
+
+		const completion = result.events.find((e) => e.event === 'package_completed');
+		assert.ok(completion);
+		assert(completion.event === 'package_completed');
+		assert.strictEqual(completion.name, 'pkg-a');
+		assert.strictEqual(completion.commit, 'abc123'); // real hash from git mock, not 'simulated'
+		assert.strictEqual(completion.new_version, '0.1.1');
+	});
+
+	test('an external handler receives the same events as the result', async () => {
+		const repos: Array<LocalRepo> = [create_mock_repo({name: 'pkg-a', version: '0.1.0'})];
+		const capture = capture_handler();
+
+		const mock_ops = create_mock_gitops_ops({
+			changeset: {
+				predict_next_version: async () => ({ok: true, version: '0.1.1', bump_type: 'patch' as const}),
+			},
+			preflight: create_preflight_mock(['pkg-a']),
+		});
+
+		const result = await publish_repos(repos, {
+			wetrun: false,
+			update_deps: false,
+			ops: mock_ops,
+			events: capture,
+		});
+
+		assert.strictEqual(capture.events.length, result.events.length);
+		assert.strictEqual(capture.events[0]!.event, 'run_started');
+		assert.strictEqual(capture.events.at(-1)!.event, 'run_finished');
+	});
+});

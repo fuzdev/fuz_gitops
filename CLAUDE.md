@@ -337,6 +337,7 @@ gro gitops_publish               # dry run (default, simulates publishing)
 gro gitops_publish --wetrun      # actually publish repos in dependency order
 gro gitops_publish --wetrun --no-plan # skip interactive plan confirmation
 gro gitops_publish --verbose     # show additional details in plan
+gro gitops_publish --emit-json   # stream structured publishing events as JSON-lines to stdout
 
 # Output formats (analyze, plan, publish)
 gro gitops_analyze --format json --outfile analysis.json
