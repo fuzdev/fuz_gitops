@@ -52,9 +52,7 @@ export const stdout_handler = (): PublishingEventHandler => ({
 });
 
 /** Fans an event out to every handler in order. */
-export const multi_handler = (
-	handlers: Array<PublishingEventHandler>,
-): PublishingEventHandler => ({
+export const multi_handler = (handlers: Array<PublishingEventHandler>): PublishingEventHandler => ({
 	emit: (event) => {
 		for (const handler of handlers) {
 			handler.emit(event);

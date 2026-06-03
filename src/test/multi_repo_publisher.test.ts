@@ -868,7 +868,11 @@ describe('structured events', () => {
 
 		const mock_ops = create_mock_gitops_ops({
 			changeset: {
-				predict_next_version: async () => ({ok: true, version: '0.1.1', bump_type: 'patch' as const}),
+				predict_next_version: async () => ({
+					ok: true,
+					version: '0.1.1',
+					bump_type: 'patch' as const,
+				}),
 			},
 			preflight: create_preflight_mock(['pkg-a']),
 		});
