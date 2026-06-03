@@ -1,5 +1,11 @@
 # @fuzdev/fuz_gitops
 
+## 0.72.0
+
+### Minor Changes
+
+- feat: publishing events ([b0a46a1](https://github.com/fuzdev/fuz_gitops/commit/b0a46a1))
+
 ## 0.71.0
 
 ### Minor Changes
