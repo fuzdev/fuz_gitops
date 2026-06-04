@@ -339,7 +339,6 @@ test('waits for npm propagation after each publish', async () => {
 				wait_calls.push({pkg: options.pkg, version: options.version});
 				return {ok: true};
 			},
-			check_package_available: async () => ({ok: true, value: true}),
 			check_auth: async () => ({ok: true, username: 'testuser'}),
 			check_registry: async () => ({ok: true}),
 			install: async () => ({ok: true}),
@@ -735,7 +734,6 @@ test('handles npm propagation failure gracefully', async () => {
 			wait_for_package: async () => {
 				throw new Error('Timeout waiting for package');
 			},
-			check_package_available: async () => ({ok: true, value: false}),
 			check_auth: async () => ({ok: true, username: 'testuser'}),
 			check_registry: async () => ({ok: true}),
 			install: async () => ({ok: true}),
@@ -874,150 +872,6 @@ test('publishes each package exactly once in a single pass', async () => {
 // NOTE: the MAX_ITERATIONS warning lives in plan generation (the publisher no longer
 // iterates). Its logic is tested in publishing_plan.test.ts.
 
-test('skip_install flag prevents npm install', async () => {
-	const repos: Array<LocalRepo> = [
-		create_mock_repo({name: 'lib', version: '1.0.0'}),
-		create_mock_repo({name: 'app', version: '1.0.0', deps: {lib: '^1.0.0'}}),
-	];
-
-	const mock_fs_ops = create_populated_fs_ops(repos);
-	let install_called = false;
-
-	const mock_ops = create_mock_gitops_ops({
-		preflight: create_preflight_mock(['lib'], ['app']),
-		fs: mock_fs_ops,
-		npm: {
-			install: async () => {
-				install_called = true;
-				return {ok: true};
-			},
-			wait_for_package: async () => ({ok: true}),
-			check_package_available: async () => ({ok: true, value: true}),
-			check_auth: async () => ({ok: true, username: 'testuser'}),
-			check_registry: async () => ({ok: true}),
-			cache_clean: async () => ({ok: true}),
-		},
-	});
-
-	await publish_repos(repos, {
-		wetrun: true,
-		skip_install: true,
-		ops: mock_ops,
-	});
-
-	// Install should NOT be called
-	assert.strictEqual(install_called, false);
-});
-
-test('a failed cache-prime install aborts the run (fail loud)', async () => {
-	// The pre-install before a dependent publishes is a cache-heal; if it fails, `gro
-	// publish`'s own install can't succeed either, so the run aborts rather than burn a
-	// doomed publish attempt.
-	const repos: Array<LocalRepo> = [
-		create_mock_repo({name: 'lib', version: '1.0.0'}),
-		create_mock_repo({name: 'app', version: '1.0.0', deps: {lib: '^1.0.0'}}),
-	];
-
-	const mock_fs_ops = create_populated_fs_ops(repos);
-
-	const mock_ops = create_mock_gitops_ops({
-		preflight: create_preflight_mock(['lib', 'app']),
-		fs: mock_fs_ops,
-		npm: {
-			install: async (options) =>
-				options?.cwd?.includes('app')
-					? {ok: false, message: 'Network error', stderr: 'npm ERR! network timeout'}
-					: {ok: true},
-		},
-	});
-
-	const result = await publish_repos(repos, {wetrun: true, ops: mock_ops});
-
-	assert.strictEqual(result.ok, false);
-	// lib published, but app's failed cache-prime aborts before app publishes
-	assert.deepEqual(
-		result.published.map((p) => p.name),
-		['lib'],
-	);
-	assert.strictEqual(
-		result.failed.some((f) => f.name === 'app'),
-		true,
-	);
-});
-
-test('installs each dependent exactly once even with multiple publishing deps', async () => {
-	// app depends on both lib1 and lib2; the single pass must not re-install app once per
-	// publishing dependency — it installs app once, right before app itself publishes.
-	const repos: Array<LocalRepo> = [
-		create_mock_repo({name: 'lib1', version: '1.0.0'}),
-		create_mock_repo({name: 'lib2', version: '1.0.0'}),
-		create_mock_repo({name: 'app', version: '1.0.0', deps: {lib1: '^1.0.0', lib2: '^1.0.0'}}),
-	];
-
-	const mock_fs_ops = create_populated_fs_ops(repos);
-
-	const install_counts: Map<string, number> = new Map();
-
-	const mock_ops = create_mock_gitops_ops({
-		preflight: create_preflight_mock(['lib1', 'lib2', 'app']),
-		fs: mock_fs_ops,
-		npm: {
-			install: async (options) => {
-				const name = (options?.cwd ?? '').split('/').pop() ?? '';
-				install_counts.set(name, (install_counts.get(name) ?? 0) + 1);
-				return {ok: true};
-			},
-		},
-	});
-
-	const result = await publish_repos(repos, {wetrun: true, ops: mock_ops});
-
-	assert.strictEqual(result.ok, true);
-	assert.strictEqual(install_counts.get('app') ?? 0, 1);
-});
-
-test('installs a dependent before it publishes (not batched at the end)', async () => {
-	// locks the chosen semantics: a dependent is installed lazily, right before it
-	// publishes — not all-at-the-end — so its workspace is consistent at publish time.
-	const repos: Array<LocalRepo> = [
-		create_mock_repo({name: 'lib', version: '1.0.0'}),
-		create_mock_repo({name: 'app', version: '1.0.0', deps: {lib: '^1.0.0'}}),
-	];
-
-	const mock_fs_ops = create_populated_fs_ops(repos);
-	const sequence: Array<string> = [];
-
-	const mock_ops = create_mock_gitops_ops({
-		preflight: create_preflight_mock(['lib', 'app']),
-		fs: mock_fs_ops,
-		process: {
-			spawn: async (options) => {
-				if (options.args[0] === 'publish') {
-					sequence.push(`publish:${(options.cwd ?? '').split('/').pop()}`);
-				}
-				return {ok: true};
-			},
-		},
-		npm: {
-			install: async (options) => {
-				sequence.push(`install:${(options?.cwd ?? '').split('/').pop()}`);
-				return {ok: true};
-			},
-		},
-	});
-
-	await publish_repos(repos, {wetrun: true, ops: mock_ops});
-
-	const install_idx = sequence.indexOf('install:app');
-	const publish_idx = sequence.indexOf('publish:app');
-	assert.ok(install_idx !== -1, 'app should be installed');
-	assert.ok(publish_idx !== -1, 'app should be published');
-	assert.ok(install_idx < publish_idx, 'app install should come before app publish');
-});
-
-// NOTE: Cache healing during publishing is thoroughly tested in npm_install_helpers.test.ts (9 tests)
-// Integration testing here is complex due to dependency update flow complexity.
-
 describe('structured events', () => {
 	test('dry run emits run_started{wetrun:false} and predicted (simulated) completions', async () => {
 		const repos: Array<LocalRepo> = [
@@ -1125,7 +979,6 @@ describe('group_dependency_updates', () => {
 		current_version: '^1.0.0',
 		new_version: 'ignored', // the helper reads the published version, not this field
 		type,
-		causes_republish: type !== 'devDependencies',
 	});
 
 	const make_published = (entries: Array<[string, string]>): Map<string, PublishedVersion> =>
@@ -1284,8 +1137,8 @@ describe('execute_publishing_plan', () => {
 	// --- Anti-drift: the executor's event stream must match the derived preview, step for step.
 	// The preview (`derive_publish_steps`) and the executor are separate passes over the same
 	// frozen plan. Reducing each to an ordered key sequence — and comparing the WHOLE sequence,
-	// not just the spawn-visible install/publish/deploy steps — cross-checks npm_wait and
-	// dev-dep updates too, and any future PublishStep kind that emits an event.
+	// not just the spawn-visible publish/deploy steps — cross-checks npm_wait and dev-dep
+	// updates too, and any future PublishStep kind that emits an event.
 	const make_dep_update = (
 		dependent: string,
 		updated_dependency: string,
@@ -1297,13 +1150,10 @@ describe('execute_publishing_plan', () => {
 		current_version: '^1.0.0',
 		new_version,
 		type,
-		causes_republish: type !== 'devDependencies',
 	});
 
 	const step_key = (step: PublishStep): string => {
 		switch (step.kind) {
-			case 'install':
-				return `install:${step.repo}:${step.reason}`;
 			case 'publish':
 				return `publish:${step.repo}`;
 			case 'npm_wait':
@@ -1319,8 +1169,6 @@ describe('execute_publishing_plan', () => {
 
 	const event_key = (event: PublishingEvent): string | null => {
 		switch (event.event) {
-			case 'install_started':
-				return `install:${event.name}:${event.reason}`;
 			case 'package_completed':
 				return `publish:${event.name}`;
 			case 'npm_waited':
@@ -1339,7 +1187,7 @@ describe('execute_publishing_plan', () => {
 	const assert_preview_matches_execution = async (
 		repos: Array<LocalRepo>,
 		plan: PublishingPlan,
-		options: {deploy?: boolean; skip_install?: boolean} = {},
+		options: {deploy?: boolean} = {},
 	): Promise<void> => {
 		// Populate each publishing package's package.json with its planned version so the
 		// publish read-back matches the plan (no drift abort).
@@ -1410,7 +1258,7 @@ describe('execute_publishing_plan', () => {
 			create_mock_repo({name: 'priv', version: '1.0.0', deps: {core: '^1.0.0'}, private: true}),
 		];
 		// priv is private → excluded from version_changes (it never publishes); only its range
-		// updates, with no changeset and no cache-prime install.
+		// updates, with no changeset.
 		const plan = make_plan({
 			publishing_order: ['core', 'priv'],
 			version_changes: [
@@ -1421,7 +1269,7 @@ describe('execute_publishing_plan', () => {
 		await assert_preview_matches_execution(repos, plan, {deploy: true});
 	});
 
-	test('preview matches execution: skip_install omits cache-prime and dev installs', async () => {
+	test('preview matches execution: mixed prod cascade + dev-dep update', async () => {
 		const repos = [
 			create_mock_repo({name: 'core', version: '1.0.0'}),
 			create_mock_repo({name: 'mid', version: '1.0.0', deps: {core: '^1.0.0'}}),
@@ -1443,7 +1291,7 @@ describe('execute_publishing_plan', () => {
 				make_dep_update('consumer', 'core', 'devDependencies', '1.1.0'),
 			],
 		});
-		await assert_preview_matches_execution(repos, plan, {skip_install: true});
+		await assert_preview_matches_execution(repos, plan);
 	});
 
 	test('a private dependent is an update-only leaf — no publish, npm-wait, or changeset', async () => {

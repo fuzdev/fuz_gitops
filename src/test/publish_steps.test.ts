@@ -24,7 +24,6 @@ const make_update = (
 	current_version: '^1.0.0',
 	new_version: 'ignored', // derive reads the dependency's plan version, not this
 	type,
-	causes_republish: type !== 'devDependencies',
 });
 
 const make_plan = (overrides: Partial<PublishingPlan> = {}): PublishingPlan => ({
@@ -96,17 +95,6 @@ describe('derive_publish_steps', () => {
 		assert.strictEqual(via.get('tool'), 'changeset');
 	});
 
-	test('a dependent is installed (cache-prime) right before it publishes, after its dep', () => {
-		const steps = derive_publish_steps(make_cascade_plan());
-		const kinds = steps.map((s) => `${s.kind}:${'repo' in s ? s.repo : ''}`);
-		const publish_core = kinds.indexOf('publish:core');
-		const install_mid = kinds.indexOf('install:mid');
-		const publish_mid = kinds.indexOf('publish:mid');
-		assert.ok(install_mid !== -1, 'mid should be cache-prime installed');
-		assert.ok(publish_core < install_mid, 'core publishes before mid is installed');
-		assert.ok(install_mid < publish_mid, 'mid is installed before it publishes');
-	});
-
 	test('prod dependency updates carry the published version and create a changeset', () => {
 		const steps = derive_publish_steps(make_cascade_plan());
 		const update = steps.find((s) => s.kind === 'dependency_update' && s.dependent === 'mid');
@@ -139,16 +127,9 @@ describe('derive_publish_steps', () => {
 		assert.ok(withDeploy.filter((s) => s.kind === 'deploy').every((s) => s.builds));
 	});
 
-	test('skip_install omits cache-prime installs', () => {
-		const steps = derive_publish_steps(make_cascade_plan(), {skip_install: true});
-		assert.ok(!steps.some((s) => s.kind === 'install'));
-		// publishes still happen
-		assert.strictEqual(steps.filter((s) => s.kind === 'publish').length, 4);
-	});
-
 	test('a dependency that does not publish is not propagated to its dependents', () => {
 		// `lib` is referenced by `app` but absent from version_changes (nothing published it),
-		// so no dependency_update / cache-prime install should be derived.
+		// so no dependency_update should be derived.
 		const plan = make_plan({
 			publishing_order: ['app'],
 			version_changes: [make_version_change({package_name: 'app'})],
@@ -156,7 +137,6 @@ describe('derive_publish_steps', () => {
 		});
 		const steps = derive_publish_steps(plan);
 		assert.ok(!steps.some((s) => s.kind === 'dependency_update'));
-		assert.ok(!steps.some((s) => s.kind === 'install'));
 	});
 });
 

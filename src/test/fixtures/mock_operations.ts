@@ -35,7 +35,6 @@ export interface MockOperationsConfig {
 		authenticated?: boolean;
 		registry_available?: boolean;
 		install_fails?: boolean;
-		package_available?: boolean;
 		wait_timeout?: boolean;
 	};
 	build?: {
@@ -103,14 +102,8 @@ export const create_mock_npm_ops = (): NpmOperations => ({
 	// Registry check - always available for tests
 	check_registry: async () => ({ok: true}),
 
-	// Package availability check
-	check_package_available: async () => ({ok: true, value: true}),
-
 	// Registry check - simulate package available immediately
 	wait_for_package: async () => ({ok: true}),
-
-	// Cache clean - no-op for tests
-	cache_clean: async () => ({ok: true}),
 });
 
 /**
@@ -308,12 +301,6 @@ export const create_configurable_npm_ops = (
 		return {ok: true};
 	},
 
-	// Package availability
-	check_package_available: async () => ({
-		ok: true,
-		value: config.package_available !== false,
-	}),
-
 	// Wait for package
 	wait_for_package: async () => {
 		if (config.wait_timeout) {
@@ -321,9 +308,6 @@ export const create_configurable_npm_ops = (
 		}
 		return {ok: true};
 	},
-
-	// Cache clean
-	cache_clean: async () => ({ok: true}),
 });
 
 /**

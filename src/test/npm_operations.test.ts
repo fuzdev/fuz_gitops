@@ -42,43 +42,6 @@ describe('install operation', () => {
 	});
 });
 
-describe('check_package_available operation', () => {
-	test('returns true when package exists', async () => {
-		const mock_ops = create_mock_npm_ops();
-		const result = await mock_ops.check_package_available({pkg: 'foo', version: '1.0.0'});
-		assert.ok(result.ok);
-	});
-
-	test('returns false when package does not exist', async () => {
-		const mock_ops = create_mock_npm_ops({
-			check_package_available: async () => ({ok: true, value: false}),
-		});
-		const result = await mock_ops.check_package_available({pkg: 'foo', version: '1.0.0'});
-		assert.ok(result.ok);
-	});
-
-	test('can override behavior in mock', async () => {
-		let check_called = false;
-		let pkg_name: string | undefined;
-		let pkg_version: string | undefined;
-
-		const mock_ops = create_mock_npm_ops({
-			check_package_available: async (options) => {
-				check_called = true;
-				pkg_name = options.pkg;
-				pkg_version = options.version;
-				return {ok: true, value: true};
-			},
-		});
-
-		await mock_ops.check_package_available({pkg: '@scope/package', version: '2.3.4'});
-
-		assert.ok(check_called);
-		assert.equal(pkg_name, '@scope/package');
-		assert.equal(pkg_version, '2.3.4');
-	});
-});
-
 describe('check_auth operation', () => {
 	test('returns ok:true with username on success', async () => {
 		const mock_ops = create_mock_npm_ops();

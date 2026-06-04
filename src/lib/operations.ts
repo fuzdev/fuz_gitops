@@ -253,15 +253,6 @@ export interface NpmOperations {
 	}) => Promise<Result<object, {message: string; timeout?: boolean}>>;
 
 	/**
-	 * Checks if a package version is available on NPM.
-	 */
-	check_package_available: (options: {
-		pkg: string;
-		version: string;
-		log?: Logger;
-	}) => Promise<Result<{value: boolean}, {message: string}>>;
-
-	/**
 	 * Checks npm authentication status.
 	 */
 	check_auth: () => Promise<Result<{username: string}, {message: string}>>;
@@ -277,12 +268,6 @@ export interface NpmOperations {
 	install: (options?: {
 		cwd?: string;
 	}) => Promise<Result<object, {message: string; stderr?: string}>>;
-
-	/**
-	 * Cleans the npm cache.
-	 * Uses `npm cache clean --force` to clear stale cache entries.
-	 */
-	cache_clean: () => Promise<Result<object, {message: string}>>;
 }
 
 /**

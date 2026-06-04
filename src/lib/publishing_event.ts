@@ -94,24 +94,6 @@ export const PublishingEvent = z.discriminatedUnion('event', [
 		creates_changeset: z.boolean(),
 	}),
 	z.strictObject({
-		event: z.literal('install_started'),
-		name: z.string(),
-		// why this install runs: 'cache_prime' before a dependent publishes, 'dev_dep' after a
-		// dev-dependency update.
-		reason: z.enum(['cache_prime', 'dev_dep']),
-	}),
-	z.strictObject({
-		event: z.literal('install_completed'),
-		name: z.string(),
-		reason: z.enum(['cache_prime', 'dev_dep']),
-	}),
-	z.strictObject({
-		event: z.literal('install_failed'),
-		name: z.string(),
-		error: z.string(),
-		reason: z.enum(['cache_prime', 'dev_dep']),
-	}),
-	z.strictObject({
 		event: z.literal('deploy_started'),
 		name: z.string(),
 	}),

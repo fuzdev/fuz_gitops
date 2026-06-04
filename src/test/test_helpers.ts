@@ -228,11 +228,9 @@ export const create_mock_git_ops = (overrides: Partial<GitOperations> = {}): Git
  */
 export const create_mock_npm_ops = (overrides: Partial<NpmOperations> = {}): NpmOperations => ({
 	wait_for_package: async () => ({ok: true}),
-	check_package_available: async () => ({ok: true, value: true}),
 	check_auth: async () => ({ok: true, username: 'testuser'}),
 	check_registry: async () => ({ok: true}),
 	install: async () => ({ok: true}),
-	cache_clean: async () => ({ok: true}),
 	...overrides,
 });
 

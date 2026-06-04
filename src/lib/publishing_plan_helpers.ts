@@ -41,7 +41,6 @@ export const calculate_dependency_updates = (
 						current_version,
 						new_version,
 						type: 'dependencies',
-						causes_republish: true,
 					});
 
 					if (breaking_packages.has(dep_name)) {
@@ -66,7 +65,6 @@ export const calculate_dependency_updates = (
 						current_version,
 						new_version,
 						type: 'peerDependencies',
-						causes_republish: true,
 					});
 
 					if (breaking_packages.has(dep_name)) {
@@ -91,7 +89,6 @@ export const calculate_dependency_updates = (
 						current_version,
 						new_version,
 						type: 'devDependencies',
-						causes_republish: false,
 					});
 				}
 			}

@@ -40,7 +40,6 @@ export interface DependencyUpdate {
 	current_version: string;
 	new_version: string;
 	type: 'dependencies' | 'devDependencies' | 'peerDependencies';
-	causes_republish: boolean;
 }
 
 // Verbose data types for diagnostic output

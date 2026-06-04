@@ -127,26 +127,3 @@ export const log_dependency_analysis = (
 	log_production_cycles(analysis, log, indent);
 	log_dev_cycles(analysis, log, indent);
 };
-
-/**
- * Logs a simple bulleted list with a header.
- * Common pattern for warnings, info messages, and other lists.
- */
-export const log_list = (
-	items: Array<string>,
-	header: string,
-	color: 'cyan' | 'yellow' | 'red' | 'dim',
-	log: Logger,
-	log_method: 'info' | 'warn' | 'error' = 'info',
-): void => {
-	if (items.length === 0) return;
-
-	// Blank separator as its own line (not an embedded `\n`) so it gets prefixed.
-	if (header) {
-		log[log_method]('');
-		log[log_method](st(color, header));
-	}
-	for (const item of items) {
-		log[log_method](st(color, `  • ${item}`));
-	}
-};

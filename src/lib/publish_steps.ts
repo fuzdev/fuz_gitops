@@ -17,7 +17,6 @@ export type PublishStepVia = 'changeset' | 'auto_changeset' | 'escalation';
 
 /** One ordered side-effect a wetrun would perform. */
 export type PublishStep =
-	| {kind: 'install'; repo: string; reason: 'cache_prime' | 'dev_dep'}
 	| {kind: 'publish'; repo: string; from: string; to: string; bump: BumpType; via: PublishStepVia}
 	| {kind: 'npm_wait'; repo: string; version: string}
 	| {
@@ -34,8 +33,6 @@ export type PublishStep =
 export interface DerivePublishStepsOptions {
 	/** Include the deploy phase (the publisher only deploys with `--deploy`). */
 	deploy?: boolean;
-	/** Omit cache-priming installs (the publisher's `--skip-install`). */
-	skip_install?: boolean;
 }
 
 const step_via = (change: VersionChange): PublishStepVia =>
@@ -56,24 +53,18 @@ export const derive_publish_steps = (
 	plan: PublishingPlan,
 	options: DerivePublishStepsOptions = {},
 ): Array<PublishStep> => {
-	const {deploy = false, skip_install = false} = options;
+	const {deploy = false} = options;
 	const changes: Map<string, VersionChange> = new Map(
 		plan.version_changes.map((vc) => [vc.package_name, vc]),
 	);
 
 	const steps: Array<PublishStep> = [];
-	const pending_install: Set<string> = new Set();
 	const changed: Set<string> = new Set(); // for the deploy phase: published + their dependents
 
 	// Phase 1: one pass over the topological order, mirroring `execute_publishing_plan`.
 	for (const repo of plan.publishing_order) {
 		const change = changes.get(repo);
 		if (!change) continue; // not in the plan = nothing to publish
-
-		if (!skip_install && pending_install.has(repo)) {
-			pending_install.delete(repo);
-			steps.push({kind: 'install', repo, reason: 'cache_prime'});
-		}
 
 		steps.push({
 			kind: 'publish',
@@ -87,9 +78,10 @@ export const derive_publish_steps = (
 		changed.add(repo);
 
 		// Prod/peer dependents are rewritten right after this publishes. A dependent that
-		// republishes (has its own plan version change) gets an auto-changeset and a
-		// cache-priming install before it publishes in turn; a private dependent has no version
-		// change, so it's an update-only leaf — range rewritten, no changeset, no install.
+		// republishes (has its own plan version change) gets an auto-changeset and republishes in
+		// turn (its rewritten deps are installed + healed by its own `gro publish`); a private
+		// dependent has no version change, so it's an update-only leaf — range rewritten, no
+		// changeset.
 		for (const update of plan.dependency_updates) {
 			if (update.updated_dependency !== repo) continue;
 			if (update.type !== 'dependencies' && update.type !== 'peerDependencies') continue;
@@ -102,14 +94,13 @@ export const derive_publish_steps = (
 				dep_type: update.type === 'peerDependencies' ? 'peer' : 'prod',
 				creates_changeset: republishes,
 			});
-			if (republishes) pending_install.add(update.dependent_package);
 			changed.add(update.dependent_package);
 		}
 	}
 
 	// Phase 2: dev-dependency updates for deps that published this run — committed without a
-	// changeset (dev-only changes redeploy, they don't republish).
-	const dev_updated: Set<string> = new Set();
+	// changeset (dev-only changes redeploy, they don't republish). No install step: these repos
+	// don't run `gro publish`; gro installs + heals their deps when they next build/deploy/sync.
 	for (const update of plan.dependency_updates) {
 		if (update.type !== 'devDependencies') continue;
 		const dep_change = changes.get(update.updated_dependency);
@@ -120,16 +111,7 @@ export const derive_publish_steps = (
 			dependency: update.updated_dependency,
 			to: dep_change.to,
 		});
-		dev_updated.add(update.dependent_package);
 		changed.add(update.dependent_package);
-	}
-
-	// Phase 2b: one batched install per repo that had a dev-dependency update, mirroring the
-	// executor's post-dev-update install. Skipped under skip_install, like cache-primes.
-	if (!skip_install) {
-		for (const repo of dev_updated) {
-			steps.push({kind: 'install', repo, reason: 'dev_dep'});
-		}
 	}
 
 	// Phase 3: deploy every changed repo (only with --deploy). Each builds fresh.
@@ -150,8 +132,6 @@ export const format_publish_steps = (steps: Array<PublishStep>): Array<string> =
 	if (steps.length === 0) return ['(no side effects — nothing to publish)'];
 	return steps.map((step) => {
 		switch (step.kind) {
-			case 'install':
-				return `install   ${step.repo}  (${step.reason === 'cache_prime' ? 'cache-prime' : 'dev-dep'})`;
 			case 'publish':
 				return `publish   ${step.repo}  ${step.from} → ${step.to}  (${step.bump}, ${step.via})`;
 			case 'npm_wait':

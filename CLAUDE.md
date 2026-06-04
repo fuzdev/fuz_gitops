@@ -26,7 +26,7 @@ this repo — make the edits and stop, the user commits.
 - [General Patterns](#general-patterns)
 - [Testability & Operations Pattern](#testability--operations-pattern)
 - [Testing](#testing)
-- [Output Directory](#output-directory)
+- [Generated Files & Caches](#generated-files--caches)
 - [Additional Documentation](#additional-documentation)
 
 ## Core functionality
@@ -203,9 +203,10 @@ broken state:
 2. **Publishing phase** (after validation):
    - Runs `gro publish --no-build` for each package
    - `gro publish` still runs `gro check` internally (typecheck, test, lint) —
-     and because the dependent's `package.json` is rewritten and reinstalled
-     before this step, that check is the real validation against the
-     **just-published** dependency versions. `--no-build` is safe because every
+     and because the dependent's `package.json` is rewritten before this step and
+     `gro publish` reinstalls (ETARGET-healing) internally, that check is the real
+     validation against the **just-published** dependency versions. `--no-build`
+     is safe because every
      publishable package is a `svelte-package` library shipping unbundled `dist`:
      a dependency version change never alters the dependent's `dist` bytes, so the
      preflight-validated build stays valid
@@ -217,29 +218,26 @@ broken state:
 This prevents the known issue in `gro publish` where build failures leave repos
 in broken state (version bumped but not published).
 
-**Dependency Installation with Cache Healing**
+**Dependency Installation (delegated to gro)**
 
-The publishing workflow automatically installs dependencies after package.json updates with smart cache healing:
+The publishing executor never runs a bare `npm install` itself. Installing
+dependencies is gro's responsibility, and gro's install path self-heals npm's
+stale-cache (ETARGET) failure mode — clear the cache and retry once when a
+just-published version isn't visible yet. So fuz_gitops carries no install or
+cache-healing logic of its own:
 
-1. **When installations happen:**
-   - After a package publishes and its dependents' package.json files are updated,
-     those dependents are installed before the pass reaches them for publishing
-   - Published packages skip install (`gro publish` handles it internally)
+1. **Republishing dependents:** after a package publishes, the executor rewrites
+   its prod/peer dependents' `package.json` ranges and commits them. When the
+   pass reaches a dependent and runs `gro publish`, gro installs the rewritten
+   deps (ETARGET-healing if npm hasn't caught up) as part of publishing it.
+2. **Dev-dep-only dependents:** these never run `gro publish`. The executor
+   bumps + commits their `package.json` but does **not** install them; their
+   `node_modules` is refreshed (and ETARGET-healed) by gro the next time they
+   build, deploy (`gro deploy` builds fresh), or sync (`gro gitops_sync`).
 
-2. **Cache healing strategy:**
-   - First attempt: regular `npm install`
-   - On ETARGET error (package not found due to stale cache): `npm cache clean --force` then retry
-   - On other errors: fail immediately without cache cleaning
-   - Detects variations: "ETARGET", "notarget", "No matching version found"
-
-3. **Why cache healing is needed:**
-   - After publishing and waiting for NPM propagation, npm's local cache may still have stale "404" metadata
-   - Cache clean forces fresh metadata fetch from registry
-   - Ensures newly published packages can be installed by dependents
-
-4. **Configuration:**
-   - `--skip-install`: Disable installs during publishing (for speed/testing)
-   - Installs enabled by default
+This is why `gro publish --no-build` is safe immediately after a publish: its
+internal install heals the cache. There is no `--skip-install` flag — there are
+no executor-owned installs to skip.
 
 **Plan vs Dry Run**
 
@@ -606,9 +604,14 @@ Each fixture runs in isolation with its own config, validating:
 Test repos are isolated from real workspace repos and can run in CI without
 cloning.
 
-## Output Directory
+## Generated Files & Caches
 
-All gitops-generated files are stored in `.gro/fuz_gitops/` (gitignored).
+- **Repo data** — `gro gitops_sync` writes `repos.json` + `repos.ts` to the
+  SvelteKit routes dir (`src/routes/` by default, overridable with `--outdir`).
+  These are committed (the site renders from them).
+- **Caches** (gitignored, under `.gro/`) — the fetch-value cache at
+  `.gro/build/fetch/` and the `svelte-docinfo` library metadata at
+  `.gro/library.json`.
 
 ## Additional Documentation
 

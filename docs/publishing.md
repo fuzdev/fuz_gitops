@@ -100,9 +100,8 @@ gitops_plan`, so it shows the full cascade: explicit changesets, bump
 - The dry-run count matches `gro gitops_plan`; the difference between them is
   framing, not content (`plan` is the read-only report, the dry run is the
   publish command in preview mode)
-- Add `--preview` to print the ordered side-effects (cache-prime installs,
-  publishes, npm waits, dependency rewrites, dev-dep updates, post-dev installs,
-  deploys) the cascade would perform
+- Add `--preview` to print the ordered side-effects (publishes, npm waits,
+  dependency rewrites, dev-dep updates, deploys) the cascade would perform
 
 ## Publishing Flow
 
@@ -117,29 +116,31 @@ flowchart TD
     C -->|yes| X["Abort — fail loud"]
     C -->|no| D["Preflight: clean tree, branch, npm auth, build"]
     D --> E{"next package in topological order"}
-    E -->|package| F{"cache-prime install queued?"}
-    F -->|yes| G["npm install — heal npm cache (fail loud on failure)"]
-    F -->|no| H["gro publish --no-build"]
-    G --> H
+    E -->|package| H["gro publish --no-build (installs + ETARGET-heals internally)"]
     H --> I{"published version matches plan?"}
     I -->|no| Y["Abort — plan drift"]
     I -->|yes| J["Wait for npm propagation"]
-    J --> K["Rewrite prod/peer dependents' package.json + auto-changeset; queue each for install"]
+    J --> K["Rewrite prod/peer dependents' package.json + auto-changeset"]
     K --> E
-    E -->|done| L["Dev-dep phase: update package.json + commit (no changeset), then install"]
+    E -->|done| L["Dev-dep phase: update package.json + commit (no changeset, no install)"]
     L --> M{"--deploy?"}
     M -->|yes| N["gro deploy — builds fresh against the updated deps"]
     M -->|no| Z["Done"]
     N --> Z
 ```
 
-Each `gro publish --no-build` step is itself a pipeline: it syncs, runs `gro check`
-(typecheck + tests against the freshly-installed dependency versions), bumps the
-version, installs again to refresh the lockfile, and regenerates — it only skips the
-final `gro build`. So a dependency that breaks a dependent is caught by that `gro check`
-and aborts the run. The cache-prime install exists only to heal npm's cache for the
-just-published versions so that internal install can succeed; if it fails, the run
-aborts.
+Each `gro publish --no-build` step is itself a pipeline: it syncs, installs (this
+install self-heals npm's stale-cache ETARGET — clear the cache and retry once when a
+just-published version isn't visible yet), runs `gro check` (typecheck + tests against
+the freshly-installed dependency versions), bumps the version, installs again to refresh
+the lockfile, and regenerates — it only skips the final `gro build`. So a dependency that
+breaks a dependent is caught by that `gro check` and aborts the run. The executor itself
+never runs a bare `npm install`: gro owns installing (and healing), so a dependent's deps
+are installed when its own `gro publish` reaches it.
+
+Dev-dep-only dependents never run `gro publish`, so the executor bumps + commits their
+`package.json` without installing them; gro refreshes (and heals) their `node_modules`
+the next time they build, deploy, or sync.
 
 Deploys (`--deploy`) build fresh rather than reuse the preflight build, because a
 deployed site bundles its dependencies and must reflect the versions just published.

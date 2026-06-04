@@ -15,7 +15,6 @@ import type {PreflightOptions} from './preflight_checks.js';
 import type {GitopsOperations} from './operations.js';
 import {default_gitops_operations} from './operations_defaults.js';
 import {GITOPS_NPM_WAIT_TIMEOUT_DEFAULT} from './gitops_constants.js';
-import {install_with_cache_healing} from './npm_install_helpers.js';
 import {
 	type PublishingEvent,
 	type PublishingRunSummary,
@@ -32,7 +31,6 @@ export interface PublishingOptions {
 	version_strategy?: VersionStrategy;
 	deploy?: boolean;
 	max_wait?: number;
-	skip_install?: boolean;
 	log?: Logger;
 	ops?: GitopsOperations;
 	/** Structured event sink; defaults to capture-only (events surface on the result). */
@@ -147,9 +145,6 @@ export const execute_publishing_plan = async (
 	const published: Map<string, PublishedVersion> = new Map();
 	const failed: Map<string, Error> = new Map();
 	const changed_repos: Set<string> = new Set(); // Track repos with any changes for selective deployment
-	// Dependents whose dependency ranges were rewritten; each gets one cache-priming install
-	// right before it publishes (not once per publishing dependency). See the install site.
-	const pending_install: Set<string> = new Set();
 	// Name → repo index, built once to avoid repeated linear scans of `repos`.
 	const repo_by_name: Map<string, LocalRepo> = new Map(repos.map((r) => [r.library.name, r]));
 
@@ -174,28 +169,10 @@ export const execute_publishing_plan = async (
 		const repo = repo_by_name.get(pkg_name);
 		if (!repo) continue;
 
-		// An earlier publish rewrote this package's dependency ranges; install now to heal
-		// npm's cache for the just-published versions. This is a cache-prime, not a workspace
-		// prerequisite — `gro publish` re-installs internally, but without cache healing, so a
-		// stale ETARGET would fail it. A failed heal here means that internal install will
-		// fail too, so fail loud rather than burn a doomed publish attempt.
-		if (wetrun && !options.skip_install && pending_install.has(pkg_name)) {
-			pending_install.delete(pkg_name);
-			log?.info(st('cyan', `\n📦 Installing dependencies for ${pkg_name}...\n`));
-			const install_failures = await install_repos(
-				[pkg_name],
-				repo_by_name,
-				ops,
-				emit,
-				'cache_prime',
-				log,
-			);
-			if (install_failures.size > 0) {
-				for (const [name, err] of install_failures) failed.set(name, err);
-				break; // fail fast — the package's deps can't be installed
-			}
-		}
-
+		// An earlier publish may have rewritten this package's dependency ranges. No install is
+		// needed here: `gro publish` runs its own install (which self-heals npm's stale-cache
+		// ETARGET), so the package's freshly-rewritten deps are installed and healed as part of
+		// publishing it.
 		try {
 			// 1. Publish this package (real publish or dry-run prediction)
 			log?.info(
@@ -285,8 +262,8 @@ export const execute_publishing_plan = async (
 					// A dependent republishes iff the plan gave it a version change. Private packages
 					// are excluded from the plan's version changes, so they take the update-only-leaf
 					// path: rewrite + commit their dependency ranges with NO changeset and NO
-					// publish/npm-wait. Publishable dependents get an auto-changeset and a
-					// cache-priming install before they publish in turn.
+					// publish/npm-wait. Publishable dependents get an auto-changeset and republish in
+					// turn — `gro publish` installs + heals their rewritten deps when it reaches them.
 					const republishes = plan_changes.has(dependent_name);
 					for (const [dep_name, dep_version] of updates) {
 						log?.info(`    Updating ${dependent_name}'s dependency on ${dep_name}`);
@@ -301,7 +278,6 @@ export const execute_publishing_plan = async (
 					}
 					changed_repos.add(dependent_name); // Mark as changed for deployment
 					if (republishes) {
-						pending_install.add(dependent_name); // install once, before it publishes
 						await update_package_json(dependent_repo, updates, {
 							strategy: options.version_strategy || 'caret',
 							published_versions: published, // creates the auto-changeset
@@ -340,7 +316,9 @@ export const execute_publishing_plan = async (
 	// Phase 2: Update all dev dependencies (can have cycles)
 	// Dev dep changes require deployment even without version bumps (rebuild needed).
 	// Sourced from the plan's dependency updates so the publisher derives nothing itself.
-	const dev_updated_repos: Set<string> = new Set();
+	// Only package.json is rewritten + committed here — no install. These repos don't run
+	// `gro publish`; their `node_modules` is refreshed (and ETARGET-healed) by gro the next
+	// time they build/deploy/sync, so the executor never runs a bare `npm install` itself.
 	if (published.size > 0 && wetrun) {
 		const dev_updates_by_repo = group_dependency_updates(
 			plan.dependency_updates,
@@ -368,7 +346,6 @@ export const execute_publishing_plan = async (
 				});
 			}
 			changed_repos.add(repo_name); // Mark as changed for deployment
-			dev_updated_repos.add(repo_name); // Track for batch install
 			// No `published_versions` here on purpose: a dev-dep bump updates and commits
 			// package.json but must NOT generate a changeset — dev-only changes redeploy
 			// (rebuild) without republishing, so they shouldn't bump the next release.
@@ -378,21 +355,6 @@ export const execute_publishing_plan = async (
 				git_ops: ops.git,
 				fs_ops: ops.fs,
 			});
-		}
-	}
-
-	// Phase 2b: Install dev dependencies for repos with dev dep updates
-	if (wetrun && !options.skip_install && dev_updated_repos.size > 0) {
-		log?.info(st('cyan', '\n📦 Installing dev dependencies for updated repos...\n'));
-		for (const [name, err] of await install_repos(
-			dev_updated_repos,
-			repo_by_name,
-			ops,
-			emit,
-			'dev_dep',
-			log,
-		)) {
-			failed.set(name, err);
 		}
 	}
 
@@ -603,40 +565,6 @@ export const group_dependency_updates = (
 		repo_updates.set(update.updated_dependency, published_dep.new_version);
 	}
 	return by_repo;
-};
-
-/**
- * Installs dependencies for each named repo (with cache healing), emitting install
- * events and logging progress. A failed install doesn't stop the batch — failures are
- * collected and returned so the caller can fold them into the run's failures.
- */
-const install_repos = async (
-	names: Iterable<string>,
-	repo_by_name: Map<string, LocalRepo>,
-	ops: GitopsOperations,
-	emit: (event: PublishingEvent) => void,
-	reason: 'cache_prime' | 'dev_dep',
-	log?: Logger,
-): Promise<Map<string, Error>> => {
-	const failures: Map<string, Error> = new Map();
-	for (const name of names) {
-		const repo = repo_by_name.get(name);
-		if (!repo) continue;
-		try {
-			emit({event: 'install_started', name, reason});
-			log?.info(`  Installing ${name}...`);
-			await install_with_cache_healing(repo, ops, log);
-			emit({event: 'install_completed', name, reason});
-			log?.info(st('green', `  ✅ Installed ${name}`));
-		} catch (error) {
-			const err = error instanceof Error ? error : new Error(String(error));
-			failures.set(name, err);
-			emit({event: 'install_failed', name, error: err.message, reason});
-			log?.error(st('red', `  ❌ Failed to install ${name}: ${err.message}`));
-			// continue with other installs instead of breaking
-		}
-	}
-	return failures;
 };
 
 /** The dep_type tag for a prod/peer dependency-update event — `peer` if the edge is a peer

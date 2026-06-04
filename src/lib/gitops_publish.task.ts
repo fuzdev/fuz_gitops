@@ -45,10 +45,6 @@ export const Args = z.strictObject({
 		.number()
 		.meta({description: 'max time to wait for npm propagation in ms'})
 		.default(GITOPS_NPM_WAIT_TIMEOUT_DEFAULT),
-	skip_install: z
-		.boolean()
-		.meta({description: 'skip npm install after dependency updates'})
-		.default(false),
 	emit_json: z
 		.boolean()
 		.meta({description: 'stream structured publishing events as JSON-lines to stdout'})
@@ -83,7 +79,6 @@ export const task: Task<Args> = {
 			deploy,
 			plan,
 			max_wait,
-			skip_install,
 			emit_json,
 			outfile,
 			verbose,
@@ -103,9 +98,7 @@ export const task: Task<Args> = {
 
 		// Generate the plan once; the executor consumes this exact plan (no second pass).
 		const publishing_plan = await generate_publishing_plan(repos, {verbose});
-		const preview_steps = preview
-			? derive_publish_steps(publishing_plan, {deploy, skip_install})
-			: null;
+		const preview_steps = preview ? derive_publish_steps(publishing_plan, {deploy}) : null;
 
 		// Decide whether to show the plan + confirm, block, or proceed (the decision table lives
 		// in `decide_publish_gate`; readline + exit stay here at the edge).
@@ -144,7 +137,6 @@ export const task: Task<Args> = {
 			version_strategy: peer_strategy,
 			deploy,
 			max_wait,
-			skip_install,
 			log,
 			// Live JSON-lines stream when requested; events also surface on the result.
 			events: emit_json ? stdout_handler() : undefined,

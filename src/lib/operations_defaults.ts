@@ -14,7 +14,7 @@ import {fs_classify_error} from '@fuzdev/fuz_util/fs.js';
 import {EMPTY_OBJECT} from '@fuzdev/fuz_util/object.js';
 
 import {has_changesets, read_changesets, predict_next_version} from './changeset_reader.js';
-import {wait_for_package, check_package_available} from './npm_registry.js';
+import {wait_for_package} from './npm_registry.js';
 import {run_preflight_checks} from './preflight_checks.js';
 import {
 	git_add,
@@ -236,11 +236,6 @@ export const default_npm_operations: NpmOperations = {
 		}
 	},
 
-	check_package_available: async (options) => {
-		const {pkg, version, log} = options;
-		return wrap_with_value(() => check_package_available(pkg, version, {log}));
-	},
-
 	check_auth: async () => {
 		try {
 			const result = await spawn_out('npm', ['whoami']);
@@ -276,19 +271,6 @@ export const default_npm_operations: NpmOperations = {
 				return {ok: true};
 			} else {
 				return {ok: false, message: 'Install failed', stderr: spawned.stderr || undefined};
-			}
-		} catch (error) {
-			return {ok: false, message: String(error)};
-		}
-	},
-
-	cache_clean: async () => {
-		try {
-			const spawned = await spawn_out('npm', ['cache', 'clean', '--force']);
-			if (spawned.result.ok) {
-				return {ok: true};
-			} else {
-				return {ok: false, message: 'Cache clean failed'};
 			}
 		} catch (error) {
 			return {ok: false, message: String(error)};
