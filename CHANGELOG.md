@@ -1,5 +1,12 @@
 # @fuzdev/fuz_gitops
 
+## 0.73.0
+
+### Minor Changes
+
+- fix: rework installing ([d661949](https://github.com/fuzdev/fuz_gitops/commit/d661949))
+- feat: rework publishing flows ([2b9e284](https://github.com/fuzdev/fuz_gitops/commit/2b9e284))
+
 ## 0.72.0
 
 ### Minor Changes
