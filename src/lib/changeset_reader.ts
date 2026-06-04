@@ -13,8 +13,7 @@ import {readdir, readFile} from 'node:fs/promises';
 import {join} from 'node:path';
 
 import type {LocalRepo} from './local_repo.js';
-import type {BumpType} from './semver.js';
-import {compare_bump_types, calculate_next_version} from './version_utils.js';
+import {compare_bump_types, calculate_next_version, type BumpType} from './version_utils.js';
 
 export interface ChangesetInfo {
 	filename: string;

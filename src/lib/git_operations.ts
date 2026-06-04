@@ -84,6 +84,11 @@ export const git_push_tag = async (
 	}
 };
 
+/**
+ * Returns `true` if the working tree has any changes — staged, unstaged, or
+ * untracked (`git status --porcelain`). Broader than `git_list_uncommitted_files`,
+ * which reports only tracked working-tree changes relative to HEAD.
+ */
 export const git_has_changes = async (options?: SpawnOptions): Promise<boolean> => {
 	const {stdout} = await spawn_out('git', ['status', '--porcelain'], options);
 	return stdout ? stdout.trim().length > 0 : false;

@@ -4,9 +4,9 @@ import {styleText as st} from 'node:util';
 import type {Logger} from '@fuzdev/fuz_util/log.js';
 
 import {get_gitops_ready} from './gitops_task_helpers.js';
-import {type DependencyGraph, DependencyGraphBuilder} from './dependency_graph.js';
+import type {DependencyGraph} from './dependency_graph.js';
 import type {LocalRepo} from './local_repo.js';
-import {validate_dependency_graph} from './graph_validation.js';
+import {analyze_repos, type DependencyAnalysis} from './graph_validation.js';
 import {
 	format_wildcard_dependencies,
 	format_dev_cycles,
@@ -30,6 +30,13 @@ export const Args = z.strictObject({
 		.meta({description: 'output format'})
 		.default('stdout'),
 	outfile: z.string().meta({description: 'write output to file instead of logging'}).optional(),
+	sync: z
+		.boolean()
+		.meta({
+			description:
+				'sync repos (switch branch, pull, install) before analyzing instead of reading the working tree as-is',
+		})
+		.default(false),
 });
 export type Args = z.infer<typeof Args>;
 
@@ -38,25 +45,13 @@ export const task: Task<Args> = {
 	Args,
 	summary: 'analyze dependency structure and relationships across repos',
 	run: async ({args, log}) => {
-		const {config, dir, format, outfile} = args;
+		const {config, dir, format, outfile, sync} = args;
 
-		// Get repos ready (without downloading)
-		const {local_repos} = await get_gitops_ready({config, dir, download: false, log});
+		// Get repos ready (without downloading); read the working tree as-is unless `--sync`
+		const {local_repos} = await get_gitops_ready({config, dir, download: false, sync, log});
 
-		// Build dependency graph and validate (but don't throw on cycles for analyze)
-		const {graph, publishing_order: order} = validate_dependency_graph(local_repos, {
-			log,
-			throw_on_prod_cycles: false, // Analyze should report, not throw
-			log_cycles: false, // We'll show cycles in our formatted output
-			log_order: false, // We'll show order in our formatted output
-		});
-
-		// Perform additional analysis
-		const builder = new DependencyGraphBuilder();
-		const analysis = builder.analyze(graph);
-
-		// Publishing order (may be null if prod cycles exist)
-		const publishing_order = order.length > 0 ? order : null;
+		// Build the dependency graph and analyze cycles/wildcards (tolerating cycles)
+		const {graph, analysis, publishing_order} = analyze_repos(local_repos);
 
 		// Format and output using output_helpers
 		const data = {
@@ -74,7 +69,7 @@ export const task: Task<Args> = {
 interface AnalysisData {
 	repos: Array<LocalRepo>;
 	graph: DependencyGraph;
-	analysis: ReturnType<DependencyGraphBuilder['analyze']>;
+	analysis: DependencyAnalysis;
 	publishing_order: Array<string> | null;
 }
 
@@ -102,7 +97,7 @@ const calculate_stats = (graph: DependencyGraph) => {
 
 const format_json = (
 	graph: DependencyGraph,
-	analysis: ReturnType<DependencyGraphBuilder['analyze']>,
+	analysis: DependencyAnalysis,
 	publishing_order: Array<string> | null,
 ): string => {
 	const output = {
@@ -116,7 +111,7 @@ const format_json = (
 const format_markdown = (
 	repos: Array<LocalRepo>,
 	graph: DependencyGraph,
-	analysis: ReturnType<DependencyGraphBuilder['analyze']>,
+	analysis: DependencyAnalysis,
 	publishing_order: Array<string> | null,
 ): Array<string> => {
 	const lines: Array<string> = ['# Dependency Analysis'];
@@ -192,7 +187,7 @@ const format_markdown = (
 const format_stdout = (
 	repos: Array<LocalRepo>,
 	graph: DependencyGraph,
-	analysis: ReturnType<DependencyGraphBuilder['analyze']>,
+	analysis: DependencyAnalysis,
 	publishing_order: Array<string> | null,
 	log: Logger,
 ): void => {

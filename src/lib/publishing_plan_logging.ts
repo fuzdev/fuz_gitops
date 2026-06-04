@@ -182,54 +182,34 @@ export const log_publishing_plan = (
 		const with_escalation = ordered_changes.filter((vc) => vc.needs_bump_escalation);
 		const with_auto_changesets = ordered_changes.filter((vc) => vc.will_generate_changeset);
 
-		// Log each group with diff-style output
-		if (with_changesets.length > 0) {
-			log.info(st('cyan', 'Version Changes (from changesets):'));
-			for (const change of with_changesets) {
-				const idx = ordered_changes.indexOf(change);
+		// A single running counter across all groups so positions read 1..N with no
+		// gaps. (Numbering per-group index would make the first group skip the numbers
+		// that land in a later group, e.g. jump from `[9/12]` to `[11/12]`.)
+		const total = with_changesets.length + with_escalation.length + with_auto_changesets.length;
+		let position = 0;
+		const log_change_group = (
+			title: string,
+			color: 'cyan' | 'yellow',
+			changes: Array<VersionChange>,
+		): void => {
+			if (changes.length === 0) return;
+			log.info(st(color, title));
+			for (const change of changes) {
 				log_version_change_with_diffs(
 					change,
-					idx,
-					ordered_changes.length,
+					position++,
+					total,
 					dependency_updates,
 					breaking_cascades,
 					log,
 				);
 			}
 			log.info('');
-		}
+		};
 
-		if (with_escalation.length > 0) {
-			log.info(st('yellow', 'Version Changes (bump escalation):'));
-			for (const change of with_escalation) {
-				const idx = ordered_changes.indexOf(change);
-				log_version_change_with_diffs(
-					change,
-					idx,
-					ordered_changes.length,
-					dependency_updates,
-					breaking_cascades,
-					log,
-				);
-			}
-			log.info('');
-		}
-
-		if (with_auto_changesets.length > 0) {
-			log.info(st('cyan', 'Version Changes (auto-generated):'));
-			for (const change of with_auto_changesets) {
-				const idx = ordered_changes.indexOf(change);
-				log_version_change_with_diffs(
-					change,
-					idx,
-					ordered_changes.length,
-					dependency_updates,
-					breaking_cascades,
-					log,
-				);
-			}
-			log.info('');
-		}
+		log_change_group('Version Changes (from changesets):', 'cyan', with_changesets);
+		log_change_group('Version Changes (bump escalation):', 'yellow', with_escalation);
+		log_change_group('Version Changes (auto-generated):', 'cyan', with_auto_changesets);
 	} else {
 		log.info(st('dim', 'No packages to publish'));
 		log.info('');

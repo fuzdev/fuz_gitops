@@ -3,10 +3,13 @@ import {z} from 'zod';
 import {styleText as st} from 'node:util';
 
 import {get_gitops_ready} from './gitops_task_helpers.js';
-import {validate_dependency_graph} from './graph_validation.js';
-import {DependencyGraphBuilder} from './dependency_graph.js';
-import {generate_publishing_plan, log_publishing_plan} from './publishing_plan.js';
-import {publish_repos, type PublishingOptions} from './multi_repo_publisher.js';
+import {analyze_repos, type DependencyAnalysis} from './graph_validation.js';
+import {
+	generate_publishing_plan,
+	log_publishing_plan,
+	type PublishingPlan,
+} from './publishing_plan.js';
+import {execute_publishing_plan, type PublishingOptions} from './multi_repo_publisher.js';
 import {log_dependency_analysis} from './log_helpers.js';
 import {GITOPS_CONFIG_PATH_DEFAULT} from './gitops_constants.js';
 
@@ -21,6 +24,13 @@ export const Args = z.strictObject({
 		.meta({description: 'path containing the repos, defaults to the parent of the config dir'})
 		.optional(),
 	verbose: z.boolean().meta({description: 'show additional details'}).default(false),
+	sync: z
+		.boolean()
+		.meta({
+			description:
+				'sync repos (switch branch, pull, install) before validating instead of reading the working tree as-is',
+		})
+		.default(false),
 });
 export type Args = z.infer<typeof Args>;
 
@@ -30,7 +40,7 @@ export const task: Task<Args> = {
 	summary:
 		'validate gitops configuration by running all read-only commands and checking for issues',
 	run: async ({args, log}) => {
-		const {config, dir, verbose} = args;
+		const {config, dir, verbose, sync} = args;
 
 		log.info(st('cyan', 'Running Gitops Validation Suite'));
 		log.info(st('dim', 'This runs all read-only commands and checks for consistency.'));
@@ -43,30 +53,22 @@ export const task: Task<Args> = {
 			duration: number;
 			warning_details?: Array<string>;
 			info_details?: Array<string>;
-			analysis?: ReturnType<DependencyGraphBuilder['analyze']>;
+			analysis?: DependencyAnalysis;
 		}> = [];
 
 		const start_time = Date.now();
 
-		// Load repos once (shared by all commands)
+		// Load repos once (shared by all commands); read the working tree as-is unless `--sync`
 		log.info(st('dim', 'Loading repositories...'));
-		const {local_repos} = await get_gitops_ready({config, dir, download: false, log});
+		const {local_repos} = await get_gitops_ready({config, dir, download: false, sync, log});
 		log.info(st('dim', `   Found ${local_repos.length} local repos`));
 
 		// 1. Run gitops_analyze
 		log.info(st('yellow', 'Running gitops_analyze...'));
 		const analyze_start = Date.now();
 		try {
-			// Build dependency graph and validate (but don't throw on cycles for analyze)
-			const {graph} = validate_dependency_graph(local_repos, {
-				throw_on_prod_cycles: false, // Analyze should report, not throw
-				log_cycles: false, // We'll collect our own statistics
-				log_order: false,
-			});
-
-			// Perform additional analysis
-			const builder = new DependencyGraphBuilder();
-			const analysis = builder.analyze(graph);
+			// Build dependency graph and analyze cycles/wildcards (tolerating cycles)
+			const {analysis} = analyze_repos(local_repos);
 
 			const analyze_duration = Date.now() - analyze_start;
 
@@ -113,11 +115,13 @@ export const task: Task<Args> = {
 			log.error(st('red', `  ✗ gitops_analyze failed: ${error}`));
 		}
 
-		// 2. Run gitops_plan
+		// 2. Run gitops_plan (generated once here and reused by the dry run below)
+		let publishing_plan: PublishingPlan | undefined;
 		log.info(st('yellow', 'Running gitops_plan...'));
 		const plan_start = Date.now();
 		try {
-			const plan = await generate_publishing_plan(local_repos, {log: undefined, verbose});
+			const plan = await generate_publishing_plan(local_repos, {verbose});
+			publishing_plan = plan;
 			const plan_duration = Date.now() - plan_start;
 
 			const warnings = plan.warnings.length;
@@ -159,11 +163,15 @@ export const task: Task<Args> = {
 		try {
 			const options: PublishingOptions = {
 				wetrun: false,
-				update_deps: true,
 				log: undefined, // Silent for validation
 			};
 
-			const result = await publish_repos(local_repos, options);
+			// Reuse the plan from step 2 (regenerate only if that step failed to produce one).
+			const result = await execute_publishing_plan(
+				local_repos,
+				publishing_plan ?? (await generate_publishing_plan(local_repos, {verbose})),
+				options,
+			);
 			const dry_duration = Date.now() - dry_start;
 
 			// Dry run doesn't have warnings/errors in the same format

@@ -54,12 +54,21 @@ packages must build successfully before any publishing begins.
 
 ### "Plan differs from actual publish"
 
-This can happen if:
+The dry run (`gro gitops_publish`) reports the same cascade as `gro gitops_plan`
+— including bump escalations and auto-generated changesets — so the preview and
+the plan always agree. If they ever disagree, regenerate both and compare.
 
-- Another publish happened between plan generation and actual publish
-- NPM registry has not propagated yet
+A real publish (`--wetrun`) executes that plan and **fails loud** if a published
+version diverges from the plan's prediction — it aborts with a `drift` failure
+rather than silently continuing. Drift means the inputs changed underneath the
+plan, e.g.:
 
-Solution: Run plan again, compare outputs.
+- Another publish happened between planning and publishing
+- NPM has not propagated a just-published version yet
+- The working tree changed (new or edited changesets) after the plan was generated
+
+Solution: re-run `gro gitops_publish --wetrun`. It re-plans from the current
+working tree (already-published packages drop out) and continues.
 
 ### "Circular dependency detected in production dependencies"
 
@@ -104,6 +113,27 @@ Deployment occurs for packages with ANY changes (not just published packages):
 This is correct behavior - dev dep changes require redeployment even without
 version bumps.
 
+### "analyze/plan show stale data or the wrong branch"
+
+The read-only diagnostics (`gitops_analyze`, `gitops_plan`, `gitops_validate`,
+`gitops_publish` dry run) read each repo's working tree **as-is** — whatever
+branch is checked out, including uncommitted changes. They do not switch
+branches or pull. To run against the configured branches with the latest
+changes:
+
+```bash
+gro gitops_plan --sync   # switch to configured branch + pull + install first
+# or refresh everything once, then run diagnostics as-is:
+gro gitops_sync
+gro gitops_plan
+```
+
+If a sync fails because a repo has uncommitted changes you want to keep:
+
+```bash
+gro gitops_sync --allow-dirty  # pull/switch tolerating a dirty workspace
+```
+
 ### "Package not publishing even though I have a changeset"
 
 Check:
@@ -118,10 +148,11 @@ Check:
 Resumption is **automatic** and **natural**:
 
 1. When `gro publish` succeeds, it consumes changesets
-2. Single `gro gitops_publish --wetrun` run handles full dependency cascades via
-   iteration (max 10 passes)
+2. A single `gro gitops_publish --wetrun` run handles the full dependency cascade:
+   the plan resolves it up front and the publish executes it in one pass
 3. If publishing fails mid-way, re-run `gro gitops_publish --wetrun`:
-   - Already-published packages have no changesets → skipped automatically
+   - It re-plans from the current working tree
+   - Already-published packages have no changesets → drop out of the new plan
    - Failed packages still have changesets → retried automatically
 4. No state files needed, just re-run the same command!
 

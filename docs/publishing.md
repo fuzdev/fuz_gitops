@@ -8,6 +8,7 @@ algorithms that power fuz_gitops publishing.
 - [Quick Start](#quick-start)
 - [Changeset Semantics](#changeset-semantics)
 - [Plan vs Dry Run](#plan-vs-dry-run)
+- [Publishing Flow](#publishing-flow)
 - [Publishing Algorithms](#publishing-algorithms)
 - [Private Packages](#private-packages)
 - [Workflows](#workflows)
@@ -83,15 +84,65 @@ production/peer takes priority for dependency graph calculations.
 - Shows all 4 publishing scenarios: explicit changesets, bump escalation,
   auto-generated changesets, and no changes
 - No side effects - does not modify any files or state
+- Reads each repo's working tree **as-is** (whatever branch is checked out, even
+  with uncommitted changes). Pass `--sync` to switch to the configured branch and
+  pull first, or run `gro gitops_sync` beforehand, so the plan reflects the
+  canonical branches rather than your local checkout.
 
 ### `gro gitops_publish` (dry run, default)
 
-- **Simulated execution** - Runs the same code path as real publishing
+- **Plan-driven preview** - The dry run reports the same plan as `gro
+gitops_plan`, so it shows the full cascade: explicit changesets, bump
+  escalations, and auto-generated changesets
 - Skips preflight checks (workspace, branch, npm auth)
-- Only simulates packages with explicit changesets (can't auto-generate
-  changesets without real publishes)
-- Use plan for comprehensive "what would happen" analysis; use dry run to test
-  execution flow
+- No side effects - reports what `--wetrun` would publish without touching git or
+  npm
+- The dry-run count matches `gro gitops_plan`; the difference between them is
+  framing, not content (`plan` is the read-only report, the dry run is the
+  publish command in preview mode)
+- Add `--preview` to print the ordered side-effects (cache-prime installs,
+  publishes, npm waits, dependency rewrites, dev-dep updates, post-dev installs,
+  deploys) the cascade would perform
+
+## Publishing Flow
+
+A real publish (`gro gitops_publish --wetrun`) generates the plan once, then executes
+it as a frozen, single-pass cascade. The plan is the single source of truth — the
+executor re-derives nothing and fails loud rather than diverge from it.
+
+```mermaid
+flowchart TD
+    A["gro gitops_publish --wetrun"] --> B["Generate plan (fixed-point cascade)"]
+    B --> C{"plan has errors?"}
+    C -->|yes| X["Abort — fail loud"]
+    C -->|no| D["Preflight: clean tree, branch, npm auth, build"]
+    D --> E{"next package in topological order"}
+    E -->|package| F{"cache-prime install queued?"}
+    F -->|yes| G["npm install — heal npm cache (fail loud on failure)"]
+    F -->|no| H["gro publish --no-build"]
+    G --> H
+    H --> I{"published version matches plan?"}
+    I -->|no| Y["Abort — plan drift"]
+    I -->|yes| J["Wait for npm propagation"]
+    J --> K["Rewrite prod/peer dependents' package.json + auto-changeset; queue each for install"]
+    K --> E
+    E -->|done| L["Dev-dep phase: update package.json + commit (no changeset), then install"]
+    L --> M{"--deploy?"}
+    M -->|yes| N["gro deploy — builds fresh against the updated deps"]
+    M -->|no| Z["Done"]
+    N --> Z
+```
+
+Each `gro publish --no-build` step is itself a pipeline: it syncs, runs `gro check`
+(typecheck + tests against the freshly-installed dependency versions), bumps the
+version, installs again to refresh the lockfile, and regenerates — it only skips the
+final `gro build`. So a dependency that breaks a dependent is caught by that `gro check`
+and aborts the run. The cache-prime install exists only to heal npm's cache for the
+just-published versions so that internal install can succeed; if it fails, the run
+aborts.
+
+Deploys (`--deploy`) build fresh rather than reuse the preflight build, because a
+deployed site bundles its dependencies and must reflect the versions just published.
 
 ## Publishing Algorithms
 
@@ -115,6 +166,14 @@ breaking change cascades:
 
 The 10-iteration limit prevents infinite loops while handling complex dependency
 graphs. In practice, most repos converge in 2-3 iterations.
+
+This iteration happens during **plan generation**. The real publish
+(`gro gitops_publish --wetrun`) then executes the frozen plan in a single linear
+pass over the dependency order, re-deriving nothing — publishing a package
+immediately creates its dependents' changesets, so one topological pass suffices.
+If a publish produces a version the plan did not predict, publishing aborts
+(fail-loud on drift) rather than silently diverging; re-running re-plans from the
+current state.
 
 ### Cycle Detection Strategy
 
@@ -140,10 +199,17 @@ utilities) while preventing runtime dependency issues.
 
 ## Private Packages
 
-Packages with `"private": true` in package.json are excluded from publishing:
+Packages with `"private": true` in package.json never publish:
 
-- Marked as `publishable: false` in dependency graph
-- Not included in publishing order
+- Marked as `publishable: false` in the dependency graph
+- Excluded from the plan's version changes — no publish, npm-wait, bump
+  escalation, or auto-changeset — so the executor skips them (they keep their
+  slot in the topological order)
+- A private package depending on a published one is updated as a leaf: its
+  dependency ranges are rewritten and committed without a changeset (it won't
+  republish)
+- A private package carrying its own changeset is flagged in the plan's warnings,
+  since that changeset can't be published
 - Dependents can still publish normally
 - Use for internal tools, test utilities, dev-only packages
 

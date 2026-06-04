@@ -2,13 +2,14 @@ import type {RepoFixtureSet} from '../repo_fixture_types.js';
 
 /**
  * Tests handling of private packages (private: true in package.json).
- * Private packages should be excluded from publishing, but their dependents
- * should still be able to publish.
+ * Private packages are excluded from version changes — they never publish, escalate, or
+ * get an auto-changeset — while their dependents still publish normally. A private package
+ * keeps its place in the topological order (publishing_order) but produces no version change.
  *
  * Structure:
  * - public_lib: Public package with explicit changeset
- * - private_tool: Private package (should be skipped)
- * - consumer: Depends on both public_lib and private_tool
+ * - private_tool: Private package with a changeset that will NOT be published (warns)
+ * - consumer: Depends on public_lib (prod) and private_tool (dev)
  */
 export const private_packages: RepoFixtureSet = {
 	name: 'private_packages',
@@ -76,7 +77,7 @@ Update to private_tool (should not publish)`,
 	],
 
 	expected_outcomes: {
-		// Note: private_tool appears in publishing order but won't actually publish
+		// private_tool keeps its topological slot but never publishes (no version change)
 		publishing_order: ['@test/public_lib', '@test/consumer', '@test/private_tool'],
 
 		version_changes: [
@@ -86,13 +87,8 @@ Update to private_tool (should not publish)`,
 				to: '1.1.0',
 				scenario: 'explicit_changeset',
 			},
-			// Note: private_tool shows in version_changes but won't actually publish
-			{
-				package_name: '@test/private_tool',
-				from: '1.0.0',
-				to: '1.1.0',
-				scenario: 'explicit_changeset',
-			},
+			// private_tool is intentionally absent: a private package is excluded from version
+			// changes (it never publishes), even though it has a changeset.
 			{
 				package_name: '@test/consumer',
 				from: '1.0.0',
@@ -104,11 +100,8 @@ Update to private_tool (should not publish)`,
 		// No breaking cascades: public_lib's minor bump is NOT breaking in >=1.0 (only major is)
 		breaking_cascades: {},
 
-		// Note: Private packages appear in publishing order and version_changes,
-		// but the actual publisher will skip them based on the private flag.
-		// They don't appear in info because they have changesets.
-
-		warnings: [],
+		// A private package carrying a changeset is flagged, since that changeset can't publish.
+		warnings: ['@test/private_tool is private — its changeset(s) will not be published'],
 		errors: [],
 	},
 };

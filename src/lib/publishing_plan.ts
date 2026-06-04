@@ -2,9 +2,13 @@ import type {Logger} from '@fuzdev/fuz_util/log.js';
 import {styleText as st} from 'node:util';
 
 import type {LocalRepo} from './local_repo.js';
-import type {BumpType} from './semver.js';
 import {validate_dependency_graph} from './graph_validation.js';
-import {is_breaking_change, compare_bump_types, calculate_next_version} from './version_utils.js';
+import {
+	type BumpType,
+	is_breaking_change,
+	compare_bump_types,
+	calculate_next_version,
+} from './version_utils.js';
 import type {ChangesetOperations} from './operations.js';
 import {default_changeset_operations} from './operations_defaults.js';
 import {GITOPS_MAX_ITERATIONS_DEFAULT} from './gitops_constants.js';
@@ -178,6 +182,18 @@ export const generate_publishing_plan = async (
 		const repo = repos.find((r) => r.library.name === pkg_name);
 		if (!repo) continue;
 
+		// Private packages never publish — exclude them from version changes entirely (no
+		// publish step, npm-wait, bump escalation, or auto-changeset). They keep their slot in
+		// the topological order. Flag a private package that carries a changeset, since that
+		// changeset can't be published.
+		if (repo.library.package_json.private) {
+			const private_has_changesets = await ops.has_changesets({repo});
+			if (private_has_changesets.ok && private_has_changesets.value) {
+				warnings.push(`${pkg_name} is private — its changeset(s) will not be published`);
+			}
+			continue;
+		}
+
 		// Check for changesets
 		const has_result = await ops.has_changesets({repo});
 
@@ -266,6 +282,10 @@ export const generate_publishing_plan = async (
 		// Process packages to check for bump escalation and auto-generated changesets
 		for (const repo of repos) {
 			const pkg_name = repo.library.name;
+
+			// Private packages are excluded from version changes (they never publish), so they
+			// never escalate or auto-generate a changeset.
+			if (repo.library.package_json.private) continue;
 
 			// Get required bump from dependencies
 			const required_bump = get_required_bump_for_dependencies(
@@ -405,6 +425,7 @@ export const generate_publishing_plan = async (
 
 		for (const repo of repos) {
 			const pkg_name = repo.library.name;
+			if (repo.library.package_json.private) continue; // private packages never publish
 			const required_bump = get_required_bump_for_dependencies(
 				repo,
 				pending_updates,

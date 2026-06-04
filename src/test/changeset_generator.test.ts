@@ -2,9 +2,11 @@ import {assert, describe, test} from 'vitest';
 import {
 	generate_changeset_content,
 	create_dependency_updates,
+	create_changeset_for_dependency_updates,
 	type DependencyVersionChange,
 } from '$lib/changeset_generator.js';
 import type {PublishedVersion} from '$lib/multi_repo_publisher.js';
+import {create_mock_repo, create_mock_fs_ops} from './test_helpers.js';
 
 describe('changeset_generator', () => {
 	describe('generate_changeset_content', () => {
@@ -294,6 +296,58 @@ describe('changeset_generator', () => {
 			const empty_published = new Map();
 
 			assert.deepEqual(create_dependency_updates(empty_deps, empty_published), []);
+		});
+	});
+
+	describe('create_changeset_for_dependency_updates', () => {
+		test('writes a changeset file under .changeset and returns its path', async () => {
+			const repo = create_mock_repo({name: 'pkg', version: '1.0.0'});
+			const fs = create_mock_fs_ops();
+			const updates: Array<DependencyVersionChange> = [
+				{
+					package_name: 'dep',
+					from_version: '1.0.0',
+					to_version: '2.0.0',
+					bump_type: 'major',
+					breaking: true,
+				},
+			];
+
+			const path = await create_changeset_for_dependency_updates(repo, updates, {fs_ops: fs});
+
+			assert.match(path, /\/test\/pkg\/\.changeset\/dependency-update-.+\.md$/);
+			const content = fs.get(path);
+			assert.ok(content);
+			// pkg is 1.0.0 and the dep change is breaking → required bump is major
+			assert.ok(content.includes('"pkg": major'));
+			assert.ok(content.includes('dep: 1.0.0 → 2.0.0 (major)'));
+		});
+
+		test('creates the .changeset directory when it is missing', async () => {
+			const repo = create_mock_repo({name: 'pkg', version: '0.5.0'});
+			const fs = create_mock_fs_ops();
+			let mkdir_path: string | undefined;
+			const base_mkdir = fs.mkdir;
+			fs.mkdir = async (options) => {
+				mkdir_path = options.path;
+				return base_mkdir(options);
+			};
+
+			await create_changeset_for_dependency_updates(
+				repo,
+				[
+					{
+						package_name: 'dep',
+						from_version: '0.1.0',
+						to_version: '0.2.0',
+						bump_type: 'minor',
+						breaking: true,
+					},
+				],
+				{fs_ops: fs},
+			);
+
+			assert.strictEqual(mkdir_path, '/test/pkg/.changeset');
 		});
 	});
 });

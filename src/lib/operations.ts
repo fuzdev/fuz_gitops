@@ -39,7 +39,7 @@ import type {FsError} from '@fuzdev/fuz_util/fs.js';
 import type {Logger} from '@fuzdev/fuz_util/log.js';
 import type {LocalRepo} from './local_repo.js';
 import type {ChangesetInfo} from './changeset_reader.js';
-import type {BumpType} from './semver.js';
+import type {BumpType} from './version_utils.js';
 import type {PreflightOptions, PreflightResult} from './preflight_checks.js';
 import type {WaitOptions} from './npm_registry.js';
 
@@ -156,16 +156,15 @@ export interface GitOperations {
 	}) => Promise<Result<object, {message: string}>>;
 
 	/**
-	 * Checks if there are any uncommitted changes.
+	 * Checks whether the working tree has any changes — staged, unstaged, or
+	 * untracked (`git status --porcelain`). Broader than `list_uncommitted_files`,
+	 * which reports only tracked working-tree changes relative to HEAD.
 	 */
 	has_changes: (options?: {cwd?: string}) => Promise<Result<{value: boolean}, {message: string}>>;
 
 	/**
-	 * Lists uncommitted files in the working tree (`git diff --name-only HEAD`).
-	 *
-	 * Renamed from `get_changed_files` in 2026-04 because "changed files" collided
-	 * with mageguild's `get_changed_files` which diffs two refs. This one reports
-	 * uncommitted working-tree changes relative to HEAD.
+	 * Lists uncommitted files in the working tree (`git diff --name-only HEAD`),
+	 * i.e. working-tree changes relative to HEAD (not a diff between two refs).
 	 */
 	list_uncommitted_files: (options?: {
 		cwd?: string;

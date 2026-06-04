@@ -96,11 +96,18 @@ gro gitops_sync --download    # clone missing repos first
 ### Diagnostic commands (read-only)
 
 ```bash
-gro gitops_validate   # run all validation checks (analyze + plan + dry run)
-gro gitops_analyze    # analyze dependency graph and detect cycles
-gro gitops_plan       # generate publishing plan showing version changes and cascades
-gro gitops_publish    # simulate publishing without side effects (dry run default)
+gro gitops_validate           # run all validation checks (analyze + plan + dry run)
+gro gitops_analyze            # analyze dependency graph and detect cycles
+gro gitops_plan               # generate publishing plan showing version changes and cascades
+gro gitops_publish            # simulate publishing without side effects (dry run default)
+gro gitops_publish --preview  # show the ordered side-effects a --wetrun would perform
 ```
+
+These read each repo's working tree exactly as it sits on disk — no branch
+switching, pulling, or installing — so they're safe to run with feature
+branches checked out and uncommitted changes. Pass `--sync` to refresh repos
+(switch to the configured branch, pull, install) before running, or run
+`gro gitops_sync` first.
 
 ### Publishing packages
 
@@ -119,8 +126,8 @@ gro gitops_publish --wetrun --no-plan  # skip plan confirmation
 - ./docs/troubleshooting.md - Common errors and
   debugging tips
 
-Getting started as a dev? Start with [Gro](https://github.com/grogarden/gro)
-and the [Fuz template](https://github.com/fuz-dev/fuz_template).
+Getting started as a dev? Start with [Gro](https://github.com/fuzdev/gro)
+and the [Fuz template](https://github.com/fuzdev/fuz_template).
 
 TODO
 

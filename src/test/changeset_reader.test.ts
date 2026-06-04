@@ -4,8 +4,7 @@ import {
 	determine_bump_from_changesets,
 	type ChangesetInfo,
 } from '$lib/changeset_reader.js';
-import type {BumpType} from '$lib/semver.js';
-import {calculate_next_version, compare_bump_types} from '$lib/version_utils.js';
+import {calculate_next_version, compare_bump_types, type BumpType} from '$lib/version_utils.js';
 
 describe('changeset_reader', () => {
 	describe('parse_changeset_content', () => {

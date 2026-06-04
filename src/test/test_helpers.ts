@@ -11,7 +11,7 @@ import type {
 	BuildOperations,
 	ProcessOperations,
 } from '$lib/operations.js';
-import type {BumpType} from '$lib/semver.js';
+import type {BumpType} from '$lib/version_utils.js';
 
 export interface MockRepoOptions {
 	name: string;

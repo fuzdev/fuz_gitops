@@ -35,6 +35,13 @@ export const Args = z.strictObject({
 		.boolean()
 		.meta({description: 'check repos are ready without fetching remote data'})
 		.default(false),
+	allow_dirty: z
+		.boolean()
+		.meta({
+			description:
+				'sync (switch branch, pull) tolerating uncommitted changes instead of failing on a dirty workspace',
+		})
+		.default(false),
 });
 export type Args = z.infer<typeof Args>;
 
@@ -47,9 +54,17 @@ export const task: Task<Args> = {
 	Args,
 	summary: 'syncs local repos and generates UI data from repo metadata',
 	run: async ({args, log, svelte_config, invoke_task}) => {
-		const {config, dir, outdir = svelte_config.routes_path, download, check} = args;
+		const {config, dir, outdir = svelte_config.routes_path, download, check, allow_dirty} = args;
 
-		const {local_repos} = await get_gitops_ready({config, dir, download, log});
+		// `gitops_sync` is the task whose job is to mutate working trees, so it always syncs.
+		const {local_repos} = await get_gitops_ready({
+			config,
+			dir,
+			download,
+			sync: true,
+			allow_dirty,
+			log,
+		});
 
 		const outfile_json = resolve(outdir, 'repos.json');
 		const outfile_ts = resolve(outdir, 'repos.ts');

@@ -58,30 +58,42 @@ gitops.config.ts -> local repos -> GitHub API -> repos.ts -> UI components
 
 ## Patterns
 
-### Fixed-Point Iteration
+### Plan-Driven Publishing
 
-Publishing uses fixed-point iteration to handle transitive dependency updates:
+Publishing has two stages with the plan as the single source of truth:
 
-- Runs multiple passes (max 10 iterations) until convergence
-- Each pass publishes packages with changesets AND creates auto-changesets for
-  dependents mid-iteration
-- Auto-changesets trigger republishing in subsequent passes (transitive
-  cascades)
-- Stops when no new changesets are created (converged state)
-- Single `gro gitops_publish --wetrun` command handles full dependency cascades
-- If MAX_ITERATIONS reached without convergence, warns with pending package
-  count and estimated iterations needed
+- **Plan** (`generate_publishing_plan`) resolves the full cascade up front using
+  fixed-point iteration (max 10 iterations): explicit changesets, bump
+  escalations from breaking dependencies, and auto-generated changesets for
+  dependents. It converges when no new version changes are discovered, and warns
+  with a pending-package count if it hits the iteration limit.
+- **Publish** (`publish_repos`) executes the frozen plan in a single linear pass
+  over the topological order — it re-derives nothing. Publishing a package
+  immediately rewrites each dependent's `package.json` and creates its
+  auto-changeset, so by the time the pass reaches a package its changeset
+  already exists. A single pass converges by construction; there is no
+  publish-side loop. The dry run reports the same plan; a single
+  `gro gitops_publish --wetrun` handles the full cascade.
+- **Fail loud on drift**: if a real publish lands a version the plan did not
+  predict, publishing aborts (an invariant violation, surfaced as a `drift`
+  failure) rather than silently re-deriving — see Dirty State on Failure below.
+
+The dependency-driven bump rule (pre-1.0 → minor for a breaking dep, else patch;
+1.0+ → major or patch) lives once in `required_bump_for_dependency_update`
+(`version_utils.ts`), shared by the plan and the auto-changeset generator so the
+two never disagree.
 
 ### Dirty State on Failure (By Design)
 
 Publishing intentionally leaves the workspace dirty when failures occur:
 
-- Auto-changesets are created and committed DURING the publishing loop
-- If publishing fails mid-way, some packages are published, others are not
+- Auto-changesets are created and committed DURING the publishing pass
+- If publishing fails mid-way — a publish error, an npm-propagation timeout, or
+  a plan/reality drift — some packages are published, others are not
 - The dirty workspace state shows exactly what succeeded/failed
 - This enables **natural resumption**: just fix the issue and re-run the same
-  command
-- Already-published packages have no changesets → skipped automatically
+  command, which re-plans from the current state
+- Already-published packages have no changesets → drop out of the new plan
 - Failed packages still have changesets → retried automatically
 
 ### No Rollback Support
@@ -130,9 +142,15 @@ Requires `SECRET_GITHUB_API_TOKEN` in `.env` for API access.
 
 ### Local repo management
 
+Branch switching, pulling, and installing happen only on the **sync path** —
+`gro gitops_sync` and any diagnostic run with `--sync`. By default the
+diagnostics load repos as-is via `get_gitops_ready({sync: false})` and skip all
+of the below. The shared `get_gitops_ready` helper (`gitops_task_helpers.ts`)
+gates this with its `sync` option, threaded down to `local_repo_load`.
+
 - Resolves repo URLs to local directories
 - Clones missing repos via SSH
-- Switches branches maintaining clean workspace
+- Switches branches maintaining clean workspace (`--allow-dirty` to tolerate a dirty tree)
 - Automatically installs dependencies when package.json changes:
   - After initial clone
   - After pulling latest changes
@@ -151,13 +169,13 @@ Requires `SECRET_GITHUB_API_TOKEN` in `.env` for API access.
 #### Publishing Workflow
 
 - `gro gitops_publish --wetrun` - publishes repos in dependency order
-  - Uses fixed-point iteration to handle transitive dependency updates
-  - Converges after multiple passes (max 10 iterations)
-  - Creates auto-changesets for dependent packages during publishing
+  - Executes the precomputed plan in a single linear pass (no publish-side loop)
+  - Creates auto-changesets for dependent packages during the pass
+  - Fails loud and aborts if a publish drifts from the plan's prediction
 - `gro gitops_plan` - generates a publishing plan (read-only prediction)
 - `gro gitops_analyze` - analyzes dependencies and changesets
-- `gro gitops_publish` - simulates publishing (dry run) without preflight checks
-  or state persistence
+- `gro gitops_publish` - previews publishing (dry run) without preflight checks
+  or state persistence; reports the same full cascade as `gro gitops_plan`
 - Handles circular dev dependencies by excluding from topological sort
 - Waits for NPM propagation with exponential backoff (10 minute default
   timeout):
@@ -176,14 +194,25 @@ broken state:
 
 1. **Preflight phase** (before any publishing):
    - Runs `gro build` on all packages with changesets
-   - Validates builds using current versions (no side effects)
+   - This is a **builds-today smoke test** against the current, pre-cascade
+     dependency versions — it catches a repo that won't build at all before the
+     run starts touching npm, but it cannot validate a package against the
+     versions about to be published (those don't exist yet)
    - Fails fast if ANY build fails
 
 2. **Publishing phase** (after validation):
    - Runs `gro publish --no-build` for each package
-   - Builds already validated, so no risk of build failures mid-publish
+   - `gro publish` still runs `gro check` internally (typecheck, test, lint) —
+     and because the dependent's `package.json` is rewritten and reinstalled
+     before this step, that check is the real validation against the
+     **just-published** dependency versions. `--no-build` is safe because every
+     publishable package is a `svelte-package` library shipping unbundled `dist`:
+     a dependency version change never alters the dependent's `dist` bytes, so the
+     preflight-validated build stays valid
    - Optionally deploys repos with changes if `--deploy` flag used (published or
-     any dep updates)
+     any dep updates). Deploys build fresh (the deploy step does not pass
+     `--no-build`) so a deployed site reflects the versions just published — the
+     preflight build ran against the old versions, before the cascade.
 
 This prevents the known issue in `gro publish` where build failures leave repos
 in broken state (version bumped but not published).
@@ -193,8 +222,8 @@ in broken state (version bumped but not published).
 The publishing workflow automatically installs dependencies after package.json updates with smart cache healing:
 
 1. **When installations happen:**
-   - After each iteration when dependency updates occur
-   - Batch installs all repos with updated dependencies before next iteration
+   - After a package publishes and its dependents' package.json files are updated,
+     those dependents are installed before the pass reaches them for publishing
    - Published packages skip install (`gro publish` handles it internally)
 
 2. **Cache healing strategy:**
@@ -225,12 +254,12 @@ The publishing workflow automatically installs dependencies after package.json u
 
 `gro gitops_publish` (dry run, default):
 
-- **Simulated execution** - Runs the same code path as real publishing
+- **Plan-driven preview** - The dry run consumes the same plan as `gro
+gitops_plan` and reports the full cascade (explicit changesets, bump
+  escalations, and auto-generated changesets)
 - Skips preflight checks (workspace, branch, npm auth)
-- Only simulates packages with explicit changesets (can't auto-generate
-  changesets without real publishes)
-- Use plan for comprehensive "what would happen" analysis; use dry run to test
-  execution flow
+- No side effects - reports what `--wetrun` would publish; the count matches
+  `gro gitops_plan` (the plan is the single source of truth for the cascade)
 
 #### Changeset Semantics
 
@@ -247,12 +276,22 @@ update package.json without republishing.
 
 #### Private Packages
 
-Packages with `"private": true` are excluded from publishing order.
+Packages with `"private": true` never publish. They are excluded from the plan's
+version changes — no publish, npm-wait, bump escalation, or auto-changeset — so
+the executor skips them even though they keep their slot in the topological
+publishing order. A private package that depends on a published one is handled as
+an **update-only leaf**: its dependency ranges are rewritten and committed
+*without* a changeset (it won't republish). A private package carrying its own
+changeset is flagged in the plan's warnings, since that changeset can't be
+published.
 
 #### Key Publishing Modules
 
-- `multi_repo_publisher.ts` - Main publishing orchestration
+- `multi_repo_publisher.ts` - Main publishing orchestration (`generate_publishing_plan`
+  builds the plan, `execute_publishing_plan` executes the frozen plan; `publish_repos`
+  composes the two)
 - `publishing_plan.ts` - Publishing plan generation and cascade analysis
+- `publish_steps.ts` - Derives the ordered side-effect preview (`--preview`) from a plan
 - `changeset_reader.ts` - Parses changesets and predicts versions
 - `changeset_generator.ts` - Auto-generates changesets for dependency updates
 - `dependency_graph.ts` - Topological sorting and cycle detection
@@ -270,9 +309,11 @@ Packages with `"private": true` are excluded from publishing order.
 See ./docs/publishing.md for detailed algorithm
 descriptions.
 
-**Fixed-Point Iteration**: Publishing uses iterative passes (max 10) to resolve
-transitive cascades. Each pass identifies new packages needing publish due to
-dependency updates. Converges when no new changes discovered.
+**Fixed-Point Iteration**: Plan generation uses iterative passes (max 10) to
+resolve transitive cascades, identifying packages needing publish due to
+dependency updates until no new changes are discovered. The publisher then
+executes that frozen plan in a single pass — the iteration is in planning, not
+publishing.
 
 **Cycle Detection**: Production/peer cycles block publishing (error). Dev cycles
 allowed (warning only, excluded from topological sort). Publishing order
@@ -322,21 +363,25 @@ npm i -D @fuzdev/fuz_gitops
 gro gitops_sync               # sync repos and update local data
 gro gitops_sync --download    # clone missing repos
 gro gitops_sync --check       # verify repos are ready without fetching data
+gro gitops_sync --allow-dirty # sync (switch branch, pull) tolerating uncommitted changes
 
-# Run commands across repos
-gro gitops_run "npm test"                   # run command in all repos (parallel, concurrency: 5)
-gro gitops_run "npm audit" --concurrency 3  # limit parallelism
-gro gitops_run "gro check" --format json    # JSON output for scripting
+# Run commands across repos (reads repos as-is, no branch switch/pull)
+gro gitops_run "npm test"                          # run command in all repos (parallel, concurrency: 5)
+gro gitops_run "npm audit" --concurrency 3         # limit parallelism
+gro gitops_run "gro check" --format json           # JSON output (logged to stdout)
+gro gitops_run "gro check" --format json --outfile out.json # clean JSON to a file
 
 # Publishing
 gro gitops_validate              # validate configuration (runs analyze, plan, and dry run)
 gro gitops_analyze               # analyze dependencies and changesets
 gro gitops_plan                  # generate publishing plan
 gro gitops_plan --verbose        # show additional details
+gro gitops_plan --sync           # switch branch + pull + install before planning
 gro gitops_publish               # dry run (default, simulates publishing)
 gro gitops_publish --wetrun      # actually publish repos in dependency order
 gro gitops_publish --wetrun --no-plan # skip interactive plan confirmation
 gro gitops_publish --verbose     # show additional details in plan
+gro gitops_publish --preview     # print the ordered side-effects a --wetrun would perform
 gro gitops_publish --emit-json   # stream structured publishing events as JSON-lines to stdout
 
 # Output formats (analyze, plan, publish)
@@ -357,6 +402,11 @@ gro test src/test/fixtures/check     # validate gitops commands against fixture 
 
 **Read-Only (Safe, No Side Effects):**
 
+These read each repo's working tree **as-is** by default — no branch switch,
+pull, install, or clean-workspace check — so they're safe on an active
+workspace with feature branches and uncommitted changes. Pass `--sync` to
+refresh repos (switch to the configured branch, pull, install) first.
+
 - `gro gitops_analyze` - Analyze dependency graph, detect cycles
 - `gro gitops_plan` - Generate publishing plan showing version changes and
   cascades
@@ -370,6 +420,7 @@ gro test src/test/fixtures/check     # validate gitops commands against fixture 
   - Switches branches and pulls latest changes
   - Installs dependencies if package.json changed
   - Verify repos ready without fetching (with `--check`)
+  - Tolerate uncommitted changes when syncing (with `--allow-dirty`)
   - Runs in parallel (concurrency: 5 by default)
 
 **Command Execution (User-Defined Side Effects):**

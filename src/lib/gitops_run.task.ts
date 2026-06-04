@@ -2,6 +2,7 @@ import {TaskError, type Task} from '@fuzdev/gro';
 import {z} from 'zod';
 import {map_concurrent_settled} from '@fuzdev/fuz_util/async.js';
 import {spawn_out} from '@fuzdev/fuz_util/process.js';
+import {writeFile} from 'node:fs/promises';
 import {styleText as st} from 'node:util';
 import {resolve} from 'node:path';
 
@@ -9,7 +10,9 @@ import {get_repo_paths} from './repo_ops.js';
 import {GITOPS_CONCURRENCY_DEFAULT, GITOPS_CONFIG_PATH_DEFAULT} from './gitops_constants.js';
 
 export const Args = z.strictObject({
-	command: z.string().meta({description: 'shell command to run in each repo'}),
+	// Positional rest args (gro convention) so `gro gitops_run "npm test"` works;
+	// joined with spaces and passed to `sh -c`, so quote commands that contain flags.
+	_: z.array(z.string()).meta({description: 'shell command to run in each repo'}).default([]),
 	config: z
 		.string()
 		.meta({description: 'path to the gitops config file'})
@@ -21,6 +24,10 @@ export const Args = z.strictObject({
 		.meta({description: 'maximum number of repos to run in parallel'})
 		.default(GITOPS_CONCURRENCY_DEFAULT),
 	format: z.enum(['text', 'json']).meta({description: 'output format'}).default('text'),
+	outfile: z
+		.string()
+		.meta({description: 'with --format json, write clean JSON to this file instead of stdout'})
+		.optional(),
 });
 export type Args = z.infer<typeof Args>;
 
@@ -39,7 +46,12 @@ export const task: Task<Args> = {
 	Args,
 	summary: 'run a shell command across all repos in parallel',
 	run: async ({args, log}) => {
-		const {command, config, concurrency, format} = args;
+		const {_, config, concurrency, format, outfile} = args;
+
+		const command = _.join(' ').trim();
+		if (!command) {
+			throw new TaskError('No command provided, e.g. `gro gitops_run "npm test"`');
+		}
 
 		// Get repo paths (lightweight, no library-metadata loading needed)
 		const config_path = resolve(config);
@@ -140,18 +152,38 @@ export const task: Task<Args> = {
 					duration_ms: Math.round(total_duration_ms),
 				},
 			};
-			// eslint-disable-next-line no-console
-			console.log(JSON.stringify(json_output, null, 2));
+			const json = JSON.stringify(json_output, null, 2);
+			if (outfile) {
+				// Clean machine-readable output, free of gro's logging prefixes.
+				await writeFile(outfile, json);
+				log.info(`wrote JSON output to ${outfile}`);
+			} else {
+				// eslint-disable-next-line no-console
+				console.log(json);
+			}
 		} else {
 			// Text format
 			log.info(''); // blank line
 
-			// Show successes
+			// Show successes, including the command's output so read-only commands
+			// (`git rev-parse`, `cat package.json`, …) are useful without `--format json`.
 			if (successes.length > 0) {
 				log.info(st('green', `✓ ${successes.length} succeeded:`));
 				for (const result of successes) {
-					const duration = `${Math.round(result.duration_ms)}ms`;
-					log.info(st('gray', `  ${result.repo_name} ${st('blue', `(${duration})`)}`));
+					const duration = st('blue', `(${Math.round(result.duration_ms)}ms)`);
+					const label = st('gray', `  ${result.repo_name}`);
+					const out = result.stdout.trim();
+					const out_lines = out ? out.split('\n') : [];
+					if (out_lines.length <= 1) {
+						// single-line (or empty) output inline after the repo name
+						log.info(out ? `${label} ${out} ${duration}` : `${label} ${duration}`);
+					} else {
+						// multi-line output indented under the repo
+						log.info(`${label} ${duration}`);
+						for (const line of out_lines) {
+							log.info(st('gray', `    ${line}`));
+						}
+					}
 				}
 			}
 

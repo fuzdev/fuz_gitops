@@ -66,7 +66,7 @@ export class DependencyGraph {
 				repo,
 				dependencies: new Map(),
 				dependents: new Set(),
-				publishable: !!library.package_json.private === false, // eslint-disable-line @typescript-eslint/no-unnecessary-boolean-literal-compare
+				publishable: !library.package_json.private,
 			};
 
 			// Extract dependencies

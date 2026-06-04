@@ -109,3 +109,29 @@ export const validate_dependency_graph = (
 		sort_error,
 	};
 };
+
+/** Cycles, wildcard deps, and missing peers produced by `DependencyGraphBuilder.analyze`. */
+export type DependencyAnalysis = ReturnType<DependencyGraphBuilder['analyze']>;
+
+export interface RepoAnalysis {
+	graph: DependencyGraph;
+	analysis: DependencyAnalysis;
+	/** Topological publishing order, or `null` when prod/peer cycles prevent ordering. */
+	publishing_order: Array<string> | null;
+}
+
+/**
+ * Builds the dependency graph and runs cycle/wildcard analysis, tolerating cycles
+ * (reports rather than throws). The shared core of `gitops_analyze` and
+ * `gitops_validate`, which format the result themselves — so this stays silent
+ * (no `log`) to avoid emitting a redundant "Analyzing dependencies" line.
+ */
+export const analyze_repos = (repos: Array<LocalRepo>): RepoAnalysis => {
+	const {graph, publishing_order: order} = validate_dependency_graph(repos, {
+		throw_on_prod_cycles: false, // report, don't throw
+		log_cycles: false, // callers format their own cycle output
+		log_order: false,
+	});
+	const analysis = new DependencyGraphBuilder().analyze(graph);
+	return {graph, analysis, publishing_order: order.length > 0 ? order : null};
+};

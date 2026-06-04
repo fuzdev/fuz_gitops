@@ -55,127 +55,152 @@ export interface LocalRepoMissing {
 }
 
 /**
- * Loads repo data with automatic syncing and dependency management.
+ * Loads repo data, optionally syncing the working tree first.
  *
- * Workflow:
+ * When `sync` is `false` (the default for read-only diagnostics like
+ * `gitops_analyze`/`gitops_plan`), the repo is loaded exactly as it sits on
+ * disk — no branch switch, pull, install, or clean-workspace check. This makes
+ * those commands safe to run on an active workspace with uncommitted changes or
+ * feature branches checked out.
+ *
+ * When `sync` is `true` (used by `gitops_sync`), the working tree is brought in
+ * line with the configured branch first:
  * 1. Records current commit hash (for detecting changes)
- * 2. Switches to target branch if needed (requires clean workspace)
+ * 2. Switches to target branch if needed (requires clean workspace unless `allow_dirty`)
  * 3. Pulls latest changes from remote (skipped for local-only repos)
- * 4. Validates workspace is clean after pull
+ * 4. Validates workspace is clean after pull (skipped if `allow_dirty`)
  * 5. Auto-installs dependencies if `package.json` changed
+ *
+ * Either way it then:
  * 6. Loads `library_json` via `library_load_from_repo` (svelte-docinfo analysis)
  * 7. Creates `Library` and extracts dependency maps
  *
- * This ensures repos are always in sync with their configured branch
- * before being used by gitops commands.
- *
- * @throws {TaskError} if workspace dirty, branch switch fails, install fails, or analysis fails
+ * @param sync - sync the working tree to the configured branch before loading (default `true`)
+ * @param allow_dirty - when syncing, tolerate uncommitted changes instead of throwing (default `false`)
+ * @throws {TaskError} if syncing fails (dirty workspace, branch switch, install) or analysis fails
  */
 export const local_repo_load = async ({
 	local_repo_path,
 	log: _log,
 	git_ops = default_git_operations,
 	npm_ops = default_npm_operations,
+	sync = true,
+	allow_dirty = false,
 }: {
 	local_repo_path: LocalRepoPath;
 	log?: Logger;
 	git_ops?: GitOperations;
 	npm_ops?: NpmOperations;
+	sync?: boolean;
+	allow_dirty?: boolean;
 }): Promise<LocalRepo> => {
 	const {repo_config, repo_dir, repo_name, repo_git_ssh_url} = local_repo_path;
 
-	// Record commit hash before any changes
-	const commit_before_result = await git_ops.current_commit_hash({cwd: repo_dir});
-	if (!commit_before_result.ok) {
-		throw new TaskError(
-			`Failed to get commit hash in ${repo_dir}: ${commit_before_result.message}`,
-		);
-	}
-	const commit_before = commit_before_result.value;
-
-	// Switch to target branch if needed
-	const branch_result = await git_ops.current_branch_name({cwd: repo_dir});
-	if (!branch_result.ok) {
-		throw new TaskError(`Failed to get current branch in ${repo_dir}: ${branch_result.message}`);
-	}
-
-	const switched_branches = branch_result.value !== repo_config.branch;
-	if (switched_branches) {
-		const clean_result = await git_ops.check_clean_workspace({cwd: repo_dir});
-		if (!clean_result.ok) {
-			throw new TaskError(`Failed to check workspace in ${repo_dir}: ${clean_result.message}`);
-		}
-
-		if (!clean_result.value) {
+	if (sync) {
+		// Record commit hash before any changes
+		const commit_before_result = await git_ops.current_commit_hash({cwd: repo_dir});
+		if (!commit_before_result.ok) {
 			throw new TaskError(
-				`Repo ${repo_dir} is not on branch "${repo_config.branch}" and the workspace is unclean, blocking switch`,
+				`Failed to get commit hash in ${repo_dir}: ${commit_before_result.message}`,
 			);
 		}
+		const commit_before = commit_before_result.value;
 
-		const checkout_result = await git_ops.checkout({branch: repo_config.branch, cwd: repo_dir});
-		if (!checkout_result.ok) {
-			throw new TaskError(
-				`Failed to checkout branch "${repo_config.branch}" in ${repo_dir}: ${checkout_result.message}`,
-			);
-		}
-	}
-
-	// Only pull if remote exists (skip for local-only repos, test fixtures)
-	const origin_result = await git_ops.has_remote({remote: 'origin', cwd: repo_dir});
-	if (!origin_result.ok) {
-		throw new TaskError(`Failed to check for remote in ${repo_dir}: ${origin_result.message}`);
-	}
-
-	if (origin_result.value) {
-		const pull_result = await git_ops.pull({cwd: repo_dir});
-		if (!pull_result.ok) {
-			throw new TaskError(`Failed to pull in ${repo_dir}: ${pull_result.message}`);
-		}
-	}
-
-	// Check clean workspace after pull to ensure we're in a good state
-	const clean_after_result = await git_ops.check_clean_workspace({cwd: repo_dir});
-	if (!clean_after_result.ok) {
-		throw new TaskError(`Failed to check workspace in ${repo_dir}: ${clean_after_result.message}`);
-	}
-
-	if (!clean_after_result.value) {
-		throw new TaskError(
-			`Workspace ${repo_dir} is unclean after pulling branch "${repo_config.branch}"`,
-		);
-	}
-
-	// Record commit hash after pull
-	const commit_after_result = await git_ops.current_commit_hash({cwd: repo_dir});
-	if (!commit_after_result.ok) {
-		throw new TaskError(`Failed to get commit hash in ${repo_dir}: ${commit_after_result.message}`);
-	}
-	const commit_after = commit_after_result.value;
-
-	// Track if we got new commits
-	const got_new_commits = commit_before !== commit_after;
-
-	// Only install if package.json changed
-	if (got_new_commits) {
-		const changed_result = await git_ops.has_file_changed({
-			from_commit: commit_before,
-			to_commit: commit_after,
-			file_path: 'package.json',
-			cwd: repo_dir,
-		});
-
-		if (!changed_result.ok) {
-			throw new TaskError(
-				`Failed to check if package.json changed in ${repo_dir}: ${changed_result.message}`,
-			);
+		// Switch to target branch if needed
+		const branch_result = await git_ops.current_branch_name({cwd: repo_dir});
+		if (!branch_result.ok) {
+			throw new TaskError(`Failed to get current branch in ${repo_dir}: ${branch_result.message}`);
 		}
 
-		if (changed_result.value) {
-			const install_result = await npm_ops.install({cwd: repo_dir});
-			if (!install_result.ok) {
+		const switched_branches = branch_result.value !== repo_config.branch;
+		if (switched_branches) {
+			// Guard the switch on a clean workspace unless the caller opts into `allow_dirty`,
+			// in which case we let `git checkout` itself fail loudly if it can't proceed.
+			if (!allow_dirty) {
+				const clean_result = await git_ops.check_clean_workspace({cwd: repo_dir});
+				if (!clean_result.ok) {
+					throw new TaskError(`Failed to check workspace in ${repo_dir}: ${clean_result.message}`);
+				}
+
+				if (!clean_result.value) {
+					throw new TaskError(
+						`Repo ${repo_dir} is not on branch "${repo_config.branch}" and the workspace is unclean, blocking switch`,
+					);
+				}
+			}
+
+			const checkout_result = await git_ops.checkout({branch: repo_config.branch, cwd: repo_dir});
+			if (!checkout_result.ok) {
 				throw new TaskError(
-					`Failed to install dependencies in ${repo_dir}: ${install_result.message}${install_result.stderr ? `\n${install_result.stderr}` : ''}`,
+					`Failed to checkout branch "${repo_config.branch}" in ${repo_dir}: ${checkout_result.message}`,
 				);
+			}
+		}
+
+		// Only pull if remote exists (skip for local-only repos, test fixtures)
+		const origin_result = await git_ops.has_remote({remote: 'origin', cwd: repo_dir});
+		if (!origin_result.ok) {
+			throw new TaskError(`Failed to check for remote in ${repo_dir}: ${origin_result.message}`);
+		}
+
+		if (origin_result.value) {
+			const pull_result = await git_ops.pull({cwd: repo_dir});
+			if (!pull_result.ok) {
+				throw new TaskError(`Failed to pull in ${repo_dir}: ${pull_result.message}`);
+			}
+		}
+
+		// Check clean workspace after pull to ensure we're in a good state
+		// (skipped when `allow_dirty`, since uncommitted changes are expected then)
+		if (!allow_dirty) {
+			const clean_after_result = await git_ops.check_clean_workspace({cwd: repo_dir});
+			if (!clean_after_result.ok) {
+				throw new TaskError(
+					`Failed to check workspace in ${repo_dir}: ${clean_after_result.message}`,
+				);
+			}
+
+			if (!clean_after_result.value) {
+				throw new TaskError(
+					`Workspace ${repo_dir} is unclean after pulling branch "${repo_config.branch}"`,
+				);
+			}
+		}
+
+		// Record commit hash after pull
+		const commit_after_result = await git_ops.current_commit_hash({cwd: repo_dir});
+		if (!commit_after_result.ok) {
+			throw new TaskError(
+				`Failed to get commit hash in ${repo_dir}: ${commit_after_result.message}`,
+			);
+		}
+		const commit_after = commit_after_result.value;
+
+		// Track if we got new commits
+		const got_new_commits = commit_before !== commit_after;
+
+		// Only install if package.json changed
+		if (got_new_commits) {
+			const changed_result = await git_ops.has_file_changed({
+				from_commit: commit_before,
+				to_commit: commit_after,
+				file_path: 'package.json',
+				cwd: repo_dir,
+			});
+
+			if (!changed_result.ok) {
+				throw new TaskError(
+					`Failed to check if package.json changed in ${repo_dir}: ${changed_result.message}`,
+				);
+			}
+
+			if (changed_result.value) {
+				const install_result = await npm_ops.install({cwd: repo_dir});
+				if (!install_result.ok) {
+					throw new TaskError(
+						`Failed to install dependencies in ${repo_dir}: ${install_result.message}${install_result.stderr ? `\n${install_result.stderr}` : ''}`,
+					);
+				}
 			}
 		}
 	}
@@ -275,6 +300,8 @@ export const local_repos_load = async ({
 	npm_ops = default_npm_operations,
 	parallel = true,
 	concurrency = GITOPS_CONCURRENCY_DEFAULT,
+	sync = true,
+	allow_dirty = false,
 }: {
 	local_repo_paths: Array<LocalRepoPath>;
 	log?: Logger;
@@ -282,12 +309,16 @@ export const local_repos_load = async ({
 	npm_ops?: NpmOperations;
 	parallel?: boolean;
 	concurrency?: number;
+	sync?: boolean;
+	allow_dirty?: boolean;
 }): Promise<Array<LocalRepo>> => {
 	if (!parallel) {
 		// Sequential loading (original behavior)
 		const loaded: Array<LocalRepo> = [];
 		for (const local_repo_path of local_repo_paths) {
-			loaded.push(await local_repo_load({local_repo_path, log, git_ops, npm_ops}));
+			loaded.push(
+				await local_repo_load({local_repo_path, log, git_ops, npm_ops, sync, allow_dirty}),
+			);
 		}
 		return loaded;
 	}
@@ -297,7 +328,7 @@ export const local_repos_load = async ({
 		local_repo_paths,
 		concurrency,
 		async (local_repo_path) => {
-			return local_repo_load({local_repo_path, log, git_ops, npm_ops});
+			return local_repo_load({local_repo_path, log, git_ops, npm_ops, sync, allow_dirty});
 		},
 	);
 

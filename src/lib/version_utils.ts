@@ -1,6 +1,7 @@
 // TODO: candidate for extraction to `@fuzdev/fuz_util`
 
-import type {BumpType} from './semver.js';
+/** A semver bump kind: `major`, `minor`, or `patch`. */
+export type BumpType = 'major' | 'minor' | 'patch';
 
 export const is_wildcard = (version: string): boolean => {
 	return version === '*';
@@ -100,10 +101,7 @@ export const get_update_prefix = (
  * Pre-1.0: minor bumps are breaking
  * 1.0+: major bumps are breaking
  */
-export const is_breaking_change = (
-	old_version: string,
-	bump_type: 'major' | 'minor' | 'patch',
-): boolean => {
+export const is_breaking_change = (old_version: string, bump_type: BumpType): boolean => {
 	const [major] = old_version.split('.').map(Number);
 	const is_pre_1_0 = major === 0;
 
@@ -116,10 +114,33 @@ export const is_breaking_change = (
 	}
 };
 
-export const detect_bump_type = (
-	old_version: string,
-	new_version: string,
-): 'major' | 'minor' | 'patch' => {
+/**
+ * The bump a package must take when one of its prod/peer dependencies updates.
+ * Pre-1.0: `minor` for a breaking dependency, otherwise `patch`.
+ * 1.0+: `major` for a breaking dependency, otherwise `patch`.
+ *
+ * Single source of truth for the dependency-driven bump rule, shared by the plan
+ * (`get_required_bump_for_dependencies`) and the auto-changeset generator
+ * (`calculate_required_bump`) so the two never drift.
+ *
+ * @param current_version - the package's current version, used to detect the pre-1.0 regime
+ * @param has_breaking_deps - whether any updated dependency is a breaking change
+ */
+export const required_bump_for_dependency_update = (
+	current_version: string,
+	has_breaking_deps: boolean,
+): BumpType => {
+	const [major] = current_version.split('.').map(Number);
+	const is_pre_1_0 = major === 0;
+	if (has_breaking_deps) {
+		// Breaking changes propagate: pre-1.0 uses minor, 1.0+ uses major
+		return is_pre_1_0 ? 'minor' : 'major';
+	}
+	// Non-breaking dependency updates only need a patch
+	return 'patch';
+};
+
+export const detect_bump_type = (old_version: string, new_version: string): BumpType => {
 	const old_parts = old_version.split('.').map(Number);
 	const new_parts = new_version.split('.').map(Number);
 

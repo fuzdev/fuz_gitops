@@ -227,6 +227,88 @@ test('install failure includes stderr', async () => {
 	);
 });
 
+// -- local_repo_load: sync: false (read-as-is) --
+
+test('sync: false skips all git operations', async () => {
+	// Every git op below would fail if called; reaching library-load proves the
+	// whole sync block (branch switch, pull, install, clean checks) was skipped.
+	await assert_rejects(
+		() =>
+			local_repo_load({
+				local_repo_path: create_local_repo_path(),
+				sync: false,
+				git_ops: create_mock_git_ops({
+					current_commit_hash: async () => ({ok: false, message: 'should not be called'}),
+					current_branch_name: async () => ({ok: false, message: 'should not be called'}),
+					check_clean_workspace: async () => ({ok: false, message: 'should not be called'}),
+					checkout: async () => ({ok: false, message: 'should not be called'}),
+					pull: async () => ({ok: false, message: 'should not be called'}),
+					has_remote: async () => ({ok: false, message: 'should not be called'}),
+				}),
+				npm_ops: create_mock_npm_ops({
+					install: async () => ({ok: false, message: 'should not be called'}),
+				}),
+			}),
+		/Failed to load library metadata/,
+	);
+});
+
+test('sync: false ignores a dirty workspace on the wrong branch', async () => {
+	// Dirty + wrong branch would throw when syncing; with sync: false it loads as-is.
+	await assert_rejects(
+		() =>
+			local_repo_load({
+				local_repo_path: create_local_repo_path(),
+				sync: false,
+				git_ops: create_mock_git_ops({
+					current_branch_name: async () => ({ok: true, value: 'feature-branch'}),
+					check_clean_workspace: async () => ({ok: true, value: false}),
+				}),
+				npm_ops: create_mock_npm_ops(),
+			}),
+		// reaches library-load rather than the dirty/branch guards
+		/Failed to load library metadata/,
+	);
+});
+
+// -- local_repo_load: allow_dirty (sync, tolerating uncommitted changes) --
+
+test('allow_dirty lets a dirty branch switch proceed to checkout', async () => {
+	// Without allow_dirty this throws "unclean, blocking switch"; with it, the
+	// dirty guard is skipped and the (failing) checkout is what surfaces.
+	await assert_rejects(
+		() =>
+			local_repo_load({
+				local_repo_path: create_local_repo_path(),
+				allow_dirty: true,
+				git_ops: create_mock_git_ops({
+					current_branch_name: async () => ({ok: true, value: 'other-branch'}),
+					check_clean_workspace: async () => ({ok: true, value: false}),
+					checkout: async () => ({ok: false, message: 'checkout reached'}),
+				}),
+				npm_ops: create_mock_npm_ops(),
+			}),
+		/Failed to checkout branch "main".*checkout reached/,
+	);
+});
+
+test('allow_dirty tolerates a dirty workspace after pull', async () => {
+	// Without allow_dirty this throws "unclean after pulling"; with it, loading continues.
+	await assert_rejects(
+		() =>
+			local_repo_load({
+				local_repo_path: create_local_repo_path(),
+				allow_dirty: true,
+				git_ops: create_mock_git_ops({
+					has_remote: async () => ({ok: true, value: true}),
+					check_clean_workspace: async () => ({ok: true, value: false}),
+				}),
+				npm_ops: create_mock_npm_ops(),
+			}),
+		/Failed to load library metadata/,
+	);
+});
+
 // -- local_repo_load: skip behaviors --
 
 test('local-only repos skip pull', async () => {

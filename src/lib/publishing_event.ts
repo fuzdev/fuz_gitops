@@ -26,6 +26,10 @@ export const PublishingErrorCode = z.enum([
 	'auth',
 	'dependency',
 	'build',
+	// the real published version diverged from the frozen plan's prediction — an
+	// invariant violation, distinct from an ordinary publish failure (see fail-loud
+	// drift detection in `multi_repo_publisher.ts`)
+	'drift',
 	'other',
 ]);
 export type PublishingErrorCode = z.infer<typeof PublishingErrorCode>;
@@ -51,17 +55,6 @@ export const PublishingEvent = z.discriminatedUnion('event', [
 		total: z.number(),
 	}),
 	z.strictObject({
-		event: z.literal('iteration_started'),
-		iteration: z.number(),
-		max: z.number(),
-	}),
-	z.strictObject({
-		event: z.literal('iteration_finished'),
-		iteration: z.number(),
-		published_count: z.number(),
-		converged: z.boolean(),
-	}),
-	z.strictObject({
 		event: z.literal('package_skipped'),
 		name: z.string(),
 		reason: z.string(),
@@ -71,11 +64,16 @@ export const PublishingEvent = z.discriminatedUnion('event', [
 		name: z.string(),
 		old_version: z.string(),
 		new_version: z.string(),
-		// mirrors `BumpType` from `semver.ts`; inline so the event schema is self-contained
+		// mirrors `BumpType` from `version_utils.ts`; inline so the event schema is self-contained
 		bump_type: z.enum(['major', 'minor', 'patch']),
 		breaking: z.boolean(),
 		commit: z.string().meta({description: "'simulated' in a dry run, otherwise the commit hash"}),
 		tag: z.string(),
+	}),
+	z.strictObject({
+		event: z.literal('npm_waited'),
+		name: z.string(),
+		version: z.string().meta({description: 'the version waited on after publishing'}),
 	}),
 	z.strictObject({
 		event: z.literal('package_failed'),
@@ -88,19 +86,30 @@ export const PublishingEvent = z.discriminatedUnion('event', [
 		dependent: z.string(),
 		dependency: z.string(),
 		version: z.string(),
+		// 'prod'/'peer' updates run inline in the publish pass; 'dev' updates run in the later
+		// dev-dependency pass. Lets a consumer reconstruct which side-effect phase this is.
+		dep_type: z.enum(['prod', 'peer', 'dev']),
+		// true when the update creates an auto-changeset (a publishable dependent republishes);
+		// false for dev-dep updates and update-only leaves (private dependents never publish).
+		creates_changeset: z.boolean(),
 	}),
 	z.strictObject({
 		event: z.literal('install_started'),
 		name: z.string(),
+		// why this install runs: 'cache_prime' before a dependent publishes, 'dev_dep' after a
+		// dev-dependency update.
+		reason: z.enum(['cache_prime', 'dev_dep']),
 	}),
 	z.strictObject({
 		event: z.literal('install_completed'),
 		name: z.string(),
+		reason: z.enum(['cache_prime', 'dev_dep']),
 	}),
 	z.strictObject({
 		event: z.literal('install_failed'),
 		name: z.string(),
 		error: z.string(),
+		reason: z.enum(['cache_prime', 'dev_dep']),
 	}),
 	z.strictObject({
 		event: z.literal('deploy_started'),

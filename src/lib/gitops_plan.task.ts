@@ -28,6 +28,13 @@ export const Args = z.strictObject({
 		.default('stdout'),
 	outfile: z.string().meta({description: 'write output to file instead of logging'}).optional(),
 	verbose: z.boolean().meta({description: 'show additional details'}).default(false),
+	sync: z
+		.boolean()
+		.meta({
+			description:
+				'sync repos (switch branch, pull, install) before planning instead of reading the working tree as-is',
+		})
+		.default(false),
 });
 export type Args = z.infer<typeof Args>;
 
@@ -46,15 +53,16 @@ export const task: Task<Args> = {
 	summary: 'generate a publishing plan based on changesets',
 	Args,
 	run: async ({args, log}): Promise<void> => {
-		const {dir, config, format, outfile, verbose} = args;
+		const {dir, config, format, outfile, verbose, sync} = args;
 
 		log.info(st('cyan', 'Generating multi-repo publishing plan...'));
 
-		// Load local repos
+		// Load local repos; read the working tree as-is unless `--sync`
 		const {local_repos} = await get_gitops_ready({
 			config,
 			dir,
 			download: false, // Don't download if missing
+			sync,
 			log,
 		});
 

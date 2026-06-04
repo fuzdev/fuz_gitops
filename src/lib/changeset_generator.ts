@@ -11,7 +11,11 @@ import {join} from 'node:path';
 import type {Logger} from '@fuzdev/fuz_util/log.js';
 import type {LocalRepo} from './local_repo.js';
 import type {PublishedVersion} from './multi_repo_publisher.js';
-import {strip_version_prefix} from './version_utils.js';
+import {
+	strip_version_prefix,
+	required_bump_for_dependency_update,
+	type BumpType,
+} from './version_utils.js';
 import type {FsOperations} from './operations.js';
 import {default_fs_operations} from './operations_defaults.js';
 
@@ -69,24 +73,11 @@ export const create_changeset_for_dependency_updates = async (
 const calculate_required_bump = (
 	repo: LocalRepo,
 	updates: Array<DependencyVersionChange>,
-): 'major' | 'minor' | 'patch' => {
-	const current_version = repo.library.package_json.version || '0.0.0';
-	const [major] = current_version.split('.').map(Number);
-	const is_pre_1_0 = major === 0;
-
-	// Check if any dependency had breaking changes
-	const has_breaking = updates.some((u) => u.breaking);
-
-	if (has_breaking) {
-		// Breaking changes propagate
-		// Pre-1.0: use minor for breaking changes
-		// 1.0+: use major for breaking changes
-		return is_pre_1_0 ? 'minor' : 'major';
-	}
-
-	// For non-breaking dependency updates, always use patch
-	return 'patch';
-};
+): BumpType =>
+	required_bump_for_dependency_update(
+		repo.library.package_json.version || '0.0.0',
+		updates.some((u) => u.breaking),
+	);
 
 /**
  * Generates markdown changeset content for dependency updates.

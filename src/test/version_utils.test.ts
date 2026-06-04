@@ -9,6 +9,7 @@ import {
 	get_update_prefix,
 	is_breaking_change,
 	detect_bump_type,
+	required_bump_for_dependency_update,
 } from '$lib/version_utils.js';
 
 describe('version_utils', () => {
@@ -198,6 +199,30 @@ describe('version_utils', () => {
 			assert.strictEqual(detect_bump_type('1.2.3', '2.5.10'), 'major');
 			// Minor takes precedence over patch
 			assert.strictEqual(detect_bump_type('1.2.3', '1.5.0'), 'minor');
+		});
+	});
+
+	describe('required_bump_for_dependency_update', () => {
+		// the single source of truth for the dependency-driven bump rule, shared by the
+		// publishing plan and the auto-changeset generator — if these two diverge,
+		// wetrun fail-loud-on-drift would false-positive on auto-changeset packages
+		test('pre-1.0: breaking dependency forces a minor bump', () => {
+			assert.strictEqual(required_bump_for_dependency_update('0.5.0', true), 'minor');
+			assert.strictEqual(required_bump_for_dependency_update('0.0.1', true), 'minor');
+		});
+
+		test('pre-1.0: non-breaking dependency is a patch', () => {
+			assert.strictEqual(required_bump_for_dependency_update('0.5.0', false), 'patch');
+		});
+
+		test('1.0+: breaking dependency forces a major bump', () => {
+			assert.strictEqual(required_bump_for_dependency_update('1.0.0', true), 'major');
+			assert.strictEqual(required_bump_for_dependency_update('2.5.10', true), 'major');
+		});
+
+		test('1.0+: non-breaking dependency is a patch', () => {
+			assert.strictEqual(required_bump_for_dependency_update('1.0.0', false), 'patch');
+			assert.strictEqual(required_bump_for_dependency_update('2.5.10', false), 'patch');
 		});
 	});
 });

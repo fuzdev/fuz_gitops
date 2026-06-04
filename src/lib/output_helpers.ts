@@ -50,15 +50,16 @@ export const format_and_output = async <T>(
 	// Format data
 	const content = format === 'json' ? formatters.json(data) : formatters.markdown(data).join('\n');
 
-	// Output to file or log
+	// Output to file or stdout
 	if (outfile) {
 		await writeFile(outfile, content);
 		log?.info(`Output written to ${outfile}`);
 	} else {
-		// Log line by line for better formatting
-		const lines = content.split('\n');
-		for (const line of lines) {
-			log?.info(line);
-		}
+		// Write raw to stdout in one shot. Routing through `log` would prefix every
+		// line with `[taskname]`, corrupting JSON and cluttering markdown — keep the
+		// machine-readable formats unprefixed and pipeable (use `--outfile` for output
+		// fully free of Gro's own preamble).
+		// eslint-disable-next-line no-console
+		console.log(content);
 	}
 };

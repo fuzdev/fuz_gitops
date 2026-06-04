@@ -37,6 +37,14 @@ export interface GetGitopsReadyOptions {
 	npm_ops?: NpmOperations;
 	parallel?: boolean;
 	concurrency?: number;
+	/**
+	 * Sync each repo's working tree to its configured branch before loading
+	 * (switch branch, pull, install). When `false`, repos load exactly as they
+	 * sit on disk — the safe default for read-only diagnostics. Defaults to `true`.
+	 */
+	sync?: boolean;
+	/** When syncing, tolerate uncommitted changes instead of throwing. Defaults to `false`. */
+	allow_dirty?: boolean;
 }
 
 /**
@@ -45,8 +53,12 @@ export interface GetGitopsReadyOptions {
  * Initialization sequence:
  * 1. Loads and normalizes config from `gitops.config.ts`
  * 2. Resolves local repo paths (creates missing with `--download`)
- * 3. Switches branches and pulls latest changes (in parallel by default)
- * 4. Auto-installs deps if `package.json` changed during pull
+ * 3. If `sync`, switches branches and pulls latest changes (in parallel by default)
+ * 4. If `sync`, auto-installs deps if `package.json` changed during pull
+ *
+ * With `sync: false` (the default for read-only diagnostics), steps 3-4 are
+ * skipped and repos are loaded exactly as checked out — no branch switch, pull,
+ * install, or clean-workspace check.
  *
  * Priority for path resolution:
  * - `dir` argument (explicit override)
@@ -57,6 +69,8 @@ export interface GetGitopsReadyOptions {
  * @param options.npm_ops - for testing (defaults to real npm operations)
  * @param options.parallel - whether to load repos in parallel (default: true)
  * @param options.concurrency - max concurrent repo loads (default: 5)
+ * @param options.sync - sync working trees before loading (default: true)
+ * @param options.allow_dirty - when syncing, tolerate uncommitted changes (default: false)
  * @returns initialized config and fully loaded repos ready for operations
  * @throws {TaskError} if config loading or repo resolution fails
  */
@@ -68,7 +82,8 @@ export const get_gitops_ready = async (
 	gitops_config: GitopsConfig;
 	local_repos: Array<LocalRepo>;
 }> => {
-	const {config, dir, download, log, git_ops, npm_ops, parallel, concurrency} = options;
+	const {config, dir, download, log, git_ops, npm_ops, parallel, concurrency, sync, allow_dirty} =
+		options;
 	const config_path = resolve(config);
 	const gitops_config = await import_gitops_config(config_path);
 
@@ -101,6 +116,8 @@ export const get_gitops_ready = async (
 		npm_ops,
 		parallel,
 		concurrency,
+		sync,
+		allow_dirty,
 	});
 
 	return {config_path, repos_dir, gitops_config, local_repos};

@@ -13,7 +13,10 @@ export const format_wildcard_dependencies = (
 	if (analysis.wildcard_deps.length === 0) return [];
 
 	const lines: Array<string> = [];
-	lines.push(st('yellow', `\n⚠️  Found ${analysis.wildcard_deps.length} wildcard dependencies:`));
+	// Blank separator as its own line so the logger prefixes it correctly; embedding
+	// a leading `\n` in the header would leave the header line unprefixed.
+	lines.push('');
+	lines.push(st('yellow', `⚠️  Found ${analysis.wildcard_deps.length} wildcard dependencies:`));
 	for (const {pkg, dep, version} of analysis.wildcard_deps) {
 		lines.push(`  ${pkg} → ${dep} ${st('red', version)}`);
 	}
@@ -30,10 +33,11 @@ export const format_dev_cycles = (
 	if (analysis.dev_cycles.length === 0) return [];
 
 	const lines: Array<string> = [];
+	lines.push('');
 	lines.push(
 		st(
 			'dim',
-			`\nℹ️  Found ${analysis.dev_cycles.length} dev circular dependencies (normal, non-blocking):`,
+			`ℹ️  Found ${analysis.dev_cycles.length} dev circular dependencies (normal, non-blocking):`,
 		),
 	);
 	for (const cycle of analysis.dev_cycles) {
@@ -52,10 +56,11 @@ export const format_production_cycles = (
 	if (analysis.production_cycles.length === 0) return [];
 
 	const lines: Array<string> = [];
+	lines.push('');
 	lines.push(
 		st(
 			'red',
-			`\n❌ Found ${analysis.production_cycles.length} production/peer circular dependencies (blocks publishing):`,
+			`❌ Found ${analysis.production_cycles.length} production/peer circular dependencies (blocks publishing):`,
 		),
 	);
 	for (const cycle of analysis.production_cycles) {
@@ -136,10 +141,10 @@ export const log_list = (
 ): void => {
 	if (items.length === 0) return;
 
-	// Only add newline prefix if header is non-empty
-	const formatted_header = header ? `\n${header}` : '';
-	if (formatted_header) {
-		log[log_method](st(color, formatted_header));
+	// Blank separator as its own line (not an embedded `\n`) so it gets prefixed.
+	if (header) {
+		log[log_method]('');
+		log[log_method](st(color, header));
 	}
 	for (const item of items) {
 		log[log_method](st(color, `  • ${item}`));
