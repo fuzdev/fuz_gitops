@@ -1,5 +1,15 @@
 # @fuzdev/fuz_gitops
 
+## 0.74.0
+
+### Minor Changes
+
+- chore: upgrade peer deps ([a5525f8](https://github.com/fuzdev/fuz_gitops/commit/a5525f8))
+
+### Patch Changes
+
+- fix: pull correct branch ([ca6f6cd](https://github.com/fuzdev/fuz_gitops/commit/ca6f6cd))
+
 ## 0.73.0
 
 ### Minor Changes
