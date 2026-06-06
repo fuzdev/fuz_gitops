@@ -146,7 +146,10 @@ export const local_repo_load = async ({
 		}
 
 		if (origin_result.value) {
-			const pull_result = await git_ops.pull({cwd: repo_dir});
+			// Pull the configured branch explicitly. Without a branch, `git pull origin`
+			// targets the remote's default branch (origin/HEAD), which for a repo checked
+			// out on a non-default branch rebases the wrong branch onto it.
+			const pull_result = await git_ops.pull({branch: repo_config.branch, cwd: repo_dir});
 			if (!pull_result.ok) {
 				throw new TaskError(`Failed to pull in ${repo_dir}: ${pull_result.message}`);
 			}

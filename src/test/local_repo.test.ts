@@ -132,6 +132,36 @@ test('has_file_changed failure propagates', async () => {
 	);
 });
 
+// -- local_repo_load: pull targets the configured branch --
+
+test('pull is invoked with the configured branch', async () => {
+	// Regression: pull was called without a branch, so `git pull origin ''` targeted
+	// the remote's default branch (origin/HEAD) and rebased a non-default checkout
+	// onto it. The pull must target `repo_config.branch`.
+	const local_repo_path = create_local_repo_path();
+	local_repo_path.repo_config.branch = 'fuz-app';
+	let pulled_branch: string | undefined = 'NOT_CALLED';
+	await assert_rejects(
+		() =>
+			local_repo_load({
+				local_repo_path,
+				git_ops: create_mock_git_ops({
+					// already on the configured branch, so no checkout — just the pull
+					current_branch_name: async () => ({ok: true, value: 'fuz-app'}),
+					has_remote: async () => ({ok: true, value: true}),
+					pull: async (options) => {
+						pulled_branch = options?.branch;
+						return {ok: true};
+					},
+				}),
+				npm_ops: create_mock_npm_ops(),
+			}),
+		// reaches library-load after a successful pull
+		/Failed to load library metadata/,
+	);
+	assert.equal(pulled_branch, 'fuz-app');
+});
+
 // -- local_repo_load: behavioral errors --
 
 test('pull failure includes message', async () => {

@@ -119,9 +119,11 @@ export const default_git_operations: GitOperations = {
 	pull: async (options) => {
 		const {origin, branch, cwd} = options ?? EMPTY_OBJECT;
 		try {
+			// Omit the branch arg when absent: a trailing `''` makes git pull the remote's
+			// default branch (origin/HEAD) instead of the current branch's upstream.
 			const spawned = await spawn_out(
 				'git',
-				['pull', origin || 'origin', branch || ''],
+				['pull', origin || 'origin', ...(branch ? [branch] : [])],
 				cwd ? {cwd} : undefined,
 			);
 			if (spawned.result.ok) {
