@@ -12,6 +12,7 @@
 	import {SiteState, site_context} from '@fuzdev/fuz_ui/site.svelte.js';
 	import {logo_fuz_gitops} from '@fuzdev/fuz_ui/logos.js';
 	import type {Snippet} from 'svelte';
+	import pkg_json from 'virtual:pkg.json';
 
 	import Settings from '$routes/Settings.svelte';
 	import {repos_json} from '$routes/repos.js';
@@ -30,13 +31,8 @@
 		'https://gitops.fuz.dev/',
 	);
 	repos_context.set(repos);
-	site_context.set(
-		new SiteState({
-			icon: logo_fuz_gitops,
-			glyph: '🪄',
-			repo_url: 'https://github.com/fuzdev/fuz_gitops',
-		}),
-	);
+	// `glyph` and `repo_url` derive from `pkg_json`; `icon` stays explicit (structured `SvgData`).
+	site_context.set(new SiteState({icon: logo_fuz_gitops, pkg_json}));
 
 	let show_settings = $state.raw(false);
 </script>

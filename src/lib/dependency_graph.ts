@@ -59,22 +59,20 @@ export class DependencyGraph {
 	public init_from_repos(repos: Array<LocalRepo>): void {
 		// First pass: create nodes
 		for (const repo of repos) {
-			const {library} = repo;
+			const {library, package_json} = repo;
 			const node: DependencyNode = {
 				name: library.name,
-				version: library.package_json.version || '0.0.0',
+				version: package_json.version || '0.0.0',
 				repo,
 				dependencies: new Map(),
 				dependents: new Set(),
-				publishable: !library.package_json.private,
+				publishable: !package_json.private,
 			};
 
 			// Extract dependencies
-			const deps = library.package_json.dependencies || (EMPTY_OBJECT as Record<string, string>);
-			const dev_deps =
-				library.package_json.devDependencies || (EMPTY_OBJECT as Record<string, string>);
-			const peer_deps =
-				library.package_json.peerDependencies || (EMPTY_OBJECT as Record<string, string>);
+			const deps = package_json.dependencies || (EMPTY_OBJECT as Record<string, string>);
+			const dev_deps = package_json.devDependencies || (EMPTY_OBJECT as Record<string, string>);
+			const peer_deps = package_json.peerDependencies || (EMPTY_OBJECT as Record<string, string>);
 
 			// Add dependencies, prioritizing prod/peer over dev
 			// (if a package appears in multiple dep types, use the stronger constraint)

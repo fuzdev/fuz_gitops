@@ -611,7 +611,7 @@ describe('dependency_updater', () => {
 						{
 							name: repo.library.name,
 							version: '1.0.0',
-							dependencies: repo.library.package_json.dependencies,
+							dependencies: repo.package_json.dependencies,
 						},
 						null,
 						'\t',

@@ -1,17 +1,22 @@
 import {create_context} from '@fuzdev/fuz_ui/context_helpers.js';
 import type {LibraryJson, SourceJson} from '@fuzdev/fuz_util/library_json.js';
+import type {PkgJson} from '@fuzdev/fuz_util/pkg_json.js';
 import type {PackageJson} from '@fuzdev/fuz_util/package_json.js';
 import type {Url} from '@fuzdev/fuz_util/url.js';
 import {Library} from '@fuzdev/fuz_ui/library.svelte.js';
-import type {Module} from '@fuzdev/fuz_ui/module.svelte.js';
 
 import {GithubCheckRunsItem, type GithubPullRequest} from './github.js';
 
 /**
  * Serialized repo data as stored in `repos.ts` (JSON).
+ *
+ * `package_json` is the repo's full `package.json`, carried alongside
+ * `library_json` because gitops reads `dependencies`/`devDependencies` for the
+ * publishing cascade — fields the curated `LibraryJson.pkg_json` omits.
  */
 export interface RepoJson {
 	library_json: LibraryJson;
+	package_json: PackageJson;
 	check_runs: GithubCheckRunsItem | null;
 	pull_requests: Array<GithubPullRequest> | null;
 }
@@ -24,6 +29,8 @@ export interface RepoJson {
  */
 export class Repo {
 	readonly library: Library;
+	/** The repo's full `package.json` (with `dependencies`/`devDependencies`). */
+	readonly package_json: PackageJson;
 	check_runs: GithubCheckRunsItem | null;
 	pull_requests: Array<GithubPullRequest> | null;
 
@@ -37,9 +44,6 @@ export class Repo {
 	get repo_url(): Url {
 		return this.library.repo_url;
 	}
-	get owner_name(): string | null {
-		return this.library.owner_name;
-	}
 	get homepage_url(): Url | null {
 		return this.library.homepage_url;
 	}
@@ -49,30 +53,23 @@ export class Repo {
 	get logo_alt(): string {
 		return this.library.logo_alt;
 	}
-	get published(): boolean {
-		return this.library.published;
-	}
 	get npm_url(): Url | null {
 		return this.library.npm_url;
 	}
 	get changelog_url(): Url | null {
 		return this.library.changelog_url;
 	}
-	get package_json(): PackageJson {
-		return this.library.package_json;
+	/** Curated package identity, delegating to `library`. Distinct from the full `package_json`. */
+	get pkg_json(): PkgJson {
+		return this.library.pkg_json;
 	}
 	get source_json(): SourceJson {
 		return this.library.source_json;
 	}
-	get modules(): Array<Module> {
-		return this.library.modules;
-	}
-	get org_url(): string | null {
-		return this.library.org_url;
-	}
 
 	constructor(repo_json: RepoJson) {
 		this.library = new Library(repo_json.library_json);
+		this.package_json = repo_json.package_json;
 		this.check_runs = repo_json.check_runs;
 		this.pull_requests = repo_json.pull_requests;
 	}

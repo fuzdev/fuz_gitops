@@ -75,7 +75,7 @@ const calculate_required_bump = (
 	updates: Array<DependencyVersionChange>,
 ): BumpType =>
 	required_bump_for_dependency_update(
-		repo.library.package_json.version || '0.0.0',
+		repo.package_json.version || '0.0.0',
 		updates.some((u) => u.breaking),
 	);
 

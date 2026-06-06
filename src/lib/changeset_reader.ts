@@ -207,7 +207,7 @@ export const predict_next_version = async (
 		return null;
 	}
 
-	const current_version = repo.library.package_json.version || '0.0.0';
+	const current_version = repo.package_json.version || '0.0.0';
 	const next_version = calculate_next_version(current_version, bump_type);
 
 	log?.debug(

@@ -21,31 +21,18 @@ export const fixture_to_local_repos = (fixture: RepoFixtureSet): Array<LocalRepo
 export const fixture_repo_to_local_repo = (repo_data: RepoFixtureData): LocalRepo => {
 	const {repo_name, repo_url, package_json} = repo_data;
 
-	// Create LibraryJson from fixture data
+	// Create LibraryJson (raw pair) from fixture data. Fixture `package_json` has no
+	// `repository`, so inject `repo_url` — `Library`'s ctor requires a parseable one.
 	const library_json: LibraryJson = {
-		name: package_json.name,
-		repo_name,
-		repo_url,
-		owner_name: 'test',
-		homepage_url: `https://test.com/${repo_name}`,
-		logo_url: null,
-		logo_alt: `logo for ${repo_name}`,
-		npm_url: null,
-		changelog_url: null,
-		published: false,
-		package_json,
-		source_json: {
-			name: package_json.name,
-			version: package_json.version,
-			modules: [],
-		},
+		pkg_json: {...package_json, repository: repo_url},
+		source_json: {modules: []},
 	};
 
 	const library = new Library(library_json);
 
 	const local_repo: LocalRepo = {
 		library,
-		library_json,
+		package_json,
 		repo_dir: `/fixtures/${repo_name}`, // Fake path - not used in tests
 		repo_git_ssh_url: `git@github.com:test/${repo_name}.git`,
 		repo_config: {

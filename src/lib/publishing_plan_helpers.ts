@@ -128,7 +128,7 @@ export const get_required_bump_for_dependencies = (
 	);
 
 	return required_bump_for_dependency_update(
-		repo.library.package_json.version || '0.0.0',
+		repo.package_json.version || '0.0.0',
 		has_breaking_deps,
 	);
 };

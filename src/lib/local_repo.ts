@@ -1,5 +1,6 @@
 import {strip_end} from '@fuzdev/fuz_util/string.js';
 import type {LibraryJson} from '@fuzdev/fuz_util/library_json.js';
+import type {PackageJson} from '@fuzdev/fuz_util/package_json.js';
 import {Library} from '@fuzdev/fuz_ui/library.svelte.js';
 import {existsSync} from 'node:fs';
 import {join} from 'node:path';
@@ -21,7 +22,8 @@ import {GITOPS_CONCURRENCY_DEFAULT} from './gitops_constants.js';
  */
 export interface LocalRepo {
 	library: Library;
-	library_json: LibraryJson;
+	/** The repo's full `package.json` (with `dependencies`/`devDependencies`). */
+	package_json: PackageJson;
 	repo_dir: string;
 	repo_git_ssh_url: string;
 	repo_config: GitopsRepoConfig;
@@ -207,8 +209,9 @@ export const local_repo_load = async ({
 
 	// Load library metadata via svelte-docinfo analysis (cached under `.gro/library.json`).
 	let library_json: LibraryJson;
+	let package_json: PackageJson;
 	try {
-		library_json = await library_load_from_repo(repo_dir, {log: _log});
+		({library_json, package_json} = await library_load_from_repo(repo_dir, {log: _log}));
 	} catch (err) {
 		const message = err instanceof Error ? err.message : String(err);
 		_log?.warn(
@@ -222,14 +225,13 @@ export const local_repo_load = async ({
 
 	const local_repo: LocalRepo = {
 		library,
-		library_json,
+		package_json,
 		repo_dir,
 		repo_git_ssh_url,
 		repo_config,
 	};
 
-	// Extract dependencies from package_json
-	const {package_json} = library;
+	// Extract dependencies from the full package_json
 	if (package_json.dependencies) {
 		local_repo.dependencies = new Map(Object.entries(package_json.dependencies));
 	}

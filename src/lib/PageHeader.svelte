@@ -1,5 +1,5 @@
 <script lang="ts">
-	import type {PackageJson} from '@fuzdev/fuz_util/package_json.js';
+	import type {PkgJson} from '@fuzdev/fuz_util/pkg_json.js';
 	import Breadcrumb from '@fuzdev/fuz_ui/Breadcrumb.svelte';
 	import type {Snippet} from 'svelte';
 	import type {SvelteHTMLElements} from 'svelte/elements';
@@ -11,7 +11,7 @@
 		nav,
 		children,
 	}: {
-		repo: {package_json: PackageJson} | {url: string; package_json: null};
+		repo: {pkg_json: PkgJson} | {url: string; pkg_json: null};
 		nav_attrs?: SvelteHTMLElements['nav'];
 		attrs?: SvelteHTMLElements['header'];
 		nav?: Snippet;
@@ -24,7 +24,7 @@
 	{#if nav}
 		{@render nav()}
 	{:else}
-		<nav {...nav_attrs}><Breadcrumb>{repo.package_json?.glyph}</Breadcrumb></nav>
+		<nav {...nav_attrs}><Breadcrumb>{repo.pkg_json?.glyph}</Breadcrumb></nav>
 	{/if}
 </header>
 

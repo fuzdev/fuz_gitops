@@ -1,4 +1,5 @@
 import type {LibraryJson} from '@fuzdev/fuz_util/library_json.js';
+import type {PackageJson} from '@fuzdev/fuz_util/package_json.js';
 import {Library} from '@fuzdev/fuz_ui/library.svelte.js';
 
 import type {LocalRepo} from '$lib/local_repo.js';
@@ -23,9 +24,11 @@ export interface MockRepoOptions {
 }
 
 /**
- * Creates a mock LibraryJson for testing
+ * Creates a mock full `package.json` for testing. Used for `LocalRepo.package_json`
+ * and — mirroring production, where the loader feeds the full manifest down to the
+ * curated slot — for `LibraryJson.pkg_json` too.
  */
-export const create_mock_library_json = (options: MockRepoOptions): LibraryJson => {
+export const create_mock_package_json = (options: MockRepoOptions): PackageJson => {
 	const {
 		name,
 		version = '1.0.0',
@@ -34,30 +37,24 @@ export const create_mock_library_json = (options: MockRepoOptions): LibraryJson 
 		peer_deps = {},
 		private: private_option = false,
 	} = options;
-
 	return {
 		name,
-		repo_name: name,
-		repo_url: `https://github.com/test/${name}`,
-		owner_name: 'test',
-		homepage_url: `https://test.com/${name}`,
-		logo_url: null,
-		logo_alt: `logo for ${name}`,
-		npm_url: null,
-		changelog_url: null,
-		published: false,
-		package_json: {
-			name,
-			version,
-			private: private_option,
-			dependencies: Object.keys(deps).length > 0 ? deps : undefined,
-			devDependencies: Object.keys(dev_deps).length > 0 ? dev_deps : undefined,
-			peerDependencies: Object.keys(peer_deps).length > 0 ? peer_deps : undefined,
-			repository: {type: 'git', url: `git+https://github.com/test/${name}.git`},
-		},
-		source_json: {name, version, modules: []},
+		version,
+		private: private_option,
+		repository: {type: 'git', url: `git+https://github.com/test/${name}.git`},
+		dependencies: Object.keys(deps).length > 0 ? deps : undefined,
+		devDependencies: Object.keys(dev_deps).length > 0 ? dev_deps : undefined,
+		peerDependencies: Object.keys(peer_deps).length > 0 ? peer_deps : undefined,
 	};
 };
+
+/**
+ * Creates a mock LibraryJson for testing — the raw `pkg_json`/`source_json` pair.
+ */
+export const create_mock_library_json = (options: MockRepoOptions): LibraryJson => ({
+	pkg_json: create_mock_package_json(options),
+	source_json: {modules: []},
+});
 
 /**
  * Creates a mock LocalRepo for testing
@@ -68,7 +65,7 @@ export const create_mock_repo = (options: MockRepoOptions): LocalRepo => {
 
 	return {
 		library: new Library(library_json),
-		library_json,
+		package_json: create_mock_package_json(options),
 		repo_dir: `/test/${name}`,
 		repo_git_ssh_url: `git@github.com:test/${name}.git`,
 		repo_config: {
@@ -101,7 +98,7 @@ export const create_mock_gitops_ops = (
 		read_changesets: async () => ({ok: true, value: []}),
 		predict_next_version: async (options) => ({
 			ok: true,
-			version: incrementPatch(options.repo.library.package_json.version || '0.0.0'),
+			version: incrementPatch(options.repo.package_json.version || '0.0.0'),
 			bump_type: 'patch' as const,
 		}),
 		...overrides.changeset,
@@ -152,10 +149,10 @@ export const create_mock_package_json_files = (
 	for (const repo of repos) {
 		const version =
 			updatedVersions.get(repo.library.name) ||
-			incrementPatch(repo.library.package_json.version || '0.0.0');
+			incrementPatch(repo.package_json.version || '0.0.0');
 
 		const packageJson = {
-			...repo.library.package_json,
+			...repo.package_json,
 			version,
 		};
 

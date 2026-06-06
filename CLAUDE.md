@@ -328,7 +328,7 @@ class Repo {
 
 interface LocalRepo {
 	library: Library;
-	library_json: LibraryJson;
+	package_json: PackageJson;
 	repo_dir: string;
 	repo_git_ssh_url: string;
 	repo_config: GitopsRepoConfig;

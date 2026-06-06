@@ -185,7 +185,7 @@ export const generate_publishing_plan = async (
 		// publish step, npm-wait, bump escalation, or auto-changeset). They keep their slot in
 		// the topological order. Flag a private package that carries a changeset, since that
 		// changeset can't be published.
-		if (repo.library.package_json.private) {
+		if (repo.package_json.private) {
 			const private_has_changesets = await ops.has_changesets({repo});
 			if (private_has_changesets.ok && private_has_changesets.value) {
 				warnings.push(`${pkg_name} is private — its changeset(s) will not be published`);
@@ -236,7 +236,7 @@ export const generate_publishing_plan = async (
 			}
 
 			{
-				const old_version = repo.library.package_json.version || '0.0.0';
+				const old_version = repo.package_json.version || '0.0.0';
 				const is_breaking = is_breaking_change(old_version, prediction.bump_type);
 
 				predicted_versions.set(pkg_name, prediction.version);
@@ -284,7 +284,7 @@ export const generate_publishing_plan = async (
 
 			// Private packages are excluded from version changes (they never publish), so they
 			// never escalate or auto-generate a changeset.
-			if (repo.library.package_json.private) continue;
+			if (repo.package_json.private) continue;
 
 			// Get required bump from dependencies
 			const required_bump = get_required_bump_for_dependencies(
@@ -314,7 +314,7 @@ export const generate_publishing_plan = async (
 				// Package has changesets - check if it needs bump escalation
 				if (required_bump && compare_bump_types(required_bump, existing_entry.bump_type) > 0) {
 					// Dependencies require a larger bump than existing changesets provide
-					const old_version = repo.library.package_json.version || '0.0.0';
+					const old_version = repo.package_json.version || '0.0.0';
 					const new_version = calculate_next_version(old_version, required_bump);
 
 					// Only mark as changed if version actually changed
@@ -356,7 +356,7 @@ export const generate_publishing_plan = async (
 				}
 			} else if (required_bump) {
 				// No existing changesets but needs changeset for dependency updates
-				const old_version = repo.library.package_json.version || '0.0.0';
+				const old_version = repo.package_json.version || '0.0.0';
 				const new_version = calculate_next_version(old_version, required_bump);
 
 				// Check if this is a new version (not already in version_changes)
@@ -424,7 +424,7 @@ export const generate_publishing_plan = async (
 
 		for (const repo of repos) {
 			const pkg_name = repo.library.name;
-			if (repo.library.package_json.private) continue; // private packages never publish
+			if (repo.package_json.private) continue; // private packages never publish
 			const required_bump = get_required_bump_for_dependencies(
 				repo,
 				pending_updates,
