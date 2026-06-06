@@ -12,7 +12,7 @@ const config: CreateGitopsConfig = () => {
 			'https://github.com/fuzdev/fuz_blog',
 			'https://github.com/fuzdev/fuz_mastodon',
 			'https://github.com/fuzdev/fuz_code',
-			'https://github.com/fuzdev/mdz',
+			// {repo_url: 'https://github.com/fuzdev/mdz'},
 			'https://github.com/fuzdev/svelte-docinfo',
 			{
 				repo_url: 'https://github.com/fuzdev/zzz',
