@@ -4,6 +4,7 @@
 
 	import ThemeRoot from '@fuzdev/fuz_ui/ThemeRoot.svelte';
 	import Dialog from '@fuzdev/fuz_ui/Dialog.svelte';
+	import DialogContent from '@fuzdev/fuz_ui/DialogContent.svelte';
 	import ContextmenuRoot from '@fuzdev/fuz_ui/ContextmenuRoot.svelte';
 	import {
 		ContextmenuState,
@@ -72,9 +73,9 @@
 	</ContextmenuRoot>
 	{#if show_settings}
 		<Dialog onclose={() => (show_settings = false)}>
-			<div class="pane p_md width_atmost_md mx_auto">
+			<DialogContent>
 				<Settings />
-			</div>
+			</DialogContent>
 		</Dialog>
 	{/if}
 </ThemeRoot>
