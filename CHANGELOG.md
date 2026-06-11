@@ -1,5 +1,11 @@
 # @fuzdev/fuz_gitops
 
+## 0.75.0
+
+### Minor Changes
+
+- deps: upgrade `@fuzdev/fuz_ui@0.203.0` ([3b96872](https://github.com/fuzdev/fuz_gitops/commit/3b96872))
+
 ## 0.74.0
 
 ### Minor Changes
