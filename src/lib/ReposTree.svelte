@@ -6,7 +6,7 @@
 
 	import type {Repo} from './repo.svelte.js';
 	import ReposTreeNav from './ReposTreeNav.svelte';
-	import RepoLibraryDetail from './RepoLibraryDetail.svelte';
+	import LibraryDetail from '@fuzdev/fuz_ui/LibraryDetail.svelte';
 
 	const {
 		repos,
@@ -26,9 +26,13 @@
 	{#if selected_repo}
 		<section class="detail-wrapper">
 			<div class="panel detail p_md">
-				{#key selected_repo.name}
-					<RepoLibraryDetail library={selected_repo.library} />
-				{/key}
+				<!--
+					`links_full` points the module/declaration links at each repo's own
+					deployed docs (`homepage_url`-based) rather than this site's local
+					`/docs/api/*`, which only knows fuz_gitops's own modules — otherwise
+					the foreign links dangle.
+				-->
+				<LibraryDetail library={selected_repo.library} links_full />
 			</div>
 		</section>
 	{:else}

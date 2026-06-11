@@ -8,7 +8,8 @@
 	import PageFooter from '$lib/PageFooter.svelte';
 	import PageHeader from '$lib/PageHeader.svelte';
 
-	const library = library_context.set(new Library(library_json));
+	const library = new Library(library_json);
+	library_context.set(() => library);
 	const site = site_context.get();
 </script>
 
