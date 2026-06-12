@@ -1,5 +1,11 @@
 # @fuzdev/fuz_gitops
 
+## 0.76.0
+
+### Minor Changes
+
+- chore: bump fuz_ui peer dep ([36284ac](https://github.com/fuzdev/fuz_gitops/commit/36284ac))
+
 ## 0.75.0
 
 ### Minor Changes
