@@ -14,6 +14,8 @@ const config: CreateGitopsConfig = () => {
 			'https://github.com/fuzdev/fuz_code',
 			// {repo_url: 'https://github.com/fuzdev/mdz'},
 			'https://github.com/fuzdev/svelte-docinfo',
+			'https://github.com/fuzdev/tsv',
+			'https://github.com/fuzdev/tsv.fuz.dev',
 			{
 				repo_url: 'https://github.com/fuzdev/zzz',
 				branch: 'fuz-app',
