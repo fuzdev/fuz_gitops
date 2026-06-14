@@ -72,6 +72,8 @@ export const create_mock_repo = (options: MockRepoOptions): LocalRepo => {
 			repo_url: `https://github.com/test/${name}`,
 			repo_dir: null,
 			branch: 'main',
+			visibility: 'public',
+			ci: true,
 		},
 		dependencies: new Map(Object.entries(deps)),
 		dev_dependencies: new Map(Object.entries(dev_deps)),

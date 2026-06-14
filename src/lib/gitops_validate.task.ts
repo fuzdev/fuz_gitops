@@ -12,6 +12,7 @@ import {
 import {execute_publishing_plan, type PublishingOptions} from './multi_repo_publisher.js';
 import {log_dependency_analysis} from './log_helpers.js';
 import {GITOPS_CONFIG_PATH_DEFAULT} from './gitops_constants.js';
+import {reconcile_ci, repo_has_workflows} from './ci_reconcile.js';
 
 /** @nodocs */
 export const Args = z.strictObject({
@@ -200,6 +201,51 @@ export const task: Task<Args> = {
 				duration: dry_duration,
 			});
 			log.error(st('red', `  ✗ gitops_publish (dry run) failed: ${error}`));
+		}
+
+		// 4. Reconcile each repo's declared `ci` against actual workflow files on disk.
+		log.info(st('yellow', 'Running ci_reconcile...'));
+		const ci_start = Date.now();
+		try {
+			const ci_drift = reconcile_ci(
+				local_repos.map((r) => ({
+					repo_url: r.repo_config.repo_url,
+					ci: r.repo_config.ci,
+					has_workflows: repo_has_workflows(r.repo_dir),
+					checkable: true,
+				})),
+			);
+			const ci_duration = Date.now() - ci_start;
+			const drift_details = ci_drift.map((d) =>
+				d.kind === 'missing_ci'
+					? `${d.repo_url}: ci=true but no workflow files`
+					: `${d.repo_url}: ci=false but workflow files present`,
+			);
+			results.push({
+				command: 'ci_reconcile',
+				success: ci_drift.length === 0,
+				warnings: 0,
+				errors: ci_drift.length,
+				duration: ci_duration,
+			});
+			if (ci_drift.length === 0) {
+				log.info(st('green', `  ✓ ci_reconcile completed in ${ci_duration}ms`));
+			} else {
+				log.error(st('red', `  ❌ ci_reconcile found ${ci_drift.length} drift(s)`));
+				for (const detail of drift_details) {
+					log.error(st('red', `    - ${detail}`));
+				}
+			}
+		} catch (error) {
+			const ci_duration = Date.now() - ci_start;
+			results.push({
+				command: 'ci_reconcile',
+				success: false,
+				warnings: 0,
+				errors: 1,
+				duration: ci_duration,
+			});
+			log.error(st('red', `  ✗ ci_reconcile failed: ${error}`));
 		}
 
 		// Summary
