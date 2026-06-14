@@ -44,12 +44,8 @@ describe('normalize_gitops_config', () => {
 				branch: 'main',
 				visibility: 'public',
 				ci: true,
+				archived: false,
 			});
-		});
-
-		test('omits the archived key', () => {
-			const repo = parse_one('https://github.com/fuzdev/fuz_ui');
-			assert.ok(!('archived' in repo));
 		});
 	});
 
@@ -62,6 +58,7 @@ describe('normalize_gitops_config', () => {
 				branch: 'main',
 				visibility: 'public',
 				ci: true,
+				archived: false,
 			});
 		});
 
@@ -81,7 +78,10 @@ describe('normalize_gitops_config', () => {
 		});
 
 		test('null repo_dir is preserved', () => {
-			assert.equal(parse_one({repo_url: 'https://github.com/fuzdev/fuz_ui', repo_dir: null}).repo_dir, null);
+			assert.equal(
+				parse_one({repo_url: 'https://github.com/fuzdev/fuz_ui', repo_dir: null}).repo_dir,
+				null,
+			);
 		});
 	});
 
@@ -123,8 +123,8 @@ describe('normalize_gitops_config', () => {
 	});
 
 	describe('archived', () => {
-		test('omitted when not provided', () => {
-			assert.ok(!('archived' in parse_one({repo_url: 'https://github.com/fuzdev/x'})));
+		test('defaults to false when not provided', () => {
+			assert.equal(parse_one({repo_url: 'https://github.com/fuzdev/x'}).archived, false);
 		});
 
 		test('preserves an explicit archived: true', () => {
@@ -135,9 +135,10 @@ describe('normalize_gitops_config', () => {
 		});
 
 		test('preserves an explicit archived: false', () => {
-			const repo = parse_one({repo_url: 'https://github.com/fuzdev/x', archived: false});
-			assert.ok('archived' in repo);
-			assert.equal(repo.archived, false);
+			assert.equal(
+				parse_one({repo_url: 'https://github.com/fuzdev/x', archived: false}).archived,
+				false,
+			);
 		});
 	});
 

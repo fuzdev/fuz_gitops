@@ -16,6 +16,7 @@ const create_local_repo_path = (name: string = 'test-repo'): LocalRepoPath => ({
 		branch: 'main',
 		visibility: 'public',
 		ci: true,
+		archived: false,
 	},
 });
 

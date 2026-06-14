@@ -80,9 +80,9 @@ export interface GitopsRepoConfig {
 	ci: boolean;
 
 	/**
-	 * Whether the repo is archived (read-only) on its host. Omitted when not archived.
+	 * Whether the repo is archived (read-only) on its host. Defaults to `false`.
 	 */
-	archived?: boolean;
+	archived: boolean;
 }
 
 export interface RawGitopsRepoConfig {
@@ -93,7 +93,7 @@ export interface RawGitopsRepoConfig {
 	visibility?: GitopsRepoVisibility;
 	/** Whether the repo runs CI. Defaults to `true` for public, `false` for private. */
 	ci?: boolean;
-	/** Whether the repo is archived (read-only) on its host. */
+	/** Whether the repo is archived (read-only) on its host. Defaults to `false`. */
 	archived?: boolean;
 }
 
@@ -120,8 +120,14 @@ export const normalize_gitops_config = (raw_config: RawGitopsConfig): GitopsConf
 
 const parse_fuz_repo_config = (r: Url | RawGitopsRepoConfig): GitopsRepoConfig => {
 	if (typeof r === 'string') {
-		// TODO @zts use flavored for GitBranch
-		return {repo_url: r, repo_dir: null, branch: 'main' as GitBranch, visibility: 'public', ci: true};
+		return {
+			repo_url: r,
+			repo_dir: null,
+			branch: 'main' as GitBranch, // TODO @zts use flavored for GitBranch
+			visibility: 'public',
+			ci: true,
+			archived: false,
+		};
 	}
 	const visibility = r.visibility ?? 'public';
 	return {
@@ -130,7 +136,7 @@ const parse_fuz_repo_config = (r: Url | RawGitopsRepoConfig): GitopsRepoConfig =
 		branch: r.branch ?? ('main' as GitBranch), // TODO @zts use flavored for GitBranch
 		visibility,
 		ci: r.ci ?? visibility === 'public',
-		...(r.archived === undefined ? {} : {archived: r.archived}),
+		archived: r.archived ?? false,
 	};
 };
 

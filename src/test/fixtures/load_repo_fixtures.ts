@@ -41,6 +41,7 @@ export const fixture_repo_to_local_repo = (repo_data: RepoFixtureData): LocalRep
 			branch: 'main',
 			visibility: 'public',
 			ci: true,
+			archived: false,
 		},
 	};
 
