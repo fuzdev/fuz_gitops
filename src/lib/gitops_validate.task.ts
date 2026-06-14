@@ -87,7 +87,7 @@ export const task: Task<Args> = {
 
 			results.push({
 				command: 'gitops_analyze',
-				success: true,
+				success: errors === 0,
 				warnings,
 				errors,
 				duration: analyze_duration,
@@ -130,7 +130,7 @@ export const task: Task<Args> = {
 
 			results.push({
 				command: 'gitops_plan',
-				success: true,
+				success: errors === 0,
 				warnings,
 				errors,
 				duration: plan_duration,
@@ -212,7 +212,12 @@ export const task: Task<Args> = {
 					repo_url: r.repo_config.repo_url,
 					ci: r.repo_config.ci,
 					has_workflows: repo_has_workflows(r.repo_dir),
+					// TODO: `local_repos` only ever holds checked-out repos — a missing repo
+					// throws in `local_repos_ensure` before we reach here — so `checkable` is
+					// always `true` today. The gate exists for a future caller that loads a
+					// partial set; until then the skip path is inert and untested.
 					checkable: true,
+					archived: r.repo_config.archived,
 				})),
 			);
 			const ci_duration = Date.now() - ci_start;
@@ -293,10 +298,11 @@ export const task: Task<Args> = {
 					st('yellow', `⚠️  Note: ${total_warnings} warning(s) found - review output above.`),
 				);
 			}
-		} else if (all_success && total_errors > 0) {
-			log.warn(st('yellow', '⚠️  Validation completed but found errors - review output above.'));
 		} else {
-			log.error(st('red', '❌ Validation failed - one or more commands did not complete.'));
+			// Hard-fail on any error or failed command. These run manually (and
+			// increasingly via agents), so a clear problem should stop the pipeline
+			// rather than scroll past in the summary. Warnings stay non-fatal.
+			log.error(st('red', '❌ Validation failed - review the errors above.'));
 			throw new Error('Validation failed');
 		}
 	},

@@ -370,7 +370,7 @@ gro gitops_run "gro check" --format json           # JSON output (logged to stdo
 gro gitops_run "gro check" --format json --outfile out.json # clean JSON to a file
 
 # Publishing
-gro gitops_validate              # validate configuration (runs analyze, plan, and dry run)
+gro gitops_validate              # validate configuration (runs analyze, plan, dry run, and ci_reconcile)
 gro gitops_analyze               # analyze dependencies and changesets
 gro gitops_plan                  # generate publishing plan
 gro gitops_plan --verbose        # show additional details
@@ -436,7 +436,9 @@ refresh repos (switch to the configured branch, pull, install) first.
 ### Command Workflow
 
 - `gitops_validate` runs: `gitops_analyze` + `gitops_plan` +
-  `gitops_publish` (dry run)
+  `gitops_publish` (dry run) + `ci_reconcile`. It hard-fails (throws) on any
+  error from any step — a production dependency cycle, a plan error, or CI
+  drift — so a clear problem stops the run. Warnings stay non-fatal.
 - `gitops_publish --wetrun` runs: `gitops_plan` (with confirmation) + actual publish
 
 ## Dependencies
