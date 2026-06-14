@@ -14,6 +14,9 @@ const create_local_repo_path = (name: string = 'test-repo'): LocalRepoPath => ({
 		repo_url: `https://github.com/test/${name}`,
 		repo_dir: null,
 		branch: 'main',
+		visibility: 'public',
+		ci: true,
+		archived: false,
 	},
 });
 

@@ -12,6 +12,7 @@ import {
 import {execute_publishing_plan, type PublishingOptions} from './multi_repo_publisher.js';
 import {log_dependency_analysis} from './log_helpers.js';
 import {GITOPS_CONFIG_PATH_DEFAULT} from './gitops_constants.js';
+import {reconcile_ci, repo_has_workflows} from './ci_reconcile.js';
 
 /** @nodocs */
 export const Args = z.strictObject({
@@ -86,7 +87,7 @@ export const task: Task<Args> = {
 
 			results.push({
 				command: 'gitops_analyze',
-				success: true,
+				success: errors === 0,
 				warnings,
 				errors,
 				duration: analyze_duration,
@@ -129,7 +130,7 @@ export const task: Task<Args> = {
 
 			results.push({
 				command: 'gitops_plan',
-				success: true,
+				success: errors === 0,
 				warnings,
 				errors,
 				duration: plan_duration,
@@ -202,6 +203,56 @@ export const task: Task<Args> = {
 			log.error(st('red', `  ✗ gitops_publish (dry run) failed: ${error}`));
 		}
 
+		// 4. Reconcile each repo's declared `ci` against actual workflow files on disk.
+		log.info(st('yellow', 'Running ci_reconcile...'));
+		const ci_start = Date.now();
+		try {
+			const ci_drift = reconcile_ci(
+				local_repos.map((r) => ({
+					repo_url: r.repo_config.repo_url,
+					ci: r.repo_config.ci,
+					has_workflows: repo_has_workflows(r.repo_dir),
+					// TODO: `local_repos` only ever holds checked-out repos — a missing repo
+					// throws in `local_repos_ensure` before we reach here — so `checkable` is
+					// always `true` today. The gate exists for a future caller that loads a
+					// partial set; until then the skip path is inert and untested.
+					checkable: true,
+					archived: r.repo_config.archived,
+				})),
+			);
+			const ci_duration = Date.now() - ci_start;
+			const drift_details = ci_drift.map((d) =>
+				d.kind === 'missing_ci'
+					? `${d.repo_url}: ci=true but no workflow files`
+					: `${d.repo_url}: ci=false but workflow files present`,
+			);
+			results.push({
+				command: 'ci_reconcile',
+				success: ci_drift.length === 0,
+				warnings: 0,
+				errors: ci_drift.length,
+				duration: ci_duration,
+			});
+			if (ci_drift.length === 0) {
+				log.info(st('green', `  ✓ ci_reconcile completed in ${ci_duration}ms`));
+			} else {
+				log.error(st('red', `  ❌ ci_reconcile found ${ci_drift.length} drift(s)`));
+				for (const detail of drift_details) {
+					log.error(st('red', `    - ${detail}`));
+				}
+			}
+		} catch (error) {
+			const ci_duration = Date.now() - ci_start;
+			results.push({
+				command: 'ci_reconcile',
+				success: false,
+				warnings: 0,
+				errors: 1,
+				duration: ci_duration,
+			});
+			log.error(st('red', `  ✗ ci_reconcile failed: ${error}`));
+		}
+
 		// Summary
 		const total_duration = Date.now() - start_time;
 		const all_success = results.every((r) => r.success);
@@ -247,10 +298,11 @@ export const task: Task<Args> = {
 					st('yellow', `⚠️  Note: ${total_warnings} warning(s) found - review output above.`),
 				);
 			}
-		} else if (all_success && total_errors > 0) {
-			log.warn(st('yellow', '⚠️  Validation completed but found errors - review output above.'));
 		} else {
-			log.error(st('red', '❌ Validation failed - one or more commands did not complete.'));
+			// Hard-fail on any error or failed command. These run manually (and
+			// increasingly via agents), so a clear problem should stop the pipeline
+			// rather than scroll past in the summary. Warnings stay non-fatal.
+			log.error(st('red', '❌ Validation failed - review the errors above.'));
 			throw new Error('Validation failed');
 		}
 	},

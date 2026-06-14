@@ -32,6 +32,13 @@ export interface RawGitopsConfig {
 	repos_dir?: string;
 }
 
+/**
+ * Visibility of a repo on its host, mirroring the host's own model
+ * (e.g. GitHub's `visibility` field). Named to avoid confusion with the npm
+ * `package.json` `private` flag, which is a separate publishing concern.
+ */
+export type GitopsRepoVisibility = 'public' | 'private';
+
 export interface GitopsRepoConfig {
 	/**
 	 * The HTTPS URL to the repo. Does not include a `.git` suffix.
@@ -60,12 +67,34 @@ export interface GitopsRepoConfig {
 	 * The branch name to use when fetching the repo. Defaults to `main`.
 	 */
 	branch: GitBranch;
+
+	/**
+	 * Visibility of the repo on its host. Defaults to `'public'`.
+	 */
+	visibility: GitopsRepoVisibility;
+
+	/**
+	 * Whether the repo runs CI. Defaults to `true` for public repos and `false`
+	 * for private repos, unless set explicitly.
+	 */
+	ci: boolean;
+
+	/**
+	 * Whether the repo is archived (read-only) on its host. Defaults to `false`.
+	 */
+	archived: boolean;
 }
 
 export interface RawGitopsRepoConfig {
 	repo_url: Url;
 	repo_dir?: string | null;
 	branch?: GitBranch;
+	/** Visibility of the repo on its host. Defaults to `'public'`. */
+	visibility?: GitopsRepoVisibility;
+	/** Whether the repo runs CI. Defaults to `true` for public, `false` for private. */
+	ci?: boolean;
+	/** Whether the repo is archived (read-only) on its host. Defaults to `false`. */
+	archived?: boolean;
 }
 
 export const create_empty_gitops_config = (): GitopsConfig => ({
@@ -91,12 +120,23 @@ export const normalize_gitops_config = (raw_config: RawGitopsConfig): GitopsConf
 
 const parse_fuz_repo_config = (r: Url | RawGitopsRepoConfig): GitopsRepoConfig => {
 	if (typeof r === 'string') {
-		return {repo_url: r, repo_dir: null, branch: 'main' as GitBranch}; // TODO @zts use flavored for GitBranch
+		return {
+			repo_url: r,
+			repo_dir: null,
+			branch: 'main' as GitBranch, // TODO @zts use flavored for GitBranch
+			visibility: 'public',
+			ci: true,
+			archived: false,
+		};
 	}
+	const visibility = r.visibility ?? 'public';
 	return {
 		repo_url: strip_end(r.repo_url, '.git'),
 		repo_dir: r.repo_dir ?? null,
 		branch: r.branch ?? ('main' as GitBranch), // TODO @zts use flavored for GitBranch
+		visibility,
+		ci: r.ci ?? visibility === 'public',
+		archived: r.archived ?? false,
 	};
 };
 
