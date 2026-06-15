@@ -1,4 +1,5 @@
 import {strip_end} from '@fuzdev/fuz_util/string.js';
+import {to_error_message} from '@fuzdev/fuz_util/error.js';
 import type {LibraryJson} from '@fuzdev/fuz_util/library_json.js';
 import type {PackageJson} from '@fuzdev/fuz_util/package_json.js';
 import {Library} from '@fuzdev/fuz_ui/library.svelte.js';
@@ -216,7 +217,7 @@ export const local_repo_load = async ({
 	try {
 		({library_json, package_json} = await library_load_from_repo(repo_dir, {log: _log}));
 	} catch (err) {
-		const message = err instanceof Error ? err.message : String(err);
+		const message = to_error_message(err);
 		_log?.warn(
 			`Failed to load library metadata for repo "${repo_name}" in ${repo_dir}: ${message}`,
 		);
