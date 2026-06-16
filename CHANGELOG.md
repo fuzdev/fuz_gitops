@@ -1,5 +1,11 @@
 # @fuzdev/fuz_gitops
 
+## 0.78.0
+
+### Minor Changes
+
+- feat: handle cargo repos ([6cab850](https://github.com/fuzdev/fuz_gitops/commit/6cab850))
+
 ## 0.77.0
 
 ### Minor Changes
