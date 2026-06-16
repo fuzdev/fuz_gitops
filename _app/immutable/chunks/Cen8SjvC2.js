@@ -1,0 +1,1 @@
+import{c as e}from"./BQhFxp3E.js";var t=(e,t)=>e.flatMap(e=>e.pull_requests?e.pull_requests.map(n=>e.package_json.homepage&&(!t||t(n,e))?{repo:e,pull_request:n}:null):null).filter(e=>e!==null),n=(t,n)=>e(t,`/`)+`pull/`+n.number;export{n,t};
