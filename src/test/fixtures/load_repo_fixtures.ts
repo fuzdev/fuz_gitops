@@ -31,6 +31,7 @@ export const fixture_repo_to_local_repo = (repo_data: RepoFixtureData): LocalRep
 	const library = new Library(library_json);
 
 	const local_repo: LocalRepo = {
+		kind: 'npm',
 		library,
 		package_json,
 		repo_dir: `/fixtures/${repo_name}`, // Fake path - not used in tests

@@ -1,7 +1,15 @@
 import {assert, test} from 'vitest';
 import {assert_rejects} from '@fuzdev/fuz_util/testing.ts';
+import {mkdtempSync, rmSync, writeFileSync} from 'node:fs';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
 
-import {local_repo_load, local_repos_load, type LocalRepoPath} from '$lib/local_repo.ts';
+import {
+	local_repo_load,
+	local_repos_load,
+	repo_is_npm,
+	type LocalRepoPath,
+} from '$lib/local_repo.ts';
 import {create_mock_git_ops, create_mock_npm_ops} from './test_helpers.ts';
 
 const create_local_repo_path = (name: string = 'test-repo'): LocalRepoPath => ({
@@ -460,4 +468,78 @@ test('local_repos_load sequential mode throws on first failure', async () => {
 			}),
 		/Failed to pull.*network error/,
 	);
+});
+
+// -- local_repo_load: non-npm (cargo) repos --
+
+/** Builds a `LocalRepoPath` pointing at a real temp dir for the cargo divert tests. */
+const cargo_local_repo_path = (repo_dir: string, name = 'rust-repo'): LocalRepoPath => ({
+	type: 'local_repo_path',
+	repo_name: name,
+	repo_dir,
+	repo_url: `https://github.com/test/${name}`,
+	repo_git_ssh_url: `git@github.com:test/${name}.git`,
+	repo_config: {
+		repo_url: `https://github.com/test/${name}`,
+		repo_dir: null,
+		branch: 'main',
+		visibility: 'public',
+		ci: true,
+		archived: false,
+	},
+});
+
+test('loads a workspace Cargo.toml (no package.json) as a cargo repo, falling back to URL', async () => {
+	const dir = mkdtempSync(join(tmpdir(), 'gitops-cargo-'));
+	try {
+		// A workspace root has no `name` and (here) no `repository` — both fall back to the URL.
+		writeFileSync(join(dir, 'Cargo.toml'), '[workspace.package]\nversion = "0.4.2"\n');
+
+		const repo = await local_repo_load({local_repo_path: cargo_local_repo_path(dir), sync: false});
+
+		assert.strictEqual(repo.kind, 'cargo');
+		assert.strictEqual(repo_is_npm(repo), false);
+		assert.strictEqual(repo.library.name, 'rust-repo'); // from URL, not Cargo.toml
+		assert.strictEqual(repo.library.repo_url, 'https://github.com/test/rust-repo');
+		assert.strictEqual(repo.package_json.version, '0.4.2');
+		assert.strictEqual(repo.package_json.private, true);
+		// No npm dependency maps on a cargo repo.
+		assert.strictEqual(repo.dependencies, undefined);
+		assert.strictEqual(repo.dev_dependencies, undefined);
+		assert.strictEqual(repo.peer_dependencies, undefined);
+	} finally {
+		rmSync(dir, {recursive: true, force: true});
+	}
+});
+
+test('uses Cargo.toml [package] identity for a single-crate repo', async () => {
+	const dir = mkdtempSync(join(tmpdir(), 'gitops-cargo-'));
+	try {
+		writeFileSync(
+			join(dir, 'Cargo.toml'),
+			'[package]\nname = "my_crate"\nversion = "1.2.3"\ndescription = "does a thing"\nrepository = "https://github.com/owner/my_crate"\n',
+		);
+
+		const repo = await local_repo_load({local_repo_path: cargo_local_repo_path(dir), sync: false});
+
+		assert.strictEqual(repo.kind, 'cargo');
+		assert.strictEqual(repo.library.name, 'my_crate');
+		assert.strictEqual(repo.package_json.version, '1.2.3');
+		assert.strictEqual(repo.package_json.description, 'does a thing');
+		assert.strictEqual(repo.library.repo_url, 'https://github.com/owner/my_crate');
+	} finally {
+		rmSync(dir, {recursive: true, force: true});
+	}
+});
+
+test('a repo with neither package.json nor Cargo.toml still fails as a metadata-load error', async () => {
+	const dir = mkdtempSync(join(tmpdir(), 'gitops-empty-'));
+	try {
+		await assert_rejects(
+			() => local_repo_load({local_repo_path: cargo_local_repo_path(dir), sync: false}),
+			/Failed to load library metadata/,
+		);
+	} finally {
+		rmSync(dir, {recursive: true, force: true});
+	}
 });

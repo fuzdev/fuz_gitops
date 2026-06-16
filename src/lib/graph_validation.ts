@@ -18,7 +18,7 @@ import {TaskError} from '@fuzdev/gro';
 import {styleText as st} from 'node:util';
 
 import {DependencyGraph, DependencyGraphBuilder} from './dependency_graph.ts';
-import type {LocalRepo} from './local_repo.ts';
+import {repo_is_npm, type LocalRepo} from './local_repo.ts';
 
 export interface GraphValidationResult {
 	graph: DependencyGraph;
@@ -127,7 +127,8 @@ export interface RepoAnalysis {
  * (no `log`) to avoid emitting a redundant "Analyzing dependencies" line.
  */
 export const analyze_repos = (repos: Array<LocalRepo>): RepoAnalysis => {
-	const {graph, publishing_order: order} = validate_dependency_graph(repos, {
+	// Only npm packages form the dependency graph; non-npm repos (e.g. cargo) are excluded.
+	const {graph, publishing_order: order} = validate_dependency_graph(repos.filter(repo_is_npm), {
 		throw_on_prod_cycles: false, // report, don't throw
 		log_cycles: false, // callers format their own cycle output
 		log_order: false,

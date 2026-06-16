@@ -1,7 +1,7 @@
 import {assert, describe, test} from 'vitest';
 import {TaskError} from '@fuzdev/gro';
 
-import {validate_dependency_graph} from '$lib/graph_validation.ts';
+import {analyze_repos, validate_dependency_graph} from '$lib/graph_validation.ts';
 import {create_mock_repo} from './test_helpers.ts';
 
 describe('validate_dependency_graph', () => {
@@ -401,5 +401,23 @@ describe('validate_dependency_graph', () => {
 			const {production_cycles} = result.graph.detect_cycles_by_type();
 			assert.ok(production_cycles.length > 0);
 		});
+	});
+});
+
+describe('analyze_repos', () => {
+	test('excludes non-npm (cargo) repos from the dependency graph', () => {
+		const repos = [
+			create_mock_repo({name: 'lib', version: '1.0.0'}),
+			create_mock_repo({name: 'app', version: '1.0.0', deps: {lib: '^1.0.0'}}),
+			create_mock_repo({name: 'rust-tool', version: '0.1.0', kind: 'cargo'}),
+		];
+
+		const {graph, publishing_order} = analyze_repos(repos);
+
+		// The cargo repo is not a graph node, so it never enters the publishing order.
+		assert.ok(!graph.nodes.has('rust-tool'));
+		assert.ok(graph.nodes.has('lib'));
+		assert.ok(graph.nodes.has('app'));
+		assert.deepEqual(publishing_order, ['lib', 'app']);
 	});
 });

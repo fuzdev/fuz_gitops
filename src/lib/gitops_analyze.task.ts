@@ -5,7 +5,7 @@ import type {Logger} from '@fuzdev/fuz_util/log.ts';
 
 import {get_gitops_ready} from './gitops_task_helpers.ts';
 import type {DependencyGraph} from './dependency_graph.ts';
-import type {LocalRepo} from './local_repo.ts';
+import {repo_is_npm} from './local_repo.ts';
 import {analyze_repos, type DependencyAnalysis} from './graph_validation.ts';
 import {
 	format_wildcard_dependencies,
@@ -50,12 +50,24 @@ export const task: Task<Args> = {
 		// Get repos ready (without downloading); read the working tree as-is unless `--sync`
 		const {local_repos} = await get_gitops_ready({config, dir, download: false, sync, log});
 
+		// Only npm packages form the dependency graph; note any non-npm repos (e.g. cargo)
+		// that are excluded so the omission isn't silent.
+		const non_npm_repos = local_repos.filter((r) => !repo_is_npm(r));
+		if (non_npm_repos.length > 0) {
+			log.info(
+				st(
+					'dim',
+					`excluding ${non_npm_repos.length} non-npm repo(s) from analysis (dashboard-only): ` +
+						non_npm_repos.map((r) => r.library.name).join(', '),
+				),
+			);
+		}
+
 		// Build the dependency graph and analyze cycles/wildcards (tolerating cycles)
 		const {graph, analysis, publishing_order} = analyze_repos(local_repos);
 
 		// Format and output using output_helpers
 		const data = {
-			repos: local_repos,
 			graph,
 			analysis,
 			publishing_order,
@@ -67,7 +79,6 @@ export const task: Task<Args> = {
 
 // Data type for analysis output
 interface AnalysisData {
-	repos: Array<LocalRepo>;
 	graph: DependencyGraph;
 	analysis: DependencyAnalysis;
 	publishing_order: Array<string> | null;
@@ -76,9 +87,8 @@ interface AnalysisData {
 // Create formatters for output_helpers
 const create_formatters = (): OutputFormatters<AnalysisData> => ({
 	json: (data) => format_json(data.graph, data.analysis, data.publishing_order),
-	markdown: (data) => format_markdown(data.repos, data.graph, data.analysis, data.publishing_order),
-	stdout: (data, log) =>
-		format_stdout(data.repos, data.graph, data.analysis, data.publishing_order, log),
+	markdown: (data) => format_markdown(data.graph, data.analysis, data.publishing_order),
+	stdout: (data, log) => format_stdout(data.graph, data.analysis, data.publishing_order, log),
 });
 
 // Helper to calculate common statistics
@@ -109,7 +119,6 @@ const format_json = (
 };
 
 const format_markdown = (
-	repos: Array<LocalRepo>,
 	graph: DependencyGraph,
 	analysis: DependencyAnalysis,
 	publishing_order: Array<string> | null,
@@ -120,7 +129,7 @@ const format_markdown = (
 	const {total_deps, internal_deps} = calculate_stats(graph);
 
 	lines.push('', '## Summary', '');
-	lines.push(`- **Total packages**: ${repos.length}`);
+	lines.push(`- **Total packages**: ${graph.nodes.size}`);
 	lines.push(`- **Total dependencies**: ${total_deps}`);
 	lines.push(`- **Internal dependencies**: ${internal_deps}`);
 	lines.push(`- **Wildcard dependencies**: ${analysis.wildcard_deps.length}`);
@@ -185,13 +194,12 @@ const format_markdown = (
 };
 
 const format_stdout = (
-	repos: Array<LocalRepo>,
 	graph: DependencyGraph,
 	analysis: DependencyAnalysis,
 	publishing_order: Array<string> | null,
 	log: Logger,
 ): void => {
-	log.info(st('cyan', `📊 Analyzing ${repos.length} repositories...`));
+	log.info(st('cyan', `📊 Analyzing ${graph.nodes.size} repositories...`));
 
 	// Publishing order
 	if (publishing_order) {
@@ -248,7 +256,7 @@ const format_stdout = (
 
 	log.info('');
 	log.info(st('cyan', 'Summary:'));
-	log.info(`  Total packages: ${repos.length}`);
+	log.info(`  Total packages: ${graph.nodes.size}`);
 	log.info(`  Total dependencies: ${total_deps}`);
 	log.info(`  Internal dependencies: ${internal_deps}`);
 	log.info(`  Wildcard dependencies: ${analysis.wildcard_deps.length}`);

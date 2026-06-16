@@ -1346,3 +1346,16 @@ describe('execute_publishing_plan', () => {
 		assert.strictEqual(priv_pkg.dependencies.core, '^1.1.0'); // range bumped
 	});
 });
+
+test('excludes non-npm (cargo) repos from a publish run', async () => {
+	const repos: Array<LocalRepo> = [
+		create_mock_repo({name: 'pkg-a', version: '0.1.0'}),
+		create_mock_repo({name: 'rust-tool', version: '0.1.0', kind: 'cargo'}),
+	];
+
+	const result = await publish_repos(repos, {wetrun: false, ops: create_mock_gitops_ops()});
+
+	assert.strictEqual(result.ok, true);
+	assert.ok(result.published.some((p) => p.name === 'pkg-a'));
+	assert.ok(!result.published.some((p) => p.name === 'rust-tool'));
+});

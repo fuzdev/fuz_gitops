@@ -200,3 +200,33 @@ test('warns when MAX_ITERATIONS reached without convergence', async () => {
 	assert.ok(plan.version_changes.length > 0);
 	assert.ok(plan.version_changes.length < repos.length); // Not all processed
 });
+
+test('excludes non-npm (cargo) repos from the plan', async () => {
+	const repos: Array<LocalRepo> = [
+		create_mock_repo({name: 'pkg-a', version: '1.0.0'}),
+		create_mock_repo({name: 'rust-tool', version: '0.1.0', kind: 'cargo'}),
+	];
+
+	// Even when the cargo repo "has changesets", it must be filtered out before any
+	// changeset processing — so the filter, not the private/changeset logic, excludes it.
+	const mock_ops: ChangesetOperations = {
+		has_changesets: async () => ({ok: true, value: true}),
+		read_changesets: async () => ({ok: true, value: []}),
+		predict_next_version: async (options) => ({
+			ok: true,
+			version: options.repo.library.name === 'pkg-a' ? '1.0.1' : '0.1.1',
+			bump_type: 'patch' as const,
+		}),
+	};
+
+	const plan = await generate_publishing_plan(repos, {ops: mock_ops});
+
+	// The npm package still plans normally...
+	assert.ok(plan.publishing_order.includes('pkg-a'));
+	assert.ok(plan.version_changes.some((vc) => vc.package_name === 'pkg-a'));
+	// ...while the cargo repo is absent from the order and version changes...
+	assert.ok(!plan.publishing_order.includes('rust-tool'));
+	assert.ok(!plan.version_changes.some((vc) => vc.package_name === 'rust-tool'));
+	// ...and the exclusion is reported rather than silent.
+	assert.ok(plan.info.some((line) => line.includes('non-npm') && line.includes('rust-tool')));
+});

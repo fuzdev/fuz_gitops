@@ -3,7 +3,7 @@ import {TaskError} from '@fuzdev/gro';
 import {join} from 'node:path';
 import {styleText as st} from 'node:util';
 
-import type {LocalRepo} from './local_repo.ts';
+import {repo_is_npm, type LocalRepo} from './local_repo.ts';
 import {update_package_json, type VersionStrategy} from './dependency_updater.ts';
 import {
 	generate_publishing_plan,
@@ -83,12 +83,16 @@ export const publish_repos = async (
  * `ok: false`. This is the single error gate — `--no-plan` can't bypass it.
  */
 export const execute_publishing_plan = async (
-	repos: Array<LocalRepo>,
+	all_repos: Array<LocalRepo>,
 	plan: PublishingPlan,
 	options: PublishingOptions,
 ): Promise<PublishingResult> => {
 	const start_time = Date.now();
 	const {wetrun, log, ops = default_gitops_operations} = options;
+
+	// Only npm repos publish; drop any non-npm repos (e.g. cargo) so preflight and the
+	// executor's name lookup never touch them. The plan already excludes them too.
+	const repos = all_repos.filter(repo_is_npm);
 
 	// Fail loud on an incomplete plan. Executing one with errors would silently skip the
 	// affected packages. A wetrun aborts before touching npm or git; a dry run proceeds

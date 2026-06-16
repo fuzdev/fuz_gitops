@@ -327,6 +327,9 @@ class Repo {
 }
 
 interface LocalRepo {
+	// `npm` repos (with a package.json) take part in publishing; `cargo` repos
+	// (a Rust Cargo.toml, no package.json) are dashboard-only — see below.
+	kind: 'npm' | 'cargo';
 	library: Library;
 	package_json: PackageJson;
 	repo_dir: string;
@@ -344,6 +347,18 @@ interface LocalRepoPath {
 	repo_url: string;
 }
 ```
+
+### Non-npm repos (dashboard-only)
+
+A configured repo without a `package.json` but with a Rust `Cargo.toml` (e.g.
+`tsv`) loads as a `kind: 'cargo'` `LocalRepo`. It has no npm identity, so there's
+no `svelte-docinfo` analysis and no dependency graph — `local_repo.ts` synthesizes
+a lightweight `Library` from the `Cargo.toml` (best-effort name/version/description,
+via `cargo_toml.ts`) and the configured repo URL. These repos are still synced and
+rendered on the dashboard (CI status, PRs, identity) but are excluded from
+publishing and dependency analysis: `generate_publishing_plan`, `analyze_repos`,
+and `execute_publishing_plan` filter to `repo_is_npm` first. A repo with neither
+manifest is unsupported and fails loud.
 
 ## UI components
 

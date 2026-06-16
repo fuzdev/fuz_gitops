@@ -1,6 +1,6 @@
 import {strip_end} from '@fuzdev/fuz_util/string.ts';
 import {to_error_message} from '@fuzdev/fuz_util/error.ts';
-import type {LibraryJson} from '@fuzdev/fuz_util/library_json.ts';
+import {library_json_from_modules, type LibraryJson} from '@fuzdev/fuz_util/library_json.ts';
 import type {PackageJson} from '@fuzdev/fuz_util/package_json.ts';
 import {Library} from '@fuzdev/fuz_ui/library.svelte.ts';
 import {existsSync} from 'node:fs';
@@ -16,12 +16,21 @@ import {default_git_operations, default_npm_operations} from './operations_defau
 import type {GitopsConfig, GitopsRepoConfig} from './gitops_config.ts';
 import type {ResolvedGitopsConfig} from './resolved_gitops_config.ts';
 import {GITOPS_CONCURRENCY_DEFAULT} from './gitops_constants.ts';
+import {cargo_toml_load} from './cargo_toml.ts';
 
 /**
  * Fully loaded local repo with `Library` and extracted dependency data.
  * Does not extend `LocalRepoPath` - `Library` is source of truth for name/repo_url/etc.
  */
 export interface LocalRepo {
+	/**
+	 * Which packaging ecosystem the repo belongs to. `npm` repos (with a
+	 * `package.json`) take part in the changeset publishing cascade; `cargo` repos
+	 * (a Rust `Cargo.toml`, no `package.json`) are dashboard-only — fetched and
+	 * rendered like any repo but excluded from publishing/analysis. See
+	 * `repo_is_npm`.
+	 */
+	kind: 'npm' | 'cargo';
 	library: Library;
 	/** The repo's full `package.json` (with `dependencies`/`devDependencies`). */
 	package_json: PackageJson;
@@ -211,6 +220,14 @@ export const local_repo_load = async ({
 		}
 	}
 
+	// A repo with no `package.json` but a Rust `Cargo.toml` isn't an npm package and can't be
+	// analyzed as a library. Load it as a dashboard-only `cargo` repo (CI, PRs, identity) that
+	// publishing/analysis skips. Anything else falls through to the npm loader below, whose
+	// error covers a genuinely missing or unreadable manifest.
+	if (!existsSync(join(repo_dir, 'package.json')) && existsSync(join(repo_dir, 'Cargo.toml'))) {
+		return local_repo_load_cargo({local_repo_path});
+	}
+
 	// Load library metadata via svelte-docinfo analysis (cached under `.gro/library.json`).
 	let library_json: LibraryJson;
 	let package_json: PackageJson;
@@ -228,6 +245,7 @@ export const local_repo_load = async ({
 	const library = new Library(library_json);
 
 	const local_repo: LocalRepo = {
+		kind: 'npm',
 		library,
 		package_json,
 		repo_dir,
@@ -247,6 +265,53 @@ export const local_repo_load = async ({
 	}
 
 	return local_repo;
+};
+
+/**
+ * Whether a repo is an npm package and so participates in publishing and
+ * dependency analysis. Non-npm repos (e.g. Rust `cargo` repos) are still synced
+ * and rendered on the dashboard, but excluded from the changeset cascade.
+ */
+export const repo_is_npm = (repo: LocalRepo): boolean => repo.kind === 'npm';
+
+/**
+ * Loads a non-npm Rust repo as a dashboard-only `LocalRepo`. It has no
+ * `package.json`, so there's no `svelte-docinfo` analysis and no npm dependency
+ * graph — a lightweight `Library` is synthesized from the repo's `Cargo.toml`
+ * (best-effort name/version/description) and its configured repo URL, which is
+ * what the dashboard renders (CI status, PRs, identity). Marked `private` so it
+ * never reads as an npm publish target, and tagged `cargo` so the publishing and
+ * analysis paths skip it (see `repo_is_npm`).
+ */
+const local_repo_load_cargo = async ({
+	local_repo_path,
+}: {
+	local_repo_path: LocalRepoPath;
+}): Promise<LocalRepo> => {
+	const {repo_config, repo_dir, repo_name, repo_url, repo_git_ssh_url} = local_repo_path;
+
+	const cargo = await cargo_toml_load(repo_dir);
+
+	// A Cargo workspace root has no `name`, so fall back to the repo name parsed from
+	// the URL; the config's `repo_url` is the authoritative `repository`.
+	const package_json: PackageJson = {
+		name: cargo?.name ?? repo_name,
+		version: cargo?.version ?? '0.0.0',
+		repository: cargo?.repository ?? repo_url,
+		private: true,
+		...(cargo?.description ? {description: cargo.description} : null),
+	};
+
+	const library = new Library(library_json_from_modules(package_json, []));
+
+	return {
+		kind: 'cargo',
+		library,
+		package_json,
+		repo_dir,
+		repo_git_ssh_url,
+		repo_config,
+	};
 };
 
 export const local_repos_ensure = async ({

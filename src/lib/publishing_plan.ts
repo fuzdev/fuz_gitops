@@ -1,7 +1,7 @@
 import type {Logger} from '@fuzdev/fuz_util/log.ts';
 import {styleText as st} from 'node:util';
 
-import type {LocalRepo} from './local_repo.ts';
+import {repo_is_npm, type LocalRepo} from './local_repo.ts';
 import {validate_dependency_graph} from './graph_validation.ts';
 import {
 	type BumpType,
@@ -110,7 +110,7 @@ export interface GeneratePlanOptions {
  * Uses fixed-point iteration to resolve transitive cascades.
  */
 export const generate_publishing_plan = async (
-	repos: Array<LocalRepo>,
+	all_repos: Array<LocalRepo>,
 	options: GeneratePlanOptions = {},
 ): Promise<PublishingPlan> => {
 	const {log, ops = default_changeset_operations, verbose} = options;
@@ -119,6 +119,18 @@ export const generate_publishing_plan = async (
 	const warnings: Array<string> = [];
 	const info: Array<string> = []; // Informational status (not warnings)
 	const errors: Array<string> = [];
+
+	// Publishing concerns only npm packages. Non-npm repos (e.g. Rust cargo repos) are
+	// loaded for the dashboard but have no npm identity in the changeset cascade — drop them
+	// before building the graph so they never appear in the plan or publishing order.
+	const non_npm_repos = all_repos.filter((r) => !repo_is_npm(r));
+	if (non_npm_repos.length > 0) {
+		info.push(
+			`Excluded ${non_npm_repos.length} non-npm repo(s) from publishing: ` +
+				non_npm_repos.map((r) => r.library.name).join(', '),
+		);
+	}
+	const repos = all_repos.filter(repo_is_npm);
 
 	// Verbose data collection
 	const verbose_changeset_details: Array<VerboseChangesetDetail> = [];

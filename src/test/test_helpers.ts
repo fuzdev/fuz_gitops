@@ -21,6 +21,8 @@ export interface MockRepoOptions {
 	dev_deps?: Record<string, string>;
 	peer_deps?: Record<string, string>;
 	private?: boolean;
+	/** Defaults to `'npm'`; pass `'cargo'` to mock a dashboard-only non-npm repo. */
+	kind?: 'npm' | 'cargo';
 }
 
 /**
@@ -60,10 +62,11 @@ export const create_mock_library_json = (options: MockRepoOptions): LibraryJson 
  * Creates a mock LocalRepo for testing
  */
 export const create_mock_repo = (options: MockRepoOptions): LocalRepo => {
-	const {name, deps = {}, dev_deps = {}, peer_deps = {}} = options;
+	const {name, deps = {}, dev_deps = {}, peer_deps = {}, kind = 'npm'} = options;
 	const library_json = create_mock_library_json(options);
 
 	return {
+		kind,
 		library: new Library(library_json),
 		package_json: create_mock_package_json(options),
 		repo_dir: `/test/${name}`,
