@@ -1,6 +1,6 @@
-import type {Logger} from '@fuzdev/fuz_util/log.js';
+import type {Logger} from '@fuzdev/fuz_util/log.ts';
 import {z} from 'zod';
-import {fetch_value, type FetchValueCache} from '@fuzdev/fuz_util/fetch.js';
+import {fetch_value, type FetchValueCache} from '@fuzdev/fuz_util/fetch.ts';
 
 /**
  * Minimal interface for GitHub API calls - works with both `Pkg` and `Repo`.

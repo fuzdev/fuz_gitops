@@ -1,9 +1,9 @@
-import type {Logger} from '@fuzdev/fuz_util/log.js';
-import type {ChangesetOperations} from '$lib/operations.js';
-import type {LocalRepo} from '$lib/local_repo.js';
-import {parse_changeset_content, type ChangesetInfo} from '$lib/changeset_reader.js';
-import {compare_bump_types, calculate_next_version, type BumpType} from '$lib/version_utils.js';
-import type {RepoFixtureSet} from './repo_fixture_types.js';
+import type {Logger} from '@fuzdev/fuz_util/log.ts';
+import type {ChangesetOperations} from '$lib/operations.ts';
+import type {LocalRepo} from '$lib/local_repo.ts';
+import {parse_changeset_content, type ChangesetInfo} from '$lib/changeset_reader.ts';
+import {compare_bump_types, calculate_next_version, type BumpType} from '$lib/version_utils.ts';
+import type {RepoFixtureSet} from './repo_fixture_types.ts';
 
 /* eslint-disable @typescript-eslint/require-await */
 

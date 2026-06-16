@@ -1,21 +1,21 @@
-import type {Logger} from '@fuzdev/fuz_util/log.js';
-import type {Result} from '@fuzdev/fuz_util/result.js';
-import {spawn_out} from '@fuzdev/fuz_util/process.js';
+import type {Logger} from '@fuzdev/fuz_util/log.ts';
+import type {Result} from '@fuzdev/fuz_util/result.ts';
+import {spawn_out} from '@fuzdev/fuz_util/process.ts';
 import {styleText as st} from 'node:util';
 
-import type {LocalRepo} from './local_repo.js';
+import type {LocalRepo} from './local_repo.ts';
 import type {
 	GitOperations,
 	NpmOperations,
 	BuildOperations,
 	ChangesetOperations,
-} from './operations.js';
+} from './operations.ts';
 import {
 	default_git_operations,
 	default_npm_operations,
 	default_build_operations,
 	default_changeset_operations,
-} from './operations_defaults.js';
+} from './operations_defaults.ts';
 
 export interface PreflightOptions {
 	skip_changesets?: boolean;

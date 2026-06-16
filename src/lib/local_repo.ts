@@ -1,21 +1,21 @@
-import {strip_end} from '@fuzdev/fuz_util/string.js';
-import {to_error_message} from '@fuzdev/fuz_util/error.js';
-import type {LibraryJson} from '@fuzdev/fuz_util/library_json.js';
-import type {PackageJson} from '@fuzdev/fuz_util/package_json.js';
-import {Library} from '@fuzdev/fuz_ui/library.svelte.js';
+import {strip_end} from '@fuzdev/fuz_util/string.ts';
+import {to_error_message} from '@fuzdev/fuz_util/error.ts';
+import type {LibraryJson} from '@fuzdev/fuz_util/library_json.ts';
+import type {PackageJson} from '@fuzdev/fuz_util/package_json.ts';
+import {Library} from '@fuzdev/fuz_ui/library.svelte.ts';
 import {existsSync} from 'node:fs';
 import {join} from 'node:path';
 import {TaskError} from '@fuzdev/gro';
-import {library_load_from_repo} from '@fuzdev/gro/library_load.js';
-import type {Logger} from '@fuzdev/fuz_util/log.js';
-import {spawn_out} from '@fuzdev/fuz_util/process.js';
-import {map_concurrent_settled} from '@fuzdev/fuz_util/async.js';
-import type {GitOperations, NpmOperations} from './operations.js';
-import {default_git_operations, default_npm_operations} from './operations_defaults.js';
+import {library_load_from_repo} from '@fuzdev/gro/library_load.ts';
+import type {Logger} from '@fuzdev/fuz_util/log.ts';
+import {spawn_out} from '@fuzdev/fuz_util/process.ts';
+import {map_concurrent_settled} from '@fuzdev/fuz_util/async.ts';
+import type {GitOperations, NpmOperations} from './operations.ts';
+import {default_git_operations, default_npm_operations} from './operations_defaults.ts';
 
-import type {GitopsConfig, GitopsRepoConfig} from './gitops_config.js';
-import type {ResolvedGitopsConfig} from './resolved_gitops_config.js';
-import {GITOPS_CONCURRENCY_DEFAULT} from './gitops_constants.js';
+import type {GitopsConfig, GitopsRepoConfig} from './gitops_config.ts';
+import type {ResolvedGitopsConfig} from './resolved_gitops_config.ts';
+import {GITOPS_CONCURRENCY_DEFAULT} from './gitops_constants.ts';
 
 /**
  * Fully loaded local repo with `Library` and extracted dependency data.

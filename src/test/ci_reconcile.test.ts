@@ -3,7 +3,7 @@ import {join} from 'node:path';
 import {mkdtemp, mkdir, writeFile, rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 
-import {reconcile_ci, repo_has_workflows} from '$lib/ci_reconcile.js';
+import {reconcile_ci, repo_has_workflows} from '$lib/ci_reconcile.ts';
 
 describe('reconcile_ci', () => {
 	test('flags ci=true with no workflows as missing_ci', () => {

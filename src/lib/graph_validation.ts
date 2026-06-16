@@ -13,12 +13,12 @@
  * @module
  */
 
-import type {Logger} from '@fuzdev/fuz_util/log.js';
+import type {Logger} from '@fuzdev/fuz_util/log.ts';
 import {TaskError} from '@fuzdev/gro';
 import {styleText as st} from 'node:util';
 
-import {DependencyGraph, DependencyGraphBuilder} from './dependency_graph.js';
-import type {LocalRepo} from './local_repo.js';
+import {DependencyGraph, DependencyGraphBuilder} from './dependency_graph.ts';
+import type {LocalRepo} from './local_repo.ts';
 
 export interface GraphValidationResult {
 	graph: DependencyGraph;

@@ -2,7 +2,7 @@
 	import PageFooter from './PageFooter.svelte';
 	import PageHeader from './PageHeader.svelte';
 	import ReposTable from './ReposTable.svelte';
-	import type {Repo} from './repo.svelte.js';
+	import type {Repo} from './repo.svelte.ts';
 
 	const {
 		repo,

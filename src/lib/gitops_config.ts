@@ -11,12 +11,12 @@
  * @module
  */
 
-import type {Url} from '@fuzdev/fuz_util/url.js';
+import type {Url} from '@fuzdev/fuz_util/url.ts';
 import {existsSync} from 'node:fs';
-import {strip_end} from '@fuzdev/fuz_util/string.js';
-import type {GitBranch} from '@fuzdev/fuz_util/git.js';
+import {strip_end} from '@fuzdev/fuz_util/string.ts';
+import type {GitBranch} from '@fuzdev/fuz_util/git.ts';
 
-import {DEFAULT_REPOS_DIR} from './paths.js';
+import {DEFAULT_REPOS_DIR} from './paths.ts';
 
 export interface GitopsConfig {
 	repos: Array<GitopsRepoConfig>;

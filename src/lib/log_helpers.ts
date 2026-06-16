@@ -1,7 +1,7 @@
-import type {Logger} from '@fuzdev/fuz_util/log.js';
+import type {Logger} from '@fuzdev/fuz_util/log.ts';
 import {styleText as st} from 'node:util';
 
-import type {DependencyGraphBuilder} from './dependency_graph.js';
+import type {DependencyGraphBuilder} from './dependency_graph.ts';
 
 /**
  * Formats wildcard dependencies as styled strings.

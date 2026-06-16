@@ -1,17 +1,17 @@
 /**
  * Dependency graph data structure and algorithms for multi-repo publishing.
  *
- * Provides `DependencyGraph` class with topological sort (via `@fuzdev/fuz_util/sort.js`)
+ * Provides `DependencyGraph` class with topological sort (via `@fuzdev/fuz_util/sort.ts`)
  * and cycle detection by dependency type.
  * For validation workflow and publishing order computation, see `graph_validation.ts`.
  *
  * @module
  */
 
-import {EMPTY_OBJECT} from '@fuzdev/fuz_util/object.js';
-import {topological_sort as topological_sort_generic} from '@fuzdev/fuz_util/sort.js';
+import {EMPTY_OBJECT} from '@fuzdev/fuz_util/object.ts';
+import {topological_sort as topological_sort_generic} from '@fuzdev/fuz_util/sort.ts';
 
-import type {LocalRepo} from './local_repo.js';
+import type {LocalRepo} from './local_repo.ts';
 
 export const DEPENDENCY_TYPE = {
 	PROD: 'prod',
@@ -122,7 +122,7 @@ export class DependencyGraph {
 	/**
 	 * Computes topological sort order for dependency graph.
 	 *
-	 * Delegates to `@fuzdev/fuz_util/sort.js` for the sorting algorithm.
+	 * Delegates to `@fuzdev/fuz_util/sort.ts` for the sorting algorithm.
 	 * Throws if cycles detected.
 	 *
 	 * @param exclude_dev - if true, excludes dev dependencies to break cycles

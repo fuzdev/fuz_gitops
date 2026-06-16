@@ -2,8 +2,8 @@
 	import PageFooter from './PageFooter.svelte';
 	import PageHeader from './PageHeader.svelte';
 	import PullRequestsDetail from './PullRequestsDetail.svelte';
-	import type {FilterPullRequest} from './github_helpers.js';
-	import type {Repo} from './repo.svelte.js';
+	import type {FilterPullRequest} from './github_helpers.ts';
+	import type {Repo} from './repo.svelte.ts';
 
 	const {
 		repo,

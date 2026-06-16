@@ -40,19 +40,19 @@ npm i -D @fuzdev/fuz_gitops
 
   ```ts
   // gitops_sync.task.ts
-  export * from '@fuzdev/fuz_gitops/gitops_sync.task.js';
+  export * from '@fuzdev/fuz_gitops/gitops_sync.task.ts';
 
   // gitops_analyze.task.ts
-  export * from '@fuzdev/fuz_gitops/gitops_analyze.task.js';
+  export * from '@fuzdev/fuz_gitops/gitops_analyze.task.ts';
 
   // gitops_plan.task.ts
-  export * from '@fuzdev/fuz_gitops/gitops_plan.task.js';
+  export * from '@fuzdev/fuz_gitops/gitops_plan.task.ts';
 
   // gitops_publish.task.ts
-  export * from '@fuzdev/fuz_gitops/gitops_publish.task.js';
+  export * from '@fuzdev/fuz_gitops/gitops_publish.task.ts';
 
   // gitops_validate.task.ts
-  export * from '@fuzdev/fuz_gitops/gitops_validate.task.js';
+  export * from '@fuzdev/fuz_gitops/gitops_validate.task.ts';
   ```
 
 - run `gro gitops_sync` to sync repos and update the local data

@@ -1,4 +1,4 @@
-import type {RepoFixtureSet} from '../repo_fixture_types.js';
+import type {RepoFixtureSet} from '../repo_fixture_types.ts';
 
 /**
  * Tests packages with only peer dependencies (no production dependencies).

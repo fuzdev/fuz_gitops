@@ -9,15 +9,15 @@
 	import {
 		ContextmenuState,
 		contextmenu_attachment,
-	} from '@fuzdev/fuz_ui/contextmenu_state.svelte.js';
-	import {SiteState, site_context} from '@fuzdev/fuz_ui/site.svelte.js';
-	import {logo_fuz_gitops} from '@fuzdev/fuz_ui/logos.js';
+	} from '@fuzdev/fuz_ui/contextmenu_state.svelte.ts';
+	import {SiteState, site_context} from '@fuzdev/fuz_ui/site.svelte.ts';
+	import {logo_fuz_gitops} from '@fuzdev/fuz_ui/logos.ts';
 	import type {Snippet} from 'svelte';
 	import pkg_json from 'virtual:pkg.json';
 
-	import Settings from '$routes/Settings.svelte';
-	import {repos_json} from '$routes/repos.js';
-	import {Repo, type RepoJson, repos_parse, repos_context} from '$lib/repo.svelte.js';
+	import Settings from './Settings.svelte';
+	import {repos_json} from './repos.ts';
+	import {Repo, type RepoJson, repos_parse, repos_context} from '$lib/repo.svelte.ts';
 
 	const {
 		children,

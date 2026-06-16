@@ -1,21 +1,21 @@
 import type {Task} from '@fuzdev/gro';
-import type {Logger} from '@fuzdev/fuz_util/log.js';
+import type {Logger} from '@fuzdev/fuz_util/log.ts';
 import {z} from 'zod';
 import {createInterface} from 'node:readline/promises';
 import {styleText as st} from 'node:util';
 
-import {get_gitops_ready} from './gitops_task_helpers.js';
+import {get_gitops_ready} from './gitops_task_helpers.ts';
 import {
 	execute_publishing_plan,
 	type PublishingOptions,
 	type PublishingResult,
-} from './multi_repo_publisher.js';
-import {stdout_handler} from './publishing_event_handler.js';
-import {generate_publishing_plan, log_publishing_plan} from './publishing_plan.js';
-import {derive_publish_steps, format_publish_steps, type PublishStep} from './publish_steps.js';
-import {decide_publish_gate, publish_run_failed} from './publish_gate.js';
-import {format_and_output, type OutputFormatters} from './output_helpers.js';
-import {GITOPS_CONFIG_PATH_DEFAULT, GITOPS_NPM_WAIT_TIMEOUT_DEFAULT} from './gitops_constants.js';
+} from './multi_repo_publisher.ts';
+import {stdout_handler} from './publishing_event_handler.ts';
+import {generate_publishing_plan, log_publishing_plan} from './publishing_plan.ts';
+import {derive_publish_steps, format_publish_steps, type PublishStep} from './publish_steps.ts';
+import {decide_publish_gate, publish_run_failed} from './publish_gate.ts';
+import {format_and_output, type OutputFormatters} from './output_helpers.ts';
+import {GITOPS_CONFIG_PATH_DEFAULT, GITOPS_NPM_WAIT_TIMEOUT_DEFAULT} from './gitops_constants.ts';
 
 /** @nodocs */
 export const Args = z.strictObject({

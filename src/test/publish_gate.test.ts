@@ -1,6 +1,6 @@
 import {assert, test, describe} from 'vitest';
 
-import {decide_publish_gate, publish_run_failed} from '$lib/publish_gate.js';
+import {decide_publish_gate, publish_run_failed} from '$lib/publish_gate.ts';
 
 const no_errors = {errors: []};
 const with_errors = {errors: ['Production dependency cycle: a → b → a']};

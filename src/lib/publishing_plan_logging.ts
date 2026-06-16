@@ -6,7 +6,7 @@
  * @module
  */
 
-import type {Logger} from '@fuzdev/fuz_util/log.js';
+import type {Logger} from '@fuzdev/fuz_util/log.ts';
 import {styleText as st} from 'node:util';
 
 import type {
@@ -18,7 +18,7 @@ import type {
 	VerboseIteration,
 	VerbosePropagationChain,
 	VerboseGraphSummary,
-} from './publishing_plan.js';
+} from './publishing_plan.ts';
 
 export interface LogPlanOptions {
 	verbose?: boolean;

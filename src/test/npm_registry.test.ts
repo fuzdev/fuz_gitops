@@ -1,7 +1,7 @@
 import {assert, describe, test, vi, beforeEach, afterEach} from 'vitest';
-import {spawn_out} from '@fuzdev/fuz_util/process.js';
-import {wait} from '@fuzdev/fuz_util/async.js';
-import {assert_rejects, create_mock_logger} from '@fuzdev/fuz_util/testing.js';
+import {spawn_out} from '@fuzdev/fuz_util/process.ts';
+import {wait} from '@fuzdev/fuz_util/async.ts';
+import {assert_rejects, create_mock_logger} from '@fuzdev/fuz_util/testing.ts';
 
 import {
 	check_package_available,
@@ -9,7 +9,7 @@ import {
 	get_package_info,
 	package_exists,
 	type WaitOptions,
-} from '$lib/npm_registry.js';
+} from '$lib/npm_registry.ts';
 
 // Mock spawn_out from @fuzdev/fuz_util/process.js
 vi.mock('@fuzdev/fuz_util/process.js', () => ({

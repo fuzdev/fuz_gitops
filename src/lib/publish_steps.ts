@@ -8,9 +8,9 @@
  * @module
  */
 
-import type {BumpType} from './version_utils.js';
-import type {PublishingPlan, VersionChange} from './publishing_plan.js';
-import {UnreachableError} from '@fuzdev/fuz_util/error.js';
+import type {BumpType} from './version_utils.ts';
+import type {PublishingPlan, VersionChange} from './publishing_plan.ts';
+import {UnreachableError} from '@fuzdev/fuz_util/error.ts';
 
 /** How a package's version bump arises in the plan. */
 export type PublishStepVia = 'changeset' | 'auto_changeset' | 'escalation';

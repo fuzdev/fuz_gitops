@@ -11,7 +11,7 @@
  * @module
  */
 
-import type {GitopsRepoConfig} from './gitops_config.js';
+import type {GitopsRepoConfig} from './gitops_config.ts';
 
 /** Repo fields that must agree across every config that lists the repo. */
 const INTRINSIC_FIELDS = ['visibility', 'ci', 'archived', 'branch'] as const;

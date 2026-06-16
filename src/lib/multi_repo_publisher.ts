@@ -1,30 +1,30 @@
-import type {Logger} from '@fuzdev/fuz_util/log.js';
+import type {Logger} from '@fuzdev/fuz_util/log.ts';
 import {TaskError} from '@fuzdev/gro';
 import {join} from 'node:path';
 import {styleText as st} from 'node:util';
 
-import type {LocalRepo} from './local_repo.js';
-import {update_package_json, type VersionStrategy} from './dependency_updater.js';
+import type {LocalRepo} from './local_repo.ts';
+import {update_package_json, type VersionStrategy} from './dependency_updater.ts';
 import {
 	generate_publishing_plan,
 	type VersionChange,
 	type DependencyUpdate,
 	type PublishingPlan,
-} from './publishing_plan.js';
-import type {PreflightOptions} from './preflight_checks.js';
-import type {GitopsOperations} from './operations.js';
-import {default_gitops_operations} from './operations_defaults.js';
-import {GITOPS_NPM_WAIT_TIMEOUT_DEFAULT} from './gitops_constants.js';
+} from './publishing_plan.ts';
+import type {PreflightOptions} from './preflight_checks.ts';
+import type {GitopsOperations} from './operations.ts';
+import {default_gitops_operations} from './operations_defaults.ts';
+import {GITOPS_NPM_WAIT_TIMEOUT_DEFAULT} from './gitops_constants.ts';
 import {
 	type PublishingEvent,
 	type PublishingRunSummary,
 	summarize_events,
-} from './publishing_event.js';
+} from './publishing_event.ts';
 import {
 	type PublishingEventHandler,
 	capture_handler,
 	multi_handler,
-} from './publishing_event_handler.js';
+} from './publishing_event_handler.ts';
 
 export interface PublishingOptions {
 	wetrun: boolean;

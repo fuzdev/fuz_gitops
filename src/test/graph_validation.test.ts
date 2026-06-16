@@ -1,8 +1,8 @@
 import {assert, describe, test} from 'vitest';
 import {TaskError} from '@fuzdev/gro';
 
-import {validate_dependency_graph} from '$lib/graph_validation.js';
-import {create_mock_repo} from './test_helpers.js';
+import {validate_dependency_graph} from '$lib/graph_validation.ts';
+import {create_mock_repo} from './test_helpers.ts';
 
 describe('validate_dependency_graph', () => {
 	describe('basic functionality', () => {

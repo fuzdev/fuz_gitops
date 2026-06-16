@@ -2,7 +2,7 @@
 	import {resolve} from '$app/paths';
 	import type {Snippet} from 'svelte';
 
-	import type {Repo} from './repo.svelte.js';
+	import type {Repo} from './repo.svelte.ts';
 
 	const {
 		repos,

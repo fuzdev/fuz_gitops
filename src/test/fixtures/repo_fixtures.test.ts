@@ -1,18 +1,18 @@
 import {describe, test, assert} from 'vitest';
 
-import {generate_publishing_plan, type PublishingPlan} from '$lib/publishing_plan.js';
-import {basic_publishing} from './repo_fixtures/basic_publishing.js';
-import {deep_cascade} from './repo_fixtures/deep_cascade.js';
-import {circular_dev_deps} from './repo_fixtures/circular_dev_deps.js';
-import {private_packages} from './repo_fixtures/private_packages.js';
-import {major_bumps} from './repo_fixtures/major_bumps.js';
-import {peer_deps_only} from './repo_fixtures/peer_deps_only.js';
-import {circular_prod_deps_error} from './repo_fixtures/circular_prod_deps_error.js';
-import {isolated_packages} from './repo_fixtures/isolated_packages.js';
-import {multiple_dep_types} from './repo_fixtures/multiple_dep_types.js';
-import {fixture_to_local_repos} from './load_repo_fixtures.js';
-import {create_mock_changeset_ops} from './mock_changeset_operations.js';
-import type {RepoFixtureSet, RepoFixtureExpectedVersionChange} from './repo_fixture_types.js';
+import {generate_publishing_plan, type PublishingPlan} from '$lib/publishing_plan.ts';
+import {basic_publishing} from './repo_fixtures/basic_publishing.ts';
+import {deep_cascade} from './repo_fixtures/deep_cascade.ts';
+import {circular_dev_deps} from './repo_fixtures/circular_dev_deps.ts';
+import {private_packages} from './repo_fixtures/private_packages.ts';
+import {major_bumps} from './repo_fixtures/major_bumps.ts';
+import {peer_deps_only} from './repo_fixtures/peer_deps_only.ts';
+import {circular_prod_deps_error} from './repo_fixtures/circular_prod_deps_error.ts';
+import {isolated_packages} from './repo_fixtures/isolated_packages.ts';
+import {multiple_dep_types} from './repo_fixtures/multiple_dep_types.ts';
+import {fixture_to_local_repos} from './load_repo_fixtures.ts';
+import {create_mock_changeset_ops} from './mock_changeset_operations.ts';
+import type {RepoFixtureSet, RepoFixtureExpectedVersionChange} from './repo_fixture_types.ts';
 
 // All fixtures to test
 const FIXTURES = [

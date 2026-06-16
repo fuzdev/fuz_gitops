@@ -15,9 +15,9 @@ import {existsSync} from 'node:fs';
 import {readdir, stat} from 'node:fs/promises';
 import {join, resolve, dirname} from 'node:path';
 
-import {load_gitops_config} from './gitops_config.js';
-import {DEFAULT_REPOS_DIR} from './paths.js';
-import {GITOPS_CONFIG_PATH_DEFAULT} from './gitops_constants.js';
+import {load_gitops_config} from './gitops_config.ts';
+import {DEFAULT_REPOS_DIR} from './paths.ts';
+import {GITOPS_CONFIG_PATH_DEFAULT} from './gitops_constants.ts';
 
 /** Default directories to exclude from file walking */
 export const DEFAULT_EXCLUDE_DIRS = [

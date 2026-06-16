@@ -5,8 +5,8 @@ import {
 	create_empty_gitops_config,
 	type GitopsRepoConfig,
 	type RawGitopsRepoConfig,
-} from '$lib/gitops_config.js';
-import type {Url} from '@fuzdev/fuz_util/url.js';
+} from '$lib/gitops_config.ts';
+import type {Url} from '@fuzdev/fuz_util/url.ts';
 
 /** Normalizes a single raw repo entry and returns its parsed config. */
 const parse_one = (raw: Url | RawGitopsRepoConfig): GitopsRepoConfig => {

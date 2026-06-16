@@ -1,8 +1,8 @@
-import type {CreateGitopsConfig} from '$lib/gitops_config.js';
+import type {CreateGitopsConfig} from '$lib/gitops_config.ts';
 import {join, dirname} from 'node:path';
 import {fileURLToPath} from 'node:url';
 
-import {private_packages} from '../repo_fixtures/private_packages.js';
+import {private_packages} from '../repo_fixtures/private_packages.ts';
 
 // Get absolute path to fixtures directory
 const FIXTURES_DIR = dirname(dirname(fileURLToPath(import.meta.url)));

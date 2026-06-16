@@ -34,14 +34,14 @@
  * @module
  */
 
-import type {Result} from '@fuzdev/fuz_util/result.js';
-import type {FsError} from '@fuzdev/fuz_util/fs.js';
-import type {Logger} from '@fuzdev/fuz_util/log.js';
-import type {LocalRepo} from './local_repo.js';
-import type {ChangesetInfo} from './changeset_reader.js';
-import type {BumpType} from './version_utils.js';
-import type {PreflightOptions, PreflightResult} from './preflight_checks.js';
-import type {WaitOptions} from './npm_registry.js';
+import type {Result} from '@fuzdev/fuz_util/result.ts';
+import type {FsError} from '@fuzdev/fuz_util/fs.ts';
+import type {Logger} from '@fuzdev/fuz_util/log.ts';
+import type {LocalRepo} from './local_repo.ts';
+import type {ChangesetInfo} from './changeset_reader.ts';
+import type {BumpType} from './version_utils.ts';
+import type {PreflightOptions, PreflightResult} from './preflight_checks.ts';
+import type {WaitOptions} from './npm_registry.ts';
 
 /**
  * Changeset operations for reading and predicting versions from `.changeset/*.md` files.
@@ -293,7 +293,7 @@ export interface PreflightOperations {
  *
  * Errors are typed via `FsError` (`not_found | permission_denied |
  * already_exists | io_error`) so callers can branch on `kind` instead of
- * regex-matching `message`. See `@fuzdev/fuz_util/fs.js`.
+ * regex-matching `message`. See `@fuzdev/fuz_util/fs.ts`.
  */
 export interface FsOperations {
 	/**

@@ -8,8 +8,8 @@
  * @module
  */
 
-import type {PublishingResult} from './multi_repo_publisher.js';
-import type {PublishingPlan} from './publishing_plan.js';
+import type {PublishingResult} from './multi_repo_publisher.ts';
+import type {PublishingPlan} from './publishing_plan.ts';
 
 /** What the task should do with a generated plan before executing the cascade. */
 export type PublishGate =

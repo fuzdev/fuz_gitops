@@ -1,8 +1,8 @@
-import type {CreateGitopsConfig} from '$lib/gitops_config.js';
+import type {CreateGitopsConfig} from '$lib/gitops_config.ts';
 import {join, dirname} from 'node:path';
 import {fileURLToPath} from 'node:url';
 
-import {peer_deps_only} from '../repo_fixtures/peer_deps_only.js';
+import {peer_deps_only} from '../repo_fixtures/peer_deps_only.ts';
 
 // Get absolute path to fixtures directory
 const FIXTURES_DIR = dirname(dirname(fileURLToPath(import.meta.url)));

@@ -3,8 +3,8 @@ import {
 	parse_changeset_content,
 	determine_bump_from_changesets,
 	type ChangesetInfo,
-} from '$lib/changeset_reader.js';
-import {calculate_next_version, compare_bump_types, type BumpType} from '$lib/version_utils.js';
+} from '$lib/changeset_reader.ts';
+import {calculate_next_version, compare_bump_types, type BumpType} from '$lib/version_utils.ts';
 
 describe('changeset_reader', () => {
 	describe('parse_changeset_content', () => {

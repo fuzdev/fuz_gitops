@@ -1,8 +1,8 @@
 <script lang="ts">
 	import {resolve} from '$app/paths';
 
-	import {to_pull_requests, type FilterPullRequest} from './github_helpers.js';
-	import type {Repo} from './repo.svelte.js';
+	import {to_pull_requests, type FilterPullRequest} from './github_helpers.ts';
+	import type {Repo} from './repo.svelte.ts';
 
 	const {
 		repos,

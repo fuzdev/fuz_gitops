@@ -1,8 +1,8 @@
-import type {CreateGitopsConfig} from '$lib/gitops_config.js';
+import type {CreateGitopsConfig} from '$lib/gitops_config.ts';
 import {join, dirname} from 'node:path';
 import {fileURLToPath} from 'node:url';
 
-import {major_bumps} from '../repo_fixtures/major_bumps.js';
+import {major_bumps} from '../repo_fixtures/major_bumps.ts';
 
 // Get absolute path to fixtures directory
 const FIXTURES_DIR = dirname(dirname(fileURLToPath(import.meta.url)));

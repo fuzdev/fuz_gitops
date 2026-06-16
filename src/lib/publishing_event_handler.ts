@@ -9,7 +9,7 @@
  * @module
  */
 
-import type {PublishingEvent} from './publishing_event.js';
+import type {PublishingEvent} from './publishing_event.ts';
 
 /** A sink for publishing events. */
 export interface PublishingEventHandler {

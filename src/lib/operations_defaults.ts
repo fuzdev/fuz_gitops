@@ -7,15 +7,15 @@
  * @module
  */
 
-import {spawn_out} from '@fuzdev/fuz_util/process.js';
+import {spawn_out} from '@fuzdev/fuz_util/process.ts';
 import {readFile, writeFile, mkdir, stat} from 'node:fs/promises';
-import {git_checkout, type GitBranch, type GitOrigin} from '@fuzdev/fuz_util/git.js';
-import {fs_classify_error} from '@fuzdev/fuz_util/fs.js';
-import {EMPTY_OBJECT} from '@fuzdev/fuz_util/object.js';
+import {git_checkout, type GitBranch, type GitOrigin} from '@fuzdev/fuz_util/git.ts';
+import {fs_classify_error} from '@fuzdev/fuz_util/fs.ts';
+import {EMPTY_OBJECT} from '@fuzdev/fuz_util/object.ts';
 
-import {has_changesets, read_changesets, predict_next_version} from './changeset_reader.js';
-import {wait_for_package} from './npm_registry.js';
-import {run_preflight_checks} from './preflight_checks.js';
+import {has_changesets, read_changesets, predict_next_version} from './changeset_reader.ts';
+import {wait_for_package} from './npm_registry.ts';
+import {run_preflight_checks} from './preflight_checks.ts';
 import {
 	git_add,
 	git_commit,
@@ -32,7 +32,7 @@ import {
 	git_current_commit_hash_required,
 	git_check_clean_workspace_as_boolean,
 	git_has_remote,
-} from './git_operations.js';
+} from './git_operations.ts';
 import type {
 	ChangesetOperations,
 	GitOperations,
@@ -42,7 +42,7 @@ import type {
 	FsOperations,
 	BuildOperations,
 	GitopsOperations,
-} from './operations.js';
+} from './operations.ts';
 
 /** Wrap an async function that returns a value */
 const wrap_with_value = async <T>(

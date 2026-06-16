@@ -1,8 +1,8 @@
-import type {CreateGitopsConfig} from '$lib/gitops_config.js';
+import type {CreateGitopsConfig} from '$lib/gitops_config.ts';
 import {join, dirname} from 'node:path';
 import {fileURLToPath} from 'node:url';
 
-import {circular_prod_deps_error} from '../repo_fixtures/circular_prod_deps_error.js';
+import {circular_prod_deps_error} from '../repo_fixtures/circular_prod_deps_error.ts';
 
 // Get absolute path to fixtures directory
 const FIXTURES_DIR = dirname(dirname(fileURLToPath(import.meta.url)));

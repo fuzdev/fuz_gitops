@@ -1,7 +1,7 @@
-import {ensure_end} from '@fuzdev/fuz_util/string.js';
+import {ensure_end} from '@fuzdev/fuz_util/string.ts';
 
-import type {GithubPullRequest} from './github.js';
-import type {Repo} from './repo.svelte.js';
+import type {GithubPullRequest} from './github.ts';
+import type {Repo} from './repo.svelte.ts';
 
 export type FilterPullRequest = (pull_request: GithubPullRequest, repo: Repo) => boolean;
 

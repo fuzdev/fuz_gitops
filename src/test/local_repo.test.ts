@@ -1,8 +1,8 @@
 import {assert, test} from 'vitest';
-import {assert_rejects} from '@fuzdev/fuz_util/testing.js';
+import {assert_rejects} from '@fuzdev/fuz_util/testing.ts';
 
-import {local_repo_load, local_repos_load, type LocalRepoPath} from '$lib/local_repo.js';
-import {create_mock_git_ops, create_mock_npm_ops} from './test_helpers.js';
+import {local_repo_load, local_repos_load, type LocalRepoPath} from '$lib/local_repo.ts';
+import {create_mock_git_ops, create_mock_npm_ops} from './test_helpers.ts';
 
 const create_local_repo_path = (name: string = 'test-repo'): LocalRepoPath => ({
 	type: 'local_repo_path',

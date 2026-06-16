@@ -1,10 +1,10 @@
 <script lang="ts">
-	import {ensure_end} from '@fuzdev/fuz_util/string.js';
+	import {ensure_end} from '@fuzdev/fuz_util/string.ts';
 	import {resolve} from '$app/paths';
 	import type {Snippet} from 'svelte';
 
 	import ModulesNav from './ModulesNav.svelte';
-	import type {Repo} from './repo.svelte.js';
+	import type {Repo} from './repo.svelte.ts';
 
 	const {
 		repos,

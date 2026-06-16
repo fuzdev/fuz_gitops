@@ -1,19 +1,19 @@
 import type {Task} from '@fuzdev/gro';
 import {z} from 'zod';
 import {styleText as st} from 'node:util';
-import type {Logger} from '@fuzdev/fuz_util/log.js';
+import type {Logger} from '@fuzdev/fuz_util/log.ts';
 
-import {get_gitops_ready} from './gitops_task_helpers.js';
-import type {DependencyGraph} from './dependency_graph.js';
-import type {LocalRepo} from './local_repo.js';
-import {analyze_repos, type DependencyAnalysis} from './graph_validation.js';
+import {get_gitops_ready} from './gitops_task_helpers.ts';
+import type {DependencyGraph} from './dependency_graph.ts';
+import type {LocalRepo} from './local_repo.ts';
+import {analyze_repos, type DependencyAnalysis} from './graph_validation.ts';
 import {
 	format_wildcard_dependencies,
 	format_dev_cycles,
 	format_production_cycles,
-} from './log_helpers.js';
-import {format_and_output, type OutputFormatters} from './output_helpers.js';
-import {GITOPS_CONFIG_PATH_DEFAULT} from './gitops_constants.js';
+} from './log_helpers.ts';
+import {format_and_output, type OutputFormatters} from './output_helpers.ts';
+import {GITOPS_CONFIG_PATH_DEFAULT} from './gitops_constants.ts';
 
 /** @nodocs */
 export const Args = z.strictObject({

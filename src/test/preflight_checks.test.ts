@@ -1,13 +1,13 @@
 import {assert, describe, test} from 'vitest';
 
-import {run_preflight_checks} from '$lib/preflight_checks.js';
+import {run_preflight_checks} from '$lib/preflight_checks.ts';
 import {
 	create_mock_repo,
 	create_mock_git_ops,
 	create_mock_npm_ops,
 	create_mock_build_ops,
-} from './test_helpers.js';
-import type {LocalRepo} from '$lib/local_repo.js';
+} from './test_helpers.ts';
+import type {LocalRepo} from '$lib/local_repo.ts';
 
 describe('preflight_checks', () => {
 	describe('workspace cleanliness', () => {

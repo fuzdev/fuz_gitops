@@ -1,8 +1,8 @@
-import type {CreateGitopsConfig} from '$lib/gitops_config.js';
+import type {CreateGitopsConfig} from '$lib/gitops_config.ts';
 import {join, dirname} from 'node:path';
 import {fileURLToPath} from 'node:url';
 
-import {multiple_dep_types} from '../repo_fixtures/multiple_dep_types.js';
+import {multiple_dep_types} from '../repo_fixtures/multiple_dep_types.ts';
 
 // Get absolute path to fixtures directory
 const FIXTURES_DIR = dirname(dirname(fileURLToPath(import.meta.url)));

@@ -6,9 +6,9 @@
  * @module
  */
 
-import type {LocalRepo} from './local_repo.js';
-import {needs_update, required_bump_for_dependency_update, type BumpType} from './version_utils.js';
-import type {DependencyUpdate} from './publishing_plan.js';
+import type {LocalRepo} from './local_repo.ts';
+import {needs_update, required_bump_for_dependency_update, type BumpType} from './version_utils.ts';
+import type {DependencyUpdate} from './publishing_plan.ts';
 
 /**
  * Calculates all dependency updates between packages based on predicted versions.

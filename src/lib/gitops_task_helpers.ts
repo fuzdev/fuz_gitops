@@ -19,14 +19,14 @@
 import {TaskError} from '@fuzdev/gro';
 import {styleText as st} from 'node:util';
 import {resolve, dirname} from 'node:path';
-import {print_path} from '@fuzdev/gro/paths.js';
-import type {Logger} from '@fuzdev/fuz_util/log.js';
+import {print_path} from '@fuzdev/gro/paths.ts';
+import type {Logger} from '@fuzdev/fuz_util/log.ts';
 
-import {load_gitops_config, type GitopsConfig} from './gitops_config.js';
-import {local_repos_load, local_repos_ensure, type LocalRepo} from './local_repo.js';
-import {resolve_gitops_config} from './resolved_gitops_config.js';
-import {DEFAULT_REPOS_DIR} from './paths.js';
-import type {GitOperations, NpmOperations} from './operations.js';
+import {load_gitops_config, type GitopsConfig} from './gitops_config.ts';
+import {local_repos_load, local_repos_ensure, type LocalRepo} from './local_repo.ts';
+import {resolve_gitops_config} from './resolved_gitops_config.ts';
+import {DEFAULT_REPOS_DIR} from './paths.ts';
+import type {GitOperations, NpmOperations} from './operations.ts';
 
 export interface GetGitopsReadyOptions {
 	config: string;

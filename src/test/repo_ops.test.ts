@@ -9,7 +9,7 @@ import {
 	collect_repo_files,
 	DEFAULT_EXCLUDE_DIRS,
 	DEFAULT_EXCLUDE_EXTENSIONS,
-} from '$lib/repo_ops.js';
+} from '$lib/repo_ops.ts';
 
 describe('repo_ops', () => {
 	describe('DEFAULT_EXCLUDE_DIRS', () => {

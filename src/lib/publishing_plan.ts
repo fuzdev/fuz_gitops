@@ -1,25 +1,25 @@
-import type {Logger} from '@fuzdev/fuz_util/log.js';
+import type {Logger} from '@fuzdev/fuz_util/log.ts';
 import {styleText as st} from 'node:util';
 
-import type {LocalRepo} from './local_repo.js';
-import {validate_dependency_graph} from './graph_validation.js';
+import type {LocalRepo} from './local_repo.ts';
+import {validate_dependency_graph} from './graph_validation.ts';
 import {
 	type BumpType,
 	is_breaking_change,
 	compare_bump_types,
 	calculate_next_version,
-} from './version_utils.js';
-import type {ChangesetOperations} from './operations.js';
-import {default_changeset_operations} from './operations_defaults.js';
-import {GITOPS_MAX_ITERATIONS_DEFAULT} from './gitops_constants.js';
+} from './version_utils.ts';
+import type {ChangesetOperations} from './operations.ts';
+import {default_changeset_operations} from './operations_defaults.ts';
+import {GITOPS_MAX_ITERATIONS_DEFAULT} from './gitops_constants.ts';
 import type {DependencyGraph} from './dependency_graph.ts';
 import {
 	calculate_dependency_updates,
 	get_required_bump_for_dependencies,
-} from './publishing_plan_helpers.js';
+} from './publishing_plan_helpers.ts';
 
 // Re-export logging functions
-export {log_publishing_plan, type LogPlanOptions} from './publishing_plan_logging.js';
+export {log_publishing_plan, type LogPlanOptions} from './publishing_plan_logging.ts';
 
 export interface VersionChange {
 	package_name: string;

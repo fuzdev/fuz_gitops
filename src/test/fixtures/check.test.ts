@@ -3,10 +3,10 @@ import {existsSync} from 'node:fs';
 import {join, dirname} from 'node:path';
 import {fileURLToPath} from 'node:url';
 
-import {validate_dependency_graph} from '$lib/graph_validation.js';
-import {generate_publishing_plan} from '$lib/publishing_plan.js';
-import {load_gitops_config} from '$lib/gitops_config.js';
-import {publish_repos} from '$lib/multi_repo_publisher.js';
+import {validate_dependency_graph} from '$lib/graph_validation.ts';
+import {generate_publishing_plan} from '$lib/publishing_plan.ts';
+import {load_gitops_config} from '$lib/gitops_config.ts';
+import {publish_repos} from '$lib/multi_repo_publisher.ts';
 import {
 	create_mock_gitops_ops,
 	create_dirty_workspace_git_ops,
@@ -15,22 +15,22 @@ import {
 	create_unavailable_registry_npm_ops,
 	create_failing_build_ops,
 	create_configurable_gitops_ops,
-} from './mock_operations.js';
-import {fixture_to_local_repos} from './load_repo_fixtures.js';
-import type {LocalRepo} from '$lib/local_repo.js';
-import {basic_publishing} from './repo_fixtures/basic_publishing.js';
-import {deep_cascade} from './repo_fixtures/deep_cascade.js';
-import {circular_dev_deps} from './repo_fixtures/circular_dev_deps.js';
-import {three_way_dev_cycle} from './repo_fixtures/three_way_dev_cycle.js';
-import {private_packages} from './repo_fixtures/private_packages.js';
-import {major_bumps} from './repo_fixtures/major_bumps.js';
-import {peer_deps_only} from './repo_fixtures/peer_deps_only.js';
-import {circular_prod_deps_error} from './repo_fixtures/circular_prod_deps_error.js';
-import {isolated_packages} from './repo_fixtures/isolated_packages.js';
-import {multiple_dep_types} from './repo_fixtures/multiple_dep_types.js';
-import type {RepoFixtureSet} from './repo_fixture_types.js';
-import {generate_all_fixtures, fixtures_exist} from './generate_repos.js';
-import {assert_publishing_order, assert_version_changes, assert_messages} from './helpers.js';
+} from './mock_operations.ts';
+import {fixture_to_local_repos} from './load_repo_fixtures.ts';
+import type {LocalRepo} from '$lib/local_repo.ts';
+import {basic_publishing} from './repo_fixtures/basic_publishing.ts';
+import {deep_cascade} from './repo_fixtures/deep_cascade.ts';
+import {circular_dev_deps} from './repo_fixtures/circular_dev_deps.ts';
+import {three_way_dev_cycle} from './repo_fixtures/three_way_dev_cycle.ts';
+import {private_packages} from './repo_fixtures/private_packages.ts';
+import {major_bumps} from './repo_fixtures/major_bumps.ts';
+import {peer_deps_only} from './repo_fixtures/peer_deps_only.ts';
+import {circular_prod_deps_error} from './repo_fixtures/circular_prod_deps_error.ts';
+import {isolated_packages} from './repo_fixtures/isolated_packages.ts';
+import {multiple_dep_types} from './repo_fixtures/multiple_dep_types.ts';
+import type {RepoFixtureSet} from './repo_fixture_types.ts';
+import {generate_all_fixtures, fixtures_exist} from './generate_repos.ts';
+import {assert_publishing_order, assert_version_changes, assert_messages} from './helpers.ts';
 
 // All fixture sets
 const FIXTURES: Array<RepoFixtureSet> = [

@@ -10,7 +10,7 @@ import {
 	is_breaking_change,
 	detect_bump_type,
 	required_bump_for_dependency_update,
-} from '$lib/version_utils.js';
+} from '$lib/version_utils.ts';
 
 describe('version_utils', () => {
 	describe('is_wildcard', () => {

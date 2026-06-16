@@ -11,10 +11,10 @@ import type {
 	BuildOperations,
 	PreflightOperations,
 	GitopsOperations,
-} from '$lib/operations.js';
-import type {RepoFixtureSet} from './repo_fixture_types.js';
-import {create_mock_changeset_ops} from './mock_changeset_operations.js';
-import {create_mock_fs_ops} from '../test_helpers.js';
+} from '$lib/operations.ts';
+import type {RepoFixtureSet} from './repo_fixture_types.ts';
+import {create_mock_changeset_ops} from './mock_changeset_operations.ts';
+import {create_mock_fs_ops} from '../test_helpers.ts';
 
 /* eslint-disable @typescript-eslint/require-await */
 

@@ -1,8 +1,8 @@
 import {assert, describe, test} from 'vitest';
-import type {Url} from '@fuzdev/fuz_util/url.js';
+import type {Url} from '@fuzdev/fuz_util/url.ts';
 
-import {normalize_gitops_config, type RawGitopsRepoConfig} from '$lib/gitops_config.js';
-import {reconcile_configs, type NamedRepos} from '$lib/config_reconcile.js';
+import {normalize_gitops_config, type RawGitopsRepoConfig} from '$lib/gitops_config.ts';
+import {reconcile_configs, type NamedRepos} from '$lib/config_reconcile.ts';
 
 const named = (name: string, raw: Array<Url | RawGitopsRepoConfig>): NamedRepos => ({
 	name,

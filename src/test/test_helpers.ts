@@ -1,8 +1,8 @@
-import type {LibraryJson} from '@fuzdev/fuz_util/library_json.js';
-import type {PackageJson} from '@fuzdev/fuz_util/package_json.js';
-import {Library} from '@fuzdev/fuz_ui/library.svelte.js';
+import type {LibraryJson} from '@fuzdev/fuz_util/library_json.ts';
+import type {PackageJson} from '@fuzdev/fuz_util/package_json.ts';
+import {Library} from '@fuzdev/fuz_ui/library.svelte.ts';
 
-import type {LocalRepo} from '$lib/local_repo.js';
+import type {LocalRepo} from '$lib/local_repo.ts';
 import type {
 	GitopsOperations,
 	ChangesetOperations,
@@ -11,8 +11,8 @@ import type {
 	NpmOperations,
 	BuildOperations,
 	ProcessOperations,
-} from '$lib/operations.js';
-import type {BumpType} from '$lib/version_utils.js';
+} from '$lib/operations.ts';
+import type {BumpType} from '$lib/version_utils.ts';
 
 export interface MockRepoOptions {
 	name: string;

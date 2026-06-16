@@ -1,6 +1,6 @@
-import type {Logger} from '@fuzdev/fuz_util/log.js';
-import {spawn_out} from '@fuzdev/fuz_util/process.js';
-import {wait} from '@fuzdev/fuz_util/async.js';
+import type {Logger} from '@fuzdev/fuz_util/log.ts';
+import {spawn_out} from '@fuzdev/fuz_util/process.ts';
+import {wait} from '@fuzdev/fuz_util/async.ts';
 import {styleText as st} from 'node:util';
 
 export interface WaitOptions {

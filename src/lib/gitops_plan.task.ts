@@ -2,15 +2,15 @@ import type {Task} from '@fuzdev/gro';
 import {z} from 'zod';
 import {styleText as st} from 'node:util';
 
-import {get_gitops_ready} from './gitops_task_helpers.js';
+import {get_gitops_ready} from './gitops_task_helpers.ts';
 import {
 	generate_publishing_plan,
 	log_publishing_plan,
 	type PublishingPlan,
 	type LogPlanOptions,
-} from './publishing_plan.js';
-import {format_and_output, type OutputFormatters} from './output_helpers.js';
-import {GITOPS_CONFIG_PATH_DEFAULT} from './gitops_constants.js';
+} from './publishing_plan.ts';
+import {format_and_output, type OutputFormatters} from './output_helpers.ts';
+import {GITOPS_CONFIG_PATH_DEFAULT} from './gitops_constants.ts';
 
 /** @nodocs */
 export const Args = z.strictObject({

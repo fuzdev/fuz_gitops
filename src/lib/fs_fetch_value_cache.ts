@@ -1,8 +1,8 @@
 import {mkdir, readFile, rm, writeFile} from 'node:fs/promises';
 import {dirname, join} from 'node:path';
-import {paths} from '@fuzdev/gro/paths.js';
-import {format_file} from '@fuzdev/gro/format_file.js';
-import {deserialize_cache, serialize_cache, type FetchValueCache} from '@fuzdev/fuz_util/fetch.js';
+import {paths} from '@fuzdev/gro/paths.ts';
+import {format_file} from '@fuzdev/gro/format_file.ts';
+import {deserialize_cache, serialize_cache, type FetchValueCache} from '@fuzdev/fuz_util/fetch.ts';
 import {existsSync} from 'node:fs';
 
 // TODO upstream to Gro probably, and rename/redesign?

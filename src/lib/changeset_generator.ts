@@ -8,16 +8,16 @@
  */
 
 import {join} from 'node:path';
-import type {Logger} from '@fuzdev/fuz_util/log.js';
-import type {LocalRepo} from './local_repo.js';
-import type {PublishedVersion} from './multi_repo_publisher.js';
+import type {Logger} from '@fuzdev/fuz_util/log.ts';
+import type {LocalRepo} from './local_repo.ts';
+import type {PublishedVersion} from './multi_repo_publisher.ts';
 import {
 	strip_version_prefix,
 	required_bump_for_dependency_update,
 	type BumpType,
-} from './version_utils.js';
-import type {FsOperations} from './operations.js';
-import {default_fs_operations} from './operations_defaults.js';
+} from './version_utils.ts';
+import type {FsOperations} from './operations.ts';
+import {default_fs_operations} from './operations_defaults.ts';
 
 export interface DependencyVersionChange {
 	package_name: string;

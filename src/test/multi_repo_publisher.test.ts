@@ -1,16 +1,16 @@
 import {assert, test, describe} from 'vitest';
 
-import type {LocalRepo} from '$lib/local_repo.js';
+import type {LocalRepo} from '$lib/local_repo.ts';
 import {
 	publish_repos,
 	execute_publishing_plan,
 	group_dependency_updates,
 	type PublishedVersion,
-} from '$lib/multi_repo_publisher.js';
-import type {DependencyUpdate, PublishingPlan, VersionChange} from '$lib/publishing_plan.js';
-import {derive_publish_steps, type PublishStep} from '$lib/publish_steps.js';
-import type {PublishingEvent} from '$lib/publishing_event.js';
-import {capture_handler} from '$lib/publishing_event_handler.js';
+} from '$lib/multi_repo_publisher.ts';
+import type {DependencyUpdate, PublishingPlan, VersionChange} from '$lib/publishing_plan.ts';
+import {derive_publish_steps, type PublishStep} from '$lib/publish_steps.ts';
+import type {PublishingEvent} from '$lib/publishing_event.ts';
+import {capture_handler} from '$lib/publishing_event_handler.ts';
 import {
 	create_mock_repo,
 	create_mock_gitops_ops,
@@ -19,7 +19,7 @@ import {
 	create_mock_git_ops,
 	create_preflight_mock,
 	create_populated_fs_ops,
-} from './test_helpers.js';
+} from './test_helpers.ts';
 
 test('wetrun=false predicts versions without publishing', async () => {
 	const repos: Array<LocalRepo> = [

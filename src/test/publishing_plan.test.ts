@@ -1,9 +1,9 @@
 import {assert, test} from 'vitest';
 
-import type {LocalRepo} from '$lib/local_repo.js';
-import {generate_publishing_plan} from '$lib/publishing_plan.js';
-import type {ChangesetOperations} from '$lib/operations.js';
-import {create_mock_repo} from './test_helpers.js';
+import type {LocalRepo} from '$lib/local_repo.ts';
+import {generate_publishing_plan} from '$lib/publishing_plan.ts';
+import type {ChangesetOperations} from '$lib/operations.ts';
+import {create_mock_repo} from './test_helpers.ts';
 
 test('detects breaking change cascades', async () => {
 	const repos: Array<LocalRepo> = [

@@ -4,9 +4,9 @@ import {
 	create_dependency_updates,
 	create_changeset_for_dependency_updates,
 	type DependencyVersionChange,
-} from '$lib/changeset_generator.js';
-import type {PublishedVersion} from '$lib/multi_repo_publisher.js';
-import {create_mock_repo, create_mock_fs_ops} from './test_helpers.js';
+} from '$lib/changeset_generator.ts';
+import type {PublishedVersion} from '$lib/multi_repo_publisher.ts';
+import {create_mock_repo, create_mock_fs_ops} from './test_helpers.ts';
 
 describe('changeset_generator', () => {
 	describe('generate_changeset_content', () => {

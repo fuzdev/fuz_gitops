@@ -1,11 +1,11 @@
-import {create_context} from '@fuzdev/fuz_ui/context_helpers.js';
-import type {LibraryJson, SourceJson} from '@fuzdev/fuz_util/library_json.js';
-import type {PkgJson} from '@fuzdev/fuz_util/pkg_json.js';
-import type {PackageJson} from '@fuzdev/fuz_util/package_json.js';
-import type {Url} from '@fuzdev/fuz_util/url.js';
-import {Library} from '@fuzdev/fuz_ui/library.svelte.js';
+import {create_context} from '@fuzdev/fuz_ui/context_helpers.ts';
+import type {LibraryJson, SourceJson} from '@fuzdev/fuz_util/library_json.ts';
+import type {PkgJson} from '@fuzdev/fuz_util/pkg_json.ts';
+import type {PackageJson} from '@fuzdev/fuz_util/package_json.ts';
+import type {Url} from '@fuzdev/fuz_util/url.ts';
+import {Library} from '@fuzdev/fuz_ui/library.svelte.ts';
 
-import {GithubCheckRunsItem, type GithubPullRequest} from './github.js';
+import {GithubCheckRunsItem, type GithubPullRequest} from './github.ts';
 
 /**
  * Serialized repo data as stored in `repos.ts` (JSON).

@@ -1,10 +1,10 @@
 <script lang="ts">
 	import {page} from '$app/state';
 	import {resolve} from '$app/paths';
-	import {format_url} from '@fuzdev/fuz_util/url.js';
+	import {format_url} from '@fuzdev/fuz_util/url.ts';
 
-	import type {Repo} from './repo.svelte.js';
-	import {to_pull_url} from './github_helpers.js';
+	import type {Repo} from './repo.svelte.ts';
+	import {to_pull_url} from './github_helpers.ts';
 
 	const {
 		repos,

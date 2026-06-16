@@ -1,7 +1,7 @@
 <script lang="ts">
 	import {page} from '$app/state';
 
-	import type {Repo} from './repo.svelte.js';
+	import type {Repo} from './repo.svelte.ts';
 
 	// TODO add highlighting of the items that are onscreen
 

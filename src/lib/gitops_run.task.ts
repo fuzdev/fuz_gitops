@@ -1,13 +1,13 @@
 import {TaskError, type Task} from '@fuzdev/gro';
 import {z} from 'zod';
-import {map_concurrent_settled} from '@fuzdev/fuz_util/async.js';
-import {spawn_out} from '@fuzdev/fuz_util/process.js';
+import {map_concurrent_settled} from '@fuzdev/fuz_util/async.ts';
+import {spawn_out} from '@fuzdev/fuz_util/process.ts';
 import {writeFile} from 'node:fs/promises';
 import {styleText as st} from 'node:util';
 import {resolve} from 'node:path';
 
-import {get_repo_paths} from './repo_ops.js';
-import {GITOPS_CONCURRENCY_DEFAULT, GITOPS_CONFIG_PATH_DEFAULT} from './gitops_constants.js';
+import {get_repo_paths} from './repo_ops.ts';
+import {GITOPS_CONCURRENCY_DEFAULT, GITOPS_CONFIG_PATH_DEFAULT} from './gitops_constants.ts';
 
 export const Args = z.strictObject({
 	// Positional rest args (gro convention) so `gro gitops_run "npm test"` works;

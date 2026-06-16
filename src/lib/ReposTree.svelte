@@ -1,10 +1,10 @@
 <script lang="ts">
 	import LibrarySummary from '@fuzdev/fuz_ui/LibrarySummary.svelte';
 	import {resolve} from '$app/paths';
-	import {format_url} from '@fuzdev/fuz_util/url.js';
+	import {format_url} from '@fuzdev/fuz_util/url.ts';
 	import type {Snippet} from 'svelte';
 
-	import type {Repo} from './repo.svelte.js';
+	import type {Repo} from './repo.svelte.ts';
 	import ReposTreeNav from './ReposTreeNav.svelte';
 	import LibraryDetail from '@fuzdev/fuz_ui/LibraryDetail.svelte';
 

@@ -1,5 +1,5 @@
-import type {GitopsConfig} from './gitops_config.js';
-import {local_repo_locate, type LocalRepoPath, type LocalRepoMissing} from './local_repo.js';
+import type {GitopsConfig} from './gitops_config.ts';
+import {local_repo_locate, type LocalRepoPath, type LocalRepoMissing} from './local_repo.ts';
 
 export interface ResolvedGitopsConfig {
 	local_repos: Array<LocalRepoPath | LocalRepoMissing> | null;

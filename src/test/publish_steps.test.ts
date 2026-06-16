@@ -1,7 +1,7 @@
 import {assert, test, describe} from 'vitest';
 
-import {derive_publish_steps, format_publish_steps} from '$lib/publish_steps.js';
-import type {PublishingPlan, VersionChange, DependencyUpdate} from '$lib/publishing_plan.js';
+import {derive_publish_steps, format_publish_steps} from '$lib/publish_steps.ts';
+import type {PublishingPlan, VersionChange, DependencyUpdate} from '$lib/publishing_plan.ts';
 
 const make_version_change = (
 	overrides: Partial<VersionChange> & {package_name: string},

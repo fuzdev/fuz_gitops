@@ -2,17 +2,17 @@ import type {Task} from '@fuzdev/gro';
 import {z} from 'zod';
 import {styleText as st} from 'node:util';
 
-import {get_gitops_ready} from './gitops_task_helpers.js';
-import {analyze_repos, type DependencyAnalysis} from './graph_validation.js';
+import {get_gitops_ready} from './gitops_task_helpers.ts';
+import {analyze_repos, type DependencyAnalysis} from './graph_validation.ts';
 import {
 	generate_publishing_plan,
 	log_publishing_plan,
 	type PublishingPlan,
-} from './publishing_plan.js';
-import {execute_publishing_plan, type PublishingOptions} from './multi_repo_publisher.js';
-import {log_dependency_analysis} from './log_helpers.js';
-import {GITOPS_CONFIG_PATH_DEFAULT} from './gitops_constants.js';
-import {reconcile_ci, repo_has_workflows} from './ci_reconcile.js';
+} from './publishing_plan.ts';
+import {execute_publishing_plan, type PublishingOptions} from './multi_repo_publisher.ts';
+import {log_dependency_analysis} from './log_helpers.ts';
+import {GITOPS_CONFIG_PATH_DEFAULT} from './gitops_constants.ts';
+import {reconcile_ci, repo_has_workflows} from './ci_reconcile.ts';
 
 /** @nodocs */
 export const Args = z.strictObject({

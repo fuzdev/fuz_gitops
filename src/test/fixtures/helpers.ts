@@ -1,5 +1,5 @@
-import type {VersionChange} from '$lib/publishing_plan.js';
-import type {RepoFixtureExpectedVersionChange} from './repo_fixture_types.js';
+import type {VersionChange} from '$lib/publishing_plan.ts';
+import type {RepoFixtureExpectedVersionChange} from './repo_fixture_types.ts';
 
 /**
  * Assert that publishing order matches expected order.

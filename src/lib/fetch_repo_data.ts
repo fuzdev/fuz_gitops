@@ -1,10 +1,10 @@
-import type {Logger} from '@fuzdev/fuz_util/log.js';
-import {wait} from '@fuzdev/fuz_util/async.js';
-import type {FetchValueCache} from '@fuzdev/fuz_util/fetch.js';
+import type {Logger} from '@fuzdev/fuz_util/log.ts';
+import {wait} from '@fuzdev/fuz_util/async.ts';
+import type {FetchValueCache} from '@fuzdev/fuz_util/fetch.ts';
 
-import {fetch_github_check_runs, fetch_github_pull_requests} from './github.js';
-import type {RepoJson} from './repo.svelte.js';
-import type {LocalRepo} from './local_repo.js';
+import {fetch_github_check_runs, fetch_github_pull_requests} from './github.ts';
+import type {RepoJson} from './repo.svelte.ts';
+import type {LocalRepo} from './local_repo.ts';
 
 /**
  * Fetches GitHub metadata (CI status, PRs) for all repos.

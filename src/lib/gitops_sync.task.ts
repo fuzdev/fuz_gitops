@@ -1,18 +1,18 @@
 import {TaskError, type Task} from '@fuzdev/gro';
 import {z} from 'zod';
 import {readFile, writeFile} from 'node:fs/promises';
-import {format_file} from '@fuzdev/gro/format_file.js';
+import {format_file} from '@fuzdev/gro/format_file.ts';
 import {basename, resolve} from 'node:path';
-import {print_path} from '@fuzdev/gro/paths.js';
-import {load_from_env} from '@fuzdev/gro/env.js';
-import {package_json_load} from '@fuzdev/gro/package_json.js';
+import {print_path} from '@fuzdev/gro/paths.ts';
+import {load_from_env} from '@fuzdev/gro/env.ts';
+import {package_json_load} from '@fuzdev/gro/package_json.ts';
 import {existsSync} from 'node:fs';
 import {compactReplacer} from 'svelte-docinfo';
 
-import {fetch_repo_data} from './fetch_repo_data.js';
-import {create_fs_fetch_value_cache} from './fs_fetch_value_cache.js';
-import {get_gitops_ready} from './gitops_task_helpers.js';
-import {GITOPS_CONFIG_PATH_DEFAULT} from './gitops_constants.js';
+import {fetch_repo_data} from './fetch_repo_data.ts';
+import {create_fs_fetch_value_cache} from './fs_fetch_value_cache.ts';
+import {get_gitops_ready} from './gitops_task_helpers.ts';
+import {GITOPS_CONFIG_PATH_DEFAULT} from './gitops_constants.ts';
 
 // TODO add flag to ignore or invalidate cache -- no-cache? clean?
 

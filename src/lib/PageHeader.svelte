@@ -1,5 +1,5 @@
 <script lang="ts">
-	import type {PkgJson} from '@fuzdev/fuz_util/pkg_json.js';
+	import type {PkgJson} from '@fuzdev/fuz_util/pkg_json.ts';
 	import Breadcrumb from '@fuzdev/fuz_ui/Breadcrumb.svelte';
 	import type {Snippet} from 'svelte';
 	import type {SvelteHTMLElements} from 'svelte/elements';
