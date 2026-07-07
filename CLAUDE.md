@@ -534,11 +534,13 @@ process, build) are defined as interfaces. Tests provide mock implementations.
 
 **Example:**
 
-- Production: `multi_repo_publisher(repos, options, default_gitops_operations)`
-- Tests: `multi_repo_publisher(repos, options, mock_gitops_operations)`
+- Production: `publish_repos(repos, options)` — `options.ops` defaults to
+  `default_gitops_operations`
+- Tests: `publish_repos(repos, {...options, ops: create_mock_gitops_ops()})`
 
-See `src/lib/operations_defaults.ts` for real implementations and test files for
-mock implementations.
+See `src/lib/operations_defaults.ts` for real implementations,
+`src/test/test_helpers.ts` and `src/test/fixtures/mock_operations.ts` for the
+mock factories.
 
 **When writing new code:**
 
