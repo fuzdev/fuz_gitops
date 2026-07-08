@@ -9,7 +9,7 @@
 		<!-- TODO FuzGitopsLogo -->
 		<Svg
 			data={logo_fuz}
-			fill="var(--color_a_50)"
+			fill="var(--palette_a_50)"
 			size="var(--icon_size_xl2)"
 			label="a friendly blue spider facing you"
 		/>
