@@ -1,6 +1,6 @@
-import {existsSync} from 'node:fs';
-import {readFile} from 'node:fs/promises';
-import {join} from 'node:path';
+import { existsSync } from 'node:fs';
+import { readFile } from 'node:fs/promises';
+import { join } from 'node:path';
 
 /**
  * The handful of identity fields gitops reads from a Rust repo's `Cargo.toml`

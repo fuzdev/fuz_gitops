@@ -1,33 +1,33 @@
-import {TaskError, type Task} from '@fuzdev/gro';
-import {z} from 'zod';
-import {map_concurrent_settled} from '@fuzdev/fuz_util/async.ts';
-import {spawn_out} from '@fuzdev/fuz_util/process.ts';
-import {writeFile} from 'node:fs/promises';
-import {styleText as st} from 'node:util';
-import {resolve} from 'node:path';
+import { TaskError, type Task } from '@fuzdev/gro';
+import { z } from 'zod';
+import { map_concurrent_settled } from '@fuzdev/fuz_util/async.ts';
+import { spawn_out } from '@fuzdev/fuz_util/process.ts';
+import { writeFile } from 'node:fs/promises';
+import { styleText as st } from 'node:util';
+import { resolve } from 'node:path';
 
-import {get_repo_paths} from './repo_ops.ts';
-import {GITOPS_CONCURRENCY_DEFAULT, GITOPS_CONFIG_PATH_DEFAULT} from './gitops_constants.ts';
+import { get_repo_paths } from './repo_ops.ts';
+import { GITOPS_CONCURRENCY_DEFAULT, GITOPS_CONFIG_PATH_DEFAULT } from './gitops_constants.ts';
 
 export const Args = z.strictObject({
 	// Positional rest args (gro convention) so `gro gitops_run "npm test"` works;
 	// joined with spaces and passed to `sh -c`, so quote commands that contain flags.
-	_: z.array(z.string()).meta({description: 'shell command to run in each repo'}).default([]),
+	_: z.array(z.string()).meta({ description: 'shell command to run in each repo' }).default([]),
 	config: z
 		.string()
-		.meta({description: 'path to the gitops config file'})
+		.meta({ description: 'path to the gitops config file' })
 		.default(GITOPS_CONFIG_PATH_DEFAULT),
 	concurrency: z
 		.number()
 		.int()
 		.min(1)
-		.meta({description: 'maximum number of repos to run in parallel'})
+		.meta({ description: 'maximum number of repos to run in parallel' })
 		.default(GITOPS_CONCURRENCY_DEFAULT),
-	format: z.enum(['text', 'json']).meta({description: 'output format'}).default('text'),
+	format: z.enum(['text', 'json']).meta({ description: 'output format' }).default('text'),
 	outfile: z
 		.string()
-		.meta({description: 'with --format json, write clean JSON to this file instead of stdout'})
-		.optional(),
+		.meta({ description: 'with --format json, write clean JSON to this file instead of stdout' })
+		.optional()
 });
 export type Args = z.infer<typeof Args>;
 
@@ -45,8 +45,8 @@ interface RunResult {
 export const task: Task<Args> = {
 	Args,
 	summary: 'run a shell command across all repos in parallel',
-	run: async ({args, log}) => {
-		const {_, config, concurrency, format, outfile} = args;
+	run: async ({ args, log }) => {
+		const { _, config, concurrency, format, outfile } = args;
 
 		const command = _.join(' ').trim();
 		if (!command) {
@@ -62,7 +62,7 @@ export const task: Task<Args> = {
 		}
 
 		log.info(
-			`Running ${st('cyan', command)} across ${repos.length} repos (concurrency: ${concurrency})`,
+			`Running ${st('cyan', command)} across ${repos.length} repos (concurrency: ${concurrency})`
 		);
 
 		const start_time = performance.now();
@@ -77,7 +77,7 @@ export const task: Task<Args> = {
 				// Parse command into cmd + args for spawn
 				// For now, we use shell mode to support pipes/redirects/etc
 				const spawned = await spawn_out('sh', ['-c', command], {
-					cwd: repo_dir,
+					cwd: repo_dir
 				});
 
 				const duration_ms = performance.now() - repo_start;
@@ -90,7 +90,7 @@ export const task: Task<Args> = {
 					exit_code: spawned.result.kind === 'exited' ? spawned.result.code : 0,
 					stdout: spawned.stdout || '',
 					stderr: spawned.stderr || '',
-					duration_ms,
+					duration_ms
 				};
 
 				return result;
@@ -104,7 +104,7 @@ export const task: Task<Args> = {
 					stdout: '',
 					stderr: '',
 					duration_ms,
-					error: String(error),
+					error: String(error)
 				};
 			}
 		});
@@ -134,7 +134,7 @@ export const task: Task<Args> = {
 					stdout: '',
 					stderr: '',
 					duration_ms: 0,
-					error: String(result.reason),
+					error: String(result.reason)
 				});
 			}
 		}
@@ -149,8 +149,8 @@ export const task: Task<Args> = {
 					total: repos.length,
 					success: successes.length,
 					failure: failures.length,
-					duration_ms: Math.round(total_duration_ms),
-				},
+					duration_ms: Math.round(total_duration_ms)
+				}
 			};
 			const json = JSON.stringify(json_output, null, 2);
 			if (outfile) {
@@ -225,15 +225,15 @@ export const task: Task<Args> = {
 				log.info(
 					st(
 						'green',
-						`✓ All ${total} repos succeeded in ${duration} (${success_rate}% success rate)`,
-					),
+						`✓ All ${total} repos succeeded in ${duration} (${success_rate}% success rate)`
+					)
 				);
 			} else {
 				log.info(
 					st(
 						'yellow',
-						`⚠ ${successes.length}/${total} repos succeeded in ${duration} (${success_rate}% success rate)`,
-					),
+						`⚠ ${successes.length}/${total} repos succeeded in ${duration} (${success_rate}% success rate)`
+					)
 				);
 			}
 		}
@@ -242,5 +242,5 @@ export const task: Task<Args> = {
 		if (failures.length > 0) {
 			throw new TaskError(`${failures.length} repos failed`);
 		}
-	},
+	}
 };

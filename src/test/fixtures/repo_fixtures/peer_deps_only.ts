@@ -1,4 +1,4 @@
-import type {RepoFixtureSet} from '../repo_fixture_types.ts';
+import type { RepoFixtureSet } from '../repo_fixture_types.ts';
 
 /**
  * Tests packages with only peer dependencies (no production dependencies).
@@ -22,7 +22,7 @@ export const peer_deps_only: RepoFixtureSet = {
 			repo_url: 'https://gitops.fuz.dev/test/core',
 			package_json: {
 				name: '@test/core',
-				version: '2.0.0',
+				version: '2.0.0'
 			},
 			changesets: [
 				{
@@ -31,9 +31,9 @@ export const peer_deps_only: RepoFixtureSet = {
 "@test/core": minor
 ---
 
-New feature in core (minor, not breaking in >=1.0)`,
-				},
-			],
+New feature in core (minor, not breaking in >=1.0)`
+				}
+			]
 		},
 
 		// utils: Utility library (non-breaking patch)
@@ -42,7 +42,7 @@ New feature in core (minor, not breaking in >=1.0)`,
 			repo_url: 'https://gitops.fuz.dev/test/utils',
 			package_json: {
 				name: '@test/utils',
-				version: '1.0.0',
+				version: '1.0.0'
 			},
 			changesets: [
 				{
@@ -51,9 +51,9 @@ New feature in core (minor, not breaking in >=1.0)`,
 "@test/utils": patch
 ---
 
-Bug fix in utils`,
-				},
-			],
+Bug fix in utils`
+				}
+			]
 		},
 
 		// plugin_a: Plugin with peer dep on core only
@@ -64,9 +64,9 @@ Bug fix in utils`,
 				name: '@test/plugin_a',
 				version: '1.0.0',
 				peerDependencies: {
-					'@test/core': '^2.0.0',
-				},
-			},
+					'@test/core': '^2.0.0'
+				}
+			}
 			// No changesets - should get auto-changeset from core breaking update
 		},
 
@@ -79,8 +79,8 @@ Bug fix in utils`,
 				version: '1.5.0',
 				peerDependencies: {
 					'@test/core': '^2.0.0',
-					'@test/utils': '^1.0.0',
-				},
+					'@test/utils': '^1.0.0'
+				}
 			},
 			changesets: [
 				{
@@ -89,9 +89,9 @@ Bug fix in utils`,
 "@test/plugin_b": patch
 ---
 
-Small fix (should escalate to minor due to core breaking change)`,
-				},
-			],
+Small fix (should escalate to minor due to core breaking change)`
+				}
+			]
 		},
 
 		// adapter: Adapter with only peer deps, no changesets
@@ -103,11 +103,11 @@ Small fix (should escalate to minor due to core breaking change)`,
 				name: '@test/adapter',
 				version: '3.0.0',
 				peerDependencies: {
-					'@test/utils': '>=1.0.0', // >= prefix for controlled package pattern
-				},
-			},
+					'@test/utils': '>=1.0.0' // >= prefix for controlled package pattern
+				}
+			}
 			// No changesets - utils has patch, should get auto-changeset (patch)
-		},
+		}
 	],
 
 	expected_outcomes: {
@@ -118,7 +118,7 @@ Small fix (should escalate to minor due to core breaking change)`,
 			'@test/core',
 			'@test/adapter',
 			'@test/plugin_b',
-			'@test/plugin_a',
+			'@test/plugin_a'
 		],
 
 		version_changes: [
@@ -126,38 +126,38 @@ Small fix (should escalate to minor due to core breaking change)`,
 				package_name: '@test/core',
 				from: '2.0.0',
 				to: '2.1.0',
-				scenario: 'explicit_changeset',
+				scenario: 'explicit_changeset'
 			},
 			{
 				package_name: '@test/utils',
 				from: '1.0.0',
 				to: '1.0.1',
-				scenario: 'explicit_changeset',
+				scenario: 'explicit_changeset'
 			},
 			{
 				package_name: '@test/plugin_a',
 				from: '1.0.0',
 				to: '1.0.1', // Patch bump - core's minor is NOT breaking in >=1.0
-				scenario: 'auto_generated',
+				scenario: 'auto_generated'
 			},
 			{
 				package_name: '@test/adapter',
 				from: '3.0.0',
 				to: '3.0.1', // Patch bump from utils' patch
-				scenario: 'auto_generated',
+				scenario: 'auto_generated'
 			},
 			{
 				package_name: '@test/plugin_b',
 				from: '1.5.0',
 				to: '1.5.1', // Patch bump: core's minor (2.0.0 → 2.1.0) is NOT breaking in >=1.0
-				scenario: 'explicit_changeset',
-			},
+				scenario: 'explicit_changeset'
+			}
 		],
 
 		// No breaking cascades - core's minor bump is NOT breaking in >=1.0
 		breaking_cascades: {},
 
 		warnings: [],
-		errors: [],
-	},
+		errors: []
+	}
 };

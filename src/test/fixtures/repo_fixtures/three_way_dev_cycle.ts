@@ -1,4 +1,4 @@
-import type {RepoFixtureSet} from '../repo_fixture_types.ts';
+import type { RepoFixtureSet } from '../repo_fixture_types.ts';
 
 /**
  * Tests three-way circular devDependencies between packages.
@@ -25,8 +25,8 @@ export const three_way_dev_cycle: RepoFixtureSet = {
 				name: '@test/tool_x',
 				version: '1.0.0',
 				devDependencies: {
-					'@test/tool_y': '^1.0.0',
-				},
+					'@test/tool_y': '^1.0.0'
+				}
 			},
 			changesets: [
 				{
@@ -35,9 +35,9 @@ export const three_way_dev_cycle: RepoFixtureSet = {
 "@test/tool_x": patch
 ---
 
-Bug fix in tool_x`,
-				},
-			],
+Bug fix in tool_x`
+				}
+			]
 		},
 
 		// tool_y: Has explicit minor changeset, devDep on tool_z
@@ -48,8 +48,8 @@ Bug fix in tool_x`,
 				name: '@test/tool_y',
 				version: '1.0.0',
 				devDependencies: {
-					'@test/tool_z': '^1.0.0',
-				},
+					'@test/tool_z': '^1.0.0'
+				}
 			},
 			changesets: [
 				{
@@ -58,9 +58,9 @@ Bug fix in tool_x`,
 "@test/tool_y": minor
 ---
 
-New feature in tool_y`,
-				},
-			],
+New feature in tool_y`
+				}
+			]
 		},
 
 		// tool_z: Has explicit patch changeset, devDep on tool_x (completes 3-way cycle)
@@ -71,8 +71,8 @@ New feature in tool_y`,
 				name: '@test/tool_z',
 				version: '1.0.0',
 				devDependencies: {
-					'@test/tool_x': '^1.0.0',
-				},
+					'@test/tool_x': '^1.0.0'
+				}
 			},
 			changesets: [
 				{
@@ -81,9 +81,9 @@ New feature in tool_y`,
 "@test/tool_z": patch
 ---
 
-Bug fix in tool_z`,
-				},
-			],
+Bug fix in tool_z`
+				}
+			]
 		},
 
 		// app: Depends on all three tools via production dependencies
@@ -96,11 +96,11 @@ Bug fix in tool_z`,
 				dependencies: {
 					'@test/tool_x': '^1.0.0',
 					'@test/tool_y': '^1.0.0',
-					'@test/tool_z': '^1.0.0',
-				},
-			},
+					'@test/tool_z': '^1.0.0'
+				}
+			}
 			// No changesets, but should get auto-changeset due to dependency updates
-		},
+		}
 	],
 
 	expected_outcomes: {
@@ -114,26 +114,26 @@ Bug fix in tool_z`,
 				package_name: '@test/tool_x',
 				from: '1.0.0',
 				to: '1.0.1', // patch bump
-				scenario: 'explicit_changeset',
+				scenario: 'explicit_changeset'
 			},
 			{
 				package_name: '@test/tool_y',
 				from: '1.0.0',
 				to: '1.1.0', // minor bump
-				scenario: 'explicit_changeset',
+				scenario: 'explicit_changeset'
 			},
 			{
 				package_name: '@test/tool_z',
 				from: '1.0.0',
 				to: '1.0.1', // patch bump
-				scenario: 'explicit_changeset',
+				scenario: 'explicit_changeset'
 			},
 			{
 				package_name: '@test/app',
 				from: '1.0.0',
 				to: '1.0.1', // Patch bump: tool_y's minor (1.0.0 → 1.1.0) is NOT breaking in >=1.0
-				scenario: 'auto_generated',
-			},
+				scenario: 'auto_generated'
+			}
 		],
 
 		// No breaking cascades: tool_y's minor bump is NOT breaking in >=1.0 (only major is)
@@ -141,6 +141,6 @@ Bug fix in tool_z`,
 
 		info: ['1 dev dependency cycle(s) detected (normal, shown in gitops_analyze)'],
 		warnings: [],
-		errors: [],
-	},
+		errors: []
+	}
 };

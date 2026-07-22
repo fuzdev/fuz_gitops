@@ -1,4 +1,4 @@
-import type {RepoFixtureSet} from '../repo_fixture_types.ts';
+import type { RepoFixtureSet } from '../repo_fixture_types.ts';
 
 /**
  * Tests packages with multiple dependency types to the same package.
@@ -22,7 +22,7 @@ export const multiple_dep_types: RepoFixtureSet = {
 			repo_url: 'https://gitops.fuz.dev/test/core',
 			package_json: {
 				name: '@test/core',
-				version: '2.0.0',
+				version: '2.0.0'
 			},
 			changesets: [
 				{
@@ -31,9 +31,9 @@ export const multiple_dep_types: RepoFixtureSet = {
 "@test/core": major
 ---
 
-Breaking change in core`,
-				},
-			],
+Breaking change in core`
+				}
+			]
 		},
 
 		// plugin: Has BOTH peerDep and devDep on core
@@ -45,11 +45,11 @@ Breaking change in core`,
 				name: '@test/plugin',
 				version: '1.5.0',
 				peerDependencies: {
-					'@test/core': '^2.0.0',
+					'@test/core': '^2.0.0'
 				},
 				devDependencies: {
-					'@test/core': '^2.0.0', // Same package, different dep type
-				},
+					'@test/core': '^2.0.0' // Same package, different dep type
+				}
 			},
 			changesets: [
 				{
@@ -58,9 +58,9 @@ Breaking change in core`,
 "@test/plugin": patch
 ---
 
-Small fix in plugin`,
-				},
-			],
+Small fix in plugin`
+				}
+			]
 		},
 
 		// adapter: Only devDep on core (doesn't use it at runtime)
@@ -71,11 +71,11 @@ Small fix in plugin`,
 				name: '@test/adapter',
 				version: '1.0.0',
 				devDependencies: {
-					'@test/core': '^2.0.0',
-				},
-			},
+					'@test/core': '^2.0.0'
+				}
+			}
 			// No changesets - dev dep only, shouldn't republish
-		},
+		}
 	],
 
 	expected_outcomes: {
@@ -88,18 +88,18 @@ Small fix in plugin`,
 				package_name: '@test/core',
 				from: '2.0.0',
 				to: '3.0.0', // Major bump
-				scenario: 'explicit_changeset',
+				scenario: 'explicit_changeset'
 			},
 			{
 				package_name: '@test/plugin',
 				from: '1.5.0',
 				to: '2.0.0', // Escalated from patch to major due to peer dep breaking change
-				scenario: 'bump_escalation',
-			},
+				scenario: 'bump_escalation'
+			}
 		],
 
 		breaking_cascades: {
-			'@test/core': ['@test/plugin'], // plugin has peer dep (breaking cascade)
+			'@test/core': ['@test/plugin'] // plugin has peer dep (breaking cascade)
 			// adapter only has devDep, so no breaking cascade
 		},
 
@@ -107,6 +107,6 @@ Small fix in plugin`,
 		info: ['@test/adapter'],
 
 		warnings: [],
-		errors: [],
-	},
+		errors: []
+	}
 };

@@ -1,18 +1,18 @@
-import {TaskError, type Task} from '@fuzdev/gro';
-import {z} from 'zod';
-import {readFile, writeFile} from 'node:fs/promises';
-import {format_file} from '@fuzdev/gro/format_file.ts';
-import {basename, resolve} from 'node:path';
-import {print_path} from '@fuzdev/gro/paths.ts';
-import {load_from_env} from '@fuzdev/gro/env.ts';
-import {package_json_load} from '@fuzdev/gro/package_json.ts';
-import {existsSync} from 'node:fs';
-import {compactReplacer} from 'svelte-docinfo';
+import { TaskError, type Task } from '@fuzdev/gro';
+import { z } from 'zod';
+import { readFile, writeFile } from 'node:fs/promises';
+import { format_file } from '@fuzdev/gro/format_file.ts';
+import { basename, resolve } from 'node:path';
+import { print_path } from '@fuzdev/gro/paths.ts';
+import { load_from_env } from '@fuzdev/gro/env.ts';
+import { package_json_load } from '@fuzdev/gro/package_json.ts';
+import { existsSync } from 'node:fs';
+import { compactReplacer } from 'svelte-docinfo';
 
-import {fetch_repo_data} from './fetch_repo_data.ts';
-import {create_fs_fetch_value_cache} from './fs_fetch_value_cache.ts';
-import {get_gitops_ready} from './gitops_task_helpers.ts';
-import {GITOPS_CONFIG_PATH_DEFAULT} from './gitops_constants.ts';
+import { fetch_repo_data } from './fetch_repo_data.ts';
+import { create_fs_fetch_value_cache } from './fs_fetch_value_cache.ts';
+import { get_gitops_ready } from './gitops_task_helpers.ts';
+import { GITOPS_CONFIG_PATH_DEFAULT } from './gitops_constants.ts';
 
 // TODO add flag to ignore or invalidate cache -- no-cache? clean?
 
@@ -20,28 +20,28 @@ import {GITOPS_CONFIG_PATH_DEFAULT} from './gitops_constants.ts';
 export const Args = z.strictObject({
 	config: z
 		.string()
-		.meta({description: 'path to the gitops config file, absolute or relative to the cwd'})
+		.meta({ description: 'path to the gitops config file, absolute or relative to the cwd' })
 		.default(GITOPS_CONFIG_PATH_DEFAULT),
 	dir: z
 		.string()
-		.meta({description: 'path containing the repos, defaults to the parent of the config dir'})
+		.meta({ description: 'path containing the repos, defaults to the parent of the config dir' })
 		.optional(),
 	outdir: z
 		.string()
-		.meta({description: 'path to the directory for the generated files, defaults to $routes/'})
+		.meta({ description: 'path to the directory for the generated files, defaults to $routes/' })
 		.optional(),
-	download: z.boolean().meta({description: 'download all missing local repos'}).default(false),
+	download: z.boolean().meta({ description: 'download all missing local repos' }).default(false),
 	check: z
 		.boolean()
-		.meta({description: 'check repos are ready without fetching remote data'})
+		.meta({ description: 'check repos are ready without fetching remote data' })
 		.default(false),
 	allow_dirty: z
 		.boolean()
 		.meta({
 			description:
-				'sync (switch branch, pull) tolerating uncommitted changes instead of failing on a dirty workspace',
+				'sync (switch branch, pull) tolerating uncommitted changes instead of failing on a dirty workspace'
 		})
-		.default(false),
+		.default(false)
 });
 export type Args = z.infer<typeof Args>;
 
@@ -53,17 +53,17 @@ export type Args = z.infer<typeof Args>;
 export const task: Task<Args> = {
 	Args,
 	summary: 'syncs local repos and generates UI data from repo metadata',
-	run: async ({args, log, svelte_config, invoke_task}) => {
-		const {config, dir, outdir = svelte_config.routes_path, download, check, allow_dirty} = args;
+	run: async ({ args, log, svelte_config, invoke_task }) => {
+		const { config, dir, outdir = svelte_config.routes_path, download, check, allow_dirty } = args;
 
 		// `gitops_sync` is the task whose job is to mutate working trees, so it always syncs.
-		const {local_repos} = await get_gitops_ready({
+		const { local_repos } = await get_gitops_ready({
 			config,
 			dir,
 			download,
 			sync: true,
 			allow_dirty,
-			log,
+			log
 		});
 
 		const outfile_json = resolve(outdir, 'repos.json');
@@ -97,7 +97,7 @@ export const task: Task<Args> = {
 
 		// Generate repos.json with the raw data
 		const json_contents = await format_file(JSON.stringify(repos_json, compactReplacer), {
-			filepath: outfile_json,
+			filepath: outfile_json
 		});
 		const existing_json = existsSync(outfile_json) ? await readFile(outfile_json, 'utf8') : '';
 		const json_changed = existing_json !== json_contents;
@@ -123,7 +123,7 @@ export const task: Task<Args> = {
 			export const repos_json: Array<RepoJson> = json as unknown as Array<RepoJson>;
 		`;
 		// TODO think about possibly using the `gen` functionality in this task, not sure what the API design could look like
-		const formatted_ts = await format_file(ts_contents, {filepath: outfile_ts});
+		const formatted_ts = await format_file(ts_contents, { filepath: outfile_ts });
 		const existing_ts = existsSync(outfile_ts) ? await readFile(outfile_ts, 'utf8') : '';
 		if (existing_ts === formatted_ts) {
 			log.info(`no changes to ${print_path(outfile_ts)}`);
@@ -142,5 +142,5 @@ export const task: Task<Args> = {
 		} else {
 			log.info('repos cache did not change');
 		}
-	},
+	}
 };

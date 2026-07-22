@@ -14,8 +14,8 @@
  * @module
  */
 
-import {existsSync, readdirSync} from 'node:fs';
-import {join} from 'node:path';
+import { existsSync, readdirSync } from 'node:fs';
+import { join } from 'node:path';
 
 /** How a repo's declared `ci` diverges from its workflow files on disk. */
 export type CiDriftKind =
@@ -52,11 +52,11 @@ export const reconcile_ci = (repos: Array<CiReconcileInput>): Array<CiDrift> => 
 	const drift: Array<CiDrift> = [];
 	for (const repo of repos) {
 		if (!repo.checkable || repo.archived) continue;
-		const {repo_url, ci, has_workflows} = repo;
+		const { repo_url, ci, has_workflows } = repo;
 		if (ci && !has_workflows) {
-			drift.push({repo_url, ci, has_workflows, kind: 'missing_ci'});
+			drift.push({ repo_url, ci, has_workflows, kind: 'missing_ci' });
 		} else if (!ci && has_workflows) {
-			drift.push({repo_url, ci, has_workflows, kind: 'stray_ci'});
+			drift.push({ repo_url, ci, has_workflows, kind: 'stray_ci' });
 		}
 	}
 	return drift;

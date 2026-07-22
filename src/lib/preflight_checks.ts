@@ -1,20 +1,20 @@
-import type {Logger} from '@fuzdev/fuz_util/log.ts';
-import type {Result} from '@fuzdev/fuz_util/result.ts';
-import {spawn_out} from '@fuzdev/fuz_util/process.ts';
-import {styleText as st} from 'node:util';
+import type { Logger } from '@fuzdev/fuz_util/log.ts';
+import type { Result } from '@fuzdev/fuz_util/result.ts';
+import { spawn_out } from '@fuzdev/fuz_util/process.ts';
+import { styleText as st } from 'node:util';
 
-import type {LocalRepo} from './local_repo.ts';
+import type { LocalRepo } from './local_repo.ts';
 import type {
 	GitOperations,
 	NpmOperations,
 	BuildOperations,
-	ChangesetOperations,
+	ChangesetOperations
 } from './operations.ts';
 import {
 	default_git_operations,
 	default_npm_operations,
 	default_build_operations,
-	default_changeset_operations,
+	default_changeset_operations
 } from './operations_defaults.ts';
 
 export interface PreflightOptions {
@@ -68,7 +68,7 @@ export const run_preflight_checks = async ({
 	git_ops = default_git_operations,
 	npm_ops = default_npm_operations,
 	build_ops = default_build_operations,
-	changeset_ops = default_changeset_operations,
+	changeset_ops = default_changeset_operations
 }: RunPreflightChecksOptions): Promise<PreflightResult> => {
 	const {
 		skip_changesets = false,
@@ -76,7 +76,7 @@ export const run_preflight_checks = async ({
 		required_branch = 'main',
 		check_remote = true,
 		estimate_time = true,
-		log,
+		log
 	} = preflight_options;
 
 	const warnings: Array<string> = [];
@@ -91,7 +91,7 @@ export const run_preflight_checks = async ({
 	// 1. Check clean workspaces - must be 100% clean before publishing
 	log?.info('  Checking workspace cleanliness...');
 	for (const repo of repos) {
-		const clean_result = await git_ops.check_clean_workspace({cwd: repo.repo_dir});
+		const clean_result = await git_ops.check_clean_workspace({ cwd: repo.repo_dir });
 		if (!clean_result.ok) {
 			errors.push(`${repo.library.name} failed workspace check: ${clean_result.message}`);
 			continue;
@@ -99,14 +99,14 @@ export const run_preflight_checks = async ({
 
 		if (!clean_result.value) {
 			// Get list of changed files for better error message
-			const files_result = await git_ops.list_uncommitted_files({cwd: repo.repo_dir});
+			const files_result = await git_ops.list_uncommitted_files({ cwd: repo.repo_dir });
 			if (files_result.ok) {
 				// No filtering - workspace must be 100% clean
 				const unexpected_files = files_result.value;
 
 				if (unexpected_files.length > 0) {
 					errors.push(
-						`${repo.library.name} has uncommitted changes in: ${unexpected_files.slice(0, 3).join(', ')}${unexpected_files.length > 3 ? ` and ${unexpected_files.length - 3} more` : ''}`,
+						`${repo.library.name} has uncommitted changes in: ${unexpected_files.slice(0, 3).join(', ')}${unexpected_files.length > 3 ? ` and ${unexpected_files.length - 3} more` : ''}`
 					);
 				}
 			} else {
@@ -118,7 +118,7 @@ export const run_preflight_checks = async ({
 	// 2. Check correct branch
 	log?.info(`  Checking branches (expecting ${required_branch})...`);
 	for (const repo of repos) {
-		const branch_result = await git_ops.current_branch_name({cwd: repo.repo_dir});
+		const branch_result = await git_ops.current_branch_name({ cwd: repo.repo_dir });
 		if (!branch_result.ok) {
 			errors.push(`${repo.library.name} failed branch check: ${branch_result.message}`);
 			continue;
@@ -126,7 +126,7 @@ export const run_preflight_checks = async ({
 
 		if (branch_result.value !== required_branch) {
 			errors.push(
-				`${repo.library.name} is on branch '${branch_result.value}', expected '${required_branch}'`,
+				`${repo.library.name} is on branch '${branch_result.value}', expected '${required_branch}'`
 			);
 		}
 	}
@@ -135,7 +135,7 @@ export const run_preflight_checks = async ({
 	if (!skip_changesets) {
 		log?.info('  Checking for changesets...');
 		for (const repo of repos) {
-			const has_result = await changeset_ops.has_changesets({repo});
+			const has_result = await changeset_ops.has_changesets({ repo });
 			if (!has_result.ok) {
 				errors.push(`${repo.library.name} failed changeset check: ${has_result.message}`);
 				continue;
@@ -162,12 +162,12 @@ export const run_preflight_checks = async ({
 		for (let i = 0; i < repos_to_build.length; i++) {
 			const repo = repos_to_build[i]!;
 			log?.info(
-				st('dim', `    [${i + 1}/${repos_to_build.length}] Building ${repo.library.name}...`),
+				st('dim', `    [${i + 1}/${repos_to_build.length}] Building ${repo.library.name}...`)
 			);
-			const build_result = await build_ops.build_package({repo, log});
+			const build_result = await build_ops.build_package({ repo, log });
 			if (!build_result.ok) {
 				errors.push(
-					`${repo.library.name} failed to build: ${build_result.output || build_result.message || 'unknown error'}`,
+					`${repo.library.name} failed to build: ${build_result.output || build_result.message || 'unknown error'}`
 				);
 			} else {
 				log?.info(st('dim', `    ✓ ${repo.library.name} built successfully`));
@@ -217,8 +217,8 @@ export const run_preflight_checks = async ({
 			log?.info(
 				st(
 					'dim',
-					`  Estimated publish time: ~${Math.ceil(estimated_duration / 60)} minutes for ${packages_to_publish} package(s)`,
-				),
+					`  Estimated publish time: ~${Math.ceil(estimated_duration / 60)} minutes for ${packages_to_publish} package(s)`
+				)
 			);
 		}
 	}
@@ -251,19 +251,19 @@ export const run_preflight_checks = async ({
 		repos_with_changesets,
 		repos_without_changesets,
 		estimated_duration,
-		npm_username,
+		npm_username
 	};
 };
 
-const check_git_remote = async (cwd: string): Promise<Result<object, {message: string}>> => {
+const check_git_remote = async (cwd: string): Promise<Result<object, { message: string }>> => {
 	try {
 		// Try to fetch refs from remote without downloading objects
-		const result = await spawn_out('git', ['ls-remote', '--heads', 'origin'], {cwd});
+		const result = await spawn_out('git', ['ls-remote', '--heads', 'origin'], { cwd });
 		if (result.stdout || result.stderr) {
-			return {ok: true};
+			return { ok: true };
 		}
-		return {ok: false, message: 'No response from git remote'};
+		return { ok: false, message: 'No response from git remote' };
 	} catch (error) {
-		return {ok: false, message: String(error)};
+		return { ok: false, message: String(error) };
 	}
 };

@@ -34,14 +34,14 @@
  * @module
  */
 
-import type {Result} from '@fuzdev/fuz_util/result.ts';
-import type {FsError} from '@fuzdev/fuz_util/fs.ts';
-import type {Logger} from '@fuzdev/fuz_util/log.ts';
-import type {LocalRepo} from './local_repo.ts';
-import type {ChangesetInfo} from './changeset_reader.ts';
-import type {BumpType} from './version_utils.ts';
-import type {PreflightOptions, PreflightResult} from './preflight_checks.ts';
-import type {WaitOptions} from './npm_registry.ts';
+import type { Result } from '@fuzdev/fuz_util/result.ts';
+import type { FsError } from '@fuzdev/fuz_util/fs.ts';
+import type { Logger } from '@fuzdev/fuz_util/log.ts';
+import type { LocalRepo } from './local_repo.ts';
+import type { ChangesetInfo } from './changeset_reader.ts';
+import type { BumpType } from './version_utils.ts';
+import type { PreflightOptions, PreflightResult } from './preflight_checks.ts';
+import type { WaitOptions } from './npm_registry.ts';
 
 /**
  * Changeset operations for reading and predicting versions from `.changeset/*.md` files.
@@ -53,7 +53,7 @@ export interface ChangesetOperations {
 	 */
 	has_changesets: (options: {
 		repo: LocalRepo;
-	}) => Promise<Result<{value: boolean}, {message: string}>>;
+	}) => Promise<Result<{ value: boolean }, { message: string }>>;
 
 	/**
 	 * Reads all changeset files from a repo.
@@ -62,7 +62,7 @@ export interface ChangesetOperations {
 	read_changesets: (options: {
 		repo: LocalRepo;
 		log?: Logger;
-	}) => Promise<Result<{value: Array<ChangesetInfo>}, {message: string}>>;
+	}) => Promise<Result<{ value: Array<ChangesetInfo> }, { message: string }>>;
 
 	/**
 	 * Predicts the next version based on changesets.
@@ -72,7 +72,7 @@ export interface ChangesetOperations {
 	predict_next_version: (options: {
 		repo: LocalRepo;
 		log?: Logger;
-	}) => Promise<Result<{version: string; bump_type: BumpType}, {message: string}> | null>;
+	}) => Promise<Result<{ version: string; bump_type: BumpType }, { message: string }> | null>;
 }
 
 /**
@@ -85,7 +85,7 @@ export interface GitOperations {
 	 */
 	current_branch_name: (options?: {
 		cwd?: string;
-	}) => Promise<Result<{value: string}, {message: string}>>;
+	}) => Promise<Result<{ value: string }, { message: string }>>;
 
 	/**
 	 * Gets the current commit hash.
@@ -93,19 +93,22 @@ export interface GitOperations {
 	current_commit_hash: (options?: {
 		branch?: string;
 		cwd?: string;
-	}) => Promise<Result<{value: string}, {message: string}>>;
+	}) => Promise<Result<{ value: string }, { message: string }>>;
 
 	/**
 	 * Checks if the workspace is clean (no uncommitted changes).
 	 */
 	check_clean_workspace: (options?: {
 		cwd?: string;
-	}) => Promise<Result<{value: boolean}, {message: string}>>;
+	}) => Promise<Result<{ value: boolean }, { message: string }>>;
 
 	/**
 	 * Checks out a branch.
 	 */
-	checkout: (options: {branch: string; cwd?: string}) => Promise<Result<object, {message: string}>>;
+	checkout: (options: {
+		branch: string;
+		cwd?: string;
+	}) => Promise<Result<object, { message: string }>>;
 
 	/**
 	 * Pulls changes from remote.
@@ -114,7 +117,7 @@ export interface GitOperations {
 		origin?: string;
 		branch?: string;
 		cwd?: string;
-	}) => Promise<Result<object, {message: string}>>;
+	}) => Promise<Result<object, { message: string }>>;
 
 	/**
 	 * Switches to a branch, optionally pulling.
@@ -123,7 +126,7 @@ export interface GitOperations {
 		branch: string;
 		pull?: boolean;
 		cwd?: string;
-	}) => Promise<Result<object, {message: string}>>;
+	}) => Promise<Result<object, { message: string }>>;
 
 	/**
 	 * Checks if a remote exists.
@@ -131,7 +134,7 @@ export interface GitOperations {
 	has_remote: (options?: {
 		remote?: string;
 		cwd?: string;
-	}) => Promise<Result<{value: boolean}, {message: string}>>;
+	}) => Promise<Result<{ value: boolean }, { message: string }>>;
 
 	/**
 	 * Stages files for commit.
@@ -139,12 +142,15 @@ export interface GitOperations {
 	add: (options: {
 		files: string | Array<string>;
 		cwd?: string;
-	}) => Promise<Result<object, {message: string}>>;
+	}) => Promise<Result<object, { message: string }>>;
 
 	/**
 	 * Creates a commit.
 	 */
-	commit: (options: {message: string; cwd?: string}) => Promise<Result<object, {message: string}>>;
+	commit: (options: {
+		message: string;
+		cwd?: string;
+	}) => Promise<Result<object, { message: string }>>;
 
 	/**
 	 * Stages files and creates a commit.
@@ -153,14 +159,16 @@ export interface GitOperations {
 		files: string | Array<string>;
 		message: string;
 		cwd?: string;
-	}) => Promise<Result<object, {message: string}>>;
+	}) => Promise<Result<object, { message: string }>>;
 
 	/**
 	 * Checks whether the working tree has any changes — staged, unstaged, or
 	 * untracked (`git status --porcelain`). Broader than `list_uncommitted_files`,
 	 * which reports only tracked working-tree changes relative to HEAD.
 	 */
-	has_changes: (options?: {cwd?: string}) => Promise<Result<{value: boolean}, {message: string}>>;
+	has_changes: (options?: {
+		cwd?: string;
+	}) => Promise<Result<{ value: boolean }, { message: string }>>;
 
 	/**
 	 * Lists uncommitted files in the working tree (`git diff --name-only HEAD`),
@@ -168,7 +176,7 @@ export interface GitOperations {
 	 */
 	list_uncommitted_files: (options?: {
 		cwd?: string;
-	}) => Promise<Result<{value: Array<string>}, {message: string}>>;
+	}) => Promise<Result<{ value: Array<string> }, { message: string }>>;
 
 	/**
 	 * Creates a git tag.
@@ -177,7 +185,7 @@ export interface GitOperations {
 		tag_name: string;
 		message?: string;
 		cwd?: string;
-	}) => Promise<Result<object, {message: string}>>;
+	}) => Promise<Result<object, { message: string }>>;
 
 	/**
 	 * Pushes a tag to remote.
@@ -186,17 +194,20 @@ export interface GitOperations {
 		tag_name: string;
 		origin?: string;
 		cwd?: string;
-	}) => Promise<Result<object, {message: string}>>;
+	}) => Promise<Result<object, { message: string }>>;
 
 	/**
 	 * Stashes uncommitted changes.
 	 */
-	stash: (options?: {message?: string; cwd?: string}) => Promise<Result<object, {message: string}>>;
+	stash: (options?: {
+		message?: string;
+		cwd?: string;
+	}) => Promise<Result<object, { message: string }>>;
 
 	/**
 	 * Pops the most recent stash.
 	 */
-	stash_pop: (options?: {cwd?: string}) => Promise<Result<object, {message: string}>>;
+	stash_pop: (options?: { cwd?: string }) => Promise<Result<object, { message: string }>>;
 
 	/**
 	 * Checks if a specific file changed between two commits.
@@ -206,7 +217,7 @@ export interface GitOperations {
 		to_commit: string;
 		file_path: string;
 		cwd?: string;
-	}) => Promise<Result<{value: boolean}, {message: string}>>;
+	}) => Promise<Result<{ value: boolean }, { message: string }>>;
 }
 
 /**
@@ -220,7 +231,7 @@ export interface ProcessOperations {
 		cmd: string;
 		args: Array<string>;
 		cwd?: string;
-	}) => Promise<Result<{stdout?: string; stderr?: string}, {message: string; stderr?: string}>>;
+	}) => Promise<Result<{ stdout?: string; stderr?: string }, { message: string; stderr?: string }>>;
 }
 
 /**
@@ -233,7 +244,7 @@ export interface BuildOperations {
 	build_package: (options: {
 		repo: LocalRepo;
 		log?: Logger;
-	}) => Promise<Result<object, {message: string; output?: string}>>;
+	}) => Promise<Result<object, { message: string; output?: string }>>;
 }
 
 /**
@@ -250,24 +261,24 @@ export interface NpmOperations {
 		version: string;
 		wait_options?: WaitOptions;
 		log?: Logger;
-	}) => Promise<Result<object, {message: string; timeout?: boolean}>>;
+	}) => Promise<Result<object, { message: string; timeout?: boolean }>>;
 
 	/**
 	 * Checks npm authentication status.
 	 */
-	check_auth: () => Promise<Result<{username: string}, {message: string}>>;
+	check_auth: () => Promise<Result<{ username: string }, { message: string }>>;
 
 	/**
 	 * Checks if npm registry is reachable.
 	 */
-	check_registry: () => Promise<Result<object, {message: string}>>;
+	check_registry: () => Promise<Result<object, { message: string }>>;
 
 	/**
 	 * Installs npm dependencies.
 	 */
 	install: (options?: {
 		cwd?: string;
-	}) => Promise<Result<object, {message: string; stderr?: string}>>;
+	}) => Promise<Result<object, { message: string; stderr?: string }>>;
 }
 
 /**
@@ -302,22 +313,22 @@ export interface FsOperations {
 	readFile: (options: {
 		path: string;
 		encoding: BufferEncoding;
-	}) => Promise<Result<{value: string}, FsError>>;
+	}) => Promise<Result<{ value: string }, FsError>>;
 
 	/**
 	 * Writes a file to the file system.
 	 */
-	writeFile: (options: {path: string; content: string}) => Promise<Result<object, FsError>>;
+	writeFile: (options: { path: string; content: string }) => Promise<Result<object, FsError>>;
 
 	/**
 	 * Creates a directory, optionally with recursive creation.
 	 */
-	mkdir: (options: {path: string; recursive?: boolean}) => Promise<Result<object, FsError>>;
+	mkdir: (options: { path: string; recursive?: boolean }) => Promise<Result<object, FsError>>;
 
 	/**
 	 * Checks if a path exists on the file system.
 	 */
-	exists: (options: {path: string}) => Promise<boolean>;
+	exists: (options: { path: string }) => Promise<boolean>;
 }
 
 /**

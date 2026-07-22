@@ -79,7 +79,7 @@ export const needs_update = (current: string, new_version: string): boolean => {
  */
 export const get_update_prefix = (
 	current_version: string,
-	default_strategy: '^' | '~' | '' | '>=' = '^',
+	default_strategy: '^' | '~' | '' | '>=' = '^'
 ): string => {
 	// Use caret for wildcard replacements
 	if (is_wildcard(current_version)) {
@@ -128,7 +128,7 @@ export const is_breaking_change = (old_version: string, bump_type: BumpType): bo
  */
 export const required_bump_for_dependency_update = (
 	current_version: string,
-	has_breaking_deps: boolean,
+	has_breaking_deps: boolean
 ): BumpType => {
 	const [major] = current_version.split('.').map(Number);
 	const is_pre_1_0 = major === 0;
@@ -156,7 +156,7 @@ export const compare_bump_types = (a: BumpType, b: BumpType): number => {
 	const order: Record<BumpType, number> = {
 		major: 3,
 		minor: 2,
-		patch: 1,
+		patch: 1
 	};
 	return order[a] - order[b];
 };

@@ -1,4 +1,4 @@
-import type {RepoFixtureSet} from '../repo_fixture_types.ts';
+import type { RepoFixtureSet } from '../repo_fixture_types.ts';
 
 /**
  * Tests circular devDependencies between packages.
@@ -24,8 +24,8 @@ export const circular_dev_deps: RepoFixtureSet = {
 				name: '@test/tool_a',
 				version: '1.0.0',
 				devDependencies: {
-					'@test/tool_b': '^1.0.0',
-				},
+					'@test/tool_b': '^1.0.0'
+				}
 			},
 			changesets: [
 				{
@@ -34,9 +34,9 @@ export const circular_dev_deps: RepoFixtureSet = {
 "@test/tool_a": minor
 ---
 
-New feature in tool_a`,
-				},
-			],
+New feature in tool_a`
+				}
+			]
 		},
 
 		// tool_b: Has explicit patch changeset, devDep on tool_a (creates cycle)
@@ -47,8 +47,8 @@ New feature in tool_a`,
 				name: '@test/tool_b',
 				version: '1.0.0',
 				devDependencies: {
-					'@test/tool_a': '^1.0.0',
-				},
+					'@test/tool_a': '^1.0.0'
+				}
 			},
 			changesets: [
 				{
@@ -57,9 +57,9 @@ New feature in tool_a`,
 "@test/tool_b": patch
 ---
 
-Bug fix in tool_b`,
-				},
-			],
+Bug fix in tool_b`
+				}
+			]
 		},
 
 		// consumer: Depends on both tools via production dependencies
@@ -71,11 +71,11 @@ Bug fix in tool_b`,
 				version: '1.0.0',
 				dependencies: {
 					'@test/tool_a': '^1.0.0',
-					'@test/tool_b': '^1.0.0',
-				},
-			},
+					'@test/tool_b': '^1.0.0'
+				}
+			}
 			// No changesets, but should get auto-changeset due to dependency updates
-		},
+		}
 	],
 
 	expected_outcomes: {
@@ -89,20 +89,20 @@ Bug fix in tool_b`,
 				package_name: '@test/tool_a',
 				from: '1.0.0',
 				to: '1.1.0', // minor bump
-				scenario: 'explicit_changeset',
+				scenario: 'explicit_changeset'
 			},
 			{
 				package_name: '@test/tool_b',
 				from: '1.0.0',
 				to: '1.0.1', // patch bump
-				scenario: 'explicit_changeset',
+				scenario: 'explicit_changeset'
 			},
 			{
 				package_name: '@test/consumer',
 				from: '1.0.0',
 				to: '1.0.1', // Patch bump: tool_a's minor (1.0.0 → 1.1.0) is NOT breaking in >=1.0
-				scenario: 'auto_generated',
-			},
+				scenario: 'auto_generated'
+			}
 		],
 
 		// No breaking cascades: tool_a's minor bump is NOT breaking in >=1.0 (only major is)
@@ -110,6 +110,6 @@ Bug fix in tool_b`,
 
 		info: ['1 dev dependency cycle(s) detected (normal, shown in gitops_analyze)'],
 		warnings: [],
-		errors: [],
-	},
+		errors: []
+	}
 };

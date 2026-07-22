@@ -1,9 +1,9 @@
-import type {Logger} from '@fuzdev/fuz_util/log.ts';
-import type {ChangesetOperations} from '$lib/operations.ts';
-import type {LocalRepo} from '$lib/local_repo.ts';
-import {parse_changeset_content, type ChangesetInfo} from '$lib/changeset_reader.ts';
-import {compare_bump_types, calculate_next_version, type BumpType} from '$lib/version_utils.ts';
-import type {RepoFixtureSet} from './repo_fixture_types.ts';
+import type { Logger } from '@fuzdev/fuz_util/log.ts';
+import type { ChangesetOperations } from '$lib/operations.ts';
+import type { LocalRepo } from '$lib/local_repo.ts';
+import { parse_changeset_content, type ChangesetInfo } from '$lib/changeset_reader.ts';
+import { compare_bump_types, calculate_next_version, type BumpType } from '$lib/version_utils.ts';
+import type { RepoFixtureSet } from './repo_fixture_types.ts';
 
 /* eslint-disable @typescript-eslint/require-await */
 
@@ -15,18 +15,18 @@ export const create_mock_changeset_ops = (fixture: RepoFixtureSet): ChangesetOpe
 	const repos_by_name = new Map(fixture.repos.map((repo) => [repo.package_json.name, repo]));
 
 	return {
-		has_changesets: async (options: {repo: LocalRepo}) => {
-			const {repo} = options;
+		has_changesets: async (options: { repo: LocalRepo }) => {
+			const { repo } = options;
 			const fixture_repo = repos_by_name.get(repo.library.name);
 			const value = !!(fixture_repo?.changesets && fixture_repo.changesets.length > 0);
-			return {ok: true, value};
+			return { ok: true, value };
 		},
 
-		read_changesets: async (options: {repo: LocalRepo; log?: Logger}) => {
-			const {repo} = options;
+		read_changesets: async (options: { repo: LocalRepo; log?: Logger }) => {
+			const { repo } = options;
 			const fixture_repo = repos_by_name.get(repo.library.name);
 			if (!fixture_repo?.changesets) {
-				return {ok: true, value: []};
+				return { ok: true, value: [] };
 			}
 
 			const changesets: Array<ChangesetInfo> = [];
@@ -37,11 +37,11 @@ export const create_mock_changeset_ops = (fixture: RepoFixtureSet): ChangesetOpe
 				}
 			}
 
-			return {ok: true, value: changesets};
+			return { ok: true, value: changesets };
 		},
 
-		predict_next_version: async (options: {repo: LocalRepo; log?: Logger}) => {
-			const {repo} = options;
+		predict_next_version: async (options: { repo: LocalRepo; log?: Logger }) => {
+			const { repo } = options;
 			const fixture_repo = repos_by_name.get(repo.library.name);
 			if (!fixture_repo?.changesets || fixture_repo.changesets.length === 0) {
 				return null;
@@ -71,7 +71,7 @@ export const create_mock_changeset_ops = (fixture: RepoFixtureSet): ChangesetOpe
 			const current_version = fixture_repo.package_json.version;
 			const new_version = calculate_next_version(current_version, highest_bump);
 
-			return {ok: true, version: new_version, bump_type: highest_bump};
-		},
+			return { ok: true, version: new_version, bump_type: highest_bump };
+		}
 	};
 };

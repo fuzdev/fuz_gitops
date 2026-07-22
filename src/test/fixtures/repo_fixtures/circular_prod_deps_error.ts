@@ -1,4 +1,4 @@
-import type {RepoFixtureSet} from '../repo_fixture_types.ts';
+import type { RepoFixtureSet } from '../repo_fixture_types.ts';
 
 /**
  * Tests detection of circular production/peer dependencies.
@@ -23,8 +23,8 @@ export const circular_prod_deps_error: RepoFixtureSet = {
 				name: '@test/pkg_a',
 				version: '1.0.0',
 				peerDependencies: {
-					'@test/pkg_b': '^1.0.0',
-				},
+					'@test/pkg_b': '^1.0.0'
+				}
 			},
 			changesets: [
 				{
@@ -33,9 +33,9 @@ export const circular_prod_deps_error: RepoFixtureSet = {
 "@test/pkg_a": minor
 ---
 
-New feature in pkg_a`,
-				},
-			],
+New feature in pkg_a`
+				}
+			]
 		},
 
 		// pkg_b: Has production dependency on pkg_a (creates cycle!)
@@ -46,8 +46,8 @@ New feature in pkg_a`,
 				name: '@test/pkg_b',
 				version: '1.0.0',
 				dependencies: {
-					'@test/pkg_a': '^1.0.0',
-				},
+					'@test/pkg_a': '^1.0.0'
+				}
 			},
 			changesets: [
 				{
@@ -56,10 +56,10 @@ New feature in pkg_a`,
 "@test/pkg_b": patch
 ---
 
-Bug fix in pkg_b`,
-				},
-			],
-		},
+Bug fix in pkg_b`
+				}
+			]
+		}
 	],
 
 	expected_outcomes: {
@@ -79,7 +79,7 @@ Bug fix in pkg_b`,
 		// 2. Cycle detection reports the specific cycle
 		errors: [
 			'Failed to compute publishing order: Error: dependency cycle detected: @test/pkg_a -> @test/pkg_b -> @test/pkg_a',
-			'Production dependency cycle: @test/pkg_a → @test/pkg_b → @test/pkg_a',
-		],
-	},
+			'Production dependency cycle: @test/pkg_a → @test/pkg_b → @test/pkg_a'
+		]
+	}
 };

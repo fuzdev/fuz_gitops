@@ -1,14 +1,14 @@
 <script lang="ts">
-	import {ensure_end} from '@fuzdev/fuz_util/string.ts';
-	import {resolve} from '$app/paths';
-	import type {Snippet} from 'svelte';
+	import { ensure_end } from '@fuzdev/fuz_util/string.ts';
+	import { resolve } from '$app/paths';
+	import type { Snippet } from 'svelte';
 
 	import ModulesNav from './ModulesNav.svelte';
-	import type {Repo} from './repo.svelte.ts';
+	import type { Repo } from './repo.svelte.ts';
 
 	const {
 		repos,
-		nav_footer,
+		nav_footer
 	}: {
 		repos: Array<Repo>; // TODO normalized version with cached primitives?
 		nav_footer?: Snippet;
@@ -21,13 +21,13 @@
 	// Get modules from each repo's source_json
 	const repos_modules = $derived(
 		repos
-			.filter((repo): repo is Repo & {source_json: {modules: Array<unknown>}} =>
-				Boolean(repo.source_json.modules?.length),
+			.filter((repo): repo is Repo & { source_json: { modules: Array<unknown> } } =>
+				Boolean(repo.source_json.modules?.length)
 			)
 			.map((repo) => ({
 				repo,
-				modules: repo.source_json.modules,
-			})),
+				modules: repo.source_json.modules
+			}))
 	);
 
 	// TODO add favicon (from library? gro?)
@@ -42,7 +42,7 @@
 	</div>
 	<ul class="width_atmost_md box unstyled">
 		{#each repos_modules as repo_modules (repo_modules)}
-			{@const {repo, modules} = repo_modules}
+			{@const { repo, modules } = repo_modules}
 			<li class="repo-module">
 				<header class="width:100% position:relative">
 					<a href="#{repo.name}" id={repo.name} class="subtitle">🔗</a>
@@ -50,7 +50,7 @@
 				</header>
 				<ul class="modules panel unstyled">
 					{#each modules as repo_module (repo_module)}
-						{@const {path, declarations} = repo_module}
+						{@const { path, declarations } = repo_module}
 						<li
 							class="module"
 							class:ts={path.endsWith('.ts')}

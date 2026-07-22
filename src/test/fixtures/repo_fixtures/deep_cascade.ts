@@ -1,4 +1,4 @@
-import type {RepoFixtureSet} from '../repo_fixture_types.ts';
+import type { RepoFixtureSet } from '../repo_fixture_types.ts';
 
 /**
  * Tests deep cascading updates through 4 levels of dependencies.
@@ -22,7 +22,7 @@ export const deep_cascade: RepoFixtureSet = {
 			repo_url: 'https://gitops.fuz.dev/test/leaf',
 			package_json: {
 				name: '@test/leaf',
-				version: '0.1.0',
+				version: '0.1.0'
 			},
 			changesets: [
 				{
@@ -31,9 +31,9 @@ export const deep_cascade: RepoFixtureSet = {
 "@test/leaf": minor
 ---
 
-Breaking change in leaf package`,
-				},
-			],
+Breaking change in leaf package`
+				}
+			]
 		},
 
 		// branch: Depends on leaf, should get auto-changeset
@@ -44,9 +44,9 @@ Breaking change in leaf package`,
 				name: '@test/branch',
 				version: '0.1.0',
 				dependencies: {
-					'@test/leaf': '^0.1.0',
-				},
-			},
+					'@test/leaf': '^0.1.0'
+				}
+			}
 			// No changesets - should get auto-generated due to leaf breaking update
 		},
 
@@ -58,8 +58,8 @@ Breaking change in leaf package`,
 				name: '@test/trunk',
 				version: '0.1.0',
 				peerDependencies: {
-					'@test/branch': '^0.1.0',
-				},
+					'@test/branch': '^0.1.0'
+				}
 			},
 			changesets: [
 				{
@@ -68,9 +68,9 @@ Breaking change in leaf package`,
 "@test/trunk": patch
 ---
 
-Small fix in trunk (will escalate to minor due to breaking peer dependency)`,
-				},
-			],
+Small fix in trunk (will escalate to minor due to breaking peer dependency)`
+				}
+			]
 		},
 
 		// root: Top of tree, depends on trunk, should get auto-changeset
@@ -81,11 +81,11 @@ Small fix in trunk (will escalate to minor due to breaking peer dependency)`,
 				name: '@test/root',
 				version: '0.1.0',
 				dependencies: {
-					'@test/trunk': '^0.1.0',
-				},
-			},
+					'@test/trunk': '^0.1.0'
+				}
+			}
 			// No changesets - should get auto-generated due to trunk update
-		},
+		}
 	],
 
 	expected_outcomes: {
@@ -97,36 +97,36 @@ Small fix in trunk (will escalate to minor due to breaking peer dependency)`,
 				package_name: '@test/leaf',
 				from: '0.1.0',
 				to: '0.2.0',
-				scenario: 'explicit_changeset',
+				scenario: 'explicit_changeset'
 			},
 			{
 				package_name: '@test/branch',
 				from: '0.1.0',
 				to: '0.2.0', // Correctly gets breaking update from leaf
-				scenario: 'auto_generated',
+				scenario: 'auto_generated'
 			},
 			{
 				package_name: '@test/trunk',
 				from: '0.1.0',
 				to: '0.2.0', // Correctly escalated from patch due to branch's breaking update
-				scenario: 'bump_escalation',
+				scenario: 'bump_escalation'
 			},
 			{
 				package_name: '@test/root',
 				from: '0.1.0',
 				to: '0.2.0', // Correctly gets breaking update from trunk
-				scenario: 'auto_generated',
-			},
+				scenario: 'auto_generated'
+			}
 		],
 
 		breaking_cascades: {
 			// Each entry shows DIRECT dependents with breaking changes, not transitive
 			'@test/leaf': ['@test/branch'], // branch directly depends on leaf
 			'@test/branch': ['@test/trunk'], // trunk directly depends on branch (peer dep)
-			'@test/trunk': ['@test/root'], // root directly depends on trunk
+			'@test/trunk': ['@test/root'] // root directly depends on trunk
 		},
 
 		warnings: [],
-		errors: [],
-	},
+		errors: []
+	}
 };

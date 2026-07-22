@@ -1,19 +1,19 @@
-import {test, assert, describe} from 'vitest';
+import { test, assert, describe } from 'vitest';
 
-import {create_mock_npm_ops} from './test_helpers.ts';
+import { create_mock_npm_ops } from './test_helpers.ts';
 
 describe('install operation', () => {
 	test('returns ok:true on success', async () => {
 		const mock_ops = create_mock_npm_ops();
-		const result = await mock_ops.install({cwd: '/some/path'});
+		const result = await mock_ops.install({ cwd: '/some/path' });
 		assert.ok(result.ok);
 	});
 
 	test('returns ok:false with error on failure', async () => {
 		const mock_ops = create_mock_npm_ops({
-			install: async () => ({ok: false, message: 'Network error'}),
+			install: async () => ({ ok: false, message: 'Network error' })
 		});
-		const result = await mock_ops.install({cwd: '/some/path'});
+		const result = await mock_ops.install({ cwd: '/some/path' });
 		assert.ok(!result.ok);
 	});
 
@@ -31,11 +31,11 @@ describe('install operation', () => {
 			install: async (options) => {
 				install_called = true;
 				install_cwd = options?.cwd;
-				return {ok: true};
-			},
+				return { ok: true };
+			}
 		});
 
-		await mock_ops.install({cwd: '/test/directory'});
+		await mock_ops.install({ cwd: '/test/directory' });
 
 		assert.ok(install_called, 'install should have been called');
 		assert.equal(install_cwd, '/test/directory');
@@ -51,7 +51,7 @@ describe('check_auth operation', () => {
 
 	test('returns ok:false with error when not authenticated', async () => {
 		const mock_ops = create_mock_npm_ops({
-			check_auth: async () => ({ok: false, message: 'Not logged in to npm'}),
+			check_auth: async () => ({ ok: false, message: 'Not logged in to npm' })
 		});
 		const result = await mock_ops.check_auth();
 		assert.ok(!result.ok);
@@ -63,8 +63,8 @@ describe('check_auth operation', () => {
 		const mock_ops = create_mock_npm_ops({
 			check_auth: async () => {
 				auth_called = true;
-				return {ok: true, username: 'custom-user'};
-			},
+				return { ok: true, username: 'custom-user' };
+			}
 		});
 
 		const result = await mock_ops.check_auth();
@@ -85,7 +85,7 @@ describe('check_registry operation', () => {
 
 	test('returns ok:false with error when registry unreachable', async () => {
 		const mock_ops = create_mock_npm_ops({
-			check_registry: async () => ({ok: false, message: 'Failed to ping npm registry'}),
+			check_registry: async () => ({ ok: false, message: 'Failed to ping npm registry' })
 		});
 		const result = await mock_ops.check_registry();
 		assert.ok(!result.ok);
@@ -97,8 +97,8 @@ describe('check_registry operation', () => {
 		const mock_ops = create_mock_npm_ops({
 			check_registry: async () => {
 				registry_called = true;
-				return {ok: true};
-			},
+				return { ok: true };
+			}
 		});
 
 		await mock_ops.check_registry();
@@ -110,7 +110,7 @@ describe('check_registry operation', () => {
 describe('wait_for_package operation', () => {
 	test('completes successfully when package becomes available', async () => {
 		const mock_ops = create_mock_npm_ops();
-		const result = await mock_ops.wait_for_package({pkg: 'foo', version: '1.0.0'});
+		const result = await mock_ops.wait_for_package({ pkg: 'foo', version: '1.0.0' });
 		assert.ok(result.ok);
 	});
 
@@ -119,14 +119,18 @@ describe('wait_for_package operation', () => {
 		const result = await mock_ops.wait_for_package({
 			pkg: 'foo',
 			version: '1.0.0',
-			wait_options: {max_attempts: 5},
+			wait_options: { max_attempts: 5 }
 		});
 		assert.ok(result.ok);
 	});
 
 	test('accepts optional logger', async () => {
 		const mock_ops = create_mock_npm_ops();
-		const result = await mock_ops.wait_for_package({pkg: 'foo', version: '1.0.0', log: undefined});
+		const result = await mock_ops.wait_for_package({
+			pkg: 'foo',
+			version: '1.0.0',
+			log: undefined
+		});
 		assert.ok(result.ok);
 	});
 
@@ -140,11 +144,11 @@ describe('wait_for_package operation', () => {
 				wait_called = true;
 				pkg_name = options.pkg;
 				pkg_version = options.version;
-				return {ok: true};
-			},
+				return { ok: true };
+			}
 		});
 
-		await mock_ops.wait_for_package({pkg: '@my/package', version: '3.2.1'});
+		await mock_ops.wait_for_package({ pkg: '@my/package', version: '3.2.1' });
 
 		assert.ok(wait_called);
 		assert.equal(pkg_name, '@my/package');

@@ -1,40 +1,40 @@
-import type {Task} from '@fuzdev/gro';
-import {z} from 'zod';
-import {styleText as st} from 'node:util';
+import type { Task } from '@fuzdev/gro';
+import { z } from 'zod';
+import { styleText as st } from 'node:util';
 
-import {get_gitops_ready} from './gitops_task_helpers.ts';
+import { get_gitops_ready } from './gitops_task_helpers.ts';
 import {
 	generate_publishing_plan,
 	log_publishing_plan,
 	type PublishingPlan,
-	type LogPlanOptions,
+	type LogPlanOptions
 } from './publishing_plan.ts';
-import {format_and_output, type OutputFormatters} from './output_helpers.ts';
-import {GITOPS_CONFIG_PATH_DEFAULT} from './gitops_constants.ts';
+import { format_and_output, type OutputFormatters } from './output_helpers.ts';
+import { GITOPS_CONFIG_PATH_DEFAULT } from './gitops_constants.ts';
 
 /** @nodocs */
 export const Args = z.strictObject({
 	config: z
 		.string()
-		.meta({description: 'path to the gitops config file, absolute or relative to the cwd'})
+		.meta({ description: 'path to the gitops config file, absolute or relative to the cwd' })
 		.default(GITOPS_CONFIG_PATH_DEFAULT),
 	dir: z
 		.string()
-		.meta({description: 'path containing the repos, defaults to the parent of the config dir'})
+		.meta({ description: 'path containing the repos, defaults to the parent of the config dir' })
 		.optional(),
 	format: z
 		.enum(['stdout', 'json', 'markdown'])
-		.meta({description: 'output format'})
+		.meta({ description: 'output format' })
 		.default('stdout'),
-	outfile: z.string().meta({description: 'write output to file instead of logging'}).optional(),
-	verbose: z.boolean().meta({description: 'show additional details'}).default(false),
+	outfile: z.string().meta({ description: 'write output to file instead of logging' }).optional(),
+	verbose: z.boolean().meta({ description: 'show additional details' }).default(false),
 	sync: z
 		.boolean()
 		.meta({
 			description:
-				'sync repos (switch branch, pull, install) before planning instead of reading the working tree as-is',
+				'sync repos (switch branch, pull, install) before planning instead of reading the working tree as-is'
 		})
-		.default(false),
+		.default(false)
 });
 export type Args = z.infer<typeof Args>;
 
@@ -52,18 +52,18 @@ export type Args = z.infer<typeof Args>;
 export const task: Task<Args> = {
 	summary: 'generate a publishing plan based on changesets',
 	Args,
-	run: async ({args, log}): Promise<void> => {
-		const {dir, config, format, outfile, verbose, sync} = args;
+	run: async ({ args, log }): Promise<void> => {
+		const { dir, config, format, outfile, verbose, sync } = args;
 
 		log.info(st('cyan', 'Generating multi-repo publishing plan...'));
 
 		// Load local repos; read the working tree as-is unless `--sync`
-		const {local_repos} = await get_gitops_ready({
+		const { local_repos } = await get_gitops_ready({
 			config,
 			dir,
 			download: false, // Don't download if missing
 			sync,
-			log,
+			log
 		});
 
 		if (local_repos.length === 0) {
@@ -74,20 +74,20 @@ export const task: Task<Args> = {
 		log.info(`  Found ${local_repos.length} local repos`);
 
 		// Generate publishing plan
-		const plan = await generate_publishing_plan(local_repos, {log, verbose});
+		const plan = await generate_publishing_plan(local_repos, { log, verbose });
 
 		// Format and output using output_helpers
-		await format_and_output(plan, create_plan_formatters({verbose}), {format, outfile, log});
+		await format_and_output(plan, create_plan_formatters({ verbose }), { format, outfile, log });
 
 		// Exit with error if there are blocking issues
 		if (plan.errors.length > 0) {
 			throw new Error('Publishing plan found errors that would block publishing');
 		}
-	},
+	}
 };
 
 const create_plan_formatters = (
-	options: LogPlanOptions = {},
+	options: LogPlanOptions = {}
 ): OutputFormatters<PublishingPlan> => ({
 	json: (plan) => {
 		const output = {
@@ -97,12 +97,12 @@ const create_plan_formatters = (
 			breaking_cascades: Object.fromEntries(plan.breaking_cascades),
 			warnings: plan.warnings,
 			info: plan.info,
-			errors: plan.errors,
+			errors: plan.errors
 		};
 		return JSON.stringify(output, null, 2);
 	},
 	markdown: (plan) => format_plan_as_markdown(plan),
-	stdout: (plan, log) => log_publishing_plan(plan, log, options),
+	stdout: (plan, log) => log_publishing_plan(plan, log, options)
 });
 
 const format_plan_as_markdown = (plan: PublishingPlan): Array<string> => {
@@ -114,7 +114,7 @@ const format_plan_as_markdown = (plan: PublishingPlan): Array<string> => {
 		breaking_cascades,
 		warnings,
 		info,
-		errors,
+		errors
 	} = plan;
 
 	lines.push('# Publishing Plan');
@@ -141,7 +141,7 @@ const format_plan_as_markdown = (plan: PublishingPlan): Array<string> => {
 	// Version changes
 	if (version_changes.length > 0) {
 		const with_changesets = version_changes.filter(
-			(vc) => vc.has_changesets && !vc.needs_bump_escalation,
+			(vc) => vc.has_changesets && !vc.needs_bump_escalation
 		);
 		const with_escalation = version_changes.filter((vc) => vc.needs_bump_escalation);
 		const with_auto_changesets = version_changes.filter((vc) => vc.will_generate_changeset);
@@ -154,7 +154,7 @@ const format_plan_as_markdown = (plan: PublishingPlan): Array<string> => {
 			for (const change of with_changesets) {
 				const is_major = change.bump_type === 'major' ? '💥 Yes' : 'No';
 				lines.push(
-					`| \`${change.package_name}\` | ${change.from} | ${change.to} | ${change.bump_type} | ${is_major} |`,
+					`| \`${change.package_name}\` | ${change.from} | ${change.to} | ${change.bump_type} | ${is_major} |`
 				);
 			}
 			lines.push('');
@@ -168,12 +168,12 @@ const format_plan_as_markdown = (plan: PublishingPlan): Array<string> => {
 			for (const change of with_escalation) {
 				const is_major = change.bump_type === 'major' ? '💥 Yes' : 'No';
 				lines.push(
-					`| \`${change.package_name}\` | ${change.from} | ${change.to} | ${change.existing_bump} | ${change.required_bump} | ${is_major} |`,
+					`| \`${change.package_name}\` | ${change.from} | ${change.to} | ${change.existing_bump} | ${change.required_bump} | ${is_major} |`
 				);
 			}
 			lines.push('');
 			lines.push(
-				'> ⬆️ These packages have changesets, but dependencies require a larger version bump.',
+				'> ⬆️ These packages have changesets, but dependencies require a larger version bump.'
 			);
 			lines.push('');
 		}
@@ -186,7 +186,7 @@ const format_plan_as_markdown = (plan: PublishingPlan): Array<string> => {
 			for (const change of with_auto_changesets) {
 				const is_major = change.bump_type === 'major' ? '💥 Yes' : 'No';
 				lines.push(
-					`| \`${change.package_name}\` | ${change.from} | ${change.to} | ${change.bump_type} | ${is_major} |`,
+					`| \`${change.package_name}\` | ${change.from} | ${change.to} | ${change.bump_type} | ${is_major} |`
 				);
 			}
 			lines.push('');
@@ -234,7 +234,7 @@ const format_plan_as_markdown = (plan: PublishingPlan): Array<string> => {
 							? 'peer'
 							: 'dev';
 				lines.push(
-					`- "${update.updated_dependency}": "${update.current_version}"  # ${type_label}`,
+					`- "${update.updated_dependency}": "${update.current_version}"  # ${type_label}`
 				);
 				lines.push(`+ "${update.updated_dependency}": "${update.new_version}"  # ${type_label}`);
 			}

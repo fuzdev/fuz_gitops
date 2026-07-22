@@ -1,10 +1,10 @@
-import {assert, describe, test} from 'vitest';
+import { assert, describe, test } from 'vitest';
 import {
 	parse_changeset_content,
 	determine_bump_from_changesets,
-	type ChangesetInfo,
+	type ChangesetInfo
 } from '$lib/changeset_reader.ts';
-import {calculate_next_version, compare_bump_types, type BumpType} from '$lib/version_utils.ts';
+import { calculate_next_version, compare_bump_types, type BumpType } from '$lib/version_utils.ts';
 
 describe('changeset_reader', () => {
 	describe('parse_changeset_content', () => {
@@ -19,8 +19,8 @@ Fix a small bug in the parser.`;
 
 			assert.deepEqual(result, {
 				filename: 'test.md',
-				packages: [{name: 'test-package', bump_type: 'patch'}],
-				summary: 'Fix a small bug in the parser.',
+				packages: [{ name: 'test-package', bump_type: 'patch' }],
+				summary: 'Fix a small bug in the parser.'
 			});
 		});
 
@@ -37,10 +37,10 @@ Add new feature to package-a and fix bug in package-b.`;
 			assert.deepEqual(result, {
 				filename: 'changeset.md',
 				packages: [
-					{name: 'package-a', bump_type: 'minor'},
-					{name: '@scope/package-b', bump_type: 'patch'},
+					{ name: 'package-a', bump_type: 'minor' },
+					{ name: '@scope/package-b', bump_type: 'patch' }
 				],
-				summary: 'Add new feature to package-a and fix bug in package-b.',
+				summary: 'Add new feature to package-a and fix bug in package-b.'
 			});
 		});
 
@@ -55,7 +55,7 @@ BREAKING: Complete API redesign.`;
 
 			assert.deepEqual(result?.packages[0], {
 				name: 'api-package',
-				bump_type: 'major',
+				bump_type: 'major'
 			});
 			assert.strictEqual(result?.summary, 'BREAKING: Complete API redesign.');
 		});
@@ -84,8 +84,8 @@ Test single quotes.`;
 			const result = parse_changeset_content(content);
 
 			assert.deepEqual(result?.packages, [
-				{name: 'package-a', bump_type: 'minor'},
-				{name: 'package-b', bump_type: 'patch'},
+				{ name: 'package-a', bump_type: 'minor' },
+				{ name: 'package-b', bump_type: 'patch' }
 			]);
 			assert.strictEqual(result?.summary, 'Multiline summary\n   with extra whitespace.');
 		});
@@ -128,8 +128,8 @@ Mixed valid and invalid.`;
 			const result = parse_changeset_content(content);
 
 			assert.deepEqual(result?.packages, [
-				{name: 'valid-package', bump_type: 'patch'},
-				{name: 'another-valid', bump_type: 'minor'},
+				{ name: 'valid-package', bump_type: 'patch' },
+				{ name: 'another-valid', bump_type: 'minor' }
 			]);
 		});
 
@@ -145,9 +145,9 @@ Complex package names.`;
 			const result = parse_changeset_content(content);
 
 			assert.deepEqual(result?.packages, [
-				{name: '@scope/package-name', bump_type: 'patch'},
-				{name: 'org.example.package', bump_type: 'minor'},
-				{name: '_underscore-package', bump_type: 'major'},
+				{ name: '@scope/package-name', bump_type: 'patch' },
+				{ name: 'org.example.package', bump_type: 'minor' },
+				{ name: '_underscore-package', bump_type: 'major' }
 			]);
 		});
 
@@ -165,8 +165,8 @@ Changeset with extra frontmatter fields.`;
 			const result = parse_changeset_content(content);
 
 			assert.deepEqual(result?.packages, [
-				{name: 'valid-package', bump_type: 'patch'},
-				{name: 'another-valid', bump_type: 'minor'},
+				{ name: 'valid-package', bump_type: 'patch' },
+				{ name: 'another-valid', bump_type: 'minor' }
 			]);
 		});
 
@@ -181,8 +181,8 @@ Mixed quote styles.`;
 			const result = parse_changeset_content(content);
 
 			assert.deepEqual(result?.packages, [
-				{name: 'double-quoted', bump_type: 'patch'},
-				{name: 'single-quoted', bump_type: 'minor'},
+				{ name: 'double-quoted', bump_type: 'patch' },
+				{ name: 'single-quoted', bump_type: 'minor' }
 			]);
 		});
 
@@ -212,8 +212,8 @@ Mix of valid and invalid lines.`;
 			const result = parse_changeset_content(content);
 
 			assert.deepEqual(result?.packages, [
-				{name: 'valid-package', bump_type: 'patch'},
-				{name: 'another-valid', bump_type: 'minor'},
+				{ name: 'valid-package', bump_type: 'patch' },
+				{ name: 'another-valid', bump_type: 'minor' }
 			]);
 		});
 
@@ -243,7 +243,7 @@ Second summary should be ignored.`;
 
 			const result = parse_changeset_content(content);
 
-			assert.deepEqual(result?.packages, [{name: 'first-package', bump_type: 'patch'}]);
+			assert.deepEqual(result?.packages, [{ name: 'first-package', bump_type: 'patch' }]);
 			assert.ok(result?.summary.includes('First summary'));
 		});
 
@@ -260,27 +260,27 @@ Duplicate package entries.`;
 			const result = parse_changeset_content(content);
 
 			assert.deepEqual(result?.packages, [
-				{name: 'same-package', bump_type: 'patch'}, // First occurrence kept
-				{name: 'other-package', bump_type: 'minor'},
-				{name: 'same-package', bump_type: 'major'}, // Later occurrences also kept (consumer handles)
-				{name: 'same-package', bump_type: 'minor'},
+				{ name: 'same-package', bump_type: 'patch' }, // First occurrence kept
+				{ name: 'other-package', bump_type: 'minor' },
+				{ name: 'same-package', bump_type: 'major' }, // Later occurrences also kept (consumer handles)
+				{ name: 'same-package', bump_type: 'minor' }
 			]);
 		});
 	});
 
 	describe('determine_bump_from_changesets', () => {
 		const create_changeset = (
-			packages: Array<{name: string; bump_type: BumpType}>,
+			packages: Array<{ name: string; bump_type: BumpType }>
 		): ChangesetInfo => ({
 			filename: 'test.md',
 			packages,
-			summary: 'Test changeset',
+			summary: 'Test changeset'
 		});
 
 		test('finds bump type for specific package', () => {
 			const changesets = [
-				create_changeset([{name: 'package-a', bump_type: 'patch'}]),
-				create_changeset([{name: 'package-b', bump_type: 'minor'}]),
+				create_changeset([{ name: 'package-a', bump_type: 'patch' }]),
+				create_changeset([{ name: 'package-b', bump_type: 'minor' }])
 			];
 
 			assert.strictEqual(determine_bump_from_changesets(changesets, 'package-a'), 'patch');
@@ -289,9 +289,9 @@ Duplicate package entries.`;
 
 		test('returns highest bump type when package appears multiple times', () => {
 			const changesets = [
-				create_changeset([{name: 'package-a', bump_type: 'patch'}]),
-				create_changeset([{name: 'package-a', bump_type: 'minor'}]),
-				create_changeset([{name: 'package-a', bump_type: 'patch'}]), // lower bump
+				create_changeset([{ name: 'package-a', bump_type: 'patch' }]),
+				create_changeset([{ name: 'package-a', bump_type: 'minor' }]),
+				create_changeset([{ name: 'package-a', bump_type: 'patch' }]) // lower bump
 			];
 
 			assert.strictEqual(determine_bump_from_changesets(changesets, 'package-a'), 'minor');
@@ -299,16 +299,16 @@ Duplicate package entries.`;
 
 		test('returns major when it appears anywhere', () => {
 			const changesets = [
-				create_changeset([{name: 'package-a', bump_type: 'patch'}]),
-				create_changeset([{name: 'package-a', bump_type: 'major'}]),
-				create_changeset([{name: 'package-a', bump_type: 'minor'}]),
+				create_changeset([{ name: 'package-a', bump_type: 'patch' }]),
+				create_changeset([{ name: 'package-a', bump_type: 'major' }]),
+				create_changeset([{ name: 'package-a', bump_type: 'minor' }])
 			];
 
 			assert.strictEqual(determine_bump_from_changesets(changesets, 'package-a'), 'major');
 		});
 
 		test('returns null for non-existent package', () => {
-			const changesets = [create_changeset([{name: 'package-a', bump_type: 'patch'}])];
+			const changesets = [create_changeset([{ name: 'package-a', bump_type: 'patch' }])];
 
 			assert.strictEqual(determine_bump_from_changesets(changesets, 'non-existent'), null);
 		});

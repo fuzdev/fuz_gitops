@@ -8,15 +8,15 @@
  * @module
  */
 
-import {EMPTY_OBJECT} from '@fuzdev/fuz_util/object.ts';
-import {topological_sort as topological_sort_generic} from '@fuzdev/fuz_util/sort.ts';
+import { EMPTY_OBJECT } from '@fuzdev/fuz_util/object.ts';
+import { topological_sort as topological_sort_generic } from '@fuzdev/fuz_util/sort.ts';
 
-import type {LocalRepo} from './local_repo.ts';
+import type { LocalRepo } from './local_repo.ts';
 
 export const DEPENDENCY_TYPE = {
 	PROD: 'prod',
 	PEER: 'peer',
-	DEV: 'dev',
+	DEV: 'dev'
 } as const;
 
 export type DependencyType = (typeof DEPENDENCY_TYPE)[keyof typeof DEPENDENCY_TYPE];
@@ -31,11 +31,11 @@ export interface DependencyGraphJson {
 	nodes: Array<{
 		name: string;
 		version: string;
-		dependencies: Array<{name: string; spec: DependencySpec}>;
+		dependencies: Array<{ name: string; spec: DependencySpec }>;
 		dependents: Array<string>;
 		publishable: boolean;
 	}>;
-	edges: Array<{from: string; to: string}>;
+	edges: Array<{ from: string; to: string }>;
 }
 
 export interface DependencyNode {
@@ -59,14 +59,14 @@ export class DependencyGraph {
 	public init_from_repos(repos: Array<LocalRepo>): void {
 		// First pass: create nodes
 		for (const repo of repos) {
-			const {library, package_json} = repo;
+			const { library, package_json } = repo;
 			const node: DependencyNode = {
 				name: library.name,
 				version: package_json.version || '0.0.0',
 				repo,
 				dependencies: new Map(),
 				dependents: new Set(),
-				publishable: !package_json.private,
+				publishable: !package_json.private
 			};
 
 			// Extract dependencies
@@ -77,15 +77,15 @@ export class DependencyGraph {
 			// Add dependencies, prioritizing prod/peer over dev
 			// (if a package appears in multiple dep types, use the stronger constraint)
 			for (const [name, version] of Object.entries(deps)) {
-				node.dependencies.set(name, {type: DEPENDENCY_TYPE.PROD, version});
+				node.dependencies.set(name, { type: DEPENDENCY_TYPE.PROD, version });
 			}
 			for (const [name, version] of Object.entries(peer_deps)) {
-				node.dependencies.set(name, {type: DEPENDENCY_TYPE.PEER, version});
+				node.dependencies.set(name, { type: DEPENDENCY_TYPE.PEER, version });
 			}
 			for (const [name, version] of Object.entries(dev_deps)) {
 				// Only add dev deps if not already present as prod/peer
 				if (!node.dependencies.has(name)) {
-					node.dependencies.set(name, {type: DEPENDENCY_TYPE.DEV, version});
+					node.dependencies.set(name, { type: DEPENDENCY_TYPE.DEV, version });
 				}
 			}
 
@@ -138,7 +138,7 @@ export class DependencyGraph {
 					if (exclude_dev && spec.type === DEPENDENCY_TYPE.DEV) return false;
 					return this.nodes.has(dep_name);
 				})
-				.map(([dep_name]) => dep_name),
+				.map(([dep_name]) => dep_name)
 		}));
 		const result = topological_sort_generic(items, 'package');
 		if (!result.ok) {
@@ -164,7 +164,7 @@ export class DependencyGraph {
 	} {
 		const production_cycles = this.#find_cycles((spec) => spec.type !== DEPENDENCY_TYPE.DEV);
 		const dev_cycles = this.#find_cycles((spec) => spec.type === DEPENDENCY_TYPE.DEV);
-		return {production_cycles, dev_cycles};
+		return { production_cycles, dev_cycles };
 	}
 
 	/** DFS cycle detection following only edges that match the filter. */
@@ -217,20 +217,20 @@ export class DependencyGraph {
 			version: node.version,
 			dependencies: Array.from(node.dependencies.entries()).map(([name, spec]) => ({
 				name,
-				spec,
+				spec
 			})),
 			dependents: Array.from(node.dependents),
-			publishable: node.publishable,
+			publishable: node.publishable
 		}));
 
-		const edges: Array<{from: string; to: string}> = [];
+		const edges: Array<{ from: string; to: string }> = [];
 		for (const [from, tos] of this.edges) {
 			for (const to of tos) {
-				edges.push({from, to});
+				edges.push({ from, to });
 			}
 		}
 
-		return {nodes, edges};
+		return { nodes, edges };
 	}
 }
 
@@ -270,25 +270,25 @@ export class DependencyGraphBuilder {
 	analyze(graph: DependencyGraph): {
 		production_cycles: Array<Array<string>>;
 		dev_cycles: Array<Array<string>>;
-		wildcard_deps: Array<{pkg: string; dep: string; version: string}>;
-		missing_peers: Array<{pkg: string; dep: string}>;
+		wildcard_deps: Array<{ pkg: string; dep: string; version: string }>;
+		missing_peers: Array<{ pkg: string; dep: string }>;
 	} {
-		const {production_cycles, dev_cycles} = graph.detect_cycles_by_type();
-		const wildcard_deps: Array<{pkg: string; dep: string; version: string}> = [];
-		const missing_peers: Array<{pkg: string; dep: string}> = [];
+		const { production_cycles, dev_cycles } = graph.detect_cycles_by_type();
+		const wildcard_deps: Array<{ pkg: string; dep: string; version: string }> = [];
+		const missing_peers: Array<{ pkg: string; dep: string }> = [];
 
 		for (const node of graph.nodes.values()) {
 			for (const [dep_name, spec] of node.dependencies) {
 				if (spec.version === '*') {
-					wildcard_deps.push({pkg: node.name, dep: dep_name, version: spec.version});
+					wildcard_deps.push({ pkg: node.name, dep: dep_name, version: spec.version });
 				}
 				if (spec.type === DEPENDENCY_TYPE.PEER && !graph.nodes.has(dep_name)) {
 					// External peer dependency
-					missing_peers.push({pkg: node.name, dep: dep_name});
+					missing_peers.push({ pkg: node.name, dep: dep_name });
 				}
 			}
 		}
 
-		return {production_cycles, dev_cycles, wildcard_deps, missing_peers};
+		return { production_cycles, dev_cycles, wildcard_deps, missing_peers };
 	}
 }

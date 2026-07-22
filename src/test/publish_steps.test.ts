@@ -1,29 +1,29 @@
-import {assert, test, describe} from 'vitest';
+import { assert, test, describe } from 'vitest';
 
-import {derive_publish_steps, format_publish_steps} from '$lib/publish_steps.ts';
-import type {PublishingPlan, VersionChange, DependencyUpdate} from '$lib/publishing_plan.ts';
+import { derive_publish_steps, format_publish_steps } from '$lib/publish_steps.ts';
+import type { PublishingPlan, VersionChange, DependencyUpdate } from '$lib/publishing_plan.ts';
 
 const make_version_change = (
-	overrides: Partial<VersionChange> & {package_name: string},
+	overrides: Partial<VersionChange> & { package_name: string }
 ): VersionChange => ({
 	from: '1.0.0',
 	to: '1.0.1',
 	bump_type: 'patch',
 	breaking: false,
 	has_changesets: true,
-	...overrides,
+	...overrides
 });
 
 const make_update = (
 	dependent: string,
 	dependency: string,
-	type: DependencyUpdate['type'],
+	type: DependencyUpdate['type']
 ): DependencyUpdate => ({
 	dependent_package: dependent,
 	updated_dependency: dependency,
 	current_version: '^1.0.0',
 	new_version: 'ignored', // derive reads the dependency's plan version, not this
-	type,
+	type
 });
 
 const make_plan = (overrides: Partial<PublishingPlan> = {}): PublishingPlan => ({
@@ -34,7 +34,7 @@ const make_plan = (overrides: Partial<PublishingPlan> = {}): PublishingPlan => (
 	warnings: [],
 	info: [],
 	errors: [],
-	...overrides,
+	...overrides
 });
 
 // core (explicit changeset, breaking) → mid (auto-changeset) → app (escalation);
@@ -49,14 +49,14 @@ const make_cascade_plan = (): PublishingPlan =>
 				to: '0.6.0',
 				bump_type: 'minor',
 				breaking: true,
-				has_changesets: true,
+				has_changesets: true
 			}),
 			make_version_change({
 				package_name: 'tool',
 				from: '1.0.0',
 				to: '1.0.1',
 				bump_type: 'patch',
-				has_changesets: true,
+				has_changesets: true
 			}),
 			make_version_change({
 				package_name: 'mid',
@@ -65,7 +65,7 @@ const make_cascade_plan = (): PublishingPlan =>
 				bump_type: 'minor',
 				breaking: true,
 				has_changesets: false,
-				will_generate_changeset: true,
+				will_generate_changeset: true
 			}),
 			make_version_change({
 				package_name: 'app',
@@ -74,14 +74,14 @@ const make_cascade_plan = (): PublishingPlan =>
 				bump_type: 'minor',
 				breaking: true,
 				has_changesets: true,
-				needs_bump_escalation: true,
-			}),
+				needs_bump_escalation: true
+			})
 		],
 		dependency_updates: [
 			make_update('mid', 'core', 'dependencies'),
 			make_update('app', 'mid', 'dependencies'),
-			make_update('consumer', 'tool', 'devDependencies'),
-		],
+			make_update('consumer', 'tool', 'devDependencies')
+		]
 	});
 
 describe('derive_publish_steps', () => {
@@ -120,7 +120,7 @@ describe('derive_publish_steps', () => {
 		const without = derive_publish_steps(make_cascade_plan());
 		assert.ok(!without.some((s) => s.kind === 'deploy'));
 
-		const withDeploy = derive_publish_steps(make_cascade_plan(), {deploy: true});
+		const withDeploy = derive_publish_steps(make_cascade_plan(), { deploy: true });
 		const deployed = withDeploy.filter((s) => s.kind === 'deploy').map((s) => s.repo);
 		// published (core, tool, mid, app) + the dev-dep dependent (consumer)
 		assert.deepEqual([...deployed].sort(), ['app', 'consumer', 'core', 'mid', 'tool']);
@@ -132,8 +132,8 @@ describe('derive_publish_steps', () => {
 		// so no dependency_update should be derived.
 		const plan = make_plan({
 			publishing_order: ['app'],
-			version_changes: [make_version_change({package_name: 'app'})],
-			dependency_updates: [make_update('app', 'lib', 'dependencies')],
+			version_changes: [make_version_change({ package_name: 'app' })],
+			dependency_updates: [make_update('app', 'lib', 'dependencies')]
 		});
 		const steps = derive_publish_steps(plan);
 		assert.ok(!steps.some((s) => s.kind === 'dependency_update'));
@@ -142,7 +142,7 @@ describe('derive_publish_steps', () => {
 
 describe('format_publish_steps', () => {
 	test('renders one line per step', () => {
-		const lines = format_publish_steps(derive_publish_steps(make_cascade_plan(), {deploy: true}));
+		const lines = format_publish_steps(derive_publish_steps(make_cascade_plan(), { deploy: true }));
 		assert.ok(lines.length > 0);
 		assert.ok(lines.some((l) => l.includes('publish') && l.includes('core')));
 		assert.ok(lines.some((l) => l.startsWith('dev dep')));

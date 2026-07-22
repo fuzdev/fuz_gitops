@@ -1,12 +1,12 @@
 <script lang="ts">
-	import {resolve} from '$app/paths';
+	import { resolve } from '$app/paths';
 
-	import {to_pull_requests, type FilterPullRequest} from './github_helpers.ts';
-	import type {Repo} from './repo.svelte.ts';
+	import { to_pull_requests, type FilterPullRequest } from './github_helpers.ts';
+	import type { Repo } from './repo.svelte.ts';
 
 	const {
 		repos,
-		filter_pull_request,
+		filter_pull_request
 	}: {
 		repos: Array<Repo>;
 		filter_pull_request?: FilterPullRequest | undefined;

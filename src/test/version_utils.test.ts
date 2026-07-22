@@ -1,4 +1,4 @@
-import {assert, describe, test} from 'vitest';
+import { assert, describe, test } from 'vitest';
 
 import {
 	is_wildcard,
@@ -9,7 +9,7 @@ import {
 	get_update_prefix,
 	is_breaking_change,
 	detect_bump_type,
-	required_bump_for_dependency_update,
+	required_bump_for_dependency_update
 } from '$lib/version_utils.ts';
 
 describe('version_utils', () => {

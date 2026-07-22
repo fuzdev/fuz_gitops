@@ -1,6 +1,6 @@
-import {assert, describe, test} from 'vitest';
+import { assert, describe, test } from 'vitest';
 
-import {cargo_toml_parse} from '$lib/cargo_toml.ts';
+import { cargo_toml_parse } from '$lib/cargo_toml.ts';
 
 describe('cargo_toml_parse', () => {
 	test('reads identity from a workspace root `[workspace.package]`', () => {
@@ -21,12 +21,12 @@ repository = "https://github.com/fuzdev/tsv"
 [workspace.dependencies]
 foo = { path = "crates/foo" }
 serde = "1"
-`,
+`
 		);
 		// A workspace root has no `name`, and dependency tables are ignored.
 		assert.deepStrictEqual(metadata, {
 			version: '0.1.0',
-			repository: 'https://github.com/fuzdev/tsv',
+			repository: 'https://github.com/fuzdev/tsv'
 		});
 	});
 
@@ -40,13 +40,13 @@ repository = "https://github.com/owner/my_crate"
 
 [dependencies]
 serde = "1"
-`,
+`
 		);
 		assert.deepStrictEqual(metadata, {
 			name: 'my_crate',
 			version: '1.2.3',
 			description: 'does a thing',
-			repository: 'https://github.com/owner/my_crate',
+			repository: 'https://github.com/owner/my_crate'
 		});
 	});
 
@@ -56,10 +56,10 @@ serde = "1"
 name = "member"
 version = { workspace = true }
 repository.workspace = true
-`,
+`
 		);
 		// Only the literal string `name` is captured; inherited values have no literal here.
-		assert.deepStrictEqual(metadata, {name: 'member'});
+		assert.deepStrictEqual(metadata, { name: 'member' });
 	});
 
 	test('strips trailing inline comments and handles single quotes', () => {
@@ -67,9 +67,9 @@ repository.workspace = true
 			`[package]
 name = 'quoted' # the crate name
 version = "0.4.0"  # current
-`,
+`
 		);
-		assert.deepStrictEqual(metadata, {name: 'quoted', version: '0.4.0'});
+		assert.deepStrictEqual(metadata, { name: 'quoted', version: '0.4.0' });
 	});
 
 	test('first value wins when `[package]` precedes `[workspace.package]`', () => {
@@ -79,7 +79,7 @@ version = "2.0.0"
 
 [workspace.package]
 version = "1.0.0"
-`,
+`
 		);
 		assert.strictEqual(metadata.version, '2.0.0');
 	});

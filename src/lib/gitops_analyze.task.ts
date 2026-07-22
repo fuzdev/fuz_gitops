@@ -1,42 +1,42 @@
-import type {Task} from '@fuzdev/gro';
-import {z} from 'zod';
-import {styleText as st} from 'node:util';
-import type {Logger} from '@fuzdev/fuz_util/log.ts';
+import type { Task } from '@fuzdev/gro';
+import { z } from 'zod';
+import { styleText as st } from 'node:util';
+import type { Logger } from '@fuzdev/fuz_util/log.ts';
 
-import {get_gitops_ready} from './gitops_task_helpers.ts';
-import type {DependencyGraph} from './dependency_graph.ts';
-import {repo_is_npm} from './local_repo.ts';
-import {analyze_repos, type DependencyAnalysis} from './graph_validation.ts';
+import { get_gitops_ready } from './gitops_task_helpers.ts';
+import type { DependencyGraph } from './dependency_graph.ts';
+import { repo_is_npm } from './local_repo.ts';
+import { analyze_repos, type DependencyAnalysis } from './graph_validation.ts';
 import {
 	format_wildcard_dependencies,
 	format_dev_cycles,
-	format_production_cycles,
+	format_production_cycles
 } from './log_helpers.ts';
-import {format_and_output, type OutputFormatters} from './output_helpers.ts';
-import {GITOPS_CONFIG_PATH_DEFAULT} from './gitops_constants.ts';
+import { format_and_output, type OutputFormatters } from './output_helpers.ts';
+import { GITOPS_CONFIG_PATH_DEFAULT } from './gitops_constants.ts';
 
 /** @nodocs */
 export const Args = z.strictObject({
 	config: z
 		.string()
-		.meta({description: 'path to the gitops config file, absolute or relative to the cwd'})
+		.meta({ description: 'path to the gitops config file, absolute or relative to the cwd' })
 		.default(GITOPS_CONFIG_PATH_DEFAULT),
 	dir: z
 		.string()
-		.meta({description: 'path containing the repos, defaults to the parent of the config dir'})
+		.meta({ description: 'path containing the repos, defaults to the parent of the config dir' })
 		.optional(),
 	format: z
 		.enum(['stdout', 'json', 'markdown'])
-		.meta({description: 'output format'})
+		.meta({ description: 'output format' })
 		.default('stdout'),
-	outfile: z.string().meta({description: 'write output to file instead of logging'}).optional(),
+	outfile: z.string().meta({ description: 'write output to file instead of logging' }).optional(),
 	sync: z
 		.boolean()
 		.meta({
 			description:
-				'sync repos (switch branch, pull, install) before analyzing instead of reading the working tree as-is',
+				'sync repos (switch branch, pull, install) before analyzing instead of reading the working tree as-is'
 		})
-		.default(false),
+		.default(false)
 });
 export type Args = z.infer<typeof Args>;
 
@@ -44,11 +44,11 @@ export type Args = z.infer<typeof Args>;
 export const task: Task<Args> = {
 	Args,
 	summary: 'analyze dependency structure and relationships across repos',
-	run: async ({args, log}) => {
-		const {config, dir, format, outfile, sync} = args;
+	run: async ({ args, log }) => {
+		const { config, dir, format, outfile, sync } = args;
 
 		// Get repos ready (without downloading); read the working tree as-is unless `--sync`
-		const {local_repos} = await get_gitops_ready({config, dir, download: false, sync, log});
+		const { local_repos } = await get_gitops_ready({ config, dir, download: false, sync, log });
 
 		// Only npm packages form the dependency graph; note any non-npm repos (e.g. cargo)
 		// that are excluded so the omission isn't silent.
@@ -58,23 +58,23 @@ export const task: Task<Args> = {
 				st(
 					'dim',
 					`excluding ${non_npm_repos.length} non-npm repo(s) from analysis (dashboard-only): ` +
-						non_npm_repos.map((r) => r.library.name).join(', '),
-				),
+						non_npm_repos.map((r) => r.library.name).join(', ')
+				)
 			);
 		}
 
 		// Build the dependency graph and analyze cycles/wildcards (tolerating cycles)
-		const {graph, analysis, publishing_order} = analyze_repos(local_repos);
+		const { graph, analysis, publishing_order } = analyze_repos(local_repos);
 
 		// Format and output using output_helpers
 		const data = {
 			graph,
 			analysis,
-			publishing_order,
+			publishing_order
 		};
 
-		await format_and_output(data, create_formatters(), {format, outfile, log});
-	},
+		await format_and_output(data, create_formatters(), { format, outfile, log });
+	}
 };
 
 // Data type for analysis output
@@ -88,32 +88,32 @@ interface AnalysisData {
 const create_formatters = (): OutputFormatters<AnalysisData> => ({
 	json: (data) => format_json(data.graph, data.analysis, data.publishing_order),
 	markdown: (data) => format_markdown(data.graph, data.analysis, data.publishing_order),
-	stdout: (data, log) => format_stdout(data.graph, data.analysis, data.publishing_order, log),
+	stdout: (data, log) => format_stdout(data.graph, data.analysis, data.publishing_order, log)
 });
 
 // Helper to calculate common statistics
 const calculate_stats = (graph: DependencyGraph) => {
 	const total_deps = Array.from(graph.nodes.values()).reduce(
 		(sum, node) => sum + node.dependencies.size,
-		0,
+		0
 	);
 	const internal_deps = Array.from(graph.nodes.values()).reduce(
 		(sum, node) =>
 			sum + Array.from(node.dependencies.keys()).filter((name) => graph.nodes.has(name)).length,
-		0,
+		0
 	);
-	return {total_deps, internal_deps};
+	return { total_deps, internal_deps };
 };
 
 const format_json = (
 	graph: DependencyGraph,
 	analysis: DependencyAnalysis,
-	publishing_order: Array<string> | null,
+	publishing_order: Array<string> | null
 ): string => {
 	const output = {
 		graph: graph.toJSON(),
 		analysis,
-		publishing_order,
+		publishing_order
 	};
 	return JSON.stringify(output, null, 2);
 };
@@ -121,12 +121,12 @@ const format_json = (
 const format_markdown = (
 	graph: DependencyGraph,
 	analysis: DependencyAnalysis,
-	publishing_order: Array<string> | null,
+	publishing_order: Array<string> | null
 ): Array<string> => {
 	const lines: Array<string> = ['# Dependency Analysis'];
 
 	// Summary stats
-	const {total_deps, internal_deps} = calculate_stats(graph);
+	const { total_deps, internal_deps } = calculate_stats(graph);
 
 	lines.push('', '## Summary', '');
 	lines.push(`- **Total packages**: ${graph.nodes.size}`);
@@ -170,7 +170,7 @@ const format_markdown = (
 		lines.push('', '## ⚠️ Wildcard Dependencies', '');
 		lines.push('| Package | Dependency | Version |');
 		lines.push('|---------|------------|---------|');
-		for (const {pkg, dep, version} of analysis.wildcard_deps) {
+		for (const { pkg, dep, version } of analysis.wildcard_deps) {
 			lines.push(`| \`${pkg}\` | \`${dep}\` | \`${version}\` |`);
 		}
 	}
@@ -179,7 +179,7 @@ const format_markdown = (
 	lines.push('', '## Internal Dependencies', '');
 	for (const node of graph.nodes.values()) {
 		const internal_deps = Array.from(node.dependencies.entries()).filter(([name]) =>
-			graph.nodes.has(name),
+			graph.nodes.has(name)
 		);
 		if (internal_deps.length > 0) {
 			lines.push(`- **${node.name}**`);
@@ -197,7 +197,7 @@ const format_stdout = (
 	graph: DependencyGraph,
 	analysis: DependencyAnalysis,
 	publishing_order: Array<string> | null,
-	log: Logger,
+	log: Logger
 ): void => {
 	log.info(st('cyan', `📊 Analyzing ${graph.nodes.size} repositories...`));
 
@@ -216,14 +216,14 @@ const format_stdout = (
 	log.info(st('yellow', 'Dependency relationships:'));
 	for (const node of graph.nodes.values()) {
 		const internal_deps = Array.from(node.dependencies.entries()).filter(([name]) =>
-			graph.nodes.has(name),
+			graph.nodes.has(name)
 		);
 		if (internal_deps.length > 0) {
 			log.info(`  ${st('cyan', node.name)}`);
 			for (const [dep_name, spec] of internal_deps) {
 				const type_color = spec.type === 'peer' ? 'magenta' : spec.type === 'dev' ? 'dim' : 'white';
 				log.info(
-					`    ${st(type_color, '→')} ${dep_name} ${st('dim', `(${spec.type}: ${spec.version})`)}`,
+					`    ${st(type_color, '→')} ${dep_name} ${st('dim', `(${spec.type}: ${spec.version})`)}`
 				);
 			}
 		}
@@ -252,7 +252,7 @@ const format_stdout = (
 	}
 
 	// Summary
-	const {total_deps, internal_deps} = calculate_stats(graph);
+	const { total_deps, internal_deps } = calculate_stats(graph);
 
 	log.info('');
 	log.info(st('cyan', 'Summary:'));

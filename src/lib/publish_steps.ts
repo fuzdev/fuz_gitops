@@ -8,17 +8,17 @@
  * @module
  */
 
-import type {BumpType} from './version_utils.ts';
-import type {PublishingPlan, VersionChange} from './publishing_plan.ts';
-import {UnreachableError} from '@fuzdev/fuz_util/error.ts';
+import type { BumpType } from './version_utils.ts';
+import type { PublishingPlan, VersionChange } from './publishing_plan.ts';
+import { UnreachableError } from '@fuzdev/fuz_util/error.ts';
 
 /** How a package's version bump arises in the plan. */
 export type PublishStepVia = 'changeset' | 'auto_changeset' | 'escalation';
 
 /** One ordered side-effect a wetrun would perform. */
 export type PublishStep =
-	| {kind: 'publish'; repo: string; from: string; to: string; bump: BumpType; via: PublishStepVia}
-	| {kind: 'npm_wait'; repo: string; version: string}
+	| { kind: 'publish'; repo: string; from: string; to: string; bump: BumpType; via: PublishStepVia }
+	| { kind: 'npm_wait'; repo: string; version: string }
 	| {
 			kind: 'dependency_update';
 			dependent: string;
@@ -27,8 +27,8 @@ export type PublishStep =
 			dep_type: 'prod' | 'peer';
 			creates_changeset: boolean;
 	  }
-	| {kind: 'dev_dep_update'; repo: string; dependency: string; to: string}
-	| {kind: 'deploy'; repo: string; builds: boolean};
+	| { kind: 'dev_dep_update'; repo: string; dependency: string; to: string }
+	| { kind: 'deploy'; repo: string; builds: boolean };
 
 export interface DerivePublishStepsOptions {
 	/** Include the deploy phase (the publisher only deploys with `--deploy`). */
@@ -51,11 +51,11 @@ const step_via = (change: VersionChange): PublishStepVia =>
  */
 export const derive_publish_steps = (
 	plan: PublishingPlan,
-	options: DerivePublishStepsOptions = {},
+	options: DerivePublishStepsOptions = {}
 ): Array<PublishStep> => {
-	const {deploy = false} = options;
+	const { deploy = false } = options;
 	const changes: Map<string, VersionChange> = new Map(
-		plan.version_changes.map((vc) => [vc.package_name, vc]),
+		plan.version_changes.map((vc) => [vc.package_name, vc])
 	);
 
 	const steps: Array<PublishStep> = [];
@@ -72,9 +72,9 @@ export const derive_publish_steps = (
 			from: change.from,
 			to: change.to,
 			bump: change.bump_type,
-			via: step_via(change),
+			via: step_via(change)
 		});
-		steps.push({kind: 'npm_wait', repo, version: change.to});
+		steps.push({ kind: 'npm_wait', repo, version: change.to });
 		changed.add(repo);
 
 		// Prod/peer dependents are rewritten right after this publishes. A dependent that
@@ -92,7 +92,7 @@ export const derive_publish_steps = (
 				dependency: repo,
 				to: change.to,
 				dep_type: update.type === 'peerDependencies' ? 'peer' : 'prod',
-				creates_changeset: republishes,
+				creates_changeset: republishes
 			});
 			changed.add(update.dependent_package);
 		}
@@ -109,7 +109,7 @@ export const derive_publish_steps = (
 			kind: 'dev_dep_update',
 			repo: update.dependent_package,
 			dependency: update.updated_dependency,
-			to: dep_change.to,
+			to: dep_change.to
 		});
 		changed.add(update.dependent_package);
 	}
@@ -117,7 +117,7 @@ export const derive_publish_steps = (
 	// Phase 3: deploy every changed repo (only with --deploy). Each builds fresh.
 	if (deploy) {
 		for (const repo of changed) {
-			steps.push({kind: 'deploy', repo, builds: true});
+			steps.push({ kind: 'deploy', repo, builds: true });
 		}
 	}
 

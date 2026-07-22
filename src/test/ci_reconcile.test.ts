@@ -1,9 +1,9 @@
-import {assert, describe, test} from 'vitest';
-import {join} from 'node:path';
-import {mkdtemp, mkdir, writeFile, rm} from 'node:fs/promises';
-import {tmpdir} from 'node:os';
+import { assert, describe, test } from 'vitest';
+import { join } from 'node:path';
+import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 
-import {reconcile_ci, repo_has_workflows} from '$lib/ci_reconcile.ts';
+import { reconcile_ci, repo_has_workflows } from '$lib/ci_reconcile.ts';
 
 describe('reconcile_ci', () => {
 	test('flags ci=true with no workflows as missing_ci', () => {
@@ -13,8 +13,8 @@ describe('reconcile_ci', () => {
 				ci: true,
 				has_workflows: false,
 				checkable: true,
-				archived: false,
-			},
+				archived: false
+			}
 		]);
 		assert.equal(drift.length, 1);
 		const [first] = drift;
@@ -29,8 +29,8 @@ describe('reconcile_ci', () => {
 				ci: false,
 				has_workflows: true,
 				checkable: true,
-				archived: false,
-			},
+				archived: false
+			}
 		]);
 		assert.equal(drift.length, 1);
 		const [first] = drift;
@@ -45,15 +45,15 @@ describe('reconcile_ci', () => {
 				ci: true,
 				has_workflows: true,
 				checkable: true,
-				archived: false,
+				archived: false
 			},
 			{
 				repo_url: 'https://github.com/x/d',
 				ci: false,
 				has_workflows: false,
 				checkable: true,
-				archived: false,
-			},
+				archived: false
+			}
 		]);
 		assert.equal(drift.length, 0);
 	});
@@ -65,8 +65,8 @@ describe('reconcile_ci', () => {
 				ci: true,
 				has_workflows: false,
 				checkable: false,
-				archived: false,
-			},
+				archived: false
+			}
 		]);
 		assert.equal(drift.length, 0);
 	});
@@ -78,15 +78,15 @@ describe('reconcile_ci', () => {
 				ci: true,
 				has_workflows: false,
 				checkable: true,
-				archived: true,
+				archived: true
 			},
 			{
 				repo_url: 'https://github.com/x/g',
 				ci: false,
 				has_workflows: true,
 				checkable: true,
-				archived: true,
-			},
+				archived: true
+			}
 		]);
 		assert.equal(drift.length, 0);
 	});
@@ -98,40 +98,40 @@ describe('repo_has_workflows', () => {
 		try {
 			assert.equal(repo_has_workflows(dir), false);
 		} finally {
-			await rm(dir, {recursive: true, force: true});
+			await rm(dir, { recursive: true, force: true });
 		}
 	});
 
 	test('returns true when a `.yml` workflow is present', async () => {
 		const dir = await mkdtemp(join(tmpdir(), 'ci_reconcile_test_'));
 		try {
-			await mkdir(join(dir, '.github', 'workflows'), {recursive: true});
+			await mkdir(join(dir, '.github', 'workflows'), { recursive: true });
 			await writeFile(join(dir, '.github', 'workflows', 'check.yml'), 'name: check');
 			assert.equal(repo_has_workflows(dir), true);
 		} finally {
-			await rm(dir, {recursive: true, force: true});
+			await rm(dir, { recursive: true, force: true });
 		}
 	});
 
 	test('returns true when a `.yaml` workflow is present', async () => {
 		const dir = await mkdtemp(join(tmpdir(), 'ci_reconcile_test_'));
 		try {
-			await mkdir(join(dir, '.github', 'workflows'), {recursive: true});
+			await mkdir(join(dir, '.github', 'workflows'), { recursive: true });
 			await writeFile(join(dir, '.github', 'workflows', 'deploy.yaml'), 'name: deploy');
 			assert.equal(repo_has_workflows(dir), true);
 		} finally {
-			await rm(dir, {recursive: true, force: true});
+			await rm(dir, { recursive: true, force: true });
 		}
 	});
 
 	test('returns false when the workflows directory holds no `.yml`/`.yaml` files', async () => {
 		const dir = await mkdtemp(join(tmpdir(), 'ci_reconcile_test_'));
 		try {
-			await mkdir(join(dir, '.github', 'workflows'), {recursive: true});
+			await mkdir(join(dir, '.github', 'workflows'), { recursive: true });
 			await writeFile(join(dir, '.github', 'workflows', 'README.md'), '# workflows');
 			assert.equal(repo_has_workflows(dir), false);
 		} finally {
-			await rm(dir, {recursive: true, force: true});
+			await rm(dir, { recursive: true, force: true });
 		}
 	});
 });

@@ -1,19 +1,19 @@
-import {assert, describe, test} from 'vitest';
-import type {Url} from '@fuzdev/fuz_util/url.ts';
+import { assert, describe, test } from 'vitest';
+import type { Url } from '@fuzdev/fuz_util/url.ts';
 
-import {normalize_gitops_config, type RawGitopsRepoConfig} from '$lib/gitops_config.ts';
-import {reconcile_configs, type NamedRepos} from '$lib/config_reconcile.ts';
+import { normalize_gitops_config, type RawGitopsRepoConfig } from '$lib/gitops_config.ts';
+import { reconcile_configs, type NamedRepos } from '$lib/config_reconcile.ts';
 
 const named = (name: string, raw: Array<Url | RawGitopsRepoConfig>): NamedRepos => ({
 	name,
-	repos: normalize_gitops_config({repos: raw}).repos,
+	repos: normalize_gitops_config({ repos: raw }).repos
 });
 
 describe('reconcile_configs', () => {
 	test('no drift when a subset matches the canonical config', () => {
 		const canonical = named('canon', [
 			'https://github.com/x/pub',
-			{repo_url: 'https://github.com/x/priv', visibility: 'private'},
+			{ repo_url: 'https://github.com/x/priv', visibility: 'private' }
 		]);
 		const subset = named('sub', ['https://github.com/x/pub']);
 		assert.equal(reconcile_configs(canonical, [subset]).length, 0);
@@ -38,7 +38,7 @@ describe('reconcile_configs', () => {
 
 	test('flags a branch mismatch', () => {
 		const canonical = named('canon', ['https://github.com/x/zzz']); // branch defaults to main
-		const subset = named('sub', [{repo_url: 'https://github.com/x/zzz', branch: 'fuz-app'}]);
+		const subset = named('sub', [{ repo_url: 'https://github.com/x/zzz', branch: 'fuz-app' }]);
 		const drift = reconcile_configs(canonical, [subset]);
 		assert.equal(drift.length, 1);
 		const [d] = drift;
@@ -53,9 +53,9 @@ describe('reconcile_configs', () => {
 		// ci is held equal on both sides; otherwise the visibility difference would
 		// also cascade into a derived-ci difference (a second, real drift).
 		const canonical = named('canon', [
-			{repo_url: 'https://github.com/x/r', visibility: 'private', ci: true},
+			{ repo_url: 'https://github.com/x/r', visibility: 'private', ci: true }
 		]);
-		const subset = named('sub', [{repo_url: 'https://github.com/x/r', ci: true}]); // public by default
+		const subset = named('sub', [{ repo_url: 'https://github.com/x/r', ci: true }]); // public by default
 		const drift = reconcile_configs(canonical, [subset]);
 		assert.equal(drift.length, 1);
 		const [d] = drift;
@@ -66,8 +66,8 @@ describe('reconcile_configs', () => {
 	});
 
 	test('flags a ci mismatch', () => {
-		const canonical = named('canon', [{repo_url: 'https://github.com/x/r', ci: true}]);
-		const subset = named('sub', [{repo_url: 'https://github.com/x/r', ci: false}]); // visibility held equal
+		const canonical = named('canon', [{ repo_url: 'https://github.com/x/r', ci: true }]);
+		const subset = named('sub', [{ repo_url: 'https://github.com/x/r', ci: false }]); // visibility held equal
 		const drift = reconcile_configs(canonical, [subset]);
 		assert.equal(drift.length, 1);
 		const [d] = drift;
@@ -78,7 +78,7 @@ describe('reconcile_configs', () => {
 	});
 
 	test('flags an archived mismatch', () => {
-		const canonical = named('canon', [{repo_url: 'https://github.com/x/r', archived: true}]);
+		const canonical = named('canon', [{ repo_url: 'https://github.com/x/r', archived: true }]);
 		const subset = named('sub', ['https://github.com/x/r']); // archived defaults to false
 		const drift = reconcile_configs(canonical, [subset]);
 		assert.equal(drift.length, 1);
@@ -91,10 +91,10 @@ describe('reconcile_configs', () => {
 
 	test('attributes drift to each subset independently across multiple subsets', () => {
 		const canonical = named('canon', [
-			{repo_url: 'https://github.com/x/r', visibility: 'private', ci: true},
+			{ repo_url: 'https://github.com/x/r', visibility: 'private', ci: true }
 		]);
 		const ci_subset = named('a', [
-			{repo_url: 'https://github.com/x/r', visibility: 'private', ci: false}, // ci drifts
+			{ repo_url: 'https://github.com/x/r', visibility: 'private', ci: false } // ci drifts
 		]);
 		const missing_subset = named('b', ['https://github.com/x/absent']); // not in canonical
 		const drift = reconcile_configs(canonical, [ci_subset, missing_subset]);
@@ -106,13 +106,15 @@ describe('reconcile_configs', () => {
 	});
 
 	test('a visibility difference cascades into a derived-ci drift', () => {
-		const canonical = named('canon', [{repo_url: 'https://github.com/x/r', visibility: 'private'}]);
+		const canonical = named('canon', [
+			{ repo_url: 'https://github.com/x/r', visibility: 'private' }
+		]);
 		const subset = named('sub', ['https://github.com/x/r']); // public + ci:true by default
 		const drift = reconcile_configs(canonical, [subset]);
 		assert.equal(drift.length, 2);
 		assert.deepEqual(
 			drift.map((d) => d.field).sort((a, b) => (a ?? '').localeCompare(b ?? '')),
-			['ci', 'visibility'],
+			['ci', 'visibility']
 		);
 	});
 });

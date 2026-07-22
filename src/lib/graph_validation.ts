@@ -13,12 +13,12 @@
  * @module
  */
 
-import type {Logger} from '@fuzdev/fuz_util/log.ts';
-import {TaskError} from '@fuzdev/gro';
-import {styleText as st} from 'node:util';
+import type { Logger } from '@fuzdev/fuz_util/log.ts';
+import { TaskError } from '@fuzdev/gro';
+import { styleText as st } from 'node:util';
 
-import {DependencyGraph, DependencyGraphBuilder} from './dependency_graph.ts';
-import {repo_is_npm, type LocalRepo} from './local_repo.ts';
+import { DependencyGraph, DependencyGraphBuilder } from './dependency_graph.ts';
+import { repo_is_npm, type LocalRepo } from './local_repo.ts';
 
 export interface GraphValidationResult {
 	graph: DependencyGraph;
@@ -45,9 +45,9 @@ export const validate_dependency_graph = (
 		throw_on_prod_cycles?: boolean;
 		log_cycles?: boolean;
 		log_order?: boolean;
-	} = {},
+	} = {}
 ): GraphValidationResult => {
-	const {log, throw_on_prod_cycles = true, log_cycles = true, log_order = true} = options;
+	const { log, throw_on_prod_cycles = true, log_cycles = true, log_order = true } = options;
 
 	// Build dependency graph
 	log?.info('📊 Analyzing dependencies...');
@@ -55,7 +55,7 @@ export const validate_dependency_graph = (
 	const graph = builder.build_from_repos(repos);
 
 	// Check for cycles
-	const {production_cycles, dev_cycles} = graph.detect_cycles_by_type();
+	const { production_cycles, dev_cycles } = graph.detect_cycles_by_type();
 
 	// Log production cycles
 	if (production_cycles.length > 0 && log_cycles) {
@@ -67,7 +67,7 @@ export const validate_dependency_graph = (
 		if (throw_on_prod_cycles) {
 			throw new TaskError(
 				`Cannot publish with production/peer dependency cycles. ` +
-					`These must be resolved before publishing.`,
+					`These must be resolved before publishing.`
 			);
 		}
 	}
@@ -106,7 +106,7 @@ export const validate_dependency_graph = (
 		publishing_order,
 		production_cycles,
 		dev_cycles,
-		sort_error,
+		sort_error
 	};
 };
 
@@ -128,11 +128,11 @@ export interface RepoAnalysis {
  */
 export const analyze_repos = (repos: Array<LocalRepo>): RepoAnalysis => {
 	// Only npm packages form the dependency graph; non-npm repos (e.g. cargo) are excluded.
-	const {graph, publishing_order: order} = validate_dependency_graph(repos.filter(repo_is_npm), {
+	const { graph, publishing_order: order } = validate_dependency_graph(repos.filter(repo_is_npm), {
 		throw_on_prod_cycles: false, // report, don't throw
 		log_cycles: false, // callers format their own cycle output
-		log_order: false,
+		log_order: false
 	});
 	const analysis = new DependencyGraphBuilder().analyze(graph);
-	return {graph, analysis, publishing_order: order.length > 0 ? order : null};
+	return { graph, analysis, publishing_order: order.length > 0 ? order : null };
 };

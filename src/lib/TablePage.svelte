@@ -2,11 +2,11 @@
 	import PageFooter from './PageFooter.svelte';
 	import PageHeader from './PageHeader.svelte';
 	import ReposTable from './ReposTable.svelte';
-	import type {Repo} from './repo.svelte.ts';
+	import type { Repo } from './repo.svelte.ts';
 
 	const {
 		repo,
-		repos,
+		repos
 	}: {
 		repo: Repo;
 		repos: Array<Repo>;

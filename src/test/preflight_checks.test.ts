@@ -1,29 +1,32 @@
-import {assert, describe, test} from 'vitest';
+import { assert, describe, test } from 'vitest';
 
-import {run_preflight_checks} from '$lib/preflight_checks.ts';
+import { run_preflight_checks } from '$lib/preflight_checks.ts';
 import {
 	create_mock_repo,
 	create_mock_git_ops,
 	create_mock_npm_ops,
-	create_mock_build_ops,
+	create_mock_build_ops
 } from './test_helpers.ts';
-import type {LocalRepo} from '$lib/local_repo.ts';
+import type { LocalRepo } from '$lib/local_repo.ts';
 
 describe('preflight_checks', () => {
 	describe('workspace cleanliness', () => {
 		test('passes when all workspaces are clean', async () => {
-			const repos = [create_mock_repo({name: 'package-a'}), create_mock_repo({name: 'package-b'})];
+			const repos = [
+				create_mock_repo({ name: 'package-a' }),
+				create_mock_repo({ name: 'package-b' })
+			];
 
 			const git_ops = create_mock_git_ops({
-				check_clean_workspace: async () => ({ok: true, value: true}),
+				check_clean_workspace: async () => ({ ok: true, value: true })
 			});
 			const npm_ops = create_mock_npm_ops();
 
 			const result = await run_preflight_checks({
 				repos,
-				preflight_options: {skip_changesets: true, check_remote: false},
+				preflight_options: { skip_changesets: true, check_remote: false },
 				git_ops,
-				npm_ops,
+				npm_ops
 			});
 
 			assert.strictEqual(result.ok, true);
@@ -31,23 +34,26 @@ describe('preflight_checks', () => {
 		});
 
 		test('fails when a workspace has uncommitted changes', async () => {
-			const repos = [create_mock_repo({name: 'package-a'}), create_mock_repo({name: 'package-b'})];
+			const repos = [
+				create_mock_repo({ name: 'package-a' }),
+				create_mock_repo({ name: 'package-b' })
+			];
 
 			let call_count = 0;
 			const git_ops = create_mock_git_ops({
 				check_clean_workspace: async () => {
 					call_count++;
-					return {ok: true, value: call_count !== 2}; // Second repo fails
+					return { ok: true, value: call_count !== 2 }; // Second repo fails
 				},
-				list_uncommitted_files: async () => ({ok: true, value: ['src/main.ts']}), // Simulate changed files
+				list_uncommitted_files: async () => ({ ok: true, value: ['src/main.ts'] }) // Simulate changed files
 			});
 			const npm_ops = create_mock_npm_ops();
 
 			const result = await run_preflight_checks({
 				repos,
-				preflight_options: {skip_changesets: true, check_remote: false},
+				preflight_options: { skip_changesets: true, check_remote: false },
 				git_ops,
-				npm_ops,
+				npm_ops
 			});
 
 			assert.strictEqual(result.ok, false);
@@ -58,22 +64,22 @@ describe('preflight_checks', () => {
 
 		test('reports all repos with uncommitted changes', async () => {
 			const repos = [
-				create_mock_repo({name: 'package-a'}),
-				create_mock_repo({name: 'package-b'}),
-				create_mock_repo({name: 'package-c'}),
+				create_mock_repo({ name: 'package-a' }),
+				create_mock_repo({ name: 'package-b' }),
+				create_mock_repo({ name: 'package-c' })
 			];
 
 			const git_ops = create_mock_git_ops({
-				check_clean_workspace: async () => ({ok: true, value: false}), // All dirty
-				list_uncommitted_files: async () => ({ok: true, value: ['src/file.ts']}), // Simulate changed files
+				check_clean_workspace: async () => ({ ok: true, value: false }), // All dirty
+				list_uncommitted_files: async () => ({ ok: true, value: ['src/file.ts'] }) // Simulate changed files
 			});
 			const npm_ops = create_mock_npm_ops();
 
 			const result = await run_preflight_checks({
 				repos,
-				preflight_options: {skip_changesets: true, check_remote: false},
+				preflight_options: { skip_changesets: true, check_remote: false },
 				git_ops,
-				npm_ops,
+				npm_ops
 			});
 
 			assert.strictEqual(result.ok, false);
@@ -81,19 +87,19 @@ describe('preflight_checks', () => {
 		});
 
 		test('fails when workspace has changeset files (no filtering)', async () => {
-			const repos = [create_mock_repo({name: 'package-a'})];
+			const repos = [create_mock_repo({ name: 'package-a' })];
 
 			const git_ops = create_mock_git_ops({
-				check_clean_workspace: async () => ({ok: true, value: false}),
-				list_uncommitted_files: async () => ({ok: true, value: ['.changeset/my-change.md']}),
+				check_clean_workspace: async () => ({ ok: true, value: false }),
+				list_uncommitted_files: async () => ({ ok: true, value: ['.changeset/my-change.md'] })
 			});
 			const npm_ops = create_mock_npm_ops();
 
 			const result = await run_preflight_checks({
 				repos,
-				preflight_options: {skip_changesets: true, check_remote: false},
+				preflight_options: { skip_changesets: true, check_remote: false },
 				git_ops,
-				npm_ops,
+				npm_ops
 			});
 
 			// Should fail - changeset files are no longer filtered
@@ -103,19 +109,19 @@ describe('preflight_checks', () => {
 		});
 
 		test('fails when workspace has package.json changes (no filtering)', async () => {
-			const repos = [create_mock_repo({name: 'package-a'})];
+			const repos = [create_mock_repo({ name: 'package-a' })];
 
 			const git_ops = create_mock_git_ops({
-				check_clean_workspace: async () => ({ok: true, value: false}),
-				list_uncommitted_files: async () => ({ok: true, value: ['package.json']}),
+				check_clean_workspace: async () => ({ ok: true, value: false }),
+				list_uncommitted_files: async () => ({ ok: true, value: ['package.json'] })
 			});
 			const npm_ops = create_mock_npm_ops();
 
 			const result = await run_preflight_checks({
 				repos,
-				preflight_options: {skip_changesets: true, check_remote: false},
+				preflight_options: { skip_changesets: true, check_remote: false },
 				git_ops,
-				npm_ops,
+				npm_ops
 			});
 
 			// Should fail - package.json is no longer filtered
@@ -125,19 +131,19 @@ describe('preflight_checks', () => {
 		});
 
 		test('fails when workspace has package-lock.json changes (no filtering)', async () => {
-			const repos = [create_mock_repo({name: 'package-a'})];
+			const repos = [create_mock_repo({ name: 'package-a' })];
 
 			const git_ops = create_mock_git_ops({
-				check_clean_workspace: async () => ({ok: true, value: false}),
-				list_uncommitted_files: async () => ({ok: true, value: ['package-lock.json']}),
+				check_clean_workspace: async () => ({ ok: true, value: false }),
+				list_uncommitted_files: async () => ({ ok: true, value: ['package-lock.json'] })
 			});
 			const npm_ops = create_mock_npm_ops();
 
 			const result = await run_preflight_checks({
 				repos,
-				preflight_options: {skip_changesets: true, check_remote: false},
+				preflight_options: { skip_changesets: true, check_remote: false },
 				git_ops,
-				npm_ops,
+				npm_ops
 			});
 
 			// Should fail - package-lock.json is no longer filtered
@@ -149,18 +155,21 @@ describe('preflight_checks', () => {
 
 	describe('branch validation', () => {
 		test('passes when all repos are on the required branch', async () => {
-			const repos = [create_mock_repo({name: 'package-a'}), create_mock_repo({name: 'package-b'})];
+			const repos = [
+				create_mock_repo({ name: 'package-a' }),
+				create_mock_repo({ name: 'package-b' })
+			];
 
 			const git_ops = create_mock_git_ops({
-				current_branch_name: async () => ({ok: true, value: 'main'}),
+				current_branch_name: async () => ({ ok: true, value: 'main' })
 			});
 			const npm_ops = create_mock_npm_ops();
 
 			const result = await run_preflight_checks({
 				repos,
-				preflight_options: {skip_changesets: true, required_branch: 'main', check_remote: false},
+				preflight_options: { skip_changesets: true, required_branch: 'main', check_remote: false },
 				git_ops,
-				npm_ops,
+				npm_ops
 			});
 
 			assert.strictEqual(result.ok, true);
@@ -168,22 +177,25 @@ describe('preflight_checks', () => {
 		});
 
 		test('fails when a repo is on wrong branch', async () => {
-			const repos = [create_mock_repo({name: 'package-a'}), create_mock_repo({name: 'package-b'})];
+			const repos = [
+				create_mock_repo({ name: 'package-a' }),
+				create_mock_repo({ name: 'package-b' })
+			];
 
 			let call_count = 0;
 			const git_ops = create_mock_git_ops({
 				current_branch_name: async () => {
 					call_count++;
-					return {ok: true, value: call_count === 1 ? 'main' : 'develop'};
-				},
+					return { ok: true, value: call_count === 1 ? 'main' : 'develop' };
+				}
 			});
 			const npm_ops = create_mock_npm_ops();
 
 			const result = await run_preflight_checks({
 				repos,
-				preflight_options: {skip_changesets: true, required_branch: 'main', check_remote: false},
+				preflight_options: { skip_changesets: true, required_branch: 'main', check_remote: false },
 				git_ops,
-				npm_ops,
+				npm_ops
 			});
 
 			assert.strictEqual(result.ok, false);
@@ -194,36 +206,40 @@ describe('preflight_checks', () => {
 		});
 
 		test('supports custom required branch', async () => {
-			const repos = [create_mock_repo({name: 'package-a'})];
+			const repos = [create_mock_repo({ name: 'package-a' })];
 
 			const git_ops = create_mock_git_ops({
-				current_branch_name: async () => ({ok: true, value: 'release'}),
+				current_branch_name: async () => ({ ok: true, value: 'release' })
 			});
 			const npm_ops = create_mock_npm_ops();
 
 			const result = await run_preflight_checks({
 				repos,
-				preflight_options: {skip_changesets: true, required_branch: 'release', check_remote: false},
+				preflight_options: {
+					skip_changesets: true,
+					required_branch: 'release',
+					check_remote: false
+				},
 				git_ops,
-				npm_ops,
+				npm_ops
 			});
 
 			assert.strictEqual(result.ok, true);
 		});
 
 		test('defaults to main branch if not specified', async () => {
-			const repos = [create_mock_repo({name: 'package-a'})];
+			const repos = [create_mock_repo({ name: 'package-a' })];
 
 			const git_ops = create_mock_git_ops({
-				current_branch_name: async () => ({ok: true, value: 'develop'}),
+				current_branch_name: async () => ({ ok: true, value: 'develop' })
 			});
 
 			const npm_ops = create_mock_npm_ops();
 			const result = await run_preflight_checks({
 				repos,
-				preflight_options: {skip_changesets: true, check_remote: false},
+				preflight_options: { skip_changesets: true, check_remote: false },
 				git_ops,
-				npm_ops,
+				npm_ops
 			});
 
 			assert.strictEqual(result.ok, false);
@@ -233,16 +249,19 @@ describe('preflight_checks', () => {
 
 	describe('changeset validation', () => {
 		test('detects repos with changesets', async () => {
-			const repos = [create_mock_repo({name: 'package-a'}), create_mock_repo({name: 'package-b'})];
+			const repos = [
+				create_mock_repo({ name: 'package-a' }),
+				create_mock_repo({ name: 'package-b' })
+			];
 
 			const git_ops = create_mock_git_ops();
 			const npm_ops = create_mock_npm_ops();
 
 			const result = await run_preflight_checks({
 				repos,
-				preflight_options: {check_remote: false},
+				preflight_options: { check_remote: false },
 				git_ops,
-				npm_ops,
+				npm_ops
 			});
 
 			// Without actual changesets, all should be marked as without
@@ -251,16 +270,19 @@ describe('preflight_checks', () => {
 		});
 
 		test('warns about packages without changesets', async () => {
-			const repos = [create_mock_repo({name: 'package-a'}), create_mock_repo({name: 'package-b'})];
+			const repos = [
+				create_mock_repo({ name: 'package-a' }),
+				create_mock_repo({ name: 'package-b' })
+			];
 
 			const git_ops = create_mock_git_ops();
 			const npm_ops = create_mock_npm_ops();
 
 			const result = await run_preflight_checks({
 				repos,
-				preflight_options: {check_remote: false},
+				preflight_options: { check_remote: false },
 				git_ops,
-				npm_ops,
+				npm_ops
 			});
 
 			// Filter for changeset-related warnings (may also have npm warnings)
@@ -269,16 +291,16 @@ describe('preflight_checks', () => {
 		});
 
 		test('skips changeset checks when skip_changesets is true', async () => {
-			const repos = [create_mock_repo({name: 'package-a'})];
+			const repos = [create_mock_repo({ name: 'package-a' })];
 
 			const git_ops = create_mock_git_ops();
 
 			const npm_ops = create_mock_npm_ops();
 			const result = await run_preflight_checks({
 				repos,
-				preflight_options: {skip_changesets: true, check_remote: false},
+				preflight_options: { skip_changesets: true, check_remote: false },
 				git_ops,
-				npm_ops,
+				npm_ops
 			});
 
 			assert.strictEqual(result.repos_with_changesets.size, 0);
@@ -295,7 +317,7 @@ describe('preflight_checks', () => {
 		// For now, we test the integration assuming npm commands work
 
 		test('passes with valid npm authentication', async () => {
-			const repos = [create_mock_repo({name: 'package-a'})];
+			const repos = [create_mock_repo({ name: 'package-a' })];
 			const git_ops = create_mock_git_ops();
 
 			// This test depends on actual npm being logged in
@@ -303,9 +325,9 @@ describe('preflight_checks', () => {
 			const npm_ops = create_mock_npm_ops();
 			const result = await run_preflight_checks({
 				repos,
-				preflight_options: {skip_changesets: true, check_remote: false},
+				preflight_options: { skip_changesets: true, check_remote: false },
 				git_ops,
-				npm_ops,
+				npm_ops
 			});
 
 			// We can't assert npm auth result without mocking spawn
@@ -318,8 +340,8 @@ describe('preflight_checks', () => {
 	describe('multiple validation failures', () => {
 		test('reports all types of failures together', async () => {
 			const repos = [
-				create_mock_repo({name: 'dirty-wrong-branch'}),
-				create_mock_repo({name: 'clean-wrong-branch'}),
+				create_mock_repo({ name: 'dirty-wrong-branch' }),
+				create_mock_repo({ name: 'clean-wrong-branch' })
 			];
 
 			let branch_call = 0;
@@ -328,21 +350,21 @@ describe('preflight_checks', () => {
 			const git_ops = create_mock_git_ops({
 				check_clean_workspace: async () => {
 					clean_call++;
-					return {ok: true, value: clean_call !== 1}; // First repo is dirty
+					return { ok: true, value: clean_call !== 1 }; // First repo is dirty
 				},
-				list_uncommitted_files: async () => ({ok: true, value: ['src/main.ts']}), // Simulate changed files
+				list_uncommitted_files: async () => ({ ok: true, value: ['src/main.ts'] }), // Simulate changed files
 				current_branch_name: async () => {
 					branch_call++;
-					return {ok: true, value: 'develop'}; // Both on wrong branch
-				},
+					return { ok: true, value: 'develop' }; // Both on wrong branch
+				}
 			});
 			const npm_ops = create_mock_npm_ops();
 
 			const result = await run_preflight_checks({
 				repos,
-				preflight_options: {skip_changesets: true, required_branch: 'main', check_remote: false},
+				preflight_options: { skip_changesets: true, required_branch: 'main', check_remote: false },
 				git_ops,
-				npm_ops,
+				npm_ops
 			});
 
 			assert.strictEqual(result.ok, false);
@@ -360,9 +382,9 @@ describe('preflight_checks', () => {
 			const npm_ops = create_mock_npm_ops();
 			const result = await run_preflight_checks({
 				repos,
-				preflight_options: {skip_changesets: true, check_remote: false},
+				preflight_options: { skip_changesets: true, check_remote: false },
 				git_ops,
-				npm_ops,
+				npm_ops
 			});
 
 			assert.strictEqual(result.ok, true);
@@ -373,15 +395,15 @@ describe('preflight_checks', () => {
 
 	describe('result structure', () => {
 		test('returns correct result structure', async () => {
-			const repos = [create_mock_repo({name: 'package-a'})];
+			const repos = [create_mock_repo({ name: 'package-a' })];
 			const git_ops = create_mock_git_ops();
 
 			const npm_ops = create_mock_npm_ops();
 			const result = await run_preflight_checks({
 				repos,
-				preflight_options: {skip_changesets: true, check_remote: false},
+				preflight_options: { skip_changesets: true, check_remote: false },
 				git_ops,
-				npm_ops,
+				npm_ops
 			});
 
 			assert.ok('ok' in result);
@@ -399,7 +421,7 @@ describe('preflight_checks', () => {
 
 	describe('build validation', () => {
 		test('skips build validation when skip_build_validation is true', async () => {
-			const repos = [create_mock_repo({name: 'package-a'})];
+			const repos = [create_mock_repo({ name: 'package-a' })];
 			const git_ops = create_mock_git_ops();
 			const npm_ops = create_mock_npm_ops();
 
@@ -407,16 +429,16 @@ describe('preflight_checks', () => {
 			const build_ops = create_mock_build_ops({
 				build_package: async () => {
 					build_called = true;
-					return {ok: true};
-				},
+					return { ok: true };
+				}
 			});
 
 			const result = await run_preflight_checks({
 				repos,
-				preflight_options: {check_remote: false, skip_build_validation: true},
+				preflight_options: { check_remote: false, skip_build_validation: true },
 				git_ops,
 				npm_ops,
-				build_ops,
+				build_ops
 			});
 
 			assert.strictEqual(result.ok, true);
@@ -424,7 +446,10 @@ describe('preflight_checks', () => {
 		});
 
 		test('validates builds for packages with changesets', async () => {
-			const repos = [create_mock_repo({name: 'package-a'}), create_mock_repo({name: 'package-b'})];
+			const repos = [
+				create_mock_repo({ name: 'package-a' }),
+				create_mock_repo({ name: 'package-b' })
+			];
 
 			const git_ops = create_mock_git_ops();
 			const npm_ops = create_mock_npm_ops();
@@ -435,8 +460,8 @@ describe('preflight_checks', () => {
 				build_package: async (options) => {
 					build_count++;
 					built_packages.push(options.repo.library.name);
-					return {ok: true};
-				},
+					return { ok: true };
+				}
 			});
 
 			// Note: In the real implementation, has_changesets is imported from changeset_reader
@@ -444,10 +469,10 @@ describe('preflight_checks', () => {
 			// document the expected behavior
 			const result = await run_preflight_checks({
 				repos,
-				preflight_options: {check_remote: false, skip_changesets: false},
+				preflight_options: { check_remote: false, skip_changesets: false },
 				git_ops,
 				npm_ops,
-				build_ops,
+				build_ops
 			});
 
 			// Since mock repos don't have actual .changeset/ directories, build count is 0
@@ -456,7 +481,10 @@ describe('preflight_checks', () => {
 		});
 
 		test('fails when a build fails', async () => {
-			const repos = [create_mock_repo({name: 'package-a'}), create_mock_repo({name: 'package-b'})];
+			const repos = [
+				create_mock_repo({ name: 'package-a' }),
+				create_mock_repo({ name: 'package-b' })
+			];
 
 			const git_ops = create_mock_git_ops();
 			const npm_ops = create_mock_npm_ops();
@@ -466,18 +494,18 @@ describe('preflight_checks', () => {
 				build_package: async (options) => {
 					call_count++;
 					if (options.repo.library.name === 'package-b') {
-						return {ok: false, message: 'TypeScript compilation error'};
+						return { ok: false, message: 'TypeScript compilation error' };
 					}
-					return {ok: true};
-				},
+					return { ok: true };
+				}
 			});
 
 			const result = await run_preflight_checks({
 				repos,
-				preflight_options: {check_remote: false, skip_changesets: false},
+				preflight_options: { check_remote: false, skip_changesets: false },
 				git_ops,
 				npm_ops,
-				build_ops,
+				build_ops
 			});
 
 			// Since mock repos don't have changesets, no builds run
@@ -486,7 +514,10 @@ describe('preflight_checks', () => {
 		});
 
 		test('fails preflight when build fails for package with changesets', async () => {
-			const repos = [create_mock_repo({name: 'package-a'}), create_mock_repo({name: 'package-b'})];
+			const repos = [
+				create_mock_repo({ name: 'package-a' }),
+				create_mock_repo({ name: 'package-b' })
+			];
 
 			const git_ops = create_mock_git_ops();
 			const npm_ops = create_mock_npm_ops();
@@ -495,30 +526,30 @@ describe('preflight_checks', () => {
 			const build_ops = create_mock_build_ops({
 				build_package: async (options) => {
 					if (options.repo.library.name === 'package-b') {
-						return {ok: false, message: 'Build failed: syntax error'};
+						return { ok: false, message: 'Build failed: syntax error' };
 					}
-					return {ok: true};
-				},
+					return { ok: true };
+				}
 			});
 
 			// Mock changeset ops where only package-a and package-b have changesets
 			const changeset_ops = {
-				has_changesets: async (options: {repo: LocalRepo}) => ({
+				has_changesets: async (options: { repo: LocalRepo }) => ({
 					ok: true as const,
 					value:
-						options.repo.library.name === 'package-a' || options.repo.library.name === 'package-b',
+						options.repo.library.name === 'package-a' || options.repo.library.name === 'package-b'
 				}),
-				read_changesets: async () => ({ok: true as const, value: []}),
-				predict_next_version: async () => null,
+				read_changesets: async () => ({ ok: true as const, value: [] }),
+				predict_next_version: async () => null
 			};
 
 			const result = await run_preflight_checks({
 				repos,
-				preflight_options: {check_remote: false, skip_changesets: false},
+				preflight_options: { check_remote: false, skip_changesets: false },
 				git_ops,
 				npm_ops,
 				build_ops,
-				changeset_ops,
+				changeset_ops
 			});
 
 			// Should fail due to build error
@@ -528,34 +559,34 @@ describe('preflight_checks', () => {
 		});
 
 		test('reports build failures with error details', async () => {
-			const repos = [create_mock_repo({name: 'failing-package'})];
+			const repos = [create_mock_repo({ name: 'failing-package' })];
 
 			const git_ops = create_mock_git_ops();
 			const npm_ops = create_mock_npm_ops();
 			const build_ops = create_mock_build_ops({
 				build_package: async () => ({
 					ok: false,
-					message: 'Syntax error in src/main.ts:42',
-				}),
+					message: 'Syntax error in src/main.ts:42'
+				})
 			});
 
 			// Mock changeset ops where failing-package has changesets
 			const changeset_ops = {
-				has_changesets: async (options: {repo: LocalRepo}) => ({
+				has_changesets: async (options: { repo: LocalRepo }) => ({
 					ok: true as const,
-					value: options.repo.library.name === 'failing-package',
+					value: options.repo.library.name === 'failing-package'
 				}),
-				read_changesets: async () => ({ok: true as const, value: []}),
-				predict_next_version: async () => null,
+				read_changesets: async () => ({ ok: true as const, value: [] }),
+				predict_next_version: async () => null
 			};
 
 			const result = await run_preflight_checks({
 				repos,
-				preflight_options: {check_remote: false, skip_changesets: false},
+				preflight_options: { check_remote: false, skip_changesets: false },
 				git_ops,
 				npm_ops,
 				build_ops,
-				changeset_ops,
+				changeset_ops
 			});
 
 			// Should fail with detailed error message
@@ -563,14 +594,14 @@ describe('preflight_checks', () => {
 			assert.strictEqual(result.errors.length, 1);
 			assert.strictEqual(
 				result.errors[0],
-				'failing-package failed to build: Syntax error in src/main.ts:42',
+				'failing-package failed to build: Syntax error in src/main.ts:42'
 			);
 		});
 
 		test('validates builds only for packages with changesets', async () => {
 			const repos = [
-				create_mock_repo({name: 'with-changeset'}),
-				create_mock_repo({name: 'without-changeset'}),
+				create_mock_repo({ name: 'with-changeset' }),
+				create_mock_repo({ name: 'without-changeset' })
 			];
 
 			const git_ops = create_mock_git_ops();
@@ -580,16 +611,16 @@ describe('preflight_checks', () => {
 			const build_ops = create_mock_build_ops({
 				build_package: async (options) => {
 					built_packages.push(options.repo.library.name);
-					return {ok: true};
-				},
+					return { ok: true };
+				}
 			});
 
 			await run_preflight_checks({
 				repos,
-				preflight_options: {check_remote: false, skip_changesets: true},
+				preflight_options: { check_remote: false, skip_changesets: true },
 				git_ops,
 				npm_ops,
-				build_ops,
+				build_ops
 			});
 
 			// With skip_changesets, no builds should run
@@ -598,9 +629,9 @@ describe('preflight_checks', () => {
 
 		test('continues validation after build failures to report all issues', async () => {
 			const repos = [
-				create_mock_repo({name: 'package-a'}),
-				create_mock_repo({name: 'package-b'}),
-				create_mock_repo({name: 'package-c'}),
+				create_mock_repo({ name: 'package-a' }),
+				create_mock_repo({ name: 'package-b' }),
+				create_mock_repo({ name: 'package-c' })
 			];
 
 			const git_ops = create_mock_git_ops();
@@ -615,26 +646,26 @@ describe('preflight_checks', () => {
 						options.repo.library.name === 'package-a' ||
 						options.repo.library.name === 'package-c'
 					) {
-						return {ok: false, message: 'Build error'};
+						return { ok: false, message: 'Build error' };
 					}
-					return {ok: true};
-				},
+					return { ok: true };
+				}
 			});
 
 			// Mock changeset ops where all packages have changesets
 			const changeset_ops = {
-				has_changesets: async () => ({ok: true as const, value: true}),
-				read_changesets: async () => ({ok: true as const, value: []}),
-				predict_next_version: async () => null,
+				has_changesets: async () => ({ ok: true as const, value: true }),
+				read_changesets: async () => ({ ok: true as const, value: [] }),
+				predict_next_version: async () => null
 			};
 
 			const result = await run_preflight_checks({
 				repos,
-				preflight_options: {check_remote: false, skip_changesets: false},
+				preflight_options: { check_remote: false, skip_changesets: false },
 				git_ops,
 				npm_ops,
 				build_ops,
-				changeset_ops,
+				changeset_ops
 			});
 
 			// Should fail but continue to build all packages

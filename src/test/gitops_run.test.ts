@@ -1,4 +1,4 @@
-import {test} from 'vitest';
+import { test } from 'vitest';
 
 // TODO: Add tests for gitops_run
 // - Test command execution across multiple repos

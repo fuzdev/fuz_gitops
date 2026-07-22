@@ -8,19 +8,19 @@
 	import ContextmenuRoot from '@fuzdev/fuz_ui/ContextmenuRoot.svelte';
 	import {
 		ContextmenuState,
-		contextmenu_attachment,
+		contextmenu_attachment
 	} from '@fuzdev/fuz_ui/contextmenu_state.svelte.ts';
-	import {SiteState, site_context} from '@fuzdev/fuz_ui/site.svelte.ts';
-	import {logo_fuz_gitops} from '@fuzdev/fuz_ui/logos.ts';
-	import type {Snippet} from 'svelte';
+	import { SiteState, site_context } from '@fuzdev/fuz_ui/site.svelte.ts';
+	import { logo_fuz_gitops } from '@fuzdev/fuz_ui/logos.ts';
+	import type { Snippet } from 'svelte';
 	import pkg_json from 'virtual:pkg.json';
 
 	import Settings from './Settings.svelte';
-	import {repos_json} from './repos.ts';
-	import {Repo, type RepoJson, repos_parse, repos_context} from '$lib/repo.svelte.ts';
+	import { repos_json } from './repos.ts';
+	import { Repo, type RepoJson, repos_parse, repos_context } from '$lib/repo.svelte.ts';
 
 	const {
-		children,
+		children
 	}: {
 		children: Snippet;
 	} = $props();
@@ -29,11 +29,11 @@
 
 	const repos = repos_parse(
 		repos_json.map((r: RepoJson) => new Repo(r)),
-		'https://gitops.fuz.dev/',
+		'https://gitops.fuz.dev/'
 	);
 	repos_context.set(repos);
 	// `glyph` and `repo_url` derive from `pkg_json`; `icon` stays explicit (structured `SvgData`).
-	site_context.set(new SiteState({icon: logo_fuz_gitops, pkg_json}));
+	site_context.set(new SiteState({ icon: logo_fuz_gitops, pkg_json }));
 
 	let show_settings = $state.raw(false);
 </script>
@@ -51,8 +51,8 @@
 				icon: '?',
 				run: () => {
 					show_settings = true;
-				},
-			},
+				}
+			}
 		},
 		{
 			snippet: 'text',
@@ -61,9 +61,9 @@
 				icon: '⟳',
 				run: () => {
 					location.reload();
-				},
-			},
-		},
+				}
+			}
+		}
 	])}
 />
 

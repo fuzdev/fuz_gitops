@@ -1,4 +1,4 @@
-import type {RepoFixtureSet} from '../repo_fixture_types.ts';
+import type { RepoFixtureSet } from '../repo_fixture_types.ts';
 
 /**
  * Tests isolated packages with no internal dependencies.
@@ -21,7 +21,7 @@ export const isolated_packages: RepoFixtureSet = {
 			repo_url: 'https://gitops.fuz.dev/test/util_a',
 			package_json: {
 				name: '@test/util_a',
-				version: '1.5.0',
+				version: '1.5.0'
 			},
 			changesets: [
 				{
@@ -30,9 +30,9 @@ export const isolated_packages: RepoFixtureSet = {
 "@test/util_a": minor
 ---
 
-New utility function`,
-				},
-			],
+New utility function`
+				}
+			]
 		},
 
 		// util_b: Standalone utility with patch changeset
@@ -41,7 +41,7 @@ New utility function`,
 			repo_url: 'https://gitops.fuz.dev/test/util_b',
 			package_json: {
 				name: '@test/util_b',
-				version: '2.3.1',
+				version: '2.3.1'
 			},
 			changesets: [
 				{
@@ -50,9 +50,9 @@ New utility function`,
 "@test/util_b": patch
 ---
 
-Bug fix`,
-				},
-			],
+Bug fix`
+				}
+			]
 		},
 
 		// util_c: Standalone utility with major changeset
@@ -61,7 +61,7 @@ Bug fix`,
 			repo_url: 'https://gitops.fuz.dev/test/util_c',
 			package_json: {
 				name: '@test/util_c',
-				version: '3.0.0',
+				version: '3.0.0'
 			},
 			changesets: [
 				{
@@ -70,9 +70,9 @@ Bug fix`,
 "@test/util_c": major
 ---
 
-Breaking API change`,
-				},
-			],
+Breaking API change`
+				}
+			]
 		},
 
 		// util_d: No changeset, no changes
@@ -81,10 +81,10 @@ Breaking API change`,
 			repo_url: 'https://gitops.fuz.dev/test/util_d',
 			package_json: {
 				name: '@test/util_d',
-				version: '1.0.0',
-			},
+				version: '1.0.0'
+			}
 			// No changesets - should be in info section
-		},
+		}
 	],
 
 	expected_outcomes: {
@@ -97,20 +97,20 @@ Breaking API change`,
 				package_name: '@test/util_a',
 				from: '1.5.0',
 				to: '1.6.0',
-				scenario: 'explicit_changeset',
+				scenario: 'explicit_changeset'
 			},
 			{
 				package_name: '@test/util_b',
 				from: '2.3.1',
 				to: '2.3.2',
-				scenario: 'explicit_changeset',
+				scenario: 'explicit_changeset'
 			},
 			{
 				package_name: '@test/util_c',
 				from: '3.0.0',
 				to: '4.0.0',
-				scenario: 'explicit_changeset',
-			},
+				scenario: 'explicit_changeset'
+			}
 		],
 
 		// No breaking cascades - packages are independent
@@ -120,6 +120,6 @@ Breaking API change`,
 		info: ['@test/util_d'],
 
 		warnings: [],
-		errors: [],
-	},
+		errors: []
+	}
 };

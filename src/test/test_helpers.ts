@@ -1,8 +1,8 @@
-import type {LibraryJson} from '@fuzdev/fuz_util/library_json.ts';
-import type {PackageJson} from '@fuzdev/fuz_util/package_json.ts';
-import {Library} from '@fuzdev/fuz_ui/library.svelte.ts';
+import type { LibraryJson } from '@fuzdev/fuz_util/library_json.ts';
+import type { PackageJson } from '@fuzdev/fuz_util/package_json.ts';
+import { Library } from '@fuzdev/fuz_ui/library.svelte.ts';
 
-import type {LocalRepo} from '$lib/local_repo.ts';
+import type { LocalRepo } from '$lib/local_repo.ts';
 import type {
 	GitopsOperations,
 	ChangesetOperations,
@@ -10,9 +10,9 @@ import type {
 	FsOperations,
 	NpmOperations,
 	BuildOperations,
-	ProcessOperations,
+	ProcessOperations
 } from '$lib/operations.ts';
-import type {BumpType} from '$lib/version_utils.ts';
+import type { BumpType } from '$lib/version_utils.ts';
 
 export interface MockRepoOptions {
 	name: string;
@@ -37,16 +37,16 @@ export const create_mock_package_json = (options: MockRepoOptions): PackageJson 
 		deps = {},
 		dev_deps = {},
 		peer_deps = {},
-		private: private_option = false,
+		private: private_option = false
 	} = options;
 	return {
 		name,
 		version,
 		private: private_option,
-		repository: {type: 'git', url: `git+https://github.com/test/${name}.git`},
+		repository: { type: 'git', url: `git+https://github.com/test/${name}.git` },
 		dependencies: Object.keys(deps).length > 0 ? deps : undefined,
 		devDependencies: Object.keys(dev_deps).length > 0 ? dev_deps : undefined,
-		peerDependencies: Object.keys(peer_deps).length > 0 ? peer_deps : undefined,
+		peerDependencies: Object.keys(peer_deps).length > 0 ? peer_deps : undefined
 	};
 };
 
@@ -55,14 +55,14 @@ export const create_mock_package_json = (options: MockRepoOptions): PackageJson 
  */
 export const create_mock_library_json = (options: MockRepoOptions): LibraryJson => ({
 	pkg_json: create_mock_package_json(options),
-	source_json: {modules: []},
+	source_json: { modules: [] }
 });
 
 /**
  * Creates a mock LocalRepo for testing
  */
 export const create_mock_repo = (options: MockRepoOptions): LocalRepo => {
-	const {name, deps = {}, dev_deps = {}, peer_deps = {}, kind = 'npm'} = options;
+	const { name, deps = {}, dev_deps = {}, peer_deps = {}, kind = 'npm' } = options;
 	const library_json = create_mock_library_json(options);
 
 	return {
@@ -77,11 +77,11 @@ export const create_mock_repo = (options: MockRepoOptions): LocalRepo => {
 			branch: 'main',
 			visibility: 'public',
 			ci: true,
-			archived: false,
+			archived: false
 		},
 		dependencies: new Map(Object.entries(deps)),
 		dev_dependencies: new Map(Object.entries(dev_deps)),
-		peer_dependencies: new Map(Object.entries(peer_deps)),
+		peer_dependencies: new Map(Object.entries(peer_deps))
 	};
 };
 
@@ -97,22 +97,22 @@ export const create_mock_gitops_ops = (
 		preflight: Partial<GitopsOperations['preflight']>;
 		fs: Partial<GitopsOperations['fs']>;
 		build: Partial<GitopsOperations['build']>;
-	}> = {},
+	}> = {}
 ): GitopsOperations => ({
 	changeset: {
-		has_changesets: async () => ({ok: true, value: true}),
-		read_changesets: async () => ({ok: true, value: []}),
+		has_changesets: async () => ({ ok: true, value: true }),
+		read_changesets: async () => ({ ok: true, value: [] }),
 		predict_next_version: async (options) => ({
 			ok: true,
 			version: incrementPatch(options.repo.package_json.version || '0.0.0'),
-			bump_type: 'patch' as const,
+			bump_type: 'patch' as const
 		}),
-		...overrides.changeset,
+		...overrides.changeset
 	},
 	git: create_mock_git_ops(overrides.git),
 	process: {
-		spawn: async () => ({ok: true}),
-		...overrides.process,
+		spawn: async () => ({ ok: true }),
+		...overrides.process
 	},
 	npm: create_mock_npm_ops(overrides.npm),
 	preflight: {
@@ -121,18 +121,18 @@ export const create_mock_gitops_ops = (
 			warnings: [],
 			errors: [],
 			repos_with_changesets: new Set(),
-			repos_without_changesets: new Set(),
+			repos_without_changesets: new Set()
 		}),
-		...overrides.preflight,
+		...overrides.preflight
 	},
 	fs: {
-		readFile: async () => ({ok: true, value: '{}'}),
-		writeFile: async () => ({ok: true}),
-		mkdir: async () => ({ok: true}),
+		readFile: async () => ({ ok: true, value: '{}' }),
+		writeFile: async () => ({ ok: true }),
+		mkdir: async () => ({ ok: true }),
 		exists: async () => true,
-		...overrides.fs,
+		...overrides.fs
 	},
-	build: create_mock_build_ops(overrides.build),
+	build: create_mock_build_ops(overrides.build)
 });
 
 /**
@@ -148,7 +148,7 @@ const incrementPatch = (version: string): string => {
  */
 export const create_mock_package_json_files = (
 	repos: Array<LocalRepo>,
-	updatedVersions: Map<string, string> = new Map(),
+	updatedVersions: Map<string, string> = new Map()
 ): Map<string, string> => {
 	const fs: Map<string, string> = new Map();
 
@@ -159,7 +159,7 @@ export const create_mock_package_json_files = (
 
 		const packageJson = {
 			...repo.package_json,
-			version,
+			version
 		};
 
 		fs.set(`${repo.repo_dir}/package.json`, JSON.stringify(packageJson, null, 2));
@@ -172,14 +172,14 @@ export const create_mock_package_json_files = (
  * Creates a mock repo with simulated changesets directory
  */
 export const create_mock_repo_with_changesets = (
-	options: MockRepoOptions & {changesets?: boolean},
-): LocalRepo & {has_changesets: boolean} => {
+	options: MockRepoOptions & { changesets?: boolean }
+): LocalRepo & { has_changesets: boolean } => {
 	const repo = create_mock_repo(options);
 	const has_changesets = options.changesets ?? true;
 
 	return {
 		...repo,
-		has_changesets,
+		has_changesets
 	};
 };
 
@@ -187,64 +187,64 @@ export const create_mock_repo_with_changesets = (
  * Creates mock ChangesetOperations with custom version predictions
  */
 export const create_mock_changeset_ops = (
-	versionPredictions: Map<string, {version: string; bump_type: BumpType}>,
-	reposWithChangesets: Set<string> = new Set(),
+	versionPredictions: Map<string, { version: string; bump_type: BumpType }>,
+	reposWithChangesets: Set<string> = new Set()
 ): ChangesetOperations => ({
 	has_changesets: async (options) => ({
 		ok: true,
-		value: reposWithChangesets.has(options.repo.library.name),
+		value: reposWithChangesets.has(options.repo.library.name)
 	}),
-	read_changesets: async () => ({ok: true, value: []}),
+	read_changesets: async () => ({ ok: true, value: [] }),
 	predict_next_version: async (options) => {
 		const prediction = versionPredictions.get(options.repo.library.name);
 		if (!prediction) return null;
-		return {ok: true, ...prediction};
-	},
+		return { ok: true, ...prediction };
+	}
 });
 
 /**
  * Creates mock GitOperations for testing
  */
 export const create_mock_git_ops = (overrides: Partial<GitOperations> = {}): GitOperations => ({
-	current_branch_name: async () => ({ok: true, value: 'main'}),
-	current_commit_hash: async () => ({ok: true, value: 'abc123'}),
-	check_clean_workspace: async () => ({ok: true, value: true}),
-	checkout: async () => ({ok: true}),
-	pull: async () => ({ok: true}),
-	switch_branch: async () => ({ok: true}),
-	has_remote: async () => ({ok: true, value: false}),
-	add: async () => ({ok: true}),
-	commit: async () => ({ok: true}),
-	add_and_commit: async () => ({ok: true}),
-	has_changes: async () => ({ok: true, value: false}),
-	list_uncommitted_files: async () => ({ok: true, value: []}),
-	tag: async () => ({ok: true}),
-	push_tag: async () => ({ok: true}),
-	stash: async () => ({ok: true}),
-	stash_pop: async () => ({ok: true}),
-	has_file_changed: async () => ({ok: true, value: false}),
-	...overrides,
+	current_branch_name: async () => ({ ok: true, value: 'main' }),
+	current_commit_hash: async () => ({ ok: true, value: 'abc123' }),
+	check_clean_workspace: async () => ({ ok: true, value: true }),
+	checkout: async () => ({ ok: true }),
+	pull: async () => ({ ok: true }),
+	switch_branch: async () => ({ ok: true }),
+	has_remote: async () => ({ ok: true, value: false }),
+	add: async () => ({ ok: true }),
+	commit: async () => ({ ok: true }),
+	add_and_commit: async () => ({ ok: true }),
+	has_changes: async () => ({ ok: true, value: false }),
+	list_uncommitted_files: async () => ({ ok: true, value: [] }),
+	tag: async () => ({ ok: true }),
+	push_tag: async () => ({ ok: true }),
+	stash: async () => ({ ok: true }),
+	stash_pop: async () => ({ ok: true }),
+	has_file_changed: async () => ({ ok: true, value: false }),
+	...overrides
 });
 
 /**
  * Creates mock NpmOperations for testing
  */
 export const create_mock_npm_ops = (overrides: Partial<NpmOperations> = {}): NpmOperations => ({
-	wait_for_package: async () => ({ok: true}),
-	check_auth: async () => ({ok: true, username: 'testuser'}),
-	check_registry: async () => ({ok: true}),
-	install: async () => ({ok: true}),
-	...overrides,
+	wait_for_package: async () => ({ ok: true }),
+	check_auth: async () => ({ ok: true, username: 'testuser' }),
+	check_registry: async () => ({ ok: true }),
+	install: async () => ({ ok: true }),
+	...overrides
 });
 
 /**
  * Creates mock BuildOperations for testing
  */
 export const create_mock_build_ops = (
-	overrides: Partial<BuildOperations> = {},
+	overrides: Partial<BuildOperations> = {}
 ): BuildOperations => ({
-	build_package: async () => ({ok: true}),
-	...overrides,
+	build_package: async () => ({ ok: true }),
+	...overrides
 });
 
 /**
@@ -252,7 +252,7 @@ export const create_mock_build_ops = (
  */
 export const create_preflight_mock = (
 	repos_with_changesets: Array<string> = [],
-	repos_without_changesets: Array<string> = [],
+	repos_without_changesets: Array<string> = []
 ): {
 	run_preflight_checks: () => Promise<{
 		ok: boolean;
@@ -267,8 +267,8 @@ export const create_preflight_mock = (
 		warnings: [],
 		errors: [],
 		repos_with_changesets: new Set(repos_with_changesets),
-		repos_without_changesets: new Set(repos_without_changesets),
-	}),
+		repos_without_changesets: new Set(repos_without_changesets)
+	})
 });
 
 /**
@@ -285,17 +285,17 @@ export const create_mock_fs_ops = (): FsOperations & {
 		readFile: async (options) => {
 			const content = files.get(options.path);
 			if (content === undefined) {
-				return {ok: false, kind: 'not_found', message: `File not found: ${options.path}`};
+				return { ok: false, kind: 'not_found', message: `File not found: ${options.path}` };
 			}
-			return {ok: true, value: content};
+			return { ok: true, value: content };
 		},
 		writeFile: async (options) => {
 			files.set(options.path, options.content);
-			return {ok: true};
+			return { ok: true };
 		},
 		mkdir: async (options) => {
 			dirs.add(options.path);
-			return {ok: true};
+			return { ok: true };
 		},
 		exists: async (options) => {
 			return files.has(options.path) || dirs.has(options.path);
@@ -303,7 +303,7 @@ export const create_mock_fs_ops = (): FsOperations & {
 		get: (path: string): string | undefined => files.get(path),
 		set: (path: string, content: string): void => {
 			files.set(path, content);
-		},
+		}
 	};
 };
 
@@ -312,7 +312,7 @@ export const create_mock_fs_ops = (): FsOperations & {
  */
 export const create_populated_fs_ops = (
 	repos: Array<LocalRepo>,
-	updated_versions?: Map<string, string>,
+	updated_versions?: Map<string, string>
 ): FsOperations & {
 	get: (path: string) => string | undefined;
 	set: (path: string, content: string) => void;
@@ -351,15 +351,15 @@ export const create_tracking_process_ops = (): {
 				spawned_commands.push({
 					cmd: options.cmd,
 					args: options.args,
-					cwd: options.cwd ?? '',
+					cwd: options.cwd ?? ''
 				});
-				return {ok: true};
-			},
+				return { ok: true };
+			}
 		},
 		get_spawned_commands: () => spawned_commands,
 		get_commands_by_type: (cmd_name: string) =>
 			spawned_commands.filter((c) => c.cmd === 'gro' && c.args[0] === cmd_name),
 		get_package_names_from_cwd: (commands: Array<TrackedCommand>) =>
-			commands.map((c) => c.cwd.split('/').pop() || ''),
+			commands.map((c) => c.cwd.split('/').pop() || '')
 	};
 };

@@ -1,13 +1,13 @@
 <script lang="ts">
-	import {resolve} from '$app/paths';
-	import type {Snippet} from 'svelte';
+	import { resolve } from '$app/paths';
+	import type { Snippet } from 'svelte';
 
-	import type {Repo} from './repo.svelte.ts';
+	import type { Repo } from './repo.svelte.ts';
 
 	const {
 		repos,
 		selected_repo,
-		children,
+		children
 	}: {
 		repos: Array<Repo>;
 		selected_repo?: Repo;

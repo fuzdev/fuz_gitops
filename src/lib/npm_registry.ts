@@ -1,7 +1,7 @@
-import type {Logger} from '@fuzdev/fuz_util/log.ts';
-import {spawn_out} from '@fuzdev/fuz_util/process.ts';
-import {wait} from '@fuzdev/fuz_util/async.ts';
-import {styleText as st} from 'node:util';
+import type { Logger } from '@fuzdev/fuz_util/log.ts';
+import { spawn_out } from '@fuzdev/fuz_util/process.ts';
+import { wait } from '@fuzdev/fuz_util/async.ts';
+import { styleText as st } from 'node:util';
 
 export interface WaitOptions {
 	log?: Logger;
@@ -19,9 +19,9 @@ export interface PackageInfo {
 export const check_package_available = async (
 	pkg: string,
 	version: string,
-	options: {log?: Logger} = {},
+	options: { log?: Logger } = {}
 ): Promise<boolean> => {
-	const {log} = options;
+	const { log } = options;
 	try {
 		// Use npm view to check if the specific version exists
 		const result = await spawn_out('npm', ['view', `${pkg}@${version}`, 'version']);
@@ -57,14 +57,14 @@ export const check_package_available = async (
 export const wait_for_package = async (
 	pkg: string,
 	version: string,
-	options: WaitOptions = {},
+	options: WaitOptions = {}
 ): Promise<void> => {
 	const {
 		log,
 		max_attempts = 30,
 		initial_delay = 1000,
 		max_delay = 60000,
-		timeout = 300000, // 5 minutes default
+		timeout = 300000 // 5 minutes default
 	} = options;
 
 	const start_time = Date.now();
@@ -81,7 +81,7 @@ export const wait_for_package = async (
 
 		// Check if package is available
 
-		if (await check_package_available(pkg, version, {log})) {
+		if (await check_package_available(pkg, version, { log })) {
 			log?.info(st('green', `    ✓ ${pkg}@${version} is now available on NPM`));
 			return;
 		}
@@ -113,9 +113,9 @@ export const wait_for_package = async (
  */
 export const get_package_info = async (
 	pkg: string,
-	options: {log?: Logger} = {},
+	options: { log?: Logger } = {}
 ): Promise<PackageInfo | null> => {
-	const {log} = options;
+	const { log } = options;
 	try {
 		const result = await spawn_out('npm', ['view', pkg, '--json']);
 
@@ -123,7 +123,7 @@ export const get_package_info = async (
 			const data = JSON.parse(result.stdout);
 			return {
 				name: data.name,
-				version: data.version,
+				version: data.version
 			};
 		}
 
@@ -136,7 +136,7 @@ export const get_package_info = async (
 
 export const package_exists = async (
 	pkg: string,
-	options: {log?: Logger} = {},
+	options: { log?: Logger } = {}
 ): Promise<boolean> => {
 	const info = await get_package_info(pkg, options);
 	return info !== null;

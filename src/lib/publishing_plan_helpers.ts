@@ -6,9 +6,13 @@
  * @module
  */
 
-import type {LocalRepo} from './local_repo.ts';
-import {needs_update, required_bump_for_dependency_update, type BumpType} from './version_utils.ts';
-import type {DependencyUpdate} from './publishing_plan.ts';
+import type { LocalRepo } from './local_repo.ts';
+import {
+	needs_update,
+	required_bump_for_dependency_update,
+	type BumpType
+} from './version_utils.ts';
+import type { DependencyUpdate } from './publishing_plan.ts';
 
 /**
  * Calculates all dependency updates between packages based on predicted versions.
@@ -21,7 +25,7 @@ import type {DependencyUpdate} from './publishing_plan.ts';
 export const calculate_dependency_updates = (
 	repos: Array<LocalRepo>,
 	predicted_versions: Map<string, string>,
-	breaking_packages: Set<string>,
+	breaking_packages: Set<string>
 ): {
 	dependency_updates: Array<DependencyUpdate>;
 	breaking_cascades: Map<string, Array<string>>;
@@ -40,7 +44,7 @@ export const calculate_dependency_updates = (
 						updated_dependency: dep_name,
 						current_version,
 						new_version,
-						type: 'dependencies',
+						type: 'dependencies'
 					});
 
 					if (breaking_packages.has(dep_name)) {
@@ -64,7 +68,7 @@ export const calculate_dependency_updates = (
 						updated_dependency: dep_name,
 						current_version,
 						new_version,
-						type: 'peerDependencies',
+						type: 'peerDependencies'
 					});
 
 					if (breaking_packages.has(dep_name)) {
@@ -88,14 +92,14 @@ export const calculate_dependency_updates = (
 						updated_dependency: dep_name,
 						current_version,
 						new_version,
-						type: 'devDependencies',
+						type: 'devDependencies'
 					});
 				}
 			}
 		}
 	}
 
-	return {dependency_updates, breaking_cascades};
+	return { dependency_updates, breaking_cascades };
 };
 
 /**
@@ -109,13 +113,13 @@ export const calculate_dependency_updates = (
 export const get_required_bump_for_dependencies = (
 	repo: LocalRepo,
 	dependency_updates: Array<DependencyUpdate>,
-	breaking_packages: Set<string>,
+	breaking_packages: Set<string>
 ): BumpType | null => {
 	// Check if this repo has any prod/peer dependency updates
 	const relevant_updates = dependency_updates.filter(
 		(update) =>
 			update.dependent_package === repo.library.name &&
-			(update.type === 'dependencies' || update.type === 'peerDependencies'),
+			(update.type === 'dependencies' || update.type === 'peerDependencies')
 	);
 
 	if (relevant_updates.length === 0) {
@@ -124,11 +128,11 @@ export const get_required_bump_for_dependencies = (
 
 	// Check if any of these dependencies have breaking changes
 	const has_breaking_deps = relevant_updates.some((update) =>
-		breaking_packages.has(update.updated_dependency),
+		breaking_packages.has(update.updated_dependency)
 	);
 
 	return required_bump_for_dependency_update(
 		repo.package_json.version || '0.0.0',
-		has_breaking_deps,
+		has_breaking_deps
 	);
 };

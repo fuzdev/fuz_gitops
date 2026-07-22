@@ -9,7 +9,7 @@
  * @module
  */
 
-import type {PublishingEvent} from './publishing_event.ts';
+import type { PublishingEvent } from './publishing_event.ts';
 
 /** A sink for publishing events. */
 export interface PublishingEventHandler {
@@ -23,7 +23,7 @@ export interface CapturingEventHandler extends PublishingEventHandler {
 
 /** Drops every event. The default when no handler is supplied. */
 export const null_handler = (): PublishingEventHandler => ({
-	emit: () => {},
+	emit: () => {}
 });
 
 /** Collects events in memory. Used to build the run report and in tests. */
@@ -33,7 +33,7 @@ export const capture_handler = (): CapturingEventHandler => {
 		events,
 		emit: (event) => {
 			events.push(event);
-		},
+		}
 	};
 };
 
@@ -48,7 +48,7 @@ export const stdout_handler = (): PublishingEventHandler => ({
 		} catch {
 			// best-effort: a logging sink must never fail a run
 		}
-	},
+	}
 });
 
 /** Fans an event out to every handler in order. */
@@ -57,7 +57,7 @@ export const multi_handler = (handlers: Array<PublishingEventHandler>): Publishi
 		for (const handler of handlers) {
 			handler.emit(event);
 		}
-	},
+	}
 });
 
 /**
@@ -68,11 +68,11 @@ export const multi_handler = (handlers: Array<PublishingEventHandler>): Publishi
  */
 export const masking_handler = (
 	inner: PublishingEventHandler,
-	mask: (event: PublishingEvent) => PublishingEvent = mask_secrets,
+	mask: (event: PublishingEvent) => PublishingEvent = mask_secrets
 ): PublishingEventHandler => ({
 	emit: (event) => {
 		inner.emit(mask(event));
-	},
+	}
 });
 
 // Minimal redaction rules: npm auth tokens (bare or registry-scoped), `SECRET_*`
@@ -81,7 +81,7 @@ export const masking_handler = (
 const SECRET_RULES: Array<readonly [RegExp, string]> = [
 	[/((?:\/\/[^\s:]+:)?_authToken\s*=\s*)\S+/gi, '$1[redacted]'],
 	[/(SECRET_[A-Z0-9_]+\s*[=:]\s*)\S+/g, '$1[redacted]'],
-	[/(npm_[A-Za-z0-9]{4})[A-Za-z0-9]{12,}/g, '$1[redacted]'],
+	[/(npm_[A-Za-z0-9]{4})[A-Za-z0-9]{12,}/g, '$1[redacted]']
 ];
 
 /** Redacts known secret shapes from a string. */

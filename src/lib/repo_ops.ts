@@ -11,13 +11,13 @@
  * @module
  */
 
-import {existsSync} from 'node:fs';
-import {readdir, stat} from 'node:fs/promises';
-import {join, resolve, dirname} from 'node:path';
+import { existsSync } from 'node:fs';
+import { readdir, stat } from 'node:fs/promises';
+import { join, resolve, dirname } from 'node:path';
 
-import {load_gitops_config} from './gitops_config.ts';
-import {DEFAULT_REPOS_DIR} from './paths.ts';
-import {GITOPS_CONFIG_PATH_DEFAULT} from './gitops_constants.ts';
+import { load_gitops_config } from './gitops_config.ts';
+import { DEFAULT_REPOS_DIR } from './paths.ts';
+import { GITOPS_CONFIG_PATH_DEFAULT } from './gitops_constants.ts';
 
 /** Default directories to exclude from file walking */
 export const DEFAULT_EXCLUDE_DIRS = [
@@ -32,7 +32,7 @@ export const DEFAULT_EXCLUDE_DIRS = [
 	'build',
 	'coverage',
 	'.cache',
-	'.turbo',
+	'.turbo'
 ] as const;
 
 /** Default binary/non-text extensions to exclude from content processing */
@@ -57,7 +57,7 @@ export const DEFAULT_EXCLUDE_EXTENSIONS = [
 	'.tar',
 	'.gz',
 	'.lock',
-	'.pdf',
+	'.pdf'
 ] as const;
 
 export interface WalkOptions {
@@ -109,7 +109,7 @@ export const get_repo_paths = async (config_path?: string): Promise<Array<RepoPa
 			: join(repos_dir, name);
 
 		if (existsSync(path)) {
-			repos.push({name, path, url});
+			repos.push({ name, path, url });
 		}
 	}
 
@@ -157,7 +157,7 @@ export const should_exclude_path = (file_path: string, options?: WalkOptions): b
  */
 export async function* walk_repo_files(
 	dir: string,
-	options?: WalkOptions,
+	options?: WalkOptions
 ): AsyncGenerator<string, void, undefined> {
 	const max_file_size = options?.max_file_size ?? 10 * 1024 * 1024;
 	const include_dirs = options?.include_dirs ?? false;
@@ -165,7 +165,7 @@ export async function* walk_repo_files(
 	async function* walk(current_dir: string): AsyncGenerator<string, void, undefined> {
 		let entries;
 		try {
-			entries = await readdir(current_dir, {withFileTypes: true});
+			entries = await readdir(current_dir, { withFileTypes: true });
 		} catch {
 			// Skip directories we can't read
 			return;
@@ -206,7 +206,7 @@ export async function* walk_repo_files(
  */
 export const collect_repo_files = async (
 	dir: string,
-	options?: WalkOptions,
+	options?: WalkOptions
 ): Promise<Array<string>> => {
 	const files: Array<string> = [];
 	for await (const file of walk_repo_files(dir, options)) {

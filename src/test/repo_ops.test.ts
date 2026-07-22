@@ -1,14 +1,14 @@
-import {assert, describe, test} from 'vitest';
-import {join} from 'node:path';
-import {mkdtemp, writeFile, mkdir, rm} from 'node:fs/promises';
-import {tmpdir} from 'node:os';
+import { assert, describe, test } from 'vitest';
+import { join } from 'node:path';
+import { mkdtemp, writeFile, mkdir, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 
 import {
 	should_exclude_path,
 	walk_repo_files,
 	collect_repo_files,
 	DEFAULT_EXCLUDE_DIRS,
-	DEFAULT_EXCLUDE_EXTENSIONS,
+	DEFAULT_EXCLUDE_EXTENSIONS
 } from '$lib/repo_ops.ts';
 
 describe('repo_ops', () => {
@@ -54,21 +54,21 @@ describe('repo_ops', () => {
 		});
 
 		test('respects custom exclude_dirs option', () => {
-			const options = {exclude_dirs: ['custom_dir']};
+			const options = { exclude_dirs: ['custom_dir'] };
 			assert.strictEqual(should_exclude_path('/project/custom_dir/foo.ts', options), true);
 			// Default dirs are still excluded
 			assert.strictEqual(should_exclude_path('/project/node_modules/foo.ts', options), true);
 		});
 
 		test('respects custom exclude_extensions option', () => {
-			const options = {exclude_extensions: ['.custom']};
+			const options = { exclude_extensions: ['.custom'] };
 			assert.strictEqual(should_exclude_path('/project/file.custom', options), true);
 			// Default extensions are still excluded
 			assert.strictEqual(should_exclude_path('/project/image.png', options), true);
 		});
 
 		test('respects no_defaults option', () => {
-			const options = {no_defaults: true, exclude_dirs: ['only_this']};
+			const options = { no_defaults: true, exclude_dirs: ['only_this'] };
 			// Default dirs no longer excluded
 			assert.strictEqual(should_exclude_path('/project/node_modules/foo.ts', options), false);
 			// Custom dir is excluded
@@ -84,9 +84,9 @@ describe('repo_ops', () => {
 			const dir = await mkdtemp(join(tmpdir(), 'repo_ops_test_'));
 
 			// Create file structure
-			await mkdir(join(dir, 'src', 'lib'), {recursive: true});
-			await mkdir(join(dir, 'node_modules', 'pkg'), {recursive: true});
-			await mkdir(join(dir, '.git'), {recursive: true});
+			await mkdir(join(dir, 'src', 'lib'), { recursive: true });
+			await mkdir(join(dir, 'node_modules', 'pkg'), { recursive: true });
+			await mkdir(join(dir, '.git'), { recursive: true });
 
 			await writeFile(join(dir, 'src', 'lib', 'foo.ts'), 'export const foo = 1;');
 			await writeFile(join(dir, 'src', 'lib', 'bar.ts'), 'export const bar = 2;');
@@ -100,7 +100,7 @@ describe('repo_ops', () => {
 		};
 
 		const cleanup_temp_dir = async (dir: string): Promise<void> => {
-			await rm(dir, {recursive: true, force: true});
+			await rm(dir, { recursive: true, force: true });
 		};
 
 		test('walks files excluding default directories', async () => {
@@ -143,7 +143,7 @@ describe('repo_ops', () => {
 		test('includes directories when include_dirs is true', async () => {
 			temp_dir = await setup_temp_dir();
 			try {
-				const files = await collect_repo_files(temp_dir, {include_dirs: true});
+				const files = await collect_repo_files(temp_dir, { include_dirs: true });
 
 				// Should include the src and src/lib directories
 				assert.ok(files.some((f) => f.endsWith('/src')));
@@ -158,7 +158,7 @@ describe('repo_ops', () => {
 			try {
 				// Exclude .md files
 				const files = await collect_repo_files(temp_dir, {
-					exclude_extensions: ['.md'],
+					exclude_extensions: ['.md']
 				});
 
 				assert.ok(!files.some((f) => f.endsWith('README.md')));
@@ -188,7 +188,7 @@ describe('repo_ops', () => {
 				assert.ok(files.some((f) => f.endsWith('a.ts')));
 				assert.ok(files.some((f) => f.endsWith('b.ts')));
 			} finally {
-				await rm(temp_dir, {recursive: true, force: true});
+				await rm(temp_dir, { recursive: true, force: true });
 			}
 		});
 	});

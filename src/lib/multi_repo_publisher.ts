@@ -1,29 +1,29 @@
-import type {Logger} from '@fuzdev/fuz_util/log.ts';
-import {TaskError} from '@fuzdev/gro';
-import {join} from 'node:path';
-import {styleText as st} from 'node:util';
+import type { Logger } from '@fuzdev/fuz_util/log.ts';
+import { TaskError } from '@fuzdev/gro';
+import { join } from 'node:path';
+import { styleText as st } from 'node:util';
 
-import {repo_is_npm, type LocalRepo} from './local_repo.ts';
-import {update_package_json, type VersionStrategy} from './dependency_updater.ts';
+import { repo_is_npm, type LocalRepo } from './local_repo.ts';
+import { update_package_json, type VersionStrategy } from './dependency_updater.ts';
 import {
 	generate_publishing_plan,
 	type VersionChange,
 	type DependencyUpdate,
-	type PublishingPlan,
+	type PublishingPlan
 } from './publishing_plan.ts';
-import type {PreflightOptions} from './preflight_checks.ts';
-import type {GitopsOperations} from './operations.ts';
-import {default_gitops_operations} from './operations_defaults.ts';
-import {GITOPS_NPM_WAIT_TIMEOUT_DEFAULT} from './gitops_constants.ts';
+import type { PreflightOptions } from './preflight_checks.ts';
+import type { GitopsOperations } from './operations.ts';
+import { default_gitops_operations } from './operations_defaults.ts';
+import { GITOPS_NPM_WAIT_TIMEOUT_DEFAULT } from './gitops_constants.ts';
 import {
 	type PublishingEvent,
 	type PublishingRunSummary,
-	summarize_events,
+	summarize_events
 } from './publishing_event.ts';
 import {
 	type PublishingEventHandler,
 	capture_handler,
-	multi_handler,
+	multi_handler
 } from './publishing_event_handler.ts';
 
 export interface PublishingOptions {
@@ -50,7 +50,7 @@ export interface PublishedVersion {
 export interface PublishingResult {
 	ok: boolean;
 	published: Array<PublishedVersion>;
-	failed: Array<{name: string; error: Error}>;
+	failed: Array<{ name: string; error: Error }>;
 	duration: number;
 	/** The structured event stream for this run, in emission order. */
 	events: Array<PublishingEvent>;
@@ -64,13 +64,13 @@ export interface PublishingResult {
 
 export const publish_repos = async (
 	repos: Array<LocalRepo>,
-	options: PublishingOptions,
+	options: PublishingOptions
 ): Promise<PublishingResult> => {
-	const {log, ops = default_gitops_operations} = options;
+	const { log, ops = default_gitops_operations } = options;
 	// Convenience entry: generate the plan, then execute it. Callers that already hold a
 	// plan (e.g. to display and confirm it first) call `execute_publishing_plan` directly,
 	// so the plan is generated exactly once per command.
-	const plan = await generate_publishing_plan(repos, {log, ops: ops.changeset});
+	const plan = await generate_publishing_plan(repos, { log, ops: ops.changeset });
 	return execute_publishing_plan(repos, plan, options);
 };
 
@@ -85,10 +85,10 @@ export const publish_repos = async (
 export const execute_publishing_plan = async (
 	all_repos: Array<LocalRepo>,
 	plan: PublishingPlan,
-	options: PublishingOptions,
+	options: PublishingOptions
 ): Promise<PublishingResult> => {
 	const start_time = Date.now();
-	const {wetrun, log, ops = default_gitops_operations} = options;
+	const { wetrun, log, ops = default_gitops_operations } = options;
 
 	// Only npm repos publish; drop any non-npm repos (e.g. cargo) so preflight and the
 	// executor's name lookup never touch them. The plan already excludes them too.
@@ -99,7 +99,7 @@ export const execute_publishing_plan = async (
 	// (no side effects) but the result is not ok (see the summary below).
 	if (wetrun && plan.errors.length > 0) {
 		throw new TaskError(
-			`Cannot publish — the plan has ${plan.errors.length} error(s):\n  ${plan.errors.join('\n  ')}`,
+			`Cannot publish — the plan has ${plan.errors.length} error(s):\n  ${plan.errors.join('\n  ')}`
 		);
 	}
 
@@ -115,7 +115,7 @@ export const execute_publishing_plan = async (
 		const preflight_options: PreflightOptions = {
 			skip_changesets: false, // Always check for changesets
 			required_branch: 'main',
-			log,
+			log
 		};
 		const preflight = await ops.preflight.run_preflight_checks({
 			repos,
@@ -123,7 +123,7 @@ export const execute_publishing_plan = async (
 			git_ops: ops.git,
 			npm_ops: ops.npm,
 			build_ops: ops.build,
-			changeset_ops: ops.changeset,
+			changeset_ops: ops.changeset
 		});
 
 		if (!preflight.ok) {
@@ -138,13 +138,13 @@ export const execute_publishing_plan = async (
 	// frozen topological order directly, re-deriving nothing.
 	const order = plan.publishing_order;
 	const plan_changes: Map<string, VersionChange> = new Map(
-		plan.version_changes.map((vc) => [vc.package_name, vc]),
+		plan.version_changes.map((vc) => [vc.package_name, vc])
 	);
 	if (order.length > 0) {
 		log?.info(`  Publishing order: ${order.join(' → ')}`);
 	}
 
-	emit({event: 'run_started', wetrun, total: order.length});
+	emit({ event: 'run_started', wetrun, total: order.length });
 
 	const published: Map<string, PublishedVersion> = new Map();
 	const failed: Map<string, Error> = new Map();
@@ -165,7 +165,7 @@ export const execute_publishing_plan = async (
 
 		// Not in the plan = no changesets and no dependency updates = nothing to publish.
 		if (!planned) {
-			emit({event: 'package_skipped', name: pkg_name, reason: 'no changesets'});
+			emit({ event: 'package_skipped', name: pkg_name, reason: 'no changesets' });
 			log?.info(st('yellow', `  ⚠️  Skipping ${pkg_name} - no changesets`));
 			continue;
 		}
@@ -182,8 +182,8 @@ export const execute_publishing_plan = async (
 			log?.info(
 				st(
 					'dim',
-					`  [${i + 1}/${order.length}] ${wetrun ? 'Publishing' : 'Would publish'} ${pkg_name}...`,
-				),
+					`  [${i + 1}/${order.length}] ${wetrun ? 'Publishing' : 'Would publish'} ${pkg_name}...`
+				)
 			);
 			const version = await publish_single_repo(repo, options, ops, planned);
 
@@ -194,10 +194,10 @@ export const execute_publishing_plan = async (
 			if (wetrun && version.new_version !== planned.to) {
 				const err = new Error(
 					`Plan drift for ${pkg_name}: published ${version.new_version} but the plan predicted ${planned.to}. ` +
-						`Aborting — re-run 'gro gitops_publish --wetrun' to re-plan from the current state.`,
+						`Aborting — re-run 'gro gitops_publish --wetrun' to re-plan from the current state.`
 				);
 				failed.set(pkg_name, err);
-				emit({event: 'package_failed', name: pkg_name, error: err.message, code: 'drift'});
+				emit({ event: 'package_failed', name: pkg_name, error: err.message, code: 'drift' });
 				log?.error(st('red', `  ❌ ${err.message}`));
 				break;
 			}
@@ -212,12 +212,12 @@ export const execute_publishing_plan = async (
 				bump_type: version.bump_type,
 				breaking: version.breaking,
 				commit: version.commit,
-				tag: version.tag,
+				tag: version.tag
 			});
 			log?.info(
 				wetrun
 					? st('green', `  ✅ Published ${pkg_name}@${version.new_version}`)
-					: st('cyan', `  ◇ Would publish ${pkg_name}@${version.new_version}`),
+					: st('cyan', `  ◇ Would publish ${pkg_name}@${version.new_version}`)
 			);
 
 			if (wetrun) {
@@ -230,9 +230,9 @@ export const execute_publishing_plan = async (
 						max_attempts: 30,
 						initial_delay: 1000,
 						max_delay: 60000,
-						timeout: options.max_wait ?? GITOPS_NPM_WAIT_TIMEOUT_DEFAULT,
+						timeout: options.max_wait ?? GITOPS_NPM_WAIT_TIMEOUT_DEFAULT
 					},
-					log,
+					log
 				});
 
 				if (!wait_result.ok) {
@@ -240,14 +240,14 @@ export const execute_publishing_plan = async (
 					// carries a typed `timeout` signal, so we know this is a network failure
 					// without sniffing the message.
 					const err = new Error(
-						`Failed to wait for package: ${wait_result.message}${wait_result.timeout ? ' (timeout)' : ''}`,
+						`Failed to wait for package: ${wait_result.message}${wait_result.timeout ? ' (timeout)' : ''}`
 					);
 					failed.set(pkg_name, err);
-					emit({event: 'package_failed', name: pkg_name, error: err.message, code: 'network'});
+					emit({ event: 'package_failed', name: pkg_name, error: err.message, code: 'network' });
 					log?.error(st('red', `  ❌ Failed to publish ${pkg_name}: ${err.message}`));
 					break; // fail fast
 				}
-				emit({event: 'npm_waited', name: pkg_name, version: version.new_version});
+				emit({ event: 'npm_waited', name: pkg_name, version: version.new_version });
 
 				// 3. Update every dependent the plan says has a prod/peer dep on this package.
 				// This rewrites their package.json ranges and creates their auto-changeset,
@@ -258,7 +258,7 @@ export const execute_publishing_plan = async (
 					published,
 					(update) =>
 						update.updated_dependency === pkg_name &&
-						(update.type === 'dependencies' || update.type === 'peerDependencies'),
+						(update.type === 'dependencies' || update.type === 'peerDependencies')
 				);
 				for (const [dependent_name, updates] of dependent_updates) {
 					const dependent_repo = repo_by_name.get(dependent_name);
@@ -277,7 +277,7 @@ export const execute_publishing_plan = async (
 							dependency: dep_name,
 							version: dep_version,
 							dep_type: dependency_update_type(plan, dependent_name, dep_name),
-							creates_changeset: republishes,
+							creates_changeset: republishes
 						});
 					}
 					changed_repos.add(dependent_name); // Mark as changed for deployment
@@ -287,7 +287,7 @@ export const execute_publishing_plan = async (
 							published_versions: published, // creates the auto-changeset
 							log,
 							git_ops: ops.git,
-							fs_ops: ops.fs,
+							fs_ops: ops.fs
 						});
 					} else {
 						// update-only leaf: rewrite ranges + commit, no changeset (it won't republish)
@@ -295,7 +295,7 @@ export const execute_publishing_plan = async (
 							strategy: options.version_strategy || 'caret',
 							log,
 							git_ops: ops.git,
-							fs_ops: ops.fs,
+							fs_ops: ops.fs
 						});
 					}
 				}
@@ -310,7 +310,7 @@ export const execute_publishing_plan = async (
 				// TODO: emit a precise code once the npm/process ops return typed errors —
 				// today a publish-step cause lives in unstructured stderr, so use the honest
 				// coarse bucket rather than guessing 'auth'/'network'/'build' from the message.
-				code: 'publish',
+				code: 'publish'
 			});
 			log?.error(st('red', `  ❌ Failed to publish ${pkg_name}: ${err.message}`));
 			break; // Always fail fast on error
@@ -327,7 +327,7 @@ export const execute_publishing_plan = async (
 		const dev_updates_by_repo = group_dependency_updates(
 			plan.dependency_updates,
 			published,
-			(update) => update.type === 'devDependencies',
+			(update) => update.type === 'devDependencies'
 		);
 
 		if (dev_updates_by_repo.size > 0) {
@@ -346,7 +346,7 @@ export const execute_publishing_plan = async (
 					dependency: dep_name,
 					version: dep_version,
 					dep_type: 'dev',
-					creates_changeset: false, // dev-dep updates redeploy without republishing
+					creates_changeset: false // dev-dep updates redeploy without republishing
 				});
 			}
 			changed_repos.add(repo_name); // Mark as changed for deployment
@@ -357,7 +357,7 @@ export const execute_publishing_plan = async (
 				strategy: options.version_strategy || 'caret',
 				log,
 				git_ops: ops.git,
-				fs_ops: ops.fs,
+				fs_ops: ops.fs
 			});
 		}
 	}
@@ -371,15 +371,12 @@ export const execute_publishing_plan = async (
 			.map((name) => repo_by_name.get(name))
 			.filter((r): r is LocalRepo => r !== undefined);
 		log?.info(
-			st(
-				'cyan',
-				`\n🚢 Deploying ${repos_to_deploy.length}/${repos.length} repos with changes...\n`,
-			),
+			st('cyan', `\n🚢 Deploying ${repos_to_deploy.length}/${repos.length} repos with changes...\n`)
 		);
 
 		for (const repo of repos_to_deploy) {
 			try {
-				emit({event: 'deploy_started', name: repo.library.name});
+				emit({ event: 'deploy_started', name: repo.library.name });
 				log?.info(`  Deploying ${repo.library.name}...`);
 				// Build fresh (no --no-build): a deployed site bundles its dependencies, so it
 				// must be rebuilt against the versions this run just published — the preflight
@@ -387,19 +384,19 @@ export const execute_publishing_plan = async (
 				const deploy_result = await ops.process.spawn({
 					cmd: 'gro',
 					args: ['deploy'],
-					cwd: repo.repo_dir,
+					cwd: repo.repo_dir
 				});
 
 				if (deploy_result.ok) {
-					emit({event: 'deploy_completed', name: repo.library.name});
+					emit({ event: 'deploy_completed', name: repo.library.name });
 					log?.info(st('green', `  ✅ Deployed ${repo.library.name}`));
 				} else {
-					emit({event: 'deploy_failed', name: repo.library.name, error: deploy_result.message});
+					emit({ event: 'deploy_failed', name: repo.library.name, error: deploy_result.message });
 					log?.warn(st('yellow', `  ⚠️  Failed to deploy ${repo.library.name}`));
 				}
 			} catch (error) {
 				const err = error instanceof Error ? error : new Error(String(error));
-				emit({event: 'deploy_failed', name: repo.library.name, error: err.message});
+				emit({ event: 'deploy_failed', name: repo.library.name, error: err.message });
 				log?.error(st('red', `  ❌ Error deploying ${repo.library.name}: ${err.message}`));
 			}
 		}
@@ -435,8 +432,8 @@ export const execute_publishing_plan = async (
 			log?.info(
 				st(
 					'green',
-					`\n✨ Dry run complete — ${published.size} package(s) would be published. Re-run with --wetrun to publish.`,
-				),
+					`\n✨ Dry run complete — ${published.size} package(s) would be published. Re-run with --wetrun to publish.`
+				)
 			);
 			// The dry run is driven by the same plan as `gro gitops_plan`, so this
 			// count includes bump escalations and auto-generated changesets — it
@@ -449,22 +446,22 @@ export const execute_publishing_plan = async (
 				'red',
 				wetrun
 					? '\n❌ Some packages failed to publish\n'
-					: '\n❌ Some packages failed during dry run\n',
-			),
+					: '\n❌ Some packages failed during dry run\n'
+			)
 		);
 	}
 
-	emit({event: 'run_finished', summary});
+	emit({ event: 'run_finished', summary });
 
 	return {
 		ok,
 		published: Array.from(published.values()),
-		failed: Array.from(failed.entries()).map(([name, error]) => ({name, error})),
+		failed: Array.from(failed.entries()).map(([name, error]) => ({ name, error })),
 		duration,
 		events: capture.events,
 		summary,
 		plan_errors: plan.errors,
-		plan_warnings: plan.warnings,
+		plan_warnings: plan.warnings
 	};
 };
 
@@ -483,9 +480,9 @@ const publish_single_repo = async (
 	repo: LocalRepo,
 	options: PublishingOptions,
 	ops: GitopsOperations,
-	planned: VersionChange,
+	planned: VersionChange
 ): Promise<PublishedVersion> => {
-	const {wetrun} = options;
+	const { wetrun } = options;
 
 	if (!wetrun) {
 		// Dry run reports the precomputed plan — the single source of truth for the
@@ -497,7 +494,7 @@ const publish_single_repo = async (
 			bump_type: planned.bump_type,
 			breaking: planned.breaking,
 			commit: 'simulated',
-			tag: `v${planned.to}`,
+			tag: `v${planned.to}`
 		};
 	}
 
@@ -505,7 +502,7 @@ const publish_single_repo = async (
 	const publish_result = await ops.process.spawn({
 		cmd: 'gro',
 		args: ['publish', '--no-build'],
-		cwd: repo.repo_dir,
+		cwd: repo.repo_dir
 	});
 
 	if (!publish_result.ok) {
@@ -514,7 +511,7 @@ const publish_single_repo = async (
 
 	// Read the new version from package.json after gro publish
 	const package_json_path = join(repo.repo_dir, 'package.json');
-	const content_result = await ops.fs.readFile({path: package_json_path, encoding: 'utf8'});
+	const content_result = await ops.fs.readFile({ path: package_json_path, encoding: 'utf8' });
 
 	if (!content_result.ok) {
 		throw new Error(`Failed to read package.json: ${content_result.message}`);
@@ -524,7 +521,7 @@ const publish_single_repo = async (
 	const new_version = package_json.version;
 
 	// Get actual commit hash
-	const commit_result = await ops.git.current_commit_hash({cwd: repo.repo_dir});
+	const commit_result = await ops.git.current_commit_hash({ cwd: repo.repo_dir });
 
 	if (!commit_result.ok) {
 		throw new Error(`Failed to get commit hash: ${commit_result.message}`);
@@ -541,7 +538,7 @@ const publish_single_repo = async (
 		bump_type: planned.bump_type,
 		breaking: planned.breaking,
 		commit,
-		tag: `v${new_version}`,
+		tag: `v${new_version}`
 	};
 };
 
@@ -554,7 +551,7 @@ const publish_single_repo = async (
 export const group_dependency_updates = (
 	updates: Array<DependencyUpdate>,
 	published: Map<string, PublishedVersion>,
-	predicate: (update: DependencyUpdate) => boolean,
+	predicate: (update: DependencyUpdate) => boolean
 ): Map<string, Map<string, string>> => {
 	const by_repo: Map<string, Map<string, string>> = new Map();
 	for (const update of updates) {
@@ -577,13 +574,13 @@ export const group_dependency_updates = (
 const dependency_update_type = (
 	plan: PublishingPlan,
 	dependent: string,
-	dependency: string,
+	dependency: string
 ): 'prod' | 'peer' =>
 	plan.dependency_updates.some(
 		(u) =>
 			u.dependent_package === dependent &&
 			u.updated_dependency === dependency &&
-			u.type === 'peerDependencies',
+			u.type === 'peerDependencies'
 	)
 		? 'peer'
 		: 'prod';

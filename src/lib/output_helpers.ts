@@ -1,5 +1,5 @@
-import type {Logger} from '@fuzdev/fuz_util/log.ts';
-import {writeFile} from 'node:fs/promises';
+import type { Logger } from '@fuzdev/fuz_util/log.ts';
+import { writeFile } from 'node:fs/promises';
 
 export type OutputFormat = 'stdout' | 'json' | 'markdown';
 
@@ -31,9 +31,9 @@ export interface OutputFormatters<T> {
 export const format_and_output = async <T>(
 	data: T,
 	formatters: OutputFormatters<T>,
-	options: OutputOptions,
+	options: OutputOptions
 ): Promise<void> => {
-	const {format, outfile, log} = options;
+	const { format, outfile, log } = options;
 
 	// Handle stdout format (special case - uses logger directly)
 	if (format === 'stdout') {

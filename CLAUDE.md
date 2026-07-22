@@ -121,9 +121,9 @@ export default {
 		{
 			repo_url: '...',
 			repo_dir: '...',
-			branch: 'main',
-		},
-	],
+			branch: 'main'
+		}
+	]
 };
 ```
 
@@ -279,7 +279,7 @@ version changes — no publish, npm-wait, bump escalation, or auto-changeset —
 the executor skips them even though they keep their slot in the topological
 publishing order. A private package that depends on a published one is handled as
 an **update-only leaf**: its dependency ranges are rewritten and committed
-*without* a changeset (it won't republish). A private package carrying its own
+_without_ a changeset (it won't republish). A private package carrying its own
 changeset is flagged in the plan's warnings, since that changeset can't be
 published.
 

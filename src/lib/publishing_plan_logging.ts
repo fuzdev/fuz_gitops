@@ -6,8 +6,8 @@
  * @module
  */
 
-import type {Logger} from '@fuzdev/fuz_util/log.ts';
-import {styleText as st} from 'node:util';
+import type { Logger } from '@fuzdev/fuz_util/log.ts';
+import { styleText as st } from 'node:util';
 
 import type {
 	PublishingPlan,
@@ -17,7 +17,7 @@ import type {
 	VerboseChangesetDetail,
 	VerboseIteration,
 	VerbosePropagationChain,
-	VerboseGraphSummary,
+	VerboseGraphSummary
 } from './publishing_plan.ts';
 
 export interface LogPlanOptions {
@@ -42,7 +42,7 @@ const log_section_header = (title: string, log: Logger): void => {
 const format_dep_diff = (dep_name: string, current: string, next: string): Array<string> => {
 	return [
 		st('red', `    - "${dep_name}": "${current}"`),
-		st('green', `    + "${dep_name}": "${next}"`),
+		st('green', `    + "${dep_name}": "${next}"`)
 	];
 };
 
@@ -51,7 +51,7 @@ const format_dep_diff = (dep_name: string, current: string, next: string): Array
  */
 const get_updates_for_package = (
 	pkg_name: string,
-	dependency_updates: Array<DependencyUpdate>,
+	dependency_updates: Array<DependencyUpdate>
 ): Map<string, Array<DependencyUpdate>> => {
 	const updates: Map<string, Array<DependencyUpdate>> = new Map();
 	for (const update of dependency_updates) {
@@ -73,7 +73,7 @@ const log_version_change_with_diffs = (
 	total: number,
 	dependency_updates: Array<DependencyUpdate>,
 	breaking_cascades: Map<string, Array<string>>,
-	log: Logger,
+	log: Logger
 ): void => {
 	const breaking_indicator = change.breaking ? st('red', ' BREAKING') : '';
 	const position = st('dim', `[${index + 1}/${total}]`);
@@ -89,7 +89,7 @@ const log_version_change_with_diffs = (
 	// Main version line
 	log.info(
 		`${position} ${change.package_name}: ${change.from} → ${st('green', change.to)} ` +
-			`(${change.bump_type})${scenario_label}${breaking_indicator}`,
+			`(${change.bump_type})${scenario_label}${breaking_indicator}`
 	);
 
 	// Show escalation reason
@@ -97,8 +97,8 @@ const log_version_change_with_diffs = (
 		log.info(
 			st(
 				'dim',
-				`      changesets specify ${change.existing_bump}, dependencies require ${change.required_bump}`,
-			),
+				`      changesets specify ${change.existing_bump}, dependencies require ${change.required_bump}`
+			)
 		);
 	}
 
@@ -138,7 +138,7 @@ const log_version_change_with_diffs = (
 export const log_publishing_plan = (
 	plan: PublishingPlan,
 	log: Logger,
-	options: LogPlanOptions = {},
+	options: LogPlanOptions = {}
 ): void => {
 	const {
 		publishing_order,
@@ -147,7 +147,7 @@ export const log_publishing_plan = (
 		breaking_cascades,
 		warnings,
 		info,
-		errors,
+		errors
 	} = plan;
 
 	// Errors first (blocking issues)
@@ -177,7 +177,7 @@ export const log_publishing_plan = (
 
 		// Separate into groups for headers
 		const with_changesets = ordered_changes.filter(
-			(vc) => vc.has_changesets && !vc.needs_bump_escalation,
+			(vc) => vc.has_changesets && !vc.needs_bump_escalation
 		);
 		const with_escalation = ordered_changes.filter((vc) => vc.needs_bump_escalation);
 		const with_auto_changesets = ordered_changes.filter((vc) => vc.will_generate_changeset);
@@ -190,7 +190,7 @@ export const log_publishing_plan = (
 		const log_change_group = (
 			title: string,
 			color: 'cyan' | 'yellow',
-			changes: Array<VersionChange>,
+			changes: Array<VersionChange>
 		): void => {
 			if (changes.length === 0) return;
 			log.info(st(color, title));
@@ -201,7 +201,7 @@ export const log_publishing_plan = (
 					total,
 					dependency_updates,
 					breaking_cascades,
-					log,
+					log
 				);
 			}
 			log.info('');
@@ -219,7 +219,7 @@ export const log_publishing_plan = (
 	const dep_only_packages: Set<string> = new Set();
 	for (const update of dependency_updates) {
 		const has_version_change = version_changes.some(
-			(vc) => vc.package_name === update.dependent_package,
+			(vc) => vc.package_name === update.dependent_package
 		);
 		if (!has_version_change) {
 			dep_only_packages.add(update.dependent_package);
@@ -303,7 +303,7 @@ const log_verbose = (data: VerboseData, log: Logger): void => {
  */
 const log_verbose_changeset_details = (
 	details: Array<VerboseChangesetDetail>,
-	log: Logger,
+	log: Logger
 ): void => {
 	if (details.length === 0) return;
 
@@ -325,7 +325,7 @@ const log_verbose_changeset_details = (
 const log_verbose_iteration_details = (
 	iterations: Array<VerboseIteration>,
 	total: number,
-	log: Logger,
+	log: Logger
 ): void => {
 	if (iterations.length === 0) return;
 
@@ -389,7 +389,7 @@ const log_verbose_iteration_details = (
  */
 const log_verbose_propagation_chains = (
 	chains: Array<VerbosePropagationChain>,
-	log: Logger,
+	log: Logger
 ): void => {
 	if (chains.length === 0) return;
 
@@ -403,7 +403,7 @@ const log_verbose_propagation_chains = (
 			const indent = '   '.repeat(i);
 			const connector = '└─';
 			log.info(
-				st('dim', `${indent}${connector} ${item.pkg} (${item.dep_type} dep) → ${item.action}`),
+				st('dim', `${indent}${connector} ${item.pkg} (${item.dep_type} dep) → ${item.action}`)
 			);
 		}
 	}
@@ -419,8 +419,8 @@ const log_verbose_graph_summary = (summary: VerboseGraphSummary, log: Logger): v
 	log.info(
 		st(
 			'dim',
-			`${summary.package_count} packages, ${summary.internal_dep_count} internal dependencies`,
-		),
+			`${summary.package_count} packages, ${summary.internal_dep_count} internal dependencies`
+		)
 	);
 	log.info('');
 
@@ -446,7 +446,7 @@ const log_verbose_graph_summary = (summary: VerboseGraphSummary, log: Logger): v
 
 	log.info('');
 	log.info(
-		st('dim', `Cycles: ${summary.prod_cycle_count} production, ${summary.dev_cycle_count} dev`),
+		st('dim', `Cycles: ${summary.prod_cycle_count} production, ${summary.dev_cycle_count} dev`)
 	);
 	log.info('');
 };

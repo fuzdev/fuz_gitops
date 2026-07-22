@@ -1,5 +1,5 @@
-import type {VersionChange} from '$lib/publishing_plan.ts';
-import type {RepoFixtureExpectedVersionChange} from './repo_fixture_types.ts';
+import type { VersionChange } from '$lib/publishing_plan.ts';
+import type { RepoFixtureExpectedVersionChange } from './repo_fixture_types.ts';
 
 /**
  * Assert that publishing order matches expected order.
@@ -9,7 +9,7 @@ export const assert_publishing_order = (actual: Array<string>, expected: Array<s
 		throw new Error(
 			`Publishing order length mismatch: expected ${expected.length} packages, got ${actual.length}.\n` +
 				`Expected: ${expected.join(', ')}\n` +
-				`Actual: ${actual.join(', ')}`,
+				`Actual: ${actual.join(', ')}`
 		);
 	}
 
@@ -20,7 +20,7 @@ export const assert_publishing_order = (actual: Array<string>, expected: Array<s
 					`Expected: ${expected[i]}\n` +
 					`Actual: ${actual[i]}\n` +
 					`Full expected: ${expected.join(', ')}\n` +
-					`Full actual: ${actual.join(', ')}`,
+					`Full actual: ${actual.join(', ')}`
 			);
 		}
 	}
@@ -32,7 +32,7 @@ export const assert_publishing_order = (actual: Array<string>, expected: Array<s
  */
 export const assert_version_changes = (
 	actual: Array<VersionChange>,
-	expected: Array<RepoFixtureExpectedVersionChange>,
+	expected: Array<RepoFixtureExpectedVersionChange>
 ): void => {
 	// Create maps for easy lookup
 	const actual_by_pkg = new Map(actual.map((vc) => [vc.package_name, vc]));
@@ -45,7 +45,7 @@ export const assert_version_changes = (
 		if (!actual_change) {
 			throw new Error(
 				`Expected version change for package '${pkg_name}' not found.\n` +
-					`Expected: ${expected_change.from} → ${expected_change.to} (${expected_change.scenario})`,
+					`Expected: ${expected_change.from} → ${expected_change.to} (${expected_change.scenario})`
 			);
 		}
 
@@ -54,7 +54,7 @@ export const assert_version_changes = (
 			throw new Error(
 				`Version mismatch for package '${pkg_name}':\n` +
 					`Expected from version: ${expected_change.from}\n` +
-					`Actual from version: ${actual_change.from}`,
+					`Actual from version: ${actual_change.from}`
 			);
 		}
 
@@ -62,7 +62,7 @@ export const assert_version_changes = (
 			throw new Error(
 				`Version mismatch for package '${pkg_name}':\n` +
 					`Expected to version: ${expected_change.to}\n` +
-					`Actual to version: ${actual_change.to}`,
+					`Actual to version: ${actual_change.to}`
 			);
 		}
 
@@ -72,7 +72,7 @@ export const assert_version_changes = (
 			throw new Error(
 				`Scenario mismatch for package '${pkg_name}':\n` +
 					`Expected scenario: ${expected_change.scenario}\n` +
-					`Actual scenario: ${actual_scenario}`,
+					`Actual scenario: ${actual_scenario}`
 			);
 		}
 	}
@@ -81,7 +81,7 @@ export const assert_version_changes = (
 	for (const [pkg_name] of actual_by_pkg) {
 		if (!expected_by_pkg.has(pkg_name)) {
 			throw new Error(
-				`Unexpected version change for package '${pkg_name}' not in expected outcomes`,
+				`Unexpected version change for package '${pkg_name}' not in expected outcomes`
 			);
 		}
 	}
@@ -96,7 +96,7 @@ export const assert_version_changes = (
  * - explicit_changeset: Has explicit changesets, normal bump
  */
 const get_version_change_scenario = (
-	vc: VersionChange,
+	vc: VersionChange
 ): 'explicit_changeset' | 'bump_escalation' | 'auto_generated' => {
 	// Check has_changesets first - this is the primary discriminator
 	if (!vc.has_changesets) {
@@ -118,7 +118,7 @@ const get_version_change_scenario = (
 export const assert_messages = (
 	actual: Array<string>,
 	expected: Array<string>,
-	message_type: 'warnings' | 'errors' | 'info',
+	message_type: 'warnings' | 'errors' | 'info'
 ): void => {
 	for (const expected_msg of expected) {
 		const found = actual.some((actual_msg) => actual_msg.includes(expected_msg));
@@ -127,7 +127,7 @@ export const assert_messages = (
 			throw new Error(
 				`Expected ${message_type} message not found:\n` +
 					`Expected (substring): ${expected_msg}\n` +
-					`Actual ${message_type}: ${actual.join(', ')}`,
+					`Actual ${message_type}: ${actual.join(', ')}`
 			);
 		}
 	}

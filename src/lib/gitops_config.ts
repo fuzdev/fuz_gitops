@@ -11,12 +11,12 @@
  * @module
  */
 
-import type {Url} from '@fuzdev/fuz_util/url.ts';
-import {existsSync} from 'node:fs';
-import {strip_end} from '@fuzdev/fuz_util/string.ts';
-import type {GitBranch} from '@fuzdev/fuz_util/git.ts';
+import type { Url } from '@fuzdev/fuz_util/url.ts';
+import { existsSync } from 'node:fs';
+import { strip_end } from '@fuzdev/fuz_util/string.ts';
+import type { GitBranch } from '@fuzdev/fuz_util/git.ts';
 
-import {DEFAULT_REPOS_DIR} from './paths.ts';
+import { DEFAULT_REPOS_DIR } from './paths.ts';
 
 export interface GitopsConfig {
 	repos: Array<GitopsRepoConfig>;
@@ -24,7 +24,7 @@ export interface GitopsConfig {
 }
 
 export type CreateGitopsConfig = (
-	base_config: GitopsConfig,
+	base_config: GitopsConfig
 ) => RawGitopsConfig | Promise<RawGitopsConfig>;
 
 export interface RawGitopsConfig {
@@ -99,7 +99,7 @@ export interface RawGitopsRepoConfig {
 
 export const create_empty_gitops_config = (): GitopsConfig => ({
 	repos: [],
-	repos_dir: DEFAULT_REPOS_DIR,
+	repos_dir: DEFAULT_REPOS_DIR
 });
 
 /**
@@ -110,11 +110,11 @@ export const normalize_gitops_config = (raw_config: RawGitopsConfig): GitopsConf
 	const empty_config = create_empty_gitops_config();
 	// All of the raw config properties are optional,
 	// so fall back to the empty values when `undefined`.
-	const {repos, repos_dir} = raw_config;
+	const { repos, repos_dir } = raw_config;
 	return {
 		repos: repos ? repos.map((r) => parse_fuz_repo_config(r)) : empty_config.repos,
 		// Default to two dirs up from config if not specified
-		repos_dir: repos_dir ?? DEFAULT_REPOS_DIR,
+		repos_dir: repos_dir ?? DEFAULT_REPOS_DIR
 	};
 };
 
@@ -126,7 +126,7 @@ const parse_fuz_repo_config = (r: Url | RawGitopsRepoConfig): GitopsRepoConfig =
 			branch: 'main' as GitBranch, // TODO @zts use flavored for GitBranch
 			visibility: 'public',
 			ci: true,
-			archived: false,
+			archived: false
 		};
 	}
 	const visibility = r.visibility ?? 'public';
@@ -136,7 +136,7 @@ const parse_fuz_repo_config = (r: Url | RawGitopsRepoConfig): GitopsRepoConfig =
 		branch: r.branch ?? ('main' as GitBranch), // TODO @zts use flavored for GitBranch
 		visibility,
 		ci: r.ci ?? visibility === 'public',
-		archived: r.archived ?? false,
+		archived: r.archived ?? false
 	};
 };
 
@@ -155,20 +155,20 @@ export const load_gitops_config = async (config_path: string): Promise<GitopsCon
 	return normalize_gitops_config(
 		typeof config_module.default === 'function'
 			? await config_module.default(create_empty_gitops_config())
-			: config_module.default,
+			: config_module.default
 	);
 };
 
 export const validate_gitops_config_module: (
 	config_module: any,
-	config_path: string,
+	config_path: string
 ) => asserts config_module is GitopsConfigModule = (config_module, config_path) => {
 	const config = config_module.default;
 	if (!config) {
 		throw Error(`Invalid Fuz config module at ${config_path}: expected a default export`);
 	} else if (!(typeof config === 'function' || typeof config === 'object')) {
 		throw Error(
-			`Invalid Fuz config module at ${config_path}: the default export must be a function or object`,
+			`Invalid Fuz config module at ${config_path}: the default export must be a function or object`
 		);
 	}
 };

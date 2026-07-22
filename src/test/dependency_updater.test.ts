@@ -1,13 +1,13 @@
-import {assert, describe, test} from 'vitest';
-import {join} from 'node:path';
+import { assert, describe, test } from 'vitest';
+import { join } from 'node:path';
 
 import {
 	update_package_json,
 	update_all_repos,
-	find_updates_needed,
+	find_updates_needed
 } from '$lib/dependency_updater.ts';
-import {create_mock_repo, create_mock_git_ops, create_mock_fs_ops} from './test_helpers.ts';
-import type {GitOperations} from '$lib/operations.ts';
+import { create_mock_repo, create_mock_git_ops, create_mock_fs_ops } from './test_helpers.ts';
+import type { GitOperations } from '$lib/operations.ts';
 
 /**
  * Creates mock git operations that track calls
@@ -26,11 +26,11 @@ const create_trackable_git_ops = (): GitOperations & {
 			} else {
 				added_files.push(options.files);
 			}
-			return {ok: true};
+			return { ok: true };
 		},
 		commit: async (options) => {
 			commits.push(options.message);
-			return {ok: true};
+			return { ok: true };
 		},
 		add_and_commit: async (options) => {
 			if (Array.isArray(options.files)) {
@@ -39,14 +39,14 @@ const create_trackable_git_ops = (): GitOperations & {
 				added_files.push(options.files);
 			}
 			commits.push(options.message);
-			return {ok: true};
-		},
+			return { ok: true };
+		}
 	});
 
 	return {
 		...git_ops,
 		added_files,
-		commits,
+		commits
 	};
 };
 
@@ -58,8 +58,8 @@ describe('dependency_updater', () => {
 				name: 'test-pkg',
 				deps: {
 					'dep-a': '^1.0.0',
-					'dep-b': '^2.0.0',
-				},
+					'dep-b': '^2.0.0'
+				}
 			});
 
 			const package_json_path = join(repo.repo_dir, 'package.json');
@@ -71,18 +71,18 @@ describe('dependency_updater', () => {
 						version: '1.0.0',
 						dependencies: {
 							'dep-a': '^1.0.0',
-							'dep-b': '^2.0.0',
-						},
+							'dep-b': '^2.0.0'
+						}
 					},
 					null,
-					'\t',
-				),
+					'\t'
+				)
 			);
 
 			const updates = new Map([['dep-a', '1.1.0']]);
 			const git_ops = create_trackable_git_ops();
 
-			await update_package_json(repo, updates, {git_ops, fs_ops: fs});
+			await update_package_json(repo, updates, { git_ops, fs_ops: fs });
 
 			const updated = fs.get(package_json_path);
 			assert.ok(updated !== undefined);
@@ -97,8 +97,8 @@ describe('dependency_updater', () => {
 			const repo = create_mock_repo({
 				name: 'test-pkg',
 				dev_deps: {
-					'dev-a': '^1.0.0',
-				},
+					'dev-a': '^1.0.0'
+				}
 			});
 
 			const package_json_path = join(repo.repo_dir, 'package.json');
@@ -109,18 +109,18 @@ describe('dependency_updater', () => {
 						name: 'test-pkg',
 						version: '1.0.0',
 						devDependencies: {
-							'dev-a': '^1.0.0',
-						},
+							'dev-a': '^1.0.0'
+						}
 					},
 					null,
-					'\t',
-				),
+					'\t'
+				)
 			);
 
 			const updates = new Map([['dev-a', '2.0.0']]);
 			const git_ops = create_trackable_git_ops();
 
-			await update_package_json(repo, updates, {git_ops, fs_ops: fs});
+			await update_package_json(repo, updates, { git_ops, fs_ops: fs });
 
 			const updated = fs.get(package_json_path);
 			const parsed = JSON.parse(updated!);
@@ -132,8 +132,8 @@ describe('dependency_updater', () => {
 			const repo = create_mock_repo({
 				name: 'test-pkg',
 				peer_deps: {
-					'peer-a': '^3.0.0',
-				},
+					'peer-a': '^3.0.0'
+				}
 			});
 
 			const package_json_path = join(repo.repo_dir, 'package.json');
@@ -144,18 +144,18 @@ describe('dependency_updater', () => {
 						name: 'test-pkg',
 						version: '1.0.0',
 						peerDependencies: {
-							'peer-a': '^3.0.0',
-						},
+							'peer-a': '^3.0.0'
+						}
 					},
 					null,
-					'\t',
-				),
+					'\t'
+				)
 			);
 
 			const updates = new Map([['peer-a', '3.1.0']]);
 			const git_ops = create_trackable_git_ops();
 
-			await update_package_json(repo, updates, {git_ops, fs_ops: fs});
+			await update_package_json(repo, updates, { git_ops, fs_ops: fs });
 
 			const updated = fs.get(package_json_path);
 			const parsed = JSON.parse(updated!);
@@ -167,8 +167,8 @@ describe('dependency_updater', () => {
 			const repo = create_mock_repo({
 				name: 'test-pkg',
 				deps: {
-					'dep-a': '~1.0.0',
-				},
+					'dep-a': '~1.0.0'
+				}
 			});
 
 			const package_json_path = join(repo.repo_dir, 'package.json');
@@ -179,18 +179,18 @@ describe('dependency_updater', () => {
 						name: 'test-pkg',
 						version: '1.0.0',
 						dependencies: {
-							'dep-a': '~1.0.0',
-						},
+							'dep-a': '~1.0.0'
+						}
 					},
 					null,
-					'\t',
-				),
+					'\t'
+				)
 			);
 
 			const updates = new Map([['dep-a', '1.1.0']]);
 			const git_ops = create_trackable_git_ops();
 
-			await update_package_json(repo, updates, {strategy: 'tilde', git_ops, fs_ops: fs});
+			await update_package_json(repo, updates, { strategy: 'tilde', git_ops, fs_ops: fs });
 
 			const updated = fs.get(package_json_path);
 			const parsed = JSON.parse(updated!);
@@ -202,8 +202,8 @@ describe('dependency_updater', () => {
 			const repo = create_mock_repo({
 				name: 'test-pkg',
 				deps: {
-					'dep-a': '1.0.0',
-				},
+					'dep-a': '1.0.0'
+				}
 			});
 
 			const package_json_path = join(repo.repo_dir, 'package.json');
@@ -214,18 +214,18 @@ describe('dependency_updater', () => {
 						name: 'test-pkg',
 						version: '1.0.0',
 						dependencies: {
-							'dep-a': '1.0.0',
-						},
+							'dep-a': '1.0.0'
+						}
 					},
 					null,
-					'\t',
-				),
+					'\t'
+				)
 			);
 
 			const updates = new Map([['dep-a', '1.1.0']]);
 			const git_ops = create_trackable_git_ops();
 
-			await update_package_json(repo, updates, {strategy: 'exact', git_ops, fs_ops: fs});
+			await update_package_json(repo, updates, { strategy: 'exact', git_ops, fs_ops: fs });
 
 			const updated = fs.get(package_json_path);
 			const parsed = JSON.parse(updated!);
@@ -237,8 +237,8 @@ describe('dependency_updater', () => {
 			const repo = create_mock_repo({
 				name: 'test-pkg',
 				peer_deps: {
-					'@fuzdev/fuz_util': '>=0.38.0',
-				},
+					'@fuzdev/fuz_util': '>=0.38.0'
+				}
 			});
 
 			const package_json_path = join(repo.repo_dir, 'package.json');
@@ -249,18 +249,18 @@ describe('dependency_updater', () => {
 						name: 'test-pkg',
 						version: '1.0.0',
 						peerDependencies: {
-							'@fuzdev/fuz_util': '>=0.38.0',
-						},
+							'@fuzdev/fuz_util': '>=0.38.0'
+						}
 					},
 					null,
-					'\t',
-				),
+					'\t'
+				)
 			);
 
 			const updates = new Map([['@fuzdev/fuz_util', '0.39.0']]);
 			const git_ops = create_trackable_git_ops();
 
-			await update_package_json(repo, updates, {git_ops, fs_ops: fs});
+			await update_package_json(repo, updates, { git_ops, fs_ops: fs });
 
 			const updated = fs.get(package_json_path);
 			const parsed = JSON.parse(updated!);
@@ -272,8 +272,8 @@ describe('dependency_updater', () => {
 			const repo = create_mock_repo({
 				name: 'test-pkg',
 				deps: {
-					'dep-a': '1.0.0',
-				},
+					'dep-a': '1.0.0'
+				}
 			});
 
 			const package_json_path = join(repo.repo_dir, 'package.json');
@@ -284,18 +284,18 @@ describe('dependency_updater', () => {
 						name: 'test-pkg',
 						version: '1.0.0',
 						dependencies: {
-							'dep-a': '1.0.0',
-						},
+							'dep-a': '1.0.0'
+						}
 					},
 					null,
-					'\t',
-				),
+					'\t'
+				)
 			);
 
 			const updates = new Map([['dep-a', '1.1.0']]);
 			const git_ops = create_trackable_git_ops();
 
-			await update_package_json(repo, updates, {strategy: 'gte', git_ops, fs_ops: fs});
+			await update_package_json(repo, updates, { strategy: 'gte', git_ops, fs_ops: fs });
 
 			const updated = fs.get(package_json_path);
 			const parsed = JSON.parse(updated!);
@@ -308,11 +308,11 @@ describe('dependency_updater', () => {
 				name: 'test-pkg',
 				deps: {
 					'dep-a': '^1.0.0',
-					'dep-b': '^2.0.0',
+					'dep-b': '^2.0.0'
 				},
 				dev_deps: {
-					'dev-a': '^3.0.0',
-				},
+					'dev-a': '^3.0.0'
+				}
 			});
 
 			const package_json_path = join(repo.repo_dir, 'package.json');
@@ -324,25 +324,25 @@ describe('dependency_updater', () => {
 						version: '1.0.0',
 						dependencies: {
 							'dep-a': '^1.0.0',
-							'dep-b': '^2.0.0',
+							'dep-b': '^2.0.0'
 						},
 						devDependencies: {
-							'dev-a': '^3.0.0',
-						},
+							'dev-a': '^3.0.0'
+						}
 					},
 					null,
-					'\t',
-				),
+					'\t'
+				)
 			);
 
 			const updates = new Map([
 				['dep-a', '1.2.0'],
 				['dep-b', '2.5.0'],
-				['dev-a', '3.1.0'],
+				['dev-a', '3.1.0']
 			]);
 			const git_ops = create_trackable_git_ops();
 
-			await update_package_json(repo, updates, {git_ops, fs_ops: fs});
+			await update_package_json(repo, updates, { git_ops, fs_ops: fs });
 
 			const updated = fs.get(package_json_path);
 			const parsed = JSON.parse(updated!);
@@ -355,7 +355,7 @@ describe('dependency_updater', () => {
 			const fs = create_mock_fs_ops();
 			const repo = create_mock_repo({
 				name: 'test-pkg',
-				deps: {'dep-a': '^1.0.0'},
+				deps: { 'dep-a': '^1.0.0' }
 			});
 
 			const package_json_path = join(repo.repo_dir, 'package.json');
@@ -365,17 +365,17 @@ describe('dependency_updater', () => {
 					{
 						name: 'test-pkg',
 						version: '1.0.0',
-						dependencies: {'dep-a': '^1.0.0'},
+						dependencies: { 'dep-a': '^1.0.0' }
 					},
 					null,
-					'\t',
-				),
+					'\t'
+				)
 			);
 
 			const updates = new Map([['dep-a', '1.1.0']]);
 			const git_ops = create_trackable_git_ops();
 
-			await update_package_json(repo, updates, {git_ops, fs_ops: fs});
+			await update_package_json(repo, updates, { git_ops, fs_ops: fs });
 
 			const updated = fs.get(package_json_path);
 			// Check it has tabs (JSON.stringify uses tabs)
@@ -387,7 +387,7 @@ describe('dependency_updater', () => {
 			const fs = create_mock_fs_ops();
 			const repo = create_mock_repo({
 				name: 'test-pkg',
-				deps: {'dep-a': '^1.0.0'},
+				deps: { 'dep-a': '^1.0.0' }
 			});
 
 			const package_json_path = join(repo.repo_dir, 'package.json');
@@ -397,17 +397,17 @@ describe('dependency_updater', () => {
 					{
 						name: 'test-pkg',
 						version: '1.0.0',
-						dependencies: {'dep-a': '^1.0.0'},
+						dependencies: { 'dep-a': '^1.0.0' }
 					},
 					null,
-					'\t',
-				),
+					'\t'
+				)
 			);
 
 			const updates = new Map([['dep-a', '1.1.0']]);
 			const git_ops = create_trackable_git_ops();
 
-			await update_package_json(repo, updates, {git_ops, fs_ops: fs});
+			await update_package_json(repo, updates, { git_ops, fs_ops: fs });
 
 			assert.ok(git_ops.added_files.includes('package.json'));
 			assert.strictEqual(git_ops.commits.length, 1);
@@ -416,12 +416,12 @@ describe('dependency_updater', () => {
 
 		test('does nothing when updates map is empty', async () => {
 			const fs = create_mock_fs_ops();
-			const repo = create_mock_repo({name: 'test-pkg'});
+			const repo = create_mock_repo({ name: 'test-pkg' });
 
 			const updates: Map<string, string> = new Map();
 			const git_ops = create_trackable_git_ops();
 
-			await update_package_json(repo, updates, {git_ops, fs_ops: fs});
+			await update_package_json(repo, updates, { git_ops, fs_ops: fs });
 
 			assert.strictEqual(git_ops.added_files.length, 0);
 			assert.strictEqual(git_ops.commits.length, 0);
@@ -431,7 +431,7 @@ describe('dependency_updater', () => {
 			const fs = create_mock_fs_ops();
 			const repo = create_mock_repo({
 				name: 'test-pkg',
-				deps: {'dep-a': '^1.0.0'},
+				deps: { 'dep-a': '^1.0.0' }
 			});
 
 			const package_json_path = join(repo.repo_dir, 'package.json');
@@ -441,18 +441,18 @@ describe('dependency_updater', () => {
 					{
 						name: 'test-pkg',
 						version: '1.0.0',
-						dependencies: {'dep-a': '^1.0.0'},
+						dependencies: { 'dep-a': '^1.0.0' }
 					},
 					null,
-					'\t',
-				),
+					'\t'
+				)
 			);
 
 			// Update for a different dependency
 			const updates = new Map([['dep-b', '2.0.0']]);
 			const git_ops = create_trackable_git_ops();
 
-			await update_package_json(repo, updates, {git_ops, fs_ops: fs});
+			await update_package_json(repo, updates, { git_ops, fs_ops: fs });
 
 			assert.strictEqual(git_ops.commits.length, 0);
 		});
@@ -464,13 +464,13 @@ describe('dependency_updater', () => {
 				name: 'test-pkg',
 				deps: {
 					'dep-a': '^1.0.0',
-					'dep-b': '^2.0.0',
-				},
+					'dep-b': '^2.0.0'
+				}
 			});
 
 			const published = new Map([
 				['dep-a', '1.1.0'],
-				['dep-b', '2.0.0'], // same version
+				['dep-b', '2.0.0'] // same version
 			]);
 
 			const updates = find_updates_needed(repo, published);
@@ -479,7 +479,7 @@ describe('dependency_updater', () => {
 			assert.deepEqual(updates.get('dep-a'), {
 				current: '^1.0.0',
 				new: '1.1.0',
-				type: 'dependencies',
+				type: 'dependencies'
 			});
 		});
 
@@ -487,8 +487,8 @@ describe('dependency_updater', () => {
 			const repo = create_mock_repo({
 				name: 'test-pkg',
 				dev_deps: {
-					'dev-a': '^3.0.0',
-				},
+					'dev-a': '^3.0.0'
+				}
 			});
 
 			const published = new Map([['dev-a', '3.5.0']]);
@@ -499,7 +499,7 @@ describe('dependency_updater', () => {
 			assert.deepEqual(updates.get('dev-a'), {
 				current: '^3.0.0',
 				new: '3.5.0',
-				type: 'devDependencies',
+				type: 'devDependencies'
 			});
 		});
 
@@ -507,8 +507,8 @@ describe('dependency_updater', () => {
 			const repo = create_mock_repo({
 				name: 'test-pkg',
 				peer_deps: {
-					'peer-a': '^4.0.0',
-				},
+					'peer-a': '^4.0.0'
+				}
 			});
 
 			const published = new Map([['peer-a', '4.1.0']]);
@@ -519,7 +519,7 @@ describe('dependency_updater', () => {
 			assert.deepEqual(updates.get('peer-a'), {
 				current: '^4.0.0',
 				new: '4.1.0',
-				type: 'peerDependencies',
+				type: 'peerDependencies'
 			});
 		});
 
@@ -527,8 +527,8 @@ describe('dependency_updater', () => {
 			const repo = create_mock_repo({
 				name: 'test-pkg',
 				deps: {
-					'dep-a': '^1.0.0',
-				},
+					'dep-a': '^1.0.0'
+				}
 			});
 
 			const published = new Map([['dep-a', '1.0.0']]);
@@ -541,15 +541,15 @@ describe('dependency_updater', () => {
 		test('handles multiple dependency types together', () => {
 			const repo = create_mock_repo({
 				name: 'test-pkg',
-				deps: {'dep-a': '^1.0.0'},
-				dev_deps: {'dev-a': '^2.0.0'},
-				peer_deps: {'peer-a': '^3.0.0'},
+				deps: { 'dep-a': '^1.0.0' },
+				dev_deps: { 'dev-a': '^2.0.0' },
+				peer_deps: { 'peer-a': '^3.0.0' }
 			});
 
 			const published = new Map([
 				['dep-a', '1.1.0'],
 				['dev-a', '2.2.0'],
-				['peer-a', '3.3.0'],
+				['peer-a', '3.3.0']
 			]);
 
 			const updates = find_updates_needed(repo, published);
@@ -566,8 +566,8 @@ describe('dependency_updater', () => {
 			const fs = create_mock_fs_ops();
 
 			const repos = [
-				create_mock_repo({name: 'pkg-a', deps: {lib: '^1.0.0'}}),
-				create_mock_repo({name: 'pkg-b', deps: {lib: '^1.0.0'}}),
+				create_mock_repo({ name: 'pkg-a', deps: { lib: '^1.0.0' } }),
+				create_mock_repo({ name: 'pkg-b', deps: { lib: '^1.0.0' } })
 			];
 
 			for (const repo of repos) {
@@ -578,18 +578,18 @@ describe('dependency_updater', () => {
 						{
 							name: repo.library.name,
 							version: '1.0.0',
-							dependencies: {lib: '^1.0.0'},
+							dependencies: { lib: '^1.0.0' }
 						},
 						null,
-						'\t',
-					),
+						'\t'
+					)
 				);
 			}
 
 			const published = new Map([['lib', '1.5.0']]);
 			const git_ops = create_trackable_git_ops();
 
-			const result = await update_all_repos(repos, published, {git_ops, fs_ops: fs});
+			const result = await update_all_repos(repos, published, { git_ops, fs_ops: fs });
 
 			assert.strictEqual(result.updated, 2);
 			assert.strictEqual(result.failed.length, 0);
@@ -599,8 +599,8 @@ describe('dependency_updater', () => {
 			const fs = create_mock_fs_ops();
 
 			const repos = [
-				create_mock_repo({name: 'pkg-a', deps: {lib: '^1.0.0'}}),
-				create_mock_repo({name: 'pkg-b', deps: {other: '^2.0.0'}}),
+				create_mock_repo({ name: 'pkg-a', deps: { lib: '^1.0.0' } }),
+				create_mock_repo({ name: 'pkg-b', deps: { other: '^2.0.0' } })
 			];
 
 			for (const repo of repos) {
@@ -611,18 +611,18 @@ describe('dependency_updater', () => {
 						{
 							name: repo.library.name,
 							version: '1.0.0',
-							dependencies: repo.package_json.dependencies,
+							dependencies: repo.package_json.dependencies
 						},
 						null,
-						'\t',
-					),
+						'\t'
+					)
 				);
 			}
 
 			const published = new Map([['lib', '1.5.0']]);
 			const git_ops = create_trackable_git_ops();
 
-			const result = await update_all_repos(repos, published, {git_ops, fs_ops: fs});
+			const result = await update_all_repos(repos, published, { git_ops, fs_ops: fs });
 
 			assert.strictEqual(result.updated, 1); // only pkg-a
 		});
@@ -630,14 +630,14 @@ describe('dependency_updater', () => {
 		test('reports failures for problematic repos', async () => {
 			const fs = create_mock_fs_ops();
 
-			const repos = [create_mock_repo({name: 'pkg-a', deps: {lib: '^1.0.0'}})];
+			const repos = [create_mock_repo({ name: 'pkg-a', deps: { lib: '^1.0.0' } })];
 
 			// Don't set up the file - will cause read error
 
 			const published = new Map([['lib', '1.5.0']]);
 			const git_ops = create_trackable_git_ops();
 
-			const result = await update_all_repos(repos, published, {git_ops, fs_ops: fs});
+			const result = await update_all_repos(repos, published, { git_ops, fs_ops: fs });
 
 			assert.strictEqual(result.updated, 0);
 			assert.strictEqual(result.failed.length, 1);

@@ -1,4 +1,4 @@
-import type {CreateGitopsConfig} from './src/lib/gitops_config.js';
+import type { CreateGitopsConfig } from './src/lib/gitops_config.js';
 
 const config: CreateGitopsConfig = () => {
 	return {
@@ -18,15 +18,15 @@ const config: CreateGitopsConfig = () => {
 			'https://github.com/fuzdev/tsv.fuz.dev',
 			{
 				repo_url: 'https://github.com/fuzdev/zzz',
-				branch: 'fuz-app',
+				branch: 'fuz-app'
 			},
 			'https://github.com/fuzdev/fuz_docs',
 			{
 				repo_url: 'https://github.com/fuzdev/fuz_gitops',
-				branch: 'main',
-			},
+				branch: 'main'
+			}
 			// 'https://github.com/fuzdev/fuz.dev',
-		],
+		]
 	};
 };
 

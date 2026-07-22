@@ -1,22 +1,22 @@
-import {strip_end} from '@fuzdev/fuz_util/string.ts';
-import {to_error_message} from '@fuzdev/fuz_util/error.ts';
-import {library_json_from_modules, type LibraryJson} from '@fuzdev/fuz_util/library_json.ts';
-import type {PackageJson} from '@fuzdev/fuz_util/package_json.ts';
-import {Library} from '@fuzdev/fuz_ui/library.svelte.ts';
-import {existsSync} from 'node:fs';
-import {join} from 'node:path';
-import {TaskError} from '@fuzdev/gro';
-import {library_load_from_repo} from '@fuzdev/gro/library_load.ts';
-import type {Logger} from '@fuzdev/fuz_util/log.ts';
-import {spawn_out} from '@fuzdev/fuz_util/process.ts';
-import {map_concurrent_settled} from '@fuzdev/fuz_util/async.ts';
-import type {GitOperations, NpmOperations} from './operations.ts';
-import {default_git_operations, default_npm_operations} from './operations_defaults.ts';
+import { strip_end } from '@fuzdev/fuz_util/string.ts';
+import { to_error_message } from '@fuzdev/fuz_util/error.ts';
+import { library_json_from_modules, type LibraryJson } from '@fuzdev/fuz_util/library_json.ts';
+import type { PackageJson } from '@fuzdev/fuz_util/package_json.ts';
+import { Library } from '@fuzdev/fuz_ui/library.svelte.ts';
+import { existsSync } from 'node:fs';
+import { join } from 'node:path';
+import { TaskError } from '@fuzdev/gro';
+import { library_load_from_repo } from '@fuzdev/gro/library_load.ts';
+import type { Logger } from '@fuzdev/fuz_util/log.ts';
+import { spawn_out } from '@fuzdev/fuz_util/process.ts';
+import { map_concurrent_settled } from '@fuzdev/fuz_util/async.ts';
+import type { GitOperations, NpmOperations } from './operations.ts';
+import { default_git_operations, default_npm_operations } from './operations_defaults.ts';
 
-import type {GitopsConfig, GitopsRepoConfig} from './gitops_config.ts';
-import type {ResolvedGitopsConfig} from './resolved_gitops_config.ts';
-import {GITOPS_CONCURRENCY_DEFAULT} from './gitops_constants.ts';
-import {cargo_toml_load} from './cargo_toml.ts';
+import type { GitopsConfig, GitopsRepoConfig } from './gitops_config.ts';
+import type { ResolvedGitopsConfig } from './resolved_gitops_config.ts';
+import { GITOPS_CONCURRENCY_DEFAULT } from './gitops_constants.ts';
+import { cargo_toml_load } from './cargo_toml.ts';
 
 /**
  * Fully loaded local repo with `Library` and extracted dependency data.
@@ -97,7 +97,7 @@ export const local_repo_load = async ({
 	git_ops = default_git_operations,
 	npm_ops = default_npm_operations,
 	sync = true,
-	allow_dirty = false,
+	allow_dirty = false
 }: {
 	local_repo_path: LocalRepoPath;
 	log?: Logger;
@@ -106,20 +106,20 @@ export const local_repo_load = async ({
 	sync?: boolean;
 	allow_dirty?: boolean;
 }): Promise<LocalRepo> => {
-	const {repo_config, repo_dir, repo_name, repo_git_ssh_url} = local_repo_path;
+	const { repo_config, repo_dir, repo_name, repo_git_ssh_url } = local_repo_path;
 
 	if (sync) {
 		// Record commit hash before any changes
-		const commit_before_result = await git_ops.current_commit_hash({cwd: repo_dir});
+		const commit_before_result = await git_ops.current_commit_hash({ cwd: repo_dir });
 		if (!commit_before_result.ok) {
 			throw new TaskError(
-				`Failed to get commit hash in ${repo_dir}: ${commit_before_result.message}`,
+				`Failed to get commit hash in ${repo_dir}: ${commit_before_result.message}`
 			);
 		}
 		const commit_before = commit_before_result.value;
 
 		// Switch to target branch if needed
-		const branch_result = await git_ops.current_branch_name({cwd: repo_dir});
+		const branch_result = await git_ops.current_branch_name({ cwd: repo_dir });
 		if (!branch_result.ok) {
 			throw new TaskError(`Failed to get current branch in ${repo_dir}: ${branch_result.message}`);
 		}
@@ -129,28 +129,28 @@ export const local_repo_load = async ({
 			// Guard the switch on a clean workspace unless the caller opts into `allow_dirty`,
 			// in which case we let `git checkout` itself fail loudly if it can't proceed.
 			if (!allow_dirty) {
-				const clean_result = await git_ops.check_clean_workspace({cwd: repo_dir});
+				const clean_result = await git_ops.check_clean_workspace({ cwd: repo_dir });
 				if (!clean_result.ok) {
 					throw new TaskError(`Failed to check workspace in ${repo_dir}: ${clean_result.message}`);
 				}
 
 				if (!clean_result.value) {
 					throw new TaskError(
-						`Repo ${repo_dir} is not on branch "${repo_config.branch}" and the workspace is unclean, blocking switch`,
+						`Repo ${repo_dir} is not on branch "${repo_config.branch}" and the workspace is unclean, blocking switch`
 					);
 				}
 			}
 
-			const checkout_result = await git_ops.checkout({branch: repo_config.branch, cwd: repo_dir});
+			const checkout_result = await git_ops.checkout({ branch: repo_config.branch, cwd: repo_dir });
 			if (!checkout_result.ok) {
 				throw new TaskError(
-					`Failed to checkout branch "${repo_config.branch}" in ${repo_dir}: ${checkout_result.message}`,
+					`Failed to checkout branch "${repo_config.branch}" in ${repo_dir}: ${checkout_result.message}`
 				);
 			}
 		}
 
 		// Only pull if remote exists (skip for local-only repos, test fixtures)
-		const origin_result = await git_ops.has_remote({remote: 'origin', cwd: repo_dir});
+		const origin_result = await git_ops.has_remote({ remote: 'origin', cwd: repo_dir });
 		if (!origin_result.ok) {
 			throw new TaskError(`Failed to check for remote in ${repo_dir}: ${origin_result.message}`);
 		}
@@ -159,7 +159,7 @@ export const local_repo_load = async ({
 			// Pull the configured branch explicitly. Without a branch, `git pull origin`
 			// targets the remote's default branch (origin/HEAD), which for a repo checked
 			// out on a non-default branch rebases the wrong branch onto it.
-			const pull_result = await git_ops.pull({branch: repo_config.branch, cwd: repo_dir});
+			const pull_result = await git_ops.pull({ branch: repo_config.branch, cwd: repo_dir });
 			if (!pull_result.ok) {
 				throw new TaskError(`Failed to pull in ${repo_dir}: ${pull_result.message}`);
 			}
@@ -168,25 +168,25 @@ export const local_repo_load = async ({
 		// Check clean workspace after pull to ensure we're in a good state
 		// (skipped when `allow_dirty`, since uncommitted changes are expected then)
 		if (!allow_dirty) {
-			const clean_after_result = await git_ops.check_clean_workspace({cwd: repo_dir});
+			const clean_after_result = await git_ops.check_clean_workspace({ cwd: repo_dir });
 			if (!clean_after_result.ok) {
 				throw new TaskError(
-					`Failed to check workspace in ${repo_dir}: ${clean_after_result.message}`,
+					`Failed to check workspace in ${repo_dir}: ${clean_after_result.message}`
 				);
 			}
 
 			if (!clean_after_result.value) {
 				throw new TaskError(
-					`Workspace ${repo_dir} is unclean after pulling branch "${repo_config.branch}"`,
+					`Workspace ${repo_dir} is unclean after pulling branch "${repo_config.branch}"`
 				);
 			}
 		}
 
 		// Record commit hash after pull
-		const commit_after_result = await git_ops.current_commit_hash({cwd: repo_dir});
+		const commit_after_result = await git_ops.current_commit_hash({ cwd: repo_dir });
 		if (!commit_after_result.ok) {
 			throw new TaskError(
-				`Failed to get commit hash in ${repo_dir}: ${commit_after_result.message}`,
+				`Failed to get commit hash in ${repo_dir}: ${commit_after_result.message}`
 			);
 		}
 		const commit_after = commit_after_result.value;
@@ -200,20 +200,20 @@ export const local_repo_load = async ({
 				from_commit: commit_before,
 				to_commit: commit_after,
 				file_path: 'package.json',
-				cwd: repo_dir,
+				cwd: repo_dir
 			});
 
 			if (!changed_result.ok) {
 				throw new TaskError(
-					`Failed to check if package.json changed in ${repo_dir}: ${changed_result.message}`,
+					`Failed to check if package.json changed in ${repo_dir}: ${changed_result.message}`
 				);
 			}
 
 			if (changed_result.value) {
-				const install_result = await npm_ops.install({cwd: repo_dir});
+				const install_result = await npm_ops.install({ cwd: repo_dir });
 				if (!install_result.ok) {
 					throw new TaskError(
-						`Failed to install dependencies in ${repo_dir}: ${install_result.message}${install_result.stderr ? `\n${install_result.stderr}` : ''}`,
+						`Failed to install dependencies in ${repo_dir}: ${install_result.message}${install_result.stderr ? `\n${install_result.stderr}` : ''}`
 					);
 				}
 			}
@@ -225,21 +225,21 @@ export const local_repo_load = async ({
 	// publishing/analysis skips. Anything else falls through to the npm loader below, whose
 	// error covers a genuinely missing or unreadable manifest.
 	if (!existsSync(join(repo_dir, 'package.json')) && existsSync(join(repo_dir, 'Cargo.toml'))) {
-		return local_repo_load_cargo({local_repo_path});
+		return local_repo_load_cargo({ local_repo_path });
 	}
 
 	// Load library metadata via svelte-docinfo analysis (cached under `.gro/library.json`).
 	let library_json: LibraryJson;
 	let package_json: PackageJson;
 	try {
-		({library_json, package_json} = await library_load_from_repo(repo_dir, {log: _log}));
+		({ library_json, package_json } = await library_load_from_repo(repo_dir, { log: _log }));
 	} catch (err) {
 		const message = to_error_message(err);
 		_log?.warn(
-			`Failed to load library metadata for repo "${repo_name}" in ${repo_dir}: ${message}`,
+			`Failed to load library metadata for repo "${repo_name}" in ${repo_dir}: ${message}`
 		);
 		throw new TaskError(
-			`Failed to load library metadata for repo "${repo_name}" in ${repo_dir}: ${message}`,
+			`Failed to load library metadata for repo "${repo_name}" in ${repo_dir}: ${message}`
 		);
 	}
 	const library = new Library(library_json);
@@ -250,7 +250,7 @@ export const local_repo_load = async ({
 		package_json,
 		repo_dir,
 		repo_git_ssh_url,
-		repo_config,
+		repo_config
 	};
 
 	// Extract dependencies from the full package_json
@@ -284,11 +284,11 @@ export const repo_is_npm = (repo: LocalRepo): boolean => repo.kind === 'npm';
  * analysis paths skip it (see `repo_is_npm`).
  */
 const local_repo_load_cargo = async ({
-	local_repo_path,
+	local_repo_path
 }: {
 	local_repo_path: LocalRepoPath;
 }): Promise<LocalRepo> => {
-	const {repo_config, repo_dir, repo_name, repo_url, repo_git_ssh_url} = local_repo_path;
+	const { repo_config, repo_dir, repo_name, repo_url, repo_git_ssh_url } = local_repo_path;
 
 	const cargo = await cargo_toml_load(repo_dir);
 
@@ -299,7 +299,7 @@ const local_repo_load_cargo = async ({
 		version: cargo?.version ?? '0.0.0',
 		repository: cargo?.repository ?? repo_url,
 		private: true,
-		...(cargo?.description ? {description: cargo.description} : null),
+		...(cargo?.description ? { description: cargo.description } : null)
 	};
 
 	const library = new Library(library_json_from_modules(package_json, []));
@@ -310,7 +310,7 @@ const local_repo_load_cargo = async ({
 		package_json,
 		repo_dir,
 		repo_git_ssh_url,
-		repo_config,
+		repo_config
 	};
 };
 
@@ -320,7 +320,7 @@ export const local_repos_ensure = async ({
 	gitops_config,
 	download,
 	log,
-	npm_ops = default_npm_operations,
+	npm_ops = default_npm_operations
 }: {
 	resolved_config: ResolvedGitopsConfig;
 	repos_dir: string;
@@ -339,19 +339,19 @@ export const local_repos_ensure = async ({
 				repos_dir,
 				local_repos_missing: resolved_config.local_repos_missing,
 				log,
-				npm_ops,
+				npm_ops
 			});
 			local_repo_paths = (resolved_config.local_repo_paths ?? [])
 				.concat(downloaded)
 				.sort(
 					(a, b) =>
 						gitops_config.repos.findIndex((r) => r.repo_url === a.repo_url) -
-						gitops_config.repos.findIndex((r) => r.repo_url === b.repo_url),
+						gitops_config.repos.findIndex((r) => r.repo_url === b.repo_url)
 				);
 		} else {
 			log?.error(
 				`Failed to resolve local repos in ${repos_dir} - do you need to pass \`--download\` or configure the directory?`, // TODO leaking task impl details
-				resolved_config.local_repos_missing.map((r) => r.repo_url),
+				resolved_config.local_repos_missing.map((r) => r.repo_url)
 			);
 			throw new TaskError('Failed to resolve local configs');
 		}
@@ -372,7 +372,7 @@ export const local_repos_load = async ({
 	parallel = true,
 	concurrency = GITOPS_CONCURRENCY_DEFAULT,
 	sync = true,
-	allow_dirty = false,
+	allow_dirty = false
 }: {
 	local_repo_paths: Array<LocalRepoPath>;
 	log?: Logger;
@@ -388,7 +388,7 @@ export const local_repos_load = async ({
 		const loaded: Array<LocalRepo> = [];
 		for (const local_repo_path of local_repo_paths) {
 			loaded.push(
-				await local_repo_load({local_repo_path, log, git_ops, npm_ops, sync, allow_dirty}),
+				await local_repo_load({ local_repo_path, log, git_ops, npm_ops, sync, allow_dirty })
 			);
 		}
 		return loaded;
@@ -399,13 +399,13 @@ export const local_repos_load = async ({
 		local_repo_paths,
 		concurrency,
 		async (local_repo_path) => {
-			return local_repo_load({local_repo_path, log, git_ops, npm_ops, sync, allow_dirty});
-		},
+			return local_repo_load({ local_repo_path, log, git_ops, npm_ops, sync, allow_dirty });
+		}
 	);
 
 	// Check for failures and collect successes
 	const loaded: Array<LocalRepo> = [];
-	const errors: Array<{repo_name: string; error: string}> = [];
+	const errors: Array<{ repo_name: string; error: string }> = [];
 
 	for (let i = 0; i < results.length; i++) {
 		const result = results[i]!;
@@ -415,7 +415,7 @@ export const local_repos_load = async ({
 			const repo_path = local_repo_paths[i]!;
 			errors.push({
 				repo_name: repo_path.repo_name,
-				error: String(result.reason),
+				error: String(result.reason)
 			});
 		}
 	}
@@ -431,12 +431,12 @@ export const local_repos_load = async ({
 
 export const local_repo_locate = ({
 	repo_config,
-	repos_dir,
+	repos_dir
 }: {
 	repo_config: GitopsRepoConfig;
 	repos_dir: string;
 }): LocalRepoPath | LocalRepoMissing => {
-	const {repo_url} = repo_config;
+	const { repo_url } = repo_config;
 	const repo_name = strip_end(repo_url, '/').split('/').at(-1);
 	if (!repo_name) throw Error('Invalid `repo_config.repo_url` ' + repo_url);
 
@@ -444,7 +444,7 @@ export const local_repo_locate = ({
 
 	const repo_dir = repo_config.repo_dir ?? join(repos_dir, repo_name);
 	if (!existsSync(repo_dir)) {
-		return {type: 'local_repo_missing', repo_name, repo_url, repo_git_ssh_url, repo_config};
+		return { type: 'local_repo_missing', repo_name, repo_url, repo_git_ssh_url, repo_config };
 	}
 
 	return {
@@ -453,7 +453,7 @@ export const local_repo_locate = ({
 		repo_dir,
 		repo_url,
 		repo_git_ssh_url,
-		repo_config,
+		repo_config
 	};
 };
 
@@ -466,7 +466,7 @@ const download_repos = async ({
 	repos_dir,
 	local_repos_missing,
 	log,
-	npm_ops = default_npm_operations,
+	npm_ops = default_npm_operations
 }: {
 	repos_dir: string;
 	local_repos_missing: Array<LocalRepoMissing>;
@@ -474,26 +474,26 @@ const download_repos = async ({
 	npm_ops?: NpmOperations;
 }): Promise<Array<LocalRepoPath>> => {
 	const resolved: Array<LocalRepoPath> = [];
-	for (const {repo_config, repo_git_ssh_url} of local_repos_missing) {
+	for (const { repo_config, repo_git_ssh_url } of local_repos_missing) {
 		log?.info(`cloning repo ${repo_git_ssh_url} to ${repos_dir}`);
-		const clone_result = await spawn_out('git', ['clone', repo_git_ssh_url], {cwd: repos_dir});
+		const clone_result = await spawn_out('git', ['clone', repo_git_ssh_url], { cwd: repos_dir });
 		if (!clone_result.result.ok) {
 			throw new TaskError(
-				`Failed to clone repo ${repo_git_ssh_url} to ${repos_dir}${clone_result.stderr ? ': ' + clone_result.stderr.trim() : ''}`,
+				`Failed to clone repo ${repo_git_ssh_url} to ${repos_dir}${clone_result.stderr ? ': ' + clone_result.stderr.trim() : ''}`
 			);
 		}
-		const local_repo = local_repo_locate({repo_config, repos_dir});
+		const local_repo = local_repo_locate({ repo_config, repos_dir });
 		if (local_repo.type === 'local_repo_missing') {
 			throw new TaskError(
-				`Failed to clone repo ${repo_git_ssh_url} to ${repos_dir}: directory not found after clone`,
+				`Failed to clone repo ${repo_git_ssh_url} to ${repos_dir}: directory not found after clone`
 			);
 		}
 		// Always install dependencies after cloning
 		log?.info(`installing dependencies for newly cloned repo ${local_repo.repo_dir}`);
-		const install_result = await npm_ops.install({cwd: local_repo.repo_dir});
+		const install_result = await npm_ops.install({ cwd: local_repo.repo_dir });
 		if (!install_result.ok) {
 			throw new TaskError(
-				`Failed to install dependencies in ${local_repo.repo_dir}: ${install_result.message}${install_result.stderr ? `\n${install_result.stderr}` : ''}`,
+				`Failed to install dependencies in ${local_repo.repo_dir}: ${install_result.message}${install_result.stderr ? `\n${install_result.stderr}` : ''}`
 			);
 		}
 		resolved.push(local_repo);

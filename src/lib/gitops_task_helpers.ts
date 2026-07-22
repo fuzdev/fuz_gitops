@@ -16,17 +16,17 @@
  * @module
  */
 
-import {TaskError} from '@fuzdev/gro';
-import {styleText as st} from 'node:util';
-import {resolve, dirname} from 'node:path';
-import {print_path} from '@fuzdev/gro/paths.ts';
-import type {Logger} from '@fuzdev/fuz_util/log.ts';
+import { TaskError } from '@fuzdev/gro';
+import { styleText as st } from 'node:util';
+import { resolve, dirname } from 'node:path';
+import { print_path } from '@fuzdev/gro/paths.ts';
+import type { Logger } from '@fuzdev/fuz_util/log.ts';
 
-import {load_gitops_config, type GitopsConfig} from './gitops_config.ts';
-import {local_repos_load, local_repos_ensure, type LocalRepo} from './local_repo.ts';
-import {resolve_gitops_config} from './resolved_gitops_config.ts';
-import {DEFAULT_REPOS_DIR} from './paths.ts';
-import type {GitOperations, NpmOperations} from './operations.ts';
+import { load_gitops_config, type GitopsConfig } from './gitops_config.ts';
+import { local_repos_load, local_repos_ensure, type LocalRepo } from './local_repo.ts';
+import { resolve_gitops_config } from './resolved_gitops_config.ts';
+import { DEFAULT_REPOS_DIR } from './paths.ts';
+import type { GitOperations, NpmOperations } from './operations.ts';
 
 export interface GetGitopsReadyOptions {
 	config: string;
@@ -75,14 +75,14 @@ export interface GetGitopsReadyOptions {
  * @throws {TaskError} if config loading or repo resolution fails
  */
 export const get_gitops_ready = async (
-	options: GetGitopsReadyOptions,
+	options: GetGitopsReadyOptions
 ): Promise<{
 	config_path: string;
 	repos_dir: string;
 	gitops_config: GitopsConfig;
 	local_repos: Array<LocalRepo>;
 }> => {
-	const {config, dir, download, log, git_ops, npm_ops, parallel, concurrency, sync, allow_dirty} =
+	const { config, dir, download, log, git_ops, npm_ops, parallel, concurrency, sync, allow_dirty } =
 		options;
 	const config_path = resolve(config);
 	const gitops_config = await import_gitops_config(config_path);
@@ -91,12 +91,12 @@ export const get_gitops_ready = async (
 	const repos_dir = resolve_gitops_paths({
 		config,
 		dir,
-		config_repos_dir: gitops_config.repos_dir,
+		config_repos_dir: gitops_config.repos_dir
 	}).repos_dir;
 
 	log?.info(
 		`resolving gitops configs on the filesystem in ${repos_dir}`,
-		gitops_config.repos.map((r) => r.repo_url),
+		gitops_config.repos.map((r) => r.repo_url)
 	);
 	const resolved_config = resolve_gitops_config(gitops_config, repos_dir);
 
@@ -106,7 +106,7 @@ export const get_gitops_ready = async (
 		gitops_config,
 		download,
 		log,
-		npm_ops,
+		npm_ops
 	});
 
 	const local_repos = await local_repos_load({
@@ -117,10 +117,10 @@ export const get_gitops_ready = async (
 		parallel,
 		concurrency,
 		sync,
-		allow_dirty,
+		allow_dirty
 	});
 
-	return {config_path, repos_dir, gitops_config, local_repos};
+	return { config_path, repos_dir, gitops_config, local_repos };
 };
 
 export interface ResolveGitopsPathsOptions {
@@ -130,9 +130,9 @@ export interface ResolveGitopsPathsOptions {
 }
 
 export const resolve_gitops_paths = (
-	options: ResolveGitopsPathsOptions,
-): {config_path: string; repos_dir: string} => {
-	const {config, dir, config_repos_dir} = options;
+	options: ResolveGitopsPathsOptions
+): { config_path: string; repos_dir: string } => {
+	const { config, dir, config_repos_dir } = options;
 	const config_path = resolve(config);
 	const config_dir = dirname(config_path);
 
@@ -144,7 +144,7 @@ export const resolve_gitops_paths = (
 				? resolve(config_dir, config_repos_dir)
 				: resolve(config_dir, DEFAULT_REPOS_DIR);
 
-	return {config_path, repos_dir};
+	return { config_path, repos_dir };
 };
 
 export const import_gitops_config = async (config_path: string): Promise<GitopsConfig> => {

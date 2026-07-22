@@ -1,12 +1,12 @@
 <script lang="ts">
-	import {page} from '$app/state';
+	import { page } from '$app/state';
 
-	import type {Repo} from './repo.svelte.ts';
+	import type { Repo } from './repo.svelte.ts';
 
 	// TODO add highlighting of the items that are onscreen
 
 	const {
-		repos_modules,
+		repos_modules
 	}: {
 		repos_modules: Array<{
 			repo: Repo;

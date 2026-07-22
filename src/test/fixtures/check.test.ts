@@ -1,12 +1,12 @@
-import {test, assert, describe, beforeAll, afterAll} from 'vitest';
-import {existsSync} from 'node:fs';
-import {join, dirname} from 'node:path';
-import {fileURLToPath} from 'node:url';
+import { test, assert, describe, beforeAll, afterAll } from 'vitest';
+import { existsSync } from 'node:fs';
+import { join, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-import {validate_dependency_graph} from '$lib/graph_validation.ts';
-import {generate_publishing_plan} from '$lib/publishing_plan.ts';
-import {load_gitops_config} from '$lib/gitops_config.ts';
-import {publish_repos} from '$lib/multi_repo_publisher.ts';
+import { validate_dependency_graph } from '$lib/graph_validation.ts';
+import { generate_publishing_plan } from '$lib/publishing_plan.ts';
+import { load_gitops_config } from '$lib/gitops_config.ts';
+import { publish_repos } from '$lib/multi_repo_publisher.ts';
 import {
 	create_mock_gitops_ops,
 	create_dirty_workspace_git_ops,
@@ -14,23 +14,23 @@ import {
 	create_unauthenticated_npm_ops,
 	create_unavailable_registry_npm_ops,
 	create_failing_build_ops,
-	create_configurable_gitops_ops,
+	create_configurable_gitops_ops
 } from './mock_operations.ts';
-import {fixture_to_local_repos} from './load_repo_fixtures.ts';
-import type {LocalRepo} from '$lib/local_repo.ts';
-import {basic_publishing} from './repo_fixtures/basic_publishing.ts';
-import {deep_cascade} from './repo_fixtures/deep_cascade.ts';
-import {circular_dev_deps} from './repo_fixtures/circular_dev_deps.ts';
-import {three_way_dev_cycle} from './repo_fixtures/three_way_dev_cycle.ts';
-import {private_packages} from './repo_fixtures/private_packages.ts';
-import {major_bumps} from './repo_fixtures/major_bumps.ts';
-import {peer_deps_only} from './repo_fixtures/peer_deps_only.ts';
-import {circular_prod_deps_error} from './repo_fixtures/circular_prod_deps_error.ts';
-import {isolated_packages} from './repo_fixtures/isolated_packages.ts';
-import {multiple_dep_types} from './repo_fixtures/multiple_dep_types.ts';
-import type {RepoFixtureSet} from './repo_fixture_types.ts';
-import {generate_all_fixtures, fixtures_exist} from './generate_repos.ts';
-import {assert_publishing_order, assert_version_changes, assert_messages} from './helpers.ts';
+import { fixture_to_local_repos } from './load_repo_fixtures.ts';
+import type { LocalRepo } from '$lib/local_repo.ts';
+import { basic_publishing } from './repo_fixtures/basic_publishing.ts';
+import { deep_cascade } from './repo_fixtures/deep_cascade.ts';
+import { circular_dev_deps } from './repo_fixtures/circular_dev_deps.ts';
+import { three_way_dev_cycle } from './repo_fixtures/three_way_dev_cycle.ts';
+import { private_packages } from './repo_fixtures/private_packages.ts';
+import { major_bumps } from './repo_fixtures/major_bumps.ts';
+import { peer_deps_only } from './repo_fixtures/peer_deps_only.ts';
+import { circular_prod_deps_error } from './repo_fixtures/circular_prod_deps_error.ts';
+import { isolated_packages } from './repo_fixtures/isolated_packages.ts';
+import { multiple_dep_types } from './repo_fixtures/multiple_dep_types.ts';
+import type { RepoFixtureSet } from './repo_fixture_types.ts';
+import { generate_all_fixtures, fixtures_exist } from './generate_repos.ts';
+import { assert_publishing_order, assert_version_changes, assert_messages } from './helpers.ts';
 
 // All fixture sets
 const FIXTURES: Array<RepoFixtureSet> = [
@@ -43,15 +43,15 @@ const FIXTURES: Array<RepoFixtureSet> = [
 	peer_deps_only,
 	circular_prod_deps_error,
 	isolated_packages,
-	multiple_dep_types,
+	multiple_dep_types
 ];
 
 // Categorize fixtures by type
 const SUCCESS_FIXTURES = FIXTURES.filter(
-	(f) => !f.expected_outcomes.errors || f.expected_outcomes.errors.length === 0,
+	(f) => !f.expected_outcomes.errors || f.expected_outcomes.errors.length === 0
 );
 const ERROR_FIXTURES = FIXTURES.filter(
-	(f) => f.expected_outcomes.errors && f.expected_outcomes.errors.length > 0,
+	(f) => f.expected_outcomes.errors && f.expected_outcomes.errors.length > 0
 );
 
 // Cache for fixture LocalRepo objects (avoids redundant conversions)
@@ -77,8 +77,8 @@ const get_fixture_repos = (fixture: RepoFixtureSet): Array<LocalRepo> => {
 const setup_plan_test = async (fixture: RepoFixtureSet) => {
 	const mock_ops = create_mock_gitops_ops(fixture);
 	const local_repos = get_fixture_repos(fixture);
-	const plan = await generate_publishing_plan(local_repos, {ops: mock_ops.changeset});
-	return {mock_ops, local_repos, plan};
+	const plan = await generate_publishing_plan(local_repos, { ops: mock_ops.changeset });
+	return { mock_ops, local_repos, plan };
 };
 
 /**
@@ -90,9 +90,9 @@ const setup_dry_run_test = async (fixture: RepoFixtureSet) => {
 	const local_repos = get_fixture_repos(fixture);
 	const result = await publish_repos(local_repos, {
 		wetrun: false,
-		ops: mock_ops,
+		ops: mock_ops
 	});
-	return {mock_ops, local_repos, result};
+	return { mock_ops, local_repos, result };
 };
 
 // Generate fixture repos before running tests (still needed for configs)
@@ -128,10 +128,10 @@ describe('Success scenario fixtures', () => {
 					const local_repos = get_fixture_repos(fixture);
 
 					// Validate dependency graph directly
-					const {publishing_order: order} = validate_dependency_graph(local_repos, {
+					const { publishing_order: order } = validate_dependency_graph(local_repos, {
 						throw_on_prod_cycles: false,
 						log_cycles: false,
-						log_order: false,
+						log_order: false
 					});
 
 					// Verify publishing order
@@ -142,7 +142,7 @@ describe('Success scenario fixtures', () => {
 
 			describe('plan', () => {
 				test('predicts correct version changes', async () => {
-					const {plan} = await setup_plan_test(fixture);
+					const { plan } = await setup_plan_test(fixture);
 
 					// Verify version changes
 					if (fixture.expected_outcomes.version_changes.length > 0) {
@@ -153,13 +153,13 @@ describe('Success scenario fixtures', () => {
 				});
 
 				test('reports correct publishing order', async () => {
-					const {plan} = await setup_plan_test(fixture);
+					const { plan } = await setup_plan_test(fixture);
 
 					// Publishing order should match for fixtures with version changes
 					if (fixture.expected_outcomes.version_changes.length > 0) {
 						assert_publishing_order(
 							plan.publishing_order,
-							fixture.expected_outcomes.publishing_order,
+							fixture.expected_outcomes.publishing_order
 						);
 					}
 				});
@@ -167,11 +167,11 @@ describe('Success scenario fixtures', () => {
 				// Only define if this fixture tests breaking cascades
 				if (fixture.expected_outcomes.breaking_cascades) {
 					test('tracks breaking cascades', async () => {
-						const {plan} = await setup_plan_test(fixture);
+						const { plan } = await setup_plan_test(fixture);
 
 						// Verify breaking cascades exist
 						for (const [pkg, expected_affected] of Object.entries(
-							fixture.expected_outcomes.breaking_cascades!,
+							fixture.expected_outcomes.breaking_cascades!
 						)) {
 							assert.ok(plan.breaking_cascades.has(pkg), `Should have breaking cascade for ${pkg}`);
 
@@ -180,7 +180,7 @@ describe('Success scenario fixtures', () => {
 							for (const expected_pkg of expected_affected) {
 								assert.ok(
 									actual_affected.includes(expected_pkg),
-									`${pkg} should affect ${expected_pkg}`,
+									`${pkg} should affect ${expected_pkg}`
 								);
 							}
 						}
@@ -190,7 +190,7 @@ describe('Success scenario fixtures', () => {
 				// Only define if this fixture tests warnings
 				if (fixture.expected_outcomes.warnings && fixture.expected_outcomes.warnings.length > 0) {
 					test('reports warnings', async () => {
-						const {plan} = await setup_plan_test(fixture);
+						const { plan } = await setup_plan_test(fixture);
 						assert_messages(plan.warnings, fixture.expected_outcomes.warnings!, 'warnings');
 					});
 				}
@@ -198,7 +198,7 @@ describe('Success scenario fixtures', () => {
 				// Only define if this fixture tests info messages
 				if (fixture.expected_outcomes.info && fixture.expected_outcomes.info.length > 0) {
 					test('reports info for packages with no changes', async () => {
-						const {plan} = await setup_plan_test(fixture);
+						const { plan } = await setup_plan_test(fixture);
 
 						// Check that expected packages are in info
 						for (const pkg of fixture.expected_outcomes.info!) {
@@ -220,29 +220,29 @@ describe('Success scenario fixtures', () => {
 				 */
 
 				test('publishes expected packages', async () => {
-					const {result} = await setup_dry_run_test(fixture);
+					const { result } = await setup_dry_run_test(fixture);
 
 					// Dry runs can ONLY publish packages with explicit changesets
 					const packages_with_explicit_changesets =
 						fixture.expected_outcomes.version_changes.filter(
-							(vc) => vc.scenario === 'explicit_changeset' || vc.scenario === 'bump_escalation',
+							(vc) => vc.scenario === 'explicit_changeset' || vc.scenario === 'bump_escalation'
 						);
 
 					if (packages_with_explicit_changesets.length > 0) {
 						// Dry_run should publish packages with explicit changesets
 						assert.ok(
 							result.published.length > 0,
-							`Should publish at least some packages (expected ${packages_with_explicit_changesets.length} with explicit changesets)`,
+							`Should publish at least some packages (expected ${packages_with_explicit_changesets.length} with explicit changesets)`
 						);
 
 						// Verify published packages are in the expected set
 						for (const published of result.published) {
 							const expected_change = fixture.expected_outcomes.version_changes.find(
-								(vc) => vc.package_name === published.name,
+								(vc) => vc.package_name === published.name
 							);
 							assert.ok(
 								expected_change,
-								`Published package ${published.name} should be in expected changes`,
+								`Published package ${published.name} should be in expected changes`
 							);
 						}
 					} else {
@@ -252,7 +252,7 @@ describe('Success scenario fixtures', () => {
 				});
 
 				test('reports success status', async () => {
-					const {result} = await setup_dry_run_test(fixture);
+					const { result } = await setup_dry_run_test(fixture);
 
 					// Should report success for valid fixtures
 					assert.ok(result.ok, 'Should report success');
@@ -274,17 +274,17 @@ describe('Error scenario fixtures', () => {
 					const local_repos = get_fixture_repos(fixture);
 
 					// Validate dependency graph - should detect cycles
-					const {publishing_order: order} = validate_dependency_graph(local_repos, {
+					const { publishing_order: order } = validate_dependency_graph(local_repos, {
 						throw_on_prod_cycles: false,
 						log_cycles: false,
-						log_order: false,
+						log_order: false
 					});
 
 					// For error fixtures, publishing order should be empty or contain errors
 					assert.ok(
 						order.length === 0 ||
 							order.length === fixture.expected_outcomes.publishing_order.length,
-						'Error fixtures should have empty or error publishing order',
+						'Error fixtures should have empty or error publishing order'
 					);
 				});
 			});
@@ -292,7 +292,7 @@ describe('Error scenario fixtures', () => {
 			describe('plan', () => {
 				test('reports errors', async () => {
 					try {
-						const {plan} = await setup_plan_test(fixture);
+						const { plan } = await setup_plan_test(fixture);
 						// If plan succeeded, errors should be in result
 						assert_messages(plan.errors, fixture.expected_outcomes.errors!, 'errors');
 					} catch (_error) {
@@ -368,7 +368,7 @@ describe('Error condition tests', () => {
 	test('build failure mock returns expected values', async () => {
 		const build_ops = create_failing_build_ops();
 		const mock_repo = fixture_to_local_repos(basic_publishing)[0]!;
-		const result = await build_ops.build_package({repo: mock_repo});
+		const result = await build_ops.build_package({ repo: mock_repo });
 		assert.equal(result.ok, false, 'Should fail build');
 	});
 });
@@ -381,7 +381,7 @@ describe('JSON output format tests', () => {
 	const fixture = basic_publishing;
 
 	test('plan output has expected JSON structure', async () => {
-		const {plan} = await setup_plan_test(fixture);
+		const { plan } = await setup_plan_test(fixture);
 
 		// Verify plan structure matches expected JSON format
 		assert.ok(Array.isArray(plan.publishing_order), 'Should have publishing_order array');
@@ -410,7 +410,7 @@ describe('JSON output format tests', () => {
 		const result = validate_dependency_graph(local_repos, {
 			throw_on_prod_cycles: false,
 			log_cycles: false,
-			log_order: false,
+			log_order: false
 		});
 
 		assert.ok(result.graph, 'Should have dependency graph');
@@ -446,7 +446,7 @@ describe('Preflight mock tests', () => {
 		assert.ok(result.repos_with_changesets instanceof Set, 'Should have repos_with_changesets set');
 		assert.ok(
 			result.repos_without_changesets instanceof Set,
-			'Should have repos_without_changesets set',
+			'Should have repos_without_changesets set'
 		);
 
 		// Verify categorization matches fixture data
@@ -455,12 +455,12 @@ describe('Preflight mock tests', () => {
 			if (has_changesets) {
 				assert.ok(
 					result.repos_with_changesets.has(repo.package_json.name),
-					`${repo.package_json.name} should be in repos_with_changesets`,
+					`${repo.package_json.name} should be in repos_with_changesets`
 				);
 			} else {
 				assert.ok(
 					result.repos_without_changesets.has(repo.package_json.name),
-					`${repo.package_json.name} should be in repos_without_changesets`,
+					`${repo.package_json.name} should be in repos_without_changesets`
 				);
 			}
 		}
@@ -468,7 +468,7 @@ describe('Preflight mock tests', () => {
 
 	test('configurable preflight can simulate failures', async () => {
 		const mock_ops = create_configurable_gitops_ops(fixture, {
-			preflight: {fails: true, errors: ['Test error']},
+			preflight: { fails: true, errors: ['Test error'] }
 		});
 
 		const result = await mock_ops.preflight.run_preflight_checks({} as any);

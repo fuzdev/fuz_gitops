@@ -11,7 +11,7 @@
  * @module
  */
 
-import type {GitopsRepoConfig} from './gitops_config.ts';
+import type { GitopsRepoConfig } from './gitops_config.ts';
 
 /** Repo fields that must agree across every config that lists the repo. */
 const INTRINSIC_FIELDS = ['visibility', 'ci', 'archived', 'branch'] as const;
@@ -63,7 +63,7 @@ const field_value = (repo: GitopsRepoConfig, field: IntrinsicField): string => {
  */
 export const reconcile_configs = (
 	canonical: NamedRepos,
-	subsets: Array<NamedRepos>,
+	subsets: Array<NamedRepos>
 ): Array<ConfigDrift> => {
 	const drift: Array<ConfigDrift> = [];
 	const canonical_by_url = new Map(canonical.repos.map((r) => [r.repo_url, r] as const));
@@ -71,7 +71,11 @@ export const reconcile_configs = (
 		for (const repo of subset.repos) {
 			const canon = canonical_by_url.get(repo.repo_url);
 			if (!canon) {
-				drift.push({repo_url: repo.repo_url, config: subset.name, kind: 'missing_from_canonical'});
+				drift.push({
+					repo_url: repo.repo_url,
+					config: subset.name,
+					kind: 'missing_from_canonical'
+				});
 				continue;
 			}
 			for (const field of INTRINSIC_FIELDS) {
@@ -84,7 +88,7 @@ export const reconcile_configs = (
 						kind: 'field_mismatch',
 						field,
 						canonical_value,
-						config_value,
+						config_value
 					});
 				}
 			}

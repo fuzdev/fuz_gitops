@@ -7,17 +7,17 @@
  * @module
  */
 
-import type {Logger} from '@fuzdev/fuz_util/log.ts';
-import {existsSync} from 'node:fs';
-import {readdir, readFile} from 'node:fs/promises';
-import {join} from 'node:path';
+import type { Logger } from '@fuzdev/fuz_util/log.ts';
+import { existsSync } from 'node:fs';
+import { readdir, readFile } from 'node:fs/promises';
+import { join } from 'node:path';
 
-import type {LocalRepo} from './local_repo.ts';
-import {compare_bump_types, calculate_next_version, type BumpType} from './version_utils.ts';
+import type { LocalRepo } from './local_repo.ts';
+import { compare_bump_types, calculate_next_version, type BumpType } from './version_utils.ts';
 
 export interface ChangesetInfo {
 	filename: string;
-	packages: Array<{name: string; bump_type: BumpType}>;
+	packages: Array<{ name: string; bump_type: BumpType }>;
 	summary: string;
 }
 
@@ -44,7 +44,7 @@ export interface ChangesetInfo {
  */
 export const parse_changeset_content = (
 	content: string,
-	filename = 'changeset.md',
+	filename = 'changeset.md'
 ): ChangesetInfo | null => {
 	// Match frontmatter between --- markers
 	const frontmatter_match = /^---\s*\n([\s\S]*?)\n---\s*\n([\s\S]*)/.exec(content);
@@ -56,7 +56,7 @@ export const parse_changeset_content = (
 	const summary = frontmatter_match[2]!.trim();
 
 	// Parse package entries
-	const packages: Array<{name: string; bump_type: BumpType}> = [];
+	const packages: Array<{ name: string; bump_type: BumpType }> = [];
 
 	// Match lines like: "package-name": patch
 	// or: '@scope/package': minor
@@ -67,7 +67,7 @@ export const parse_changeset_content = (
 	while ((match = package_regex.exec(frontmatter)) !== null) {
 		packages.push({
 			name: match[1]!,
-			bump_type: match[2]! as BumpType,
+			bump_type: match[2]! as BumpType
 		});
 	}
 
@@ -78,13 +78,13 @@ export const parse_changeset_content = (
 	return {
 		filename,
 		packages,
-		summary,
+		summary
 	};
 };
 
 export const parse_changeset_file = async (
 	filepath: string,
-	log?: Logger,
+	log?: Logger
 ): Promise<ChangesetInfo | null> => {
 	try {
 		const content = await readFile(filepath, 'utf8');
@@ -105,7 +105,7 @@ export const parse_changeset_file = async (
 
 export const read_changesets = async (
 	repo: LocalRepo,
-	log?: Logger,
+	log?: Logger
 ): Promise<Array<ChangesetInfo>> => {
 	const changesets_dir = join(repo.repo_dir, '.changeset');
 
@@ -141,7 +141,7 @@ export const read_changesets = async (
  */
 export const determine_bump_from_changesets = (
 	changesets: Array<ChangesetInfo>,
-	package_name: string,
+	package_name: string
 ): BumpType | null => {
 	let highest_bump: BumpType | null = null;
 
@@ -195,8 +195,8 @@ export const has_changesets = async (repo: LocalRepo): Promise<boolean> => {
  */
 export const predict_next_version = async (
 	repo: LocalRepo,
-	log?: Logger,
-): Promise<{version: string; bump_type: BumpType} | null> => {
+	log?: Logger
+): Promise<{ version: string; bump_type: BumpType } | null> => {
 	const changesets = await read_changesets(repo, log);
 	if (changesets.length === 0) {
 		return null;
@@ -211,11 +211,11 @@ export const predict_next_version = async (
 	const next_version = calculate_next_version(current_version, bump_type);
 
 	log?.debug(
-		`  Predicted ${repo.library.name}: ${current_version} → ${next_version} (${bump_type})`,
+		`  Predicted ${repo.library.name}: ${current_version} → ${next_version} (${bump_type})`
 	);
 
 	return {
 		version: next_version,
-		bump_type,
+		bump_type
 	};
 };

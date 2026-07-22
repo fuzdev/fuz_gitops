@@ -7,17 +7,17 @@
  * @module
  */
 
-import {join} from 'node:path';
-import type {Logger} from '@fuzdev/fuz_util/log.ts';
-import type {LocalRepo} from './local_repo.ts';
-import type {PublishedVersion} from './multi_repo_publisher.ts';
+import { join } from 'node:path';
+import type { Logger } from '@fuzdev/fuz_util/log.ts';
+import type { LocalRepo } from './local_repo.ts';
+import type { PublishedVersion } from './multi_repo_publisher.ts';
 import {
 	strip_version_prefix,
 	required_bump_for_dependency_update,
-	type BumpType,
+	type BumpType
 } from './version_utils.ts';
-import type {FsOperations} from './operations.ts';
-import {default_fs_operations} from './operations_defaults.ts';
+import type { FsOperations } from './operations.ts';
+import { default_fs_operations } from './operations_defaults.ts';
 
 export interface DependencyVersionChange {
 	package_name: string;
@@ -34,14 +34,14 @@ export interface DependencyVersionChange {
 export const create_changeset_for_dependency_updates = async (
 	repo: LocalRepo,
 	updates: Array<DependencyVersionChange>,
-	options: {log?: Logger; fs_ops?: FsOperations} = {},
+	options: { log?: Logger; fs_ops?: FsOperations } = {}
 ): Promise<string> => {
-	const {log, fs_ops = default_fs_operations} = options;
+	const { log, fs_ops = default_fs_operations } = options;
 	const changesets_dir = join(repo.repo_dir, '.changeset');
 
 	// Ensure .changeset directory exists
-	if (!(await fs_ops.exists({path: changesets_dir}))) {
-		const mkdir_result = await fs_ops.mkdir({path: changesets_dir, recursive: true});
+	if (!(await fs_ops.exists({ path: changesets_dir }))) {
+		const mkdir_result = await fs_ops.mkdir({ path: changesets_dir, recursive: true });
 		if (!mkdir_result.ok) {
 			throw new Error(`Failed to create .changeset directory: ${mkdir_result.message}`);
 		}
@@ -60,7 +60,7 @@ export const create_changeset_for_dependency_updates = async (
 	const content = generate_changeset_content(repo.library.name, updates, required_bump);
 
 	// Write the changeset file
-	const write_result = await fs_ops.writeFile({path: filepath, content});
+	const write_result = await fs_ops.writeFile({ path: filepath, content });
 	if (!write_result.ok) {
 		throw new Error(`Failed to write changeset file: ${write_result.message}`);
 	}
@@ -72,11 +72,11 @@ export const create_changeset_for_dependency_updates = async (
 
 const calculate_required_bump = (
 	repo: LocalRepo,
-	updates: Array<DependencyVersionChange>,
+	updates: Array<DependencyVersionChange>
 ): BumpType =>
 	required_bump_for_dependency_update(
 		repo.package_json.version || '0.0.0',
-		updates.some((u) => u.breaking),
+		updates.some((u) => u.breaking)
 	);
 
 /**
@@ -94,7 +94,7 @@ const calculate_required_bump = (
 export const generate_changeset_content = (
 	package_name: string,
 	updates: Array<DependencyVersionChange>,
-	bump_type: 'major' | 'minor' | 'patch',
+	bump_type: 'major' | 'minor' | 'patch'
 ): string => {
 	// Group updates by type
 	const breaking_updates = updates.filter((u) => u.breaking);
@@ -112,7 +112,7 @@ export const generate_changeset_content = (
 		lines.push('Breaking dependency changes:');
 		for (const update of breaking_updates) {
 			lines.push(
-				`- ${update.package_name}: ${update.from_version} → ${update.to_version} (${update.bump_type})`,
+				`- ${update.package_name}: ${update.from_version} → ${update.to_version} (${update.bump_type})`
 			);
 		}
 		lines.push('');
@@ -126,7 +126,7 @@ export const generate_changeset_content = (
 		}
 		for (const update of regular_updates) {
 			lines.push(
-				`- ${update.package_name}: ${update.from_version} → ${update.to_version} (${update.bump_type})`,
+				`- ${update.package_name}: ${update.from_version} → ${update.to_version} (${update.bump_type})`
 			);
 		}
 		lines.push('');
@@ -137,7 +137,7 @@ export const generate_changeset_content = (
 
 export const create_dependency_updates = (
 	dependencies: Map<string, string>,
-	published_versions: Map<string, PublishedVersion>,
+	published_versions: Map<string, PublishedVersion>
 ): Array<DependencyVersionChange> => {
 	const updates: Array<DependencyVersionChange> = [];
 
@@ -152,7 +152,7 @@ export const create_dependency_updates = (
 				from_version: clean_current,
 				to_version: published.new_version,
 				bump_type: published.bump_type,
-				breaking: published.breaking,
+				breaking: published.breaking
 			});
 		}
 	}

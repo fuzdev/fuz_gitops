@@ -1,4 +1,4 @@
-import type {RepoFixtureSet} from '../repo_fixture_types.ts';
+import type { RepoFixtureSet } from '../repo_fixture_types.ts';
 
 /**
  * Tests handling of private packages (private: true in package.json).
@@ -23,7 +23,7 @@ export const private_packages: RepoFixtureSet = {
 			repo_url: 'https://gitops.fuz.dev/test/public_lib',
 			package_json: {
 				name: '@test/public_lib',
-				version: '1.0.0',
+				version: '1.0.0'
 			},
 			changesets: [
 				{
@@ -32,9 +32,9 @@ export const private_packages: RepoFixtureSet = {
 "@test/public_lib": minor
 ---
 
-New feature in public_lib`,
-				},
-			],
+New feature in public_lib`
+				}
+			]
 		},
 
 		// private_tool: Private package (should be skipped entirely)
@@ -44,7 +44,7 @@ New feature in public_lib`,
 			package_json: {
 				name: '@test/private_tool',
 				version: '1.0.0',
-				private: true,
+				private: true
 			},
 			changesets: [
 				{
@@ -53,9 +53,9 @@ New feature in public_lib`,
 "@test/private_tool": minor
 ---
 
-Update to private_tool (should not publish)`,
-				},
-			],
+Update to private_tool (should not publish)`
+				}
+			]
 		},
 
 		// consumer: Depends on both public and private packages
@@ -66,14 +66,14 @@ Update to private_tool (should not publish)`,
 				name: '@test/consumer',
 				version: '1.0.0',
 				dependencies: {
-					'@test/public_lib': '^1.0.0',
+					'@test/public_lib': '^1.0.0'
 				},
 				devDependencies: {
-					'@test/private_tool': '^1.0.0', // Private pkg as dev dependency
-				},
-			},
+					'@test/private_tool': '^1.0.0' // Private pkg as dev dependency
+				}
+			}
 			// No changesets, but should get auto-changeset from public_lib update
-		},
+		}
 	],
 
 	expected_outcomes: {
@@ -85,7 +85,7 @@ Update to private_tool (should not publish)`,
 				package_name: '@test/public_lib',
 				from: '1.0.0',
 				to: '1.1.0',
-				scenario: 'explicit_changeset',
+				scenario: 'explicit_changeset'
 			},
 			// private_tool is intentionally absent: a private package is excluded from version
 			// changes (it never publishes), even though it has a changeset.
@@ -93,8 +93,8 @@ Update to private_tool (should not publish)`,
 				package_name: '@test/consumer',
 				from: '1.0.0',
 				to: '1.0.1', // Patch bump: public_lib's minor (1.0.0 → 1.1.0) is NOT breaking in >=1.0
-				scenario: 'auto_generated',
-			},
+				scenario: 'auto_generated'
+			}
 		],
 
 		// No breaking cascades: public_lib's minor bump is NOT breaking in >=1.0 (only major is)
@@ -102,6 +102,6 @@ Update to private_tool (should not publish)`,
 
 		// A private package carrying a changeset is flagged, since that changeset can't publish.
 		warnings: ['@test/private_tool is private — its changeset(s) will not be published'],
-		errors: [],
-	},
+		errors: []
+	}
 };

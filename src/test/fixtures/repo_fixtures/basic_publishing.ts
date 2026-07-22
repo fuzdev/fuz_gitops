@@ -1,4 +1,4 @@
-import type {RepoFixtureSet} from '../repo_fixture_types.ts';
+import type { RepoFixtureSet } from '../repo_fixture_types.ts';
 
 /**
  * Comprehensive fixture covering all 4 publishing scenarios:
@@ -19,7 +19,7 @@ export const basic_publishing: RepoFixtureSet = {
 			repo_url: 'https://gitops.fuz.dev/test/repo_a',
 			package_json: {
 				name: '@test/repo_a',
-				version: '0.1.0',
+				version: '0.1.0'
 			},
 			changesets: [
 				{
@@ -28,9 +28,9 @@ export const basic_publishing: RepoFixtureSet = {
 "@test/repo_a": minor
 ---
 
-Breaking change in repo_a`,
-				},
-			],
+Breaking change in repo_a`
+				}
+			]
 		},
 
 		// repo_b: Auto-changeset scenario (depends on repo_a, no explicit changeset)
@@ -41,9 +41,9 @@ Breaking change in repo_a`,
 				name: '@test/repo_b',
 				version: '0.1.0',
 				dependencies: {
-					'@test/repo_a': '^0.1.0',
-				},
-			},
+					'@test/repo_a': '^0.1.0'
+				}
+			}
 			// No changesets - should get auto-generated due to repo_a dependency update
 		},
 
@@ -55,8 +55,8 @@ Breaking change in repo_a`,
 				name: '@test/repo_c',
 				version: '0.1.0',
 				peerDependencies: {
-					'@test/repo_b': '^0.1.0',
-				},
+					'@test/repo_b': '^0.1.0'
+				}
 			},
 			changesets: [
 				{
@@ -65,9 +65,9 @@ Breaking change in repo_a`,
 "@test/repo_c": patch
 ---
 
-Patch change in repo_c (will escalate to minor due to breaking dependency)`,
-				},
-			],
+Patch change in repo_c (will escalate to minor due to breaking dependency)`
+				}
+			]
 		},
 
 		// repo_d: No changes scenario (no deps, no changeset)
@@ -76,8 +76,8 @@ Patch change in repo_c (will escalate to minor due to breaking dependency)`,
 			repo_url: 'https://gitops.fuz.dev/test/repo_d',
 			package_json: {
 				name: '@test/repo_d',
-				version: '0.1.0',
-			},
+				version: '0.1.0'
+			}
 			// No changesets, no dependencies - should be in "no changes" info section
 		},
 
@@ -89,11 +89,11 @@ Patch change in repo_c (will escalate to minor due to breaking dependency)`,
 				name: '@test/repo_e',
 				version: '0.1.0',
 				devDependencies: {
-					'@test/repo_a': '^0.1.0',
-				},
-			},
+					'@test/repo_a': '^0.1.0'
+				}
+			}
 			// No changeset - dev deps don't trigger republishing
-		},
+		}
 	],
 
 	expected_outcomes: {
@@ -103,7 +103,7 @@ Patch change in repo_c (will escalate to minor due to breaking dependency)`,
 			'@test/repo_b',
 			'@test/repo_e',
 			'@test/repo_d',
-			'@test/repo_c',
+			'@test/repo_c'
 		],
 
 		version_changes: [
@@ -111,32 +111,32 @@ Patch change in repo_c (will escalate to minor due to breaking dependency)`,
 				package_name: '@test/repo_a',
 				from: '0.1.0',
 				to: '0.2.0',
-				scenario: 'explicit_changeset',
+				scenario: 'explicit_changeset'
 			},
 			{
 				package_name: '@test/repo_b',
 				from: '0.1.0',
 				to: '0.2.0',
-				scenario: 'auto_generated',
+				scenario: 'auto_generated'
 			},
 			{
 				package_name: '@test/repo_c',
 				from: '0.1.0',
 				to: '0.2.0', // Correctly escalated from patch due to repo_b's breaking update
-				scenario: 'bump_escalation',
-			},
+				scenario: 'bump_escalation'
+			}
 		],
 
 		breaking_cascades: {
 			// Each entry shows DIRECT dependents, not transitive
 			'@test/repo_a': ['@test/repo_b'], // repo_b directly depends on repo_a
-			'@test/repo_b': ['@test/repo_c'], // repo_c directly depends on repo_b
+			'@test/repo_b': ['@test/repo_c'] // repo_c directly depends on repo_b
 		},
 
 		// Packages with no changes to publish
 		info: ['@test/repo_d', '@test/repo_e'],
 
 		warnings: [],
-		errors: [],
-	},
+		errors: []
+	}
 };

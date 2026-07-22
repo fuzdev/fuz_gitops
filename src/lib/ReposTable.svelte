@@ -1,14 +1,14 @@
 <script lang="ts">
-	import {page} from '$app/state';
-	import {resolve} from '$app/paths';
-	import {format_url} from '@fuzdev/fuz_util/url.ts';
+	import { page } from '$app/state';
+	import { resolve } from '$app/paths';
+	import { format_url } from '@fuzdev/fuz_util/url.ts';
 
-	import type {Repo} from './repo.svelte.ts';
-	import {to_pull_url} from './github_helpers.ts';
+	import type { Repo } from './repo.svelte.ts';
+	import { to_pull_url } from './github_helpers.ts';
 
 	const {
 		repos,
-		deps = ['@fuzdev/fuz_ui', '@fuzdev/gro'],
+		deps = ['@fuzdev/fuz_ui', '@fuzdev/gro']
 	}: {
 		repos: Array<Repo>;
 		deps?: Array<string>;
@@ -39,8 +39,8 @@
 				const repo = repos.find((repo) => repo.package_json.name === dep);
 				if (!repo?.package_json) return [dep, null];
 				return [dep, repo.package_json.version ?? null];
-			}),
-		),
+			})
+		)
 	);
 
 	const format_version = (version: string | null | undefined): string =>
@@ -49,7 +49,7 @@
 	const lookup_pull_requests = (repos: Array<Repo> | null, repo: Repo) => {
 		const found = repos?.find((p) => p.repo_url === repo.repo_url);
 		if (!found?.package_json) return null;
-		const {pull_requests} = found;
+		const { pull_requests } = found;
 		return pull_requests;
 	};
 </script>
@@ -70,7 +70,7 @@
 	</thead>
 	<tbody>
 		{#each repos as repo (repo.name)}
-			{@const {package_json, homepage_url} = repo}
+			{@const { package_json, homepage_url } = repo}
 			<tr>
 				<td>
 					<div class="row">

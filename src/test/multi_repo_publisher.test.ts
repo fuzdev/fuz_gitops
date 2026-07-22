@@ -1,16 +1,16 @@
-import {assert, test, describe} from 'vitest';
+import { assert, test, describe } from 'vitest';
 
-import type {LocalRepo} from '$lib/local_repo.ts';
+import type { LocalRepo } from '$lib/local_repo.ts';
 import {
 	publish_repos,
 	execute_publishing_plan,
 	group_dependency_updates,
-	type PublishedVersion,
+	type PublishedVersion
 } from '$lib/multi_repo_publisher.ts';
-import type {DependencyUpdate, PublishingPlan, VersionChange} from '$lib/publishing_plan.ts';
-import {derive_publish_steps, type PublishStep} from '$lib/publish_steps.ts';
-import type {PublishingEvent} from '$lib/publishing_event.ts';
-import {capture_handler} from '$lib/publishing_event_handler.ts';
+import type { DependencyUpdate, PublishingPlan, VersionChange } from '$lib/publishing_plan.ts';
+import { derive_publish_steps, type PublishStep } from '$lib/publish_steps.ts';
+import type { PublishingEvent } from '$lib/publishing_event.ts';
+import { capture_handler } from '$lib/publishing_event_handler.ts';
 import {
 	create_mock_repo,
 	create_mock_gitops_ops,
@@ -18,13 +18,13 @@ import {
 	create_tracking_process_ops,
 	create_mock_git_ops,
 	create_preflight_mock,
-	create_populated_fs_ops,
+	create_populated_fs_ops
 } from './test_helpers.ts';
 
 test('wetrun=false predicts versions without publishing', async () => {
 	const repos: Array<LocalRepo> = [
-		create_mock_repo({name: 'pkg-a', version: '0.1.0'}),
-		create_mock_repo({name: 'pkg-b', version: '0.2.0', deps: {'pkg-a': '0.1.0'}}),
+		create_mock_repo({ name: 'pkg-a', version: '0.1.0' }),
+		create_mock_repo({ name: 'pkg-b', version: '0.2.0', deps: { 'pkg-a': '0.1.0' } })
 	];
 
 	// Create mock operations
@@ -32,20 +32,20 @@ test('wetrun=false predicts versions without publishing', async () => {
 		changeset: {
 			predict_next_version: async (options) => {
 				if (options.repo.library.name === 'pkg-a') {
-					return {ok: true, version: '0.1.1', bump_type: 'patch' as const};
+					return { ok: true, version: '0.1.1', bump_type: 'patch' as const };
 				}
 				if (options.repo.library.name === 'pkg-b') {
-					return {ok: true, version: '0.2.1', bump_type: 'patch' as const};
+					return { ok: true, version: '0.2.1', bump_type: 'patch' as const };
 				}
 				return null;
-			},
+			}
 		},
-		preflight: create_preflight_mock(['pkg-a', 'pkg-b']),
+		preflight: create_preflight_mock(['pkg-a', 'pkg-b'])
 	});
 
 	const result = await publish_repos(repos, {
 		wetrun: false,
-		ops: mock_ops,
+		ops: mock_ops
 	});
 
 	assert.strictEqual(result.ok, true);
@@ -58,9 +58,9 @@ test('wetrun=false predicts versions without publishing', async () => {
 
 test('always fails fast on publish errors', async () => {
 	const repos: Array<LocalRepo> = [
-		create_mock_repo({name: 'pkg-a', version: '0.1.0'}),
-		create_mock_repo({name: 'pkg-b', version: '0.2.0'}),
-		create_mock_repo({name: 'pkg-c', version: '0.3.0'}),
+		create_mock_repo({ name: 'pkg-a', version: '0.1.0' }),
+		create_mock_repo({ name: 'pkg-b', version: '0.2.0' }),
+		create_mock_repo({ name: 'pkg-c', version: '0.3.0' })
 	];
 
 	const mock_fs_ops = create_populated_fs_ops(repos);
@@ -73,19 +73,19 @@ test('always fails fast on publish errors', async () => {
 					publish_attempt++;
 					// Make pkg-a fail
 					if (publish_attempt === 1) {
-						return {ok: false, message: 'Publish failed'};
+						return { ok: false, message: 'Publish failed' };
 					}
 				}
-				return {ok: true};
-			},
+				return { ok: true };
+			}
 		},
 		preflight: create_preflight_mock(['pkg-a', 'pkg-b', 'pkg-c']),
-		fs: mock_fs_ops,
+		fs: mock_fs_ops
 	});
 
 	const result = await publish_repos(repos, {
 		wetrun: true,
-		ops: mock_ops,
+		ops: mock_ops
 	});
 
 	// With fail-fast behavior: only the first package in topo order fails, no other packages are attempted
@@ -97,9 +97,9 @@ test('always fails fast on publish errors', async () => {
 
 test('handles breaking change cascades when wetrun=false', async () => {
 	const repos: Array<LocalRepo> = [
-		create_mock_repo({name: 'pkg-core', version: '0.5.0'}),
-		create_mock_repo({name: 'pkg-mid', version: '0.3.0', deps: {'pkg-core': '^0.5.0'}}),
-		create_mock_repo({name: 'pkg-app', version: '0.2.0', deps: {'pkg-mid': '^0.3.0'}}),
+		create_mock_repo({ name: 'pkg-core', version: '0.5.0' }),
+		create_mock_repo({ name: 'pkg-mid', version: '0.3.0', deps: { 'pkg-core': '^0.5.0' } }),
+		create_mock_repo({ name: 'pkg-app', version: '0.2.0', deps: { 'pkg-mid': '^0.3.0' } })
 	];
 
 	const mock_ops = create_mock_gitops_ops({
@@ -107,24 +107,24 @@ test('handles breaking change cascades when wetrun=false', async () => {
 			predict_next_version: async (options) => {
 				// pkg-core has a breaking change (0.x minor bump)
 				if (options.repo.library.name === 'pkg-core') {
-					return {ok: true, version: '0.6.0', bump_type: 'minor' as const};
+					return { ok: true, version: '0.6.0', bump_type: 'minor' as const };
 				}
 				// Others have patch bumps
 				if (options.repo.library.name === 'pkg-mid') {
-					return {ok: true, version: '0.3.1', bump_type: 'patch' as const};
+					return { ok: true, version: '0.3.1', bump_type: 'patch' as const };
 				}
 				if (options.repo.library.name === 'pkg-app') {
-					return {ok: true, version: '0.2.1', bump_type: 'patch' as const};
+					return { ok: true, version: '0.2.1', bump_type: 'patch' as const };
 				}
 				return null;
-			},
+			}
 		},
-		preflight: create_preflight_mock(['pkg-core', 'pkg-mid', 'pkg-app']),
+		preflight: create_preflight_mock(['pkg-core', 'pkg-mid', 'pkg-app'])
 	});
 
 	const result = await publish_repos(repos, {
 		wetrun: false,
-		ops: mock_ops,
+		ops: mock_ops
 	});
 
 	assert.strictEqual(result.ok, true);
@@ -147,9 +147,9 @@ test('handles breaking change cascades when wetrun=false', async () => {
 
 test("wetrun publishes a breaking cascade with the plan's escalated versions", async () => {
 	const repos: Array<LocalRepo> = [
-		create_mock_repo({name: 'pkg-core', version: '0.5.0'}),
-		create_mock_repo({name: 'pkg-mid', version: '0.3.0', deps: {'pkg-core': '^0.5.0'}}),
-		create_mock_repo({name: 'pkg-app', version: '0.2.0', deps: {'pkg-mid': '^0.3.0'}}),
+		create_mock_repo({ name: 'pkg-core', version: '0.5.0' }),
+		create_mock_repo({ name: 'pkg-mid', version: '0.3.0', deps: { 'pkg-core': '^0.5.0' } }),
+		create_mock_repo({ name: 'pkg-app', version: '0.2.0', deps: { 'pkg-mid': '^0.3.0' } })
 	];
 
 	// The real publish reads each new version back from package.json; return the plan's
@@ -159,30 +159,30 @@ test("wetrun publishes a breaking cascade with the plan's escalated versions", a
 		new Map([
 			['pkg-core', '0.6.0'],
 			['pkg-mid', '0.4.0'],
-			['pkg-app', '0.3.0'],
-		]),
+			['pkg-app', '0.3.0']
+		])
 	);
 
 	const mock_ops = create_mock_gitops_ops({
 		changeset: {
 			predict_next_version: async (options) => {
 				if (options.repo.library.name === 'pkg-core') {
-					return {ok: true, version: '0.6.0', bump_type: 'minor' as const};
+					return { ok: true, version: '0.6.0', bump_type: 'minor' as const };
 				}
 				if (options.repo.library.name === 'pkg-mid') {
-					return {ok: true, version: '0.3.1', bump_type: 'patch' as const};
+					return { ok: true, version: '0.3.1', bump_type: 'patch' as const };
 				}
 				if (options.repo.library.name === 'pkg-app') {
-					return {ok: true, version: '0.2.1', bump_type: 'patch' as const};
+					return { ok: true, version: '0.2.1', bump_type: 'patch' as const };
 				}
 				return null;
-			},
+			}
 		},
 		preflight: create_preflight_mock(['pkg-core', 'pkg-mid', 'pkg-app']),
-		fs: mock_fs_ops,
+		fs: mock_fs_ops
 	});
 
-	const result = await publish_repos(repos, {wetrun: true, ops: mock_ops});
+	const result = await publish_repos(repos, { wetrun: true, ops: mock_ops });
 
 	assert.strictEqual(result.ok, true);
 	assert.strictEqual(result.published.length, 3);
@@ -206,9 +206,9 @@ test("wetrun publishes a breaking cascade with the plan's escalated versions", a
 
 test('wetrun fails loud and aborts when a publish drifts from the plan', async () => {
 	const repos: Array<LocalRepo> = [
-		create_mock_repo({name: 'pkg-core', version: '0.5.0'}),
-		create_mock_repo({name: 'pkg-mid', version: '0.3.0', deps: {'pkg-core': '^0.5.0'}}),
-		create_mock_repo({name: 'pkg-app', version: '0.2.0', deps: {'pkg-mid': '^0.3.0'}}),
+		create_mock_repo({ name: 'pkg-core', version: '0.5.0' }),
+		create_mock_repo({ name: 'pkg-mid', version: '0.3.0', deps: { 'pkg-core': '^0.5.0' } }),
+		create_mock_repo({ name: 'pkg-app', version: '0.2.0', deps: { 'pkg-mid': '^0.3.0' } })
 	];
 
 	// pkg-mid reads back 0.3.1 (a plain patch) but the plan escalates it to 0.4.0 — the
@@ -218,30 +218,30 @@ test('wetrun fails loud and aborts when a publish drifts from the plan', async (
 		new Map([
 			['pkg-core', '0.6.0'],
 			['pkg-mid', '0.3.1'], // drift: the plan predicts 0.4.0
-			['pkg-app', '0.3.0'],
-		]),
+			['pkg-app', '0.3.0']
+		])
 	);
 
 	const mock_ops = create_mock_gitops_ops({
 		changeset: {
 			predict_next_version: async (options) => {
 				if (options.repo.library.name === 'pkg-core') {
-					return {ok: true, version: '0.6.0', bump_type: 'minor' as const};
+					return { ok: true, version: '0.6.0', bump_type: 'minor' as const };
 				}
 				if (options.repo.library.name === 'pkg-mid') {
-					return {ok: true, version: '0.3.1', bump_type: 'patch' as const};
+					return { ok: true, version: '0.3.1', bump_type: 'patch' as const };
 				}
 				if (options.repo.library.name === 'pkg-app') {
-					return {ok: true, version: '0.2.1', bump_type: 'patch' as const};
+					return { ok: true, version: '0.2.1', bump_type: 'patch' as const };
 				}
 				return null;
-			},
+			}
 		},
 		preflight: create_preflight_mock(['pkg-core', 'pkg-mid', 'pkg-app']),
-		fs: mock_fs_ops,
+		fs: mock_fs_ops
 	});
 
-	const result = await publish_repos(repos, {wetrun: true, ops: mock_ops});
+	const result = await publish_repos(repos, { wetrun: true, ops: mock_ops });
 
 	assert.strictEqual(result.ok, false);
 
@@ -263,9 +263,9 @@ test('wetrun fails loud and aborts when a publish drifts from the plan', async (
 
 test('skips repos without changesets', async () => {
 	const repos: Array<LocalRepo> = [
-		create_mock_repo({name: 'pkg-a', version: '0.1.0'}),
-		create_mock_repo({name: 'pkg-b', version: '0.2.0'}),
-		create_mock_repo({name: 'pkg-c', version: '0.3.0'}),
+		create_mock_repo({ name: 'pkg-a', version: '0.1.0' }),
+		create_mock_repo({ name: 'pkg-b', version: '0.2.0' }),
+		create_mock_repo({ name: 'pkg-c', version: '0.3.0' })
 	];
 
 	const mock_fs_ops = create_populated_fs_ops(repos);
@@ -275,16 +275,16 @@ test('skips repos without changesets', async () => {
 		changeset: {
 			has_changesets: async (options) => ({
 				ok: true,
-				value: options.repo.library.name === 'pkg-a',
-			}),
+				value: options.repo.library.name === 'pkg-a'
+			})
 		},
 		preflight: create_preflight_mock(['pkg-a'], ['pkg-b', 'pkg-c']),
-		fs: mock_fs_ops,
+		fs: mock_fs_ops
 	});
 
 	const result = await publish_repos(repos, {
 		wetrun: true,
-		ops: mock_ops,
+		ops: mock_ops
 	});
 
 	// Only pkg-a should be published
@@ -295,9 +295,9 @@ test('skips repos without changesets', async () => {
 
 test('publishes in dependency order', async () => {
 	const repos: Array<LocalRepo> = [
-		create_mock_repo({name: 'lib', version: '1.0.0'}),
-		create_mock_repo({name: 'middleware', version: '1.0.0', deps: {lib: '^1.0.0'}}),
-		create_mock_repo({name: 'app', version: '1.0.0', deps: {middleware: '^1.0.0'}}),
+		create_mock_repo({ name: 'lib', version: '1.0.0' }),
+		create_mock_repo({ name: 'middleware', version: '1.0.0', deps: { lib: '^1.0.0' } }),
+		create_mock_repo({ name: 'app', version: '1.0.0', deps: { middleware: '^1.0.0' } })
 	];
 
 	const mock_fs_ops = create_populated_fs_ops(repos);
@@ -305,16 +305,16 @@ test('publishes in dependency order', async () => {
 	const {
 		ops: process_ops,
 		get_commands_by_type,
-		get_package_names_from_cwd,
+		get_package_names_from_cwd
 	} = create_tracking_process_ops();
 
 	const mock_ops = create_mock_gitops_ops({
 		process: process_ops,
 		preflight: create_preflight_mock(['lib', 'middleware', 'app']),
-		fs: mock_fs_ops,
+		fs: mock_fs_ops
 	});
 
-	await publish_repos(repos, {wetrun: true, ops: mock_ops});
+	await publish_repos(repos, { wetrun: true, ops: mock_ops });
 
 	// Should publish in dependency order: lib → middleware → app
 	const publish_commands = get_commands_by_type('publish');
@@ -324,29 +324,29 @@ test('publishes in dependency order', async () => {
 
 test('waits for npm propagation after each publish', async () => {
 	const repos: Array<LocalRepo> = [
-		create_mock_repo({name: 'pkg-a', version: '1.0.0'}),
-		create_mock_repo({name: 'pkg-b', version: '1.0.0'}),
+		create_mock_repo({ name: 'pkg-a', version: '1.0.0' }),
+		create_mock_repo({ name: 'pkg-b', version: '1.0.0' })
 	];
 
 	const mock_fs_ops = create_populated_fs_ops(repos);
 
-	const wait_calls: Array<{pkg: string; version: string}> = [];
+	const wait_calls: Array<{ pkg: string; version: string }> = [];
 
 	const mock_ops = create_mock_gitops_ops({
 		preflight: create_preflight_mock(['pkg-a', 'pkg-b']),
 		npm: {
 			wait_for_package: async (options) => {
-				wait_calls.push({pkg: options.pkg, version: options.version});
-				return {ok: true};
+				wait_calls.push({ pkg: options.pkg, version: options.version });
+				return { ok: true };
 			},
-			check_auth: async () => ({ok: true, username: 'testuser'}),
-			check_registry: async () => ({ok: true}),
-			install: async () => ({ok: true}),
+			check_auth: async () => ({ ok: true, username: 'testuser' }),
+			check_registry: async () => ({ ok: true }),
+			install: async () => ({ ok: true })
 		},
-		fs: mock_fs_ops,
+		fs: mock_fs_ops
 	});
 
-	await publish_repos(repos, {wetrun: true, ops: mock_ops});
+	await publish_repos(repos, { wetrun: true, ops: mock_ops });
 
 	// Should wait for both packages
 	assert.strictEqual(wait_calls.length, 2);
@@ -356,25 +356,25 @@ test('waits for npm propagation after each publish', async () => {
 
 test('updates prod dependencies after publishing (Phase 1)', async () => {
 	const repos: Array<LocalRepo> = [
-		create_mock_repo({name: 'lib', version: '1.0.0'}),
-		create_mock_repo({name: 'app', version: '1.0.0', deps: {lib: '^1.0.0'}}),
+		create_mock_repo({ name: 'lib', version: '1.0.0' }),
+		create_mock_repo({ name: 'app', version: '1.0.0', deps: { lib: '^1.0.0' } })
 	];
 
 	const mock_fs_ops = create_populated_fs_ops(repos);
-	const git_commits: Array<{cwd: string; message: string}> = [];
+	const git_commits: Array<{ cwd: string; message: string }> = [];
 
 	const mock_ops = create_mock_gitops_ops({
 		preflight: create_preflight_mock(['lib'], ['app']),
 		git: create_mock_git_ops({
 			add_and_commit: async (options) => {
-				git_commits.push({cwd: options.cwd || '', message: options.message});
-				return {ok: true};
-			},
+				git_commits.push({ cwd: options.cwd || '', message: options.message });
+				return { ok: true };
+			}
 		}),
-		fs: mock_fs_ops,
+		fs: mock_fs_ops
 	});
 
-	await publish_repos(repos, {wetrun: true, ops: mock_ops});
+	await publish_repos(repos, { wetrun: true, ops: mock_ops });
 
 	// lib has changesets, so publishing cascades a dependency update to its dependent
 	// (Actual behavior depends on implementation - tests document expected outcome)
@@ -383,8 +383,8 @@ test('updates prod dependencies after publishing (Phase 1)', async () => {
 
 test('updates dev dependencies without republishing (Phase 2)', async () => {
 	const repos: Array<LocalRepo> = [
-		create_mock_repo({name: 'test-utils', version: '1.0.0'}),
-		create_mock_repo({name: 'lib', version: '1.0.0', dev_deps: {'test-utils': '^1.0.0'}}),
+		create_mock_repo({ name: 'test-utils', version: '1.0.0' }),
+		create_mock_repo({ name: 'lib', version: '1.0.0', dev_deps: { 'test-utils': '^1.0.0' } })
 	];
 
 	const mock_fs_ops = create_populated_fs_ops(repos);
@@ -394,14 +394,14 @@ test('updates dev dependencies without republishing (Phase 2)', async () => {
 		changeset: {
 			has_changesets: async (options) => ({
 				ok: true,
-				value: options.repo.library.name === 'test-utils',
-			}),
+				value: options.repo.library.name === 'test-utils'
+			})
 		},
 		preflight: create_preflight_mock(['test-utils'], ['lib']),
-		fs: mock_fs_ops,
+		fs: mock_fs_ops
 	});
 
-	const result = await publish_repos(repos, {wetrun: true, ops: mock_ops});
+	const result = await publish_repos(repos, { wetrun: true, ops: mock_ops });
 
 	assert.strictEqual(result.ok, true);
 
@@ -412,7 +412,7 @@ test('updates dev dependencies without republishing (Phase 2)', async () => {
 	// but lib's dev dep on test-utils is still bumped in Phase 2
 	const dev_update = result.events.find(
 		(e) =>
-			e.event === 'dependency_updated' && e.dependent === 'lib' && e.dependency === 'test-utils',
+			e.event === 'dependency_updated' && e.dependent === 'lib' && e.dependency === 'test-utils'
 	);
 	assert.ok(dev_update);
 });
@@ -421,8 +421,8 @@ test('dev-dep-only update bumps package.json without creating a changeset', asyn
 	// a dev-dep change is committed but must NOT generate a changeset — otherwise the next
 	// release would republish a package whose shipped artifact didn't change.
 	const repos: Array<LocalRepo> = [
-		create_mock_repo({name: 'test-utils', version: '1.0.0'}),
-		create_mock_repo({name: 'lib', version: '1.0.0', dev_deps: {'test-utils': '^1.0.0'}}),
+		create_mock_repo({ name: 'test-utils', version: '1.0.0' }),
+		create_mock_repo({ name: 'lib', version: '1.0.0', dev_deps: { 'test-utils': '^1.0.0' } })
 	];
 
 	const fs_ops = create_populated_fs_ops(repos);
@@ -437,14 +437,14 @@ test('dev-dep-only update bumps package.json without creating a changeset', asyn
 		changeset: {
 			has_changesets: async (options) => ({
 				ok: true,
-				value: options.repo.library.name === 'test-utils',
-			}),
+				value: options.repo.library.name === 'test-utils'
+			})
 		},
 		preflight: create_preflight_mock(['test-utils'], ['lib']),
-		fs: fs_ops,
+		fs: fs_ops
 	});
 
-	const result = await publish_repos(repos, {wetrun: true, ops: mock_ops});
+	const result = await publish_repos(repos, { wetrun: true, ops: mock_ops });
 
 	assert.strictEqual(result.ok, true);
 	// the dev dep is bumped in lib's package.json...
@@ -455,12 +455,12 @@ test('dev-dep-only update bumps package.json without creating a changeset', asyn
 
 test('deploys all repos when deploy flag is set (Phase 3)', async () => {
 	const repos: Array<LocalRepo> = [
-		create_mock_repo({name: 'pkg-a', version: '1.0.0'}),
-		create_mock_repo({name: 'pkg-b', version: '1.0.0'}),
+		create_mock_repo({ name: 'pkg-a', version: '1.0.0' }),
+		create_mock_repo({ name: 'pkg-b', version: '1.0.0' })
 	];
 
 	const mock_fs = create_mock_package_json_files(repos);
-	const {ops: process_ops, get_commands_by_type} = create_tracking_process_ops();
+	const { ops: process_ops, get_commands_by_type } = create_tracking_process_ops();
 
 	const mock_ops = create_mock_gitops_ops({
 		preflight: create_preflight_mock(['pkg-a', 'pkg-b']),
@@ -468,24 +468,24 @@ test('deploys all repos when deploy flag is set (Phase 3)', async () => {
 		fs: {
 			readFile: async (options) => ({
 				ok: true,
-				value: mock_fs.get(options.path) || '{}',
+				value: mock_fs.get(options.path) || '{}'
 			}),
-			writeFile: async () => ({ok: true}),
-		},
+			writeFile: async () => ({ ok: true })
+		}
 	});
 
-	await publish_repos(repos, {wetrun: true, deploy: true, ops: mock_ops});
+	await publish_repos(repos, { wetrun: true, deploy: true, ops: mock_ops });
 
 	// Should deploy both repos
 	const deploy_commands = get_commands_by_type('deploy');
 	assert.strictEqual(deploy_commands.length, 2);
 	assert.strictEqual(
 		deploy_commands.some((c) => c.cwd.includes('pkg-a')),
-		true,
+		true
 	);
 	assert.strictEqual(
 		deploy_commands.some((c) => c.cwd.includes('pkg-b')),
-		true,
+		true
 	);
 });
 
@@ -493,76 +493,76 @@ test('deploys only repos with changes (skips unchanged repos)', async () => {
 	// This test covers selective deployment including dev dep changes
 	// Full integration coverage in fixture tests (src/test/fixtures/check.test.ts)
 	const repos: Array<LocalRepo> = [
-		create_mock_repo({name: 'lib', version: '1.0.0'}),
-		create_mock_repo({name: 'app-with-dep', version: '1.0.0', deps: {lib: '^1.0.0'}}),
-		create_mock_repo({name: 'app-no-dep', version: '1.0.0'}),
-		create_mock_repo({name: 'util-isolated', version: '1.0.0'}),
+		create_mock_repo({ name: 'lib', version: '1.0.0' }),
+		create_mock_repo({ name: 'app-with-dep', version: '1.0.0', deps: { lib: '^1.0.0' } }),
+		create_mock_repo({ name: 'app-no-dep', version: '1.0.0' }),
+		create_mock_repo({ name: 'util-isolated', version: '1.0.0' })
 	];
 
 	const mock_fs = create_mock_package_json_files(repos);
-	const {ops: process_ops, get_commands_by_type} = create_tracking_process_ops();
+	const { ops: process_ops, get_commands_by_type } = create_tracking_process_ops();
 
 	const mock_ops = create_mock_gitops_ops({
 		preflight: create_preflight_mock(['lib'], ['app-with-dep', 'app-no-dep', 'util-isolated']),
 		changeset: {
 			has_changesets: async (options) => ({
 				ok: true,
-				value: options.repo.library.name === 'lib', // Only lib has changesets
-			}),
+				value: options.repo.library.name === 'lib' // Only lib has changesets
+			})
 		},
 		process: process_ops,
 		fs: {
 			readFile: async (options) => ({
 				ok: true,
-				value: mock_fs.get(options.path) || '{}',
+				value: mock_fs.get(options.path) || '{}'
 			}),
-			writeFile: async () => ({ok: true}),
-		},
+			writeFile: async () => ({ ok: true })
+		}
 	});
 
-	await publish_repos(repos, {wetrun: true, deploy: true, ops: mock_ops});
+	await publish_repos(repos, { wetrun: true, deploy: true, ops: mock_ops });
 
 	// Should deploy only lib (published) and app-with-dep (dep updated)
 	const deploy_commands = get_commands_by_type('deploy');
 	assert.strictEqual(deploy_commands.length, 2);
 	assert.strictEqual(
 		deploy_commands.some((c) => c.cwd.includes('lib')),
-		true,
+		true
 	);
 	assert.strictEqual(
 		deploy_commands.some((c) => c.cwd.includes('app-with-dep')),
-		true,
+		true
 	);
 	assert.strictEqual(
 		deploy_commands.some((c) => c.cwd.includes('app-no-dep')),
-		false,
+		false
 	);
 	assert.strictEqual(
 		deploy_commands.some((c) => c.cwd.includes('util-isolated')),
-		false,
+		false
 	);
 });
 
 test('wetrun=false skips deployment even with deploy flag', async () => {
 	const repos: Array<LocalRepo> = [
-		create_mock_repo({name: 'pkg-a', version: '1.0.0'}),
-		create_mock_repo({name: 'pkg-b', version: '1.0.0'}),
+		create_mock_repo({ name: 'pkg-a', version: '1.0.0' }),
+		create_mock_repo({ name: 'pkg-b', version: '1.0.0' })
 	];
 
-	const {ops: process_ops, get_commands_by_type} = create_tracking_process_ops();
+	const { ops: process_ops, get_commands_by_type } = create_tracking_process_ops();
 
 	const mock_ops = create_mock_gitops_ops({
 		changeset: {
 			predict_next_version: async () => ({
 				ok: true,
 				version: '1.1.0',
-				bump_type: 'minor' as const,
-			}),
+				bump_type: 'minor' as const
+			})
 		},
-		process: process_ops,
+		process: process_ops
 	});
 
-	await publish_repos(repos, {wetrun: false, deploy: true, ops: mock_ops});
+	await publish_repos(repos, { wetrun: false, deploy: true, ops: mock_ops });
 
 	// Dry run should skip deployment entirely
 	const deploy_commands = get_commands_by_type('deploy');
@@ -571,30 +571,30 @@ test('wetrun=false skips deployment even with deploy flag', async () => {
 
 test('no changes results in no deployment', async () => {
 	const repos: Array<LocalRepo> = [
-		create_mock_repo({name: 'pkg-a', version: '1.0.0'}),
-		create_mock_repo({name: 'pkg-b', version: '1.0.0'}),
-		create_mock_repo({name: 'pkg-c', version: '1.0.0'}),
+		create_mock_repo({ name: 'pkg-a', version: '1.0.0' }),
+		create_mock_repo({ name: 'pkg-b', version: '1.0.0' }),
+		create_mock_repo({ name: 'pkg-c', version: '1.0.0' })
 	];
 
 	const mock_fs = create_mock_package_json_files(repos);
-	const {ops: process_ops, get_commands_by_type} = create_tracking_process_ops();
+	const { ops: process_ops, get_commands_by_type } = create_tracking_process_ops();
 
 	const mock_ops = create_mock_gitops_ops({
 		preflight: create_preflight_mock([], ['pkg-a', 'pkg-b', 'pkg-c']), // No changesets
 		changeset: {
-			has_changesets: async () => ({ok: true, value: false}), // No changesets
+			has_changesets: async () => ({ ok: true, value: false }) // No changesets
 		},
 		process: process_ops,
 		fs: {
 			readFile: async (options) => ({
 				ok: true,
-				value: mock_fs.get(options.path) || '{}',
+				value: mock_fs.get(options.path) || '{}'
 			}),
-			writeFile: async () => ({ok: true}),
-		},
+			writeFile: async () => ({ ok: true })
+		}
 	});
 
-	await publish_repos(repos, {wetrun: true, deploy: true, ops: mock_ops});
+	await publish_repos(repos, { wetrun: true, deploy: true, ops: mock_ops });
 
 	// No changes = no deployment
 	const deploy_commands = get_commands_by_type('deploy');
@@ -603,24 +603,24 @@ test('no changes results in no deployment', async () => {
 
 test('applies version strategy (caret vs tilde vs exact)', async () => {
 	const repos: Array<LocalRepo> = [
-		create_mock_repo({name: 'lib', version: '1.0.0'}),
-		create_mock_repo({name: 'app-caret', version: '1.0.0', deps: {lib: '^1.0.0'}}),
-		create_mock_repo({name: 'app-tilde', version: '1.0.0', deps: {lib: '~1.0.0'}}),
-		create_mock_repo({name: 'app-exact', version: '1.0.0', deps: {lib: '1.0.0'}}),
+		create_mock_repo({ name: 'lib', version: '1.0.0' }),
+		create_mock_repo({ name: 'app-caret', version: '1.0.0', deps: { lib: '^1.0.0' } }),
+		create_mock_repo({ name: 'app-tilde', version: '1.0.0', deps: { lib: '~1.0.0' } }),
+		create_mock_repo({ name: 'app-exact', version: '1.0.0', deps: { lib: '1.0.0' } })
 	];
 
 	const mock_fs_ops = create_populated_fs_ops(repos);
 
 	const mock_ops = create_mock_gitops_ops({
 		preflight: create_preflight_mock(['lib']),
-		fs: mock_fs_ops,
+		fs: mock_fs_ops
 	});
 
 	// dependency updates run during publishing; the mock fs/ops cover the cascade
 	const result = await publish_repos(repos, {
 		wetrun: true,
 		version_strategy: 'exact',
-		ops: mock_ops,
+		ops: mock_ops
 	});
 
 	// Test succeeds if publishing completes
@@ -629,17 +629,17 @@ test('applies version strategy (caret vs tilde vs exact)', async () => {
 
 test('handles 4-level transitive dependency chain', async () => {
 	const repos: Array<LocalRepo> = [
-		create_mock_repo({name: 'level-1', version: '1.0.0'}),
-		create_mock_repo({name: 'level-2', version: '1.0.0', deps: {'level-1': '^1.0.0'}}),
-		create_mock_repo({name: 'level-3', version: '1.0.0', deps: {'level-2': '^1.0.0'}}),
-		create_mock_repo({name: 'level-4', version: '1.0.0', deps: {'level-3': '^1.0.0'}}),
+		create_mock_repo({ name: 'level-1', version: '1.0.0' }),
+		create_mock_repo({ name: 'level-2', version: '1.0.0', deps: { 'level-1': '^1.0.0' } }),
+		create_mock_repo({ name: 'level-3', version: '1.0.0', deps: { 'level-2': '^1.0.0' } }),
+		create_mock_repo({ name: 'level-4', version: '1.0.0', deps: { 'level-3': '^1.0.0' } })
 	];
 
 	const mock_fs = create_mock_package_json_files(repos);
 	const {
 		ops: process_ops,
 		get_commands_by_type,
-		get_package_names_from_cwd,
+		get_package_names_from_cwd
 	} = create_tracking_process_ops();
 
 	const mock_ops = create_mock_gitops_ops({
@@ -648,13 +648,13 @@ test('handles 4-level transitive dependency chain', async () => {
 		fs: {
 			readFile: async (options) => ({
 				ok: true,
-				value: mock_fs.get(options.path) || '{}',
+				value: mock_fs.get(options.path) || '{}'
 			}),
-			writeFile: async () => ({ok: true}),
-		},
+			writeFile: async () => ({ ok: true })
+		}
 	});
 
-	await publish_repos(repos, {wetrun: true, ops: mock_ops});
+	await publish_repos(repos, { wetrun: true, ops: mock_ops });
 
 	// Should publish bottom-up
 	const publish_commands = get_commands_by_type('publish');
@@ -664,47 +664,47 @@ test('handles 4-level transitive dependency chain', async () => {
 
 test('handles mixed prod and dev deps on same package', async () => {
 	const repos: Array<LocalRepo> = [
-		create_mock_repo({name: 'shared', version: '1.0.0'}),
+		create_mock_repo({ name: 'shared', version: '1.0.0' }),
 		create_mock_repo({
 			name: 'app',
 			version: '1.0.0',
-			deps: {shared: '^1.0.0'},
-			dev_deps: {shared: '^1.0.0'}, // Also in dev deps
-		}),
+			deps: { shared: '^1.0.0' },
+			dev_deps: { shared: '^1.0.0' } // Also in dev deps
+		})
 	];
 
 	const mock_fs_ops = create_populated_fs_ops(repos);
 
 	const mock_ops = create_mock_gitops_ops({
 		preflight: create_preflight_mock(['shared']),
-		fs: mock_fs_ops,
+		fs: mock_fs_ops
 	});
 
 	// dependency updates run during publishing; the mock fs/ops cover the cascade
-	const result = await publish_repos(repos, {wetrun: true, ops: mock_ops});
+	const result = await publish_repos(repos, { wetrun: true, ops: mock_ops });
 
 	// Test succeeds if publishing completes
 	assert.strictEqual(result.ok, true);
 });
 
 test('reports correct duration in result', async () => {
-	const repos: Array<LocalRepo> = [create_mock_repo({name: 'pkg-a', version: '1.0.0'})];
+	const repos: Array<LocalRepo> = [create_mock_repo({ name: 'pkg-a', version: '1.0.0' })];
 
 	const mock_fs_ops = create_populated_fs_ops(repos);
 
 	const mock_ops = create_mock_gitops_ops({
 		preflight: create_preflight_mock(['pkg-a']),
-		fs: mock_fs_ops,
+		fs: mock_fs_ops
 	});
 
-	const result = await publish_repos(repos, {wetrun: true, ops: mock_ops});
+	const result = await publish_repos(repos, { wetrun: true, ops: mock_ops });
 
 	assert.ok(result.duration >= 0);
 	assert.strictEqual(typeof result.duration, 'number');
 });
 
 test('wetrun=false skips preflight checks', async () => {
-	const repos: Array<LocalRepo> = [create_mock_repo({name: 'pkg-a', version: '1.0.0'})];
+	const repos: Array<LocalRepo> = [create_mock_repo({ name: 'pkg-a', version: '1.0.0' })];
 
 	let preflight_called = false;
 
@@ -713,18 +713,18 @@ test('wetrun=false skips preflight checks', async () => {
 			run_preflight_checks: async () => {
 				preflight_called = true;
 				return create_preflight_mock(['pkg-a']).run_preflight_checks();
-			},
-		},
+			}
+		}
 	});
 
-	await publish_repos(repos, {wetrun: false, ops: mock_ops});
+	await publish_repos(repos, { wetrun: false, ops: mock_ops });
 
 	// wetrun=false should skip preflight checks
 	assert.strictEqual(preflight_called, false);
 });
 
 test('handles npm propagation failure gracefully', async () => {
-	const repos: Array<LocalRepo> = [create_mock_repo({name: 'pkg-a', version: '1.0.0'})];
+	const repos: Array<LocalRepo> = [create_mock_repo({ name: 'pkg-a', version: '1.0.0' })];
 
 	const mock_fs_ops = create_populated_fs_ops(repos);
 
@@ -734,14 +734,14 @@ test('handles npm propagation failure gracefully', async () => {
 			wait_for_package: async () => {
 				throw new Error('Timeout waiting for package');
 			},
-			check_auth: async () => ({ok: true, username: 'testuser'}),
-			check_registry: async () => ({ok: true}),
-			install: async () => ({ok: true}),
+			check_auth: async () => ({ ok: true, username: 'testuser' }),
+			check_registry: async () => ({ ok: true }),
+			install: async () => ({ ok: true })
 		},
-		fs: mock_fs_ops,
+		fs: mock_fs_ops
 	});
 
-	const result = await publish_repos(repos, {wetrun: true, ops: mock_ops});
+	const result = await publish_repos(repos, { wetrun: true, ops: mock_ops });
 
 	// Should fail due to npm propagation timeout
 	assert.strictEqual(result.ok, false);
@@ -751,12 +751,12 @@ test('handles npm propagation failure gracefully', async () => {
 
 test('handles deploy failures without stopping', async () => {
 	const repos: Array<LocalRepo> = [
-		create_mock_repo({name: 'pkg-a', version: '1.0.0'}),
-		create_mock_repo({name: 'pkg-b', version: '1.0.0'}),
+		create_mock_repo({ name: 'pkg-a', version: '1.0.0' }),
+		create_mock_repo({ name: 'pkg-b', version: '1.0.0' })
 	];
 
 	const mock_fs = create_mock_package_json_files(repos);
-	const {ops: process_ops, get_commands_by_type} = create_tracking_process_ops();
+	const { ops: process_ops, get_commands_by_type } = create_tracking_process_ops();
 
 	// Override spawn to make pkg-a deploy fail
 	const original_spawn = process_ops.spawn;
@@ -766,7 +766,7 @@ test('handles deploy failures without stopping', async () => {
 			const cwd = spawn_args.cwd ?? '';
 			// Make first deploy fail
 			if (cwd.includes('pkg-a')) {
-				return {ok: false, message: 'Deploy failed'};
+				return { ok: false, message: 'Deploy failed' };
 			}
 		}
 		return result;
@@ -778,16 +778,16 @@ test('handles deploy failures without stopping', async () => {
 		fs: {
 			readFile: async (options) => ({
 				ok: true,
-				value: mock_fs.get(options.path) || '{}',
+				value: mock_fs.get(options.path) || '{}'
 			}),
-			writeFile: async () => ({ok: true}),
-		},
+			writeFile: async () => ({ ok: true })
+		}
 	});
 
 	const result = await publish_repos(repos, {
 		wetrun: true,
 		deploy: true,
-		ops: mock_ops,
+		ops: mock_ops
 	});
 
 	// Publishing should succeed even if deploy fails
@@ -798,7 +798,7 @@ test('handles deploy failures without stopping', async () => {
 });
 
 test('returns correct PublishedVersion metadata', async () => {
-	const repos: Array<LocalRepo> = [create_mock_repo({name: 'pkg-a', version: '0.5.0'})];
+	const repos: Array<LocalRepo> = [create_mock_repo({ name: 'pkg-a', version: '0.5.0' })];
 
 	const mock_fs = create_mock_package_json_files(repos);
 
@@ -809,19 +809,19 @@ test('returns correct PublishedVersion metadata', async () => {
 			predict_next_version: async () => ({
 				ok: true,
 				version: '0.6.0',
-				bump_type: 'minor' as const,
-			}),
+				bump_type: 'minor' as const
+			})
 		},
 		fs: {
 			readFile: async (options) => ({
 				ok: true,
-				value: mock_fs.get(options.path) || '{}',
+				value: mock_fs.get(options.path) || '{}'
 			}),
-			writeFile: async () => ({ok: true}),
-		},
+			writeFile: async () => ({ ok: true })
+		}
 	});
 
-	const result = await publish_repos(repos, {wetrun: false, ops: mock_ops});
+	const result = await publish_repos(repos, { wetrun: false, ops: mock_ops });
 
 	assert.strictEqual(result.published.length, 1);
 	const published = result.published[0]!;
@@ -838,8 +838,8 @@ test('publishes each package exactly once in a single pass', async () => {
 	// The plan resolves the cascade up front, so publishing is a single linear pass over
 	// the topological order — no fixed-point loop, and no package is published twice.
 	const repos: Array<LocalRepo> = [
-		create_mock_repo({name: 'lib', version: '1.0.0'}),
-		create_mock_repo({name: 'app', version: '1.0.0', deps: {lib: '^1.0.0'}}),
+		create_mock_repo({ name: 'lib', version: '1.0.0' }),
+		create_mock_repo({ name: 'app', version: '1.0.0', deps: { lib: '^1.0.0' } })
 	];
 
 	const mock_fs_ops = create_populated_fs_ops(repos);
@@ -847,16 +847,16 @@ test('publishes each package exactly once in a single pass', async () => {
 	const {
 		ops: process_ops,
 		get_commands_by_type,
-		get_package_names_from_cwd,
+		get_package_names_from_cwd
 	} = create_tracking_process_ops();
 
 	const mock_ops = create_mock_gitops_ops({
 		preflight: create_preflight_mock(['lib', 'app']),
 		process: process_ops,
-		fs: mock_fs_ops,
+		fs: mock_fs_ops
 	});
 
-	const result = await publish_repos(repos, {wetrun: true, ops: mock_ops});
+	const result = await publish_repos(repos, { wetrun: true, ops: mock_ops });
 
 	assert.strictEqual(result.ok, true);
 
@@ -875,26 +875,26 @@ test('publishes each package exactly once in a single pass', async () => {
 describe('structured events', () => {
 	test('dry run emits run_started{wetrun:false} and predicted (simulated) completions', async () => {
 		const repos: Array<LocalRepo> = [
-			create_mock_repo({name: 'pkg-a', version: '0.1.0'}),
-			create_mock_repo({name: 'pkg-b', version: '0.2.0', deps: {'pkg-a': '0.1.0'}}),
+			create_mock_repo({ name: 'pkg-a', version: '0.1.0' }),
+			create_mock_repo({ name: 'pkg-b', version: '0.2.0', deps: { 'pkg-a': '0.1.0' } })
 		];
 
 		const mock_ops = create_mock_gitops_ops({
 			changeset: {
 				predict_next_version: async (options) => {
 					if (options.repo.library.name === 'pkg-a') {
-						return {ok: true, version: '0.1.1', bump_type: 'patch' as const};
+						return { ok: true, version: '0.1.1', bump_type: 'patch' as const };
 					}
 					if (options.repo.library.name === 'pkg-b') {
-						return {ok: true, version: '0.2.1', bump_type: 'patch' as const};
+						return { ok: true, version: '0.2.1', bump_type: 'patch' as const };
 					}
 					return null;
-				},
+				}
 			},
-			preflight: create_preflight_mock(['pkg-a', 'pkg-b']),
+			preflight: create_preflight_mock(['pkg-a', 'pkg-b'])
 		});
 
-		const result = await publish_repos(repos, {wetrun: false, ops: mock_ops});
+		const result = await publish_repos(repos, { wetrun: false, ops: mock_ops });
 
 		// The result carries the stream and a derived summary.
 		const first = result.events[0]!;
@@ -920,14 +920,14 @@ describe('structured events', () => {
 	});
 
 	test('wetrun emits run_started{wetrun:true} and real commit hashes', async () => {
-		const repos: Array<LocalRepo> = [create_mock_repo({name: 'pkg-a', version: '0.1.0'})];
+		const repos: Array<LocalRepo> = [create_mock_repo({ name: 'pkg-a', version: '0.1.0' })];
 
 		const mock_ops = create_mock_gitops_ops({
 			preflight: create_preflight_mock(['pkg-a']),
-			fs: create_populated_fs_ops(repos), // package.json with bumped version for the read-back
+			fs: create_populated_fs_ops(repos) // package.json with bumped version for the read-back
 		});
 
-		const result = await publish_repos(repos, {wetrun: true, ops: mock_ops});
+		const result = await publish_repos(repos, { wetrun: true, ops: mock_ops });
 
 		const first = result.events[0]!;
 		assert(first.event === 'run_started');
@@ -942,7 +942,7 @@ describe('structured events', () => {
 	});
 
 	test('an external handler receives the same events as the result', async () => {
-		const repos: Array<LocalRepo> = [create_mock_repo({name: 'pkg-a', version: '0.1.0'})];
+		const repos: Array<LocalRepo> = [create_mock_repo({ name: 'pkg-a', version: '0.1.0' })];
 		const capture = capture_handler();
 
 		const mock_ops = create_mock_gitops_ops({
@@ -950,16 +950,16 @@ describe('structured events', () => {
 				predict_next_version: async () => ({
 					ok: true,
 					version: '0.1.1',
-					bump_type: 'patch' as const,
-				}),
+					bump_type: 'patch' as const
+				})
 			},
-			preflight: create_preflight_mock(['pkg-a']),
+			preflight: create_preflight_mock(['pkg-a'])
 		});
 
 		const result = await publish_repos(repos, {
 			wetrun: false,
 			ops: mock_ops,
-			events: capture,
+			events: capture
 		});
 
 		assert.strictEqual(capture.events.length, result.events.length);
@@ -972,13 +972,13 @@ describe('group_dependency_updates', () => {
 	const make_update = (
 		dependent: string,
 		dependency: string,
-		type: DependencyUpdate['type'],
+		type: DependencyUpdate['type']
 	): DependencyUpdate => ({
 		dependent_package: dependent,
 		updated_dependency: dependency,
 		current_version: '^1.0.0',
 		new_version: 'ignored', // the helper reads the published version, not this field
-		type,
+		type
 	});
 
 	const make_published = (entries: Array<[string, string]>): Map<string, PublishedVersion> =>
@@ -992,19 +992,19 @@ describe('group_dependency_updates', () => {
 					bump_type: 'patch' as const,
 					breaking: false,
 					commit: 'abc',
-					tag: `v${version}`,
-				},
-			]),
+					tag: `v${version}`
+				}
+			])
 		);
 
 	test('groups dependencies under each dependent, keyed to the published version', () => {
 		const updates = [
 			make_update('app', 'lib1', 'dependencies'),
-			make_update('app', 'lib2', 'peerDependencies'),
+			make_update('app', 'lib2', 'peerDependencies')
 		];
 		const published = make_published([
 			['lib1', '1.1.0'],
-			['lib2', '2.0.0'],
+			['lib2', '2.0.0']
 		]);
 
 		const grouped = group_dependency_updates(updates, published, () => true);
@@ -1017,11 +1017,11 @@ describe('group_dependency_updates', () => {
 	test('filters by predicate (prod/peer vs dev)', () => {
 		const updates = [
 			make_update('app', 'lib', 'dependencies'),
-			make_update('app', 'tool', 'devDependencies'),
+			make_update('app', 'tool', 'devDependencies')
 		];
 		const published = make_published([
 			['lib', '1.1.0'],
-			['tool', '1.1.0'],
+			['tool', '1.1.0']
 		]);
 
 		const prod = group_dependency_updates(updates, published, (u) => u.type !== 'devDependencies');
@@ -1042,14 +1042,14 @@ describe('group_dependency_updates', () => {
 
 describe('execute_publishing_plan', () => {
 	const make_version_change = (
-		overrides: Partial<VersionChange> & {package_name: string},
+		overrides: Partial<VersionChange> & { package_name: string }
 	): VersionChange => ({
 		from: '1.0.0',
 		to: '1.0.1',
 		bump_type: 'patch',
 		breaking: false,
 		has_changesets: true,
-		...overrides,
+		...overrides
 	});
 
 	const make_plan = (overrides: Partial<PublishingPlan> = {}): PublishingPlan => ({
@@ -1060,36 +1060,36 @@ describe('execute_publishing_plan', () => {
 		warnings: [],
 		info: [],
 		errors: [],
-		...overrides,
+		...overrides
 	});
 
 	test('executes a frozen plan without regenerating it', async () => {
-		const repos = [create_mock_repo({name: 'pkg', version: '1.0.0'})];
+		const repos = [create_mock_repo({ name: 'pkg', version: '1.0.0' })];
 		const plan = make_plan({
 			publishing_order: ['pkg'],
-			version_changes: [make_version_change({package_name: 'pkg'})],
+			version_changes: [make_version_change({ package_name: 'pkg' })]
 		});
 
 		const result = await execute_publishing_plan(repos, plan, {
 			wetrun: false,
-			ops: create_mock_gitops_ops({fs: create_populated_fs_ops(repos)}),
+			ops: create_mock_gitops_ops({ fs: create_populated_fs_ops(repos) })
 		});
 
 		assert.strictEqual(result.ok, true);
 		assert.deepEqual(
 			result.published.map((p) => p.name),
-			['pkg'],
+			['pkg']
 		);
 		assert.strictEqual(result.published[0]!.new_version, '1.0.1');
 	});
 
 	test('wetrun throws on a plan with errors, before any side effect', async () => {
-		const repos = [create_mock_repo({name: 'pkg', version: '1.0.0'})];
-		const plan = make_plan({errors: ['Production dependency cycle: a → b → a']});
+		const repos = [create_mock_repo({ name: 'pkg', version: '1.0.0' })];
+		const plan = make_plan({ errors: ['Production dependency cycle: a → b → a'] });
 
 		let threw = false;
 		try {
-			await execute_publishing_plan(repos, plan, {wetrun: true, ops: create_mock_gitops_ops()});
+			await execute_publishing_plan(repos, plan, { wetrun: true, ops: create_mock_gitops_ops() });
 		} catch (error) {
 			threw = true;
 			assert.ok(error instanceof Error);
@@ -1099,12 +1099,12 @@ describe('execute_publishing_plan', () => {
 	});
 
 	test('dry run reports plan errors and is not ok (no bypass)', async () => {
-		const repos = [create_mock_repo({name: 'pkg', version: '1.0.0'})];
-		const plan = make_plan({errors: ['boom']});
+		const repos = [create_mock_repo({ name: 'pkg', version: '1.0.0' })];
+		const plan = make_plan({ errors: ['boom'] });
 
 		const result = await execute_publishing_plan(repos, plan, {
 			wetrun: false,
-			ops: create_mock_gitops_ops({fs: create_populated_fs_ops(repos)}),
+			ops: create_mock_gitops_ops({ fs: create_populated_fs_ops(repos) })
 		});
 
 		assert.strictEqual(result.ok, false);
@@ -1112,21 +1112,21 @@ describe('execute_publishing_plan', () => {
 	});
 
 	test('deploy builds fresh — spawns `gro deploy` without --no-build', async () => {
-		const repos = [create_mock_repo({name: 'pkg', version: '1.0.0'})];
+		const repos = [create_mock_repo({ name: 'pkg', version: '1.0.0' })];
 		const plan = make_plan({
 			publishing_order: ['pkg'],
-			version_changes: [make_version_change({package_name: 'pkg'})],
+			version_changes: [make_version_change({ package_name: 'pkg' })]
 		});
 
-		const {ops: process_ops, get_commands_by_type} = create_tracking_process_ops();
+		const { ops: process_ops, get_commands_by_type } = create_tracking_process_ops();
 		await execute_publishing_plan(repos, plan, {
 			wetrun: true,
 			deploy: true,
 			ops: create_mock_gitops_ops({
 				preflight: create_preflight_mock(['pkg']),
 				fs: create_populated_fs_ops(repos),
-				process: process_ops,
-			}),
+				process: process_ops
+			})
 		});
 
 		const deploy_commands = get_commands_by_type('deploy');
@@ -1143,13 +1143,13 @@ describe('execute_publishing_plan', () => {
 		dependent: string,
 		updated_dependency: string,
 		type: DependencyUpdate['type'],
-		new_version: string,
+		new_version: string
 	): DependencyUpdate => ({
 		dependent_package: dependent,
 		updated_dependency,
 		current_version: '^1.0.0',
 		new_version,
-		type,
+		type
 	});
 
 	const step_key = (step: PublishStep): string => {
@@ -1187,21 +1187,21 @@ describe('execute_publishing_plan', () => {
 	const assert_preview_matches_execution = async (
 		repos: Array<LocalRepo>,
 		plan: PublishingPlan,
-		options: {deploy?: boolean} = {},
+		options: { deploy?: boolean } = {}
 	): Promise<void> => {
 		// Populate each publishing package's package.json with its planned version so the
 		// publish read-back matches the plan (no drift abort).
 		const fs = create_populated_fs_ops(
 			repos,
-			new Map(plan.version_changes.map((vc) => [vc.package_name, vc.to])),
+			new Map(plan.version_changes.map((vc) => [vc.package_name, vc.to]))
 		);
 		const result = await execute_publishing_plan(repos, plan, {
 			wetrun: true,
 			...options,
 			ops: create_mock_gitops_ops({
 				preflight: create_preflight_mock(repos.map((r) => r.library.name)),
-				fs,
-			}),
+				fs
+			})
 		});
 		const executed = result.events.map(event_key).filter((key): key is string => key !== null);
 		const previewed = derive_publish_steps(plan, options).map(step_key);
@@ -1210,101 +1210,101 @@ describe('execute_publishing_plan', () => {
 
 	test('preview matches execution: prod cascade with deploy', async () => {
 		const repos = [
-			create_mock_repo({name: 'core', version: '1.0.0'}),
-			create_mock_repo({name: 'mid', version: '1.0.0', deps: {core: '^1.0.0'}}),
-			create_mock_repo({name: 'app', version: '1.0.0', deps: {mid: '^1.0.0'}}),
+			create_mock_repo({ name: 'core', version: '1.0.0' }),
+			create_mock_repo({ name: 'mid', version: '1.0.0', deps: { core: '^1.0.0' } }),
+			create_mock_repo({ name: 'app', version: '1.0.0', deps: { mid: '^1.0.0' } })
 		];
 		const plan = make_plan({
 			publishing_order: ['core', 'mid', 'app'],
 			version_changes: [
-				make_version_change({package_name: 'core', to: '1.1.0', bump_type: 'minor'}),
+				make_version_change({ package_name: 'core', to: '1.1.0', bump_type: 'minor' }),
 				make_version_change({
 					package_name: 'mid',
 					to: '1.0.1',
 					has_changesets: false,
-					will_generate_changeset: true,
+					will_generate_changeset: true
 				}),
 				make_version_change({
 					package_name: 'app',
 					to: '1.0.1',
 					has_changesets: false,
-					will_generate_changeset: true,
-				}),
+					will_generate_changeset: true
+				})
 			],
 			dependency_updates: [
 				make_dep_update('mid', 'core', 'dependencies', '1.1.0'),
-				make_dep_update('app', 'mid', 'dependencies', '1.0.1'),
-			],
+				make_dep_update('app', 'mid', 'dependencies', '1.0.1')
+			]
 		});
-		await assert_preview_matches_execution(repos, plan, {deploy: true});
+		await assert_preview_matches_execution(repos, plan, { deploy: true });
 	});
 
 	test('preview matches execution: dev-dependency update (no changeset, batched install)', async () => {
 		const repos = [
-			create_mock_repo({name: 'tool', version: '1.0.0'}),
-			create_mock_repo({name: 'consumer', version: '1.0.0', dev_deps: {tool: '^1.0.0'}}),
+			create_mock_repo({ name: 'tool', version: '1.0.0' }),
+			create_mock_repo({ name: 'consumer', version: '1.0.0', dev_deps: { tool: '^1.0.0' } })
 		];
 		const plan = make_plan({
 			publishing_order: ['tool', 'consumer'],
-			version_changes: [make_version_change({package_name: 'tool', to: '1.0.1'})],
-			dependency_updates: [make_dep_update('consumer', 'tool', 'devDependencies', '1.0.1')],
+			version_changes: [make_version_change({ package_name: 'tool', to: '1.0.1' })],
+			dependency_updates: [make_dep_update('consumer', 'tool', 'devDependencies', '1.0.1')]
 		});
-		await assert_preview_matches_execution(repos, plan, {deploy: true});
+		await assert_preview_matches_execution(repos, plan, { deploy: true });
 	});
 
 	test('preview matches execution: private update-only leaf', async () => {
 		const repos = [
-			create_mock_repo({name: 'core', version: '1.0.0'}),
-			create_mock_repo({name: 'priv', version: '1.0.0', deps: {core: '^1.0.0'}, private: true}),
+			create_mock_repo({ name: 'core', version: '1.0.0' }),
+			create_mock_repo({ name: 'priv', version: '1.0.0', deps: { core: '^1.0.0' }, private: true })
 		];
 		// priv is private → excluded from version_changes (it never publishes); only its range
 		// updates, with no changeset.
 		const plan = make_plan({
 			publishing_order: ['core', 'priv'],
 			version_changes: [
-				make_version_change({package_name: 'core', to: '1.1.0', bump_type: 'minor'}),
+				make_version_change({ package_name: 'core', to: '1.1.0', bump_type: 'minor' })
 			],
-			dependency_updates: [make_dep_update('priv', 'core', 'dependencies', '1.1.0')],
+			dependency_updates: [make_dep_update('priv', 'core', 'dependencies', '1.1.0')]
 		});
-		await assert_preview_matches_execution(repos, plan, {deploy: true});
+		await assert_preview_matches_execution(repos, plan, { deploy: true });
 	});
 
 	test('preview matches execution: mixed prod cascade + dev-dep update', async () => {
 		const repos = [
-			create_mock_repo({name: 'core', version: '1.0.0'}),
-			create_mock_repo({name: 'mid', version: '1.0.0', deps: {core: '^1.0.0'}}),
-			create_mock_repo({name: 'consumer', version: '1.0.0', dev_deps: {core: '^1.0.0'}}),
+			create_mock_repo({ name: 'core', version: '1.0.0' }),
+			create_mock_repo({ name: 'mid', version: '1.0.0', deps: { core: '^1.0.0' } }),
+			create_mock_repo({ name: 'consumer', version: '1.0.0', dev_deps: { core: '^1.0.0' } })
 		];
 		const plan = make_plan({
 			publishing_order: ['core', 'mid', 'consumer'],
 			version_changes: [
-				make_version_change({package_name: 'core', to: '1.1.0', bump_type: 'minor'}),
+				make_version_change({ package_name: 'core', to: '1.1.0', bump_type: 'minor' }),
 				make_version_change({
 					package_name: 'mid',
 					to: '1.0.1',
 					has_changesets: false,
-					will_generate_changeset: true,
-				}),
+					will_generate_changeset: true
+				})
 			],
 			dependency_updates: [
 				make_dep_update('mid', 'core', 'dependencies', '1.1.0'),
-				make_dep_update('consumer', 'core', 'devDependencies', '1.1.0'),
-			],
+				make_dep_update('consumer', 'core', 'devDependencies', '1.1.0')
+			]
 		});
 		await assert_preview_matches_execution(repos, plan);
 	});
 
 	test('a private dependent is an update-only leaf — no publish, npm-wait, or changeset', async () => {
 		const repos = [
-			create_mock_repo({name: 'core', version: '1.0.0'}),
-			create_mock_repo({name: 'priv', version: '1.0.0', deps: {core: '^1.0.0'}, private: true}),
+			create_mock_repo({ name: 'core', version: '1.0.0' }),
+			create_mock_repo({ name: 'priv', version: '1.0.0', deps: { core: '^1.0.0' }, private: true })
 		];
 		const plan = make_plan({
 			publishing_order: ['core', 'priv'],
 			version_changes: [
-				make_version_change({package_name: 'core', to: '1.1.0', bump_type: 'minor'}),
+				make_version_change({ package_name: 'core', to: '1.1.0', bump_type: 'minor' })
 			],
-			dependency_updates: [make_dep_update('priv', 'core', 'dependencies', '1.1.0')],
+			dependency_updates: [make_dep_update('priv', 'core', 'dependencies', '1.1.0')]
 		});
 
 		const fs = create_populated_fs_ops(repos, new Map([['core', '1.1.0']]));
@@ -1319,28 +1319,28 @@ describe('execute_publishing_plan', () => {
 					add: async (options) => {
 						const files = Array.isArray(options.files) ? options.files.join(',') : options.files;
 						add_files.push(`${options.cwd}:${files}`);
-						return {ok: true};
-					},
+						return { ok: true };
+					}
 				},
 				npm: {
 					wait_for_package: async (options) => {
 						waited.push(options.pkg);
-						return {ok: true};
-					},
-				},
-			}),
+						return { ok: true };
+					}
+				}
+			})
 		});
 
 		assert.ok(result.ok);
 		assert.deepEqual(
 			result.published.map((p) => p.name),
-			['core'], // priv never publishes
+			['core'] // priv never publishes
 		);
 		assert.deepEqual(waited, ['core']); // priv is never awaited on npm
 		// priv's range was rewritten + committed, but with NO changeset staged
 		assert.ok(
 			!add_files.some((f) => f.includes('.changeset')),
-			'a private leaf gets no auto-changeset',
+			'a private leaf gets no auto-changeset'
 		);
 		const priv_pkg = JSON.parse(fs.get('/test/priv/package.json')!);
 		assert.strictEqual(priv_pkg.dependencies.core, '^1.1.0'); // range bumped
@@ -1349,11 +1349,11 @@ describe('execute_publishing_plan', () => {
 
 test('excludes non-npm (cargo) repos from a publish run', async () => {
 	const repos: Array<LocalRepo> = [
-		create_mock_repo({name: 'pkg-a', version: '0.1.0'}),
-		create_mock_repo({name: 'rust-tool', version: '0.1.0', kind: 'cargo'}),
+		create_mock_repo({ name: 'pkg-a', version: '0.1.0' }),
+		create_mock_repo({ name: 'rust-tool', version: '0.1.0', kind: 'cargo' })
 	];
 
-	const result = await publish_repos(repos, {wetrun: false, ops: create_mock_gitops_ops()});
+	const result = await publish_repos(repos, { wetrun: false, ops: create_mock_gitops_ops() });
 
 	assert.strictEqual(result.ok, true);
 	assert.ok(result.published.some((p) => p.name === 'pkg-a'));

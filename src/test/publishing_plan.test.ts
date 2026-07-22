@@ -1,39 +1,39 @@
-import {assert, test} from 'vitest';
+import { assert, test } from 'vitest';
 
-import type {LocalRepo} from '$lib/local_repo.ts';
-import {generate_publishing_plan} from '$lib/publishing_plan.ts';
-import type {ChangesetOperations} from '$lib/operations.ts';
-import {create_mock_repo} from './test_helpers.ts';
+import type { LocalRepo } from '$lib/local_repo.ts';
+import { generate_publishing_plan } from '$lib/publishing_plan.ts';
+import type { ChangesetOperations } from '$lib/operations.ts';
+import { create_mock_repo } from './test_helpers.ts';
 
 test('detects breaking change cascades', async () => {
 	const repos: Array<LocalRepo> = [
-		create_mock_repo({name: 'pkg-a', version: '0.1.0'}),
-		create_mock_repo({name: 'pkg-b', version: '0.2.0', deps: {'pkg-a': '0.1.0'}}),
-		create_mock_repo({name: 'pkg-c', version: '0.3.0', deps: {'pkg-b': '0.2.0'}}),
+		create_mock_repo({ name: 'pkg-a', version: '0.1.0' }),
+		create_mock_repo({ name: 'pkg-b', version: '0.2.0', deps: { 'pkg-a': '0.1.0' } }),
+		create_mock_repo({ name: 'pkg-c', version: '0.3.0', deps: { 'pkg-b': '0.2.0' } })
 	];
 
 	// Mock changeset operations to simulate breaking changes
 	const mock_ops: ChangesetOperations = {
 		has_changesets: async (options) => ({
 			ok: true,
-			value: options.repo.library.name === 'pkg-a',
+			value: options.repo.library.name === 'pkg-a'
 		}),
-		read_changesets: async () => ({ok: true, value: []}),
+		read_changesets: async () => ({ ok: true, value: [] }),
 		predict_next_version: async (options) => {
 			if (options.repo.library.name === 'pkg-a') {
 				// Simulate a breaking change for pkg-a
-				return {ok: true, version: '0.2.0', bump_type: 'minor' as const};
+				return { ok: true, version: '0.2.0', bump_type: 'minor' as const };
 			}
 			return null;
-		},
+		}
 	};
 
-	const plan = await generate_publishing_plan(repos, {ops: mock_ops});
+	const plan = await generate_publishing_plan(repos, { ops: mock_ops });
 
 	// pkg-a should have a breaking change (0.x.x minor bump)
 	assert.strictEqual(
 		plan.version_changes.find((vc) => vc.package_name === 'pkg-a')?.breaking,
-		true,
+		true
 	);
 
 	// pkg-b should cascade the breaking change
@@ -43,26 +43,26 @@ test('detects breaking change cascades', async () => {
 
 test('handles bump escalation', async () => {
 	const repos: Array<LocalRepo> = [
-		create_mock_repo({name: 'pkg-a', version: '0.1.0'}),
-		create_mock_repo({name: 'pkg-b', version: '0.2.0', deps: {'pkg-a': '0.1.0'}}),
+		create_mock_repo({ name: 'pkg-a', version: '0.1.0' }),
+		create_mock_repo({ name: 'pkg-b', version: '0.2.0', deps: { 'pkg-a': '0.1.0' } })
 	];
 
 	// Mock operations where pkg-a has breaking change and pkg-b has patch
 	const mock_ops: ChangesetOperations = {
-		has_changesets: async () => ({ok: true, value: true}),
-		read_changesets: async () => ({ok: true, value: []}),
+		has_changesets: async () => ({ ok: true, value: true }),
+		read_changesets: async () => ({ ok: true, value: [] }),
 		predict_next_version: async (options) => {
 			if (options.repo.library.name === 'pkg-a') {
-				return {ok: true, version: '0.2.0', bump_type: 'minor' as const}; // breaking
+				return { ok: true, version: '0.2.0', bump_type: 'minor' as const }; // breaking
 			}
 			if (options.repo.library.name === 'pkg-b') {
-				return {ok: true, version: '0.2.1', bump_type: 'patch' as const}; // non-breaking
+				return { ok: true, version: '0.2.1', bump_type: 'patch' as const }; // non-breaking
 			}
 			return null;
-		},
+		}
 	};
 
-	const plan = await generate_publishing_plan(repos, {ops: mock_ops});
+	const plan = await generate_publishing_plan(repos, { ops: mock_ops });
 
 	// pkg-b should have bump escalation due to breaking dep
 	const pkg_b_change = plan.version_changes.find((vc) => vc.package_name === 'pkg-b');
@@ -72,27 +72,27 @@ test('handles bump escalation', async () => {
 
 test('generates auto-changesets for dependency updates', async () => {
 	const repos: Array<LocalRepo> = [
-		create_mock_repo({name: 'pkg-a', version: '0.1.0'}),
-		create_mock_repo({name: 'pkg-b', version: '0.2.0', deps: {'pkg-a': '0.1.0'}}),
-		create_mock_repo({name: 'pkg-c', version: '0.3.0', dev_deps: {'pkg-a': '0.1.0'}}), // devDep only
+		create_mock_repo({ name: 'pkg-a', version: '0.1.0' }),
+		create_mock_repo({ name: 'pkg-b', version: '0.2.0', deps: { 'pkg-a': '0.1.0' } }),
+		create_mock_repo({ name: 'pkg-c', version: '0.3.0', dev_deps: { 'pkg-a': '0.1.0' } }) // devDep only
 	];
 
 	// Mock operations where only pkg-a has changesets
 	const mock_ops: ChangesetOperations = {
 		has_changesets: async (options) => ({
 			ok: true,
-			value: options.repo.library.name === 'pkg-a',
+			value: options.repo.library.name === 'pkg-a'
 		}),
-		read_changesets: async () => ({ok: true, value: []}),
+		read_changesets: async () => ({ ok: true, value: [] }),
 		predict_next_version: async (options) => {
 			if (options.repo.library.name === 'pkg-a') {
-				return {ok: true, version: '0.1.1', bump_type: 'patch' as const};
+				return { ok: true, version: '0.1.1', bump_type: 'patch' as const };
 			}
 			return null;
-		},
+		}
 	};
 
-	const plan = await generate_publishing_plan(repos, {ops: mock_ops});
+	const plan = await generate_publishing_plan(repos, { ops: mock_ops });
 
 	// pkg-b should get auto-changeset for dependency update
 	const pkg_b_change = plan.version_changes.find((vc) => vc.package_name === 'pkg-b');
@@ -106,18 +106,18 @@ test('generates auto-changesets for dependency updates', async () => {
 
 test('handles circular dev dependencies', async () => {
 	const repos: Array<LocalRepo> = [
-		create_mock_repo({name: 'pkg-a', version: '0.1.0', dev_deps: {'pkg-b': '0.2.0'}}),
-		create_mock_repo({name: 'pkg-b', version: '0.2.0', dev_deps: {'pkg-a': '0.1.0'}}),
+		create_mock_repo({ name: 'pkg-a', version: '0.1.0', dev_deps: { 'pkg-b': '0.2.0' } }),
+		create_mock_repo({ name: 'pkg-b', version: '0.2.0', dev_deps: { 'pkg-a': '0.1.0' } })
 	];
 
 	// Mock operations with no changesets
 	const mock_ops: ChangesetOperations = {
-		has_changesets: async () => ({ok: true, value: false}),
-		read_changesets: async () => ({ok: true, value: []}),
-		predict_next_version: async () => null,
+		has_changesets: async () => ({ ok: true, value: false }),
+		read_changesets: async () => ({ ok: true, value: [] }),
+		predict_next_version: async () => null
 	};
 
-	const plan = await generate_publishing_plan(repos, {ops: mock_ops});
+	const plan = await generate_publishing_plan(repos, { ops: mock_ops });
 
 	// Should have info about dev cycles (not warnings anymore)
 	assert.ok(plan.info.some((i) => i.includes('dev dependency cycle(s) detected')));
@@ -131,18 +131,18 @@ test('handles circular dev dependencies', async () => {
 
 test('detects production circular dependencies', async () => {
 	const repos: Array<LocalRepo> = [
-		create_mock_repo({name: 'pkg-a', version: '0.1.0', deps: {'pkg-b': '0.2.0'}}),
-		create_mock_repo({name: 'pkg-b', version: '0.2.0', deps: {'pkg-a': '0.1.0'}}),
+		create_mock_repo({ name: 'pkg-a', version: '0.1.0', deps: { 'pkg-b': '0.2.0' } }),
+		create_mock_repo({ name: 'pkg-b', version: '0.2.0', deps: { 'pkg-a': '0.1.0' } })
 	];
 
 	// Mock operations with no changesets
 	const mock_ops: ChangesetOperations = {
-		has_changesets: async () => ({ok: true, value: false}),
-		read_changesets: async () => ({ok: true, value: []}),
-		predict_next_version: async () => null,
+		has_changesets: async () => ({ ok: true, value: false }),
+		read_changesets: async () => ({ ok: true, value: [] }),
+		predict_next_version: async () => null
 	};
 
-	const plan = await generate_publishing_plan(repos, {ops: mock_ops});
+	const plan = await generate_publishing_plan(repos, { ops: mock_ops });
 
 	// Should have errors for production cycles
 	assert.ok(plan.errors.some((e) => e.includes('Production dependency cycle')));
@@ -155,37 +155,37 @@ test('warns when MAX_ITERATIONS reached without convergence', async () => {
 	// Create a very deep dependency chain (12 levels) with breaking changes
 	// This will require more than 10 iterations to fully propagate
 	const repos: Array<LocalRepo> = [
-		create_mock_repo({name: 'level-1', version: '0.1.0'}),
-		create_mock_repo({name: 'level-2', version: '0.1.0', deps: {'level-1': '^0.1.0'}}),
-		create_mock_repo({name: 'level-3', version: '0.1.0', deps: {'level-2': '^0.1.0'}}),
-		create_mock_repo({name: 'level-4', version: '0.1.0', deps: {'level-3': '^0.1.0'}}),
-		create_mock_repo({name: 'level-5', version: '0.1.0', deps: {'level-4': '^0.1.0'}}),
-		create_mock_repo({name: 'level-6', version: '0.1.0', deps: {'level-5': '^0.1.0'}}),
-		create_mock_repo({name: 'level-7', version: '0.1.0', deps: {'level-6': '^0.1.0'}}),
-		create_mock_repo({name: 'level-8', version: '0.1.0', deps: {'level-7': '^0.1.0'}}),
-		create_mock_repo({name: 'level-9', version: '0.1.0', deps: {'level-8': '^0.1.0'}}),
-		create_mock_repo({name: 'level-10', version: '0.1.0', deps: {'level-9': '^0.1.0'}}),
-		create_mock_repo({name: 'level-11', version: '0.1.0', deps: {'level-10': '^0.1.0'}}),
-		create_mock_repo({name: 'level-12', version: '0.1.0', deps: {'level-11': '^0.1.0'}}),
+		create_mock_repo({ name: 'level-1', version: '0.1.0' }),
+		create_mock_repo({ name: 'level-2', version: '0.1.0', deps: { 'level-1': '^0.1.0' } }),
+		create_mock_repo({ name: 'level-3', version: '0.1.0', deps: { 'level-2': '^0.1.0' } }),
+		create_mock_repo({ name: 'level-4', version: '0.1.0', deps: { 'level-3': '^0.1.0' } }),
+		create_mock_repo({ name: 'level-5', version: '0.1.0', deps: { 'level-4': '^0.1.0' } }),
+		create_mock_repo({ name: 'level-6', version: '0.1.0', deps: { 'level-5': '^0.1.0' } }),
+		create_mock_repo({ name: 'level-7', version: '0.1.0', deps: { 'level-6': '^0.1.0' } }),
+		create_mock_repo({ name: 'level-8', version: '0.1.0', deps: { 'level-7': '^0.1.0' } }),
+		create_mock_repo({ name: 'level-9', version: '0.1.0', deps: { 'level-8': '^0.1.0' } }),
+		create_mock_repo({ name: 'level-10', version: '0.1.0', deps: { 'level-9': '^0.1.0' } }),
+		create_mock_repo({ name: 'level-11', version: '0.1.0', deps: { 'level-10': '^0.1.0' } }),
+		create_mock_repo({ name: 'level-12', version: '0.1.0', deps: { 'level-11': '^0.1.0' } })
 	];
 
 	// Mock operations: only level-1 has a changeset with breaking change
 	const mock_ops: ChangesetOperations = {
 		has_changesets: async (options) => ({
 			ok: true,
-			value: options.repo.library.name === 'level-1',
+			value: options.repo.library.name === 'level-1'
 		}),
-		read_changesets: async () => ({ok: true, value: []}),
+		read_changesets: async () => ({ ok: true, value: [] }),
 		predict_next_version: async (options) => {
 			if (options.repo.library.name === 'level-1') {
 				// Breaking change in 0.x (minor bump)
-				return {ok: true, version: '0.2.0', bump_type: 'minor' as const};
+				return { ok: true, version: '0.2.0', bump_type: 'minor' as const };
 			}
 			return null;
-		},
+		}
 	};
 
-	const plan = await generate_publishing_plan(repos, {ops: mock_ops});
+	const plan = await generate_publishing_plan(repos, { ops: mock_ops });
 
 	// Should have a warning about MAX_ITERATIONS
 	const convergence_warning = plan.warnings.find((w) => w.includes('Reached maximum iterations'));
@@ -203,23 +203,23 @@ test('warns when MAX_ITERATIONS reached without convergence', async () => {
 
 test('excludes non-npm (cargo) repos from the plan', async () => {
 	const repos: Array<LocalRepo> = [
-		create_mock_repo({name: 'pkg-a', version: '1.0.0'}),
-		create_mock_repo({name: 'rust-tool', version: '0.1.0', kind: 'cargo'}),
+		create_mock_repo({ name: 'pkg-a', version: '1.0.0' }),
+		create_mock_repo({ name: 'rust-tool', version: '0.1.0', kind: 'cargo' })
 	];
 
 	// Even when the cargo repo "has changesets", it must be filtered out before any
 	// changeset processing — so the filter, not the private/changeset logic, excludes it.
 	const mock_ops: ChangesetOperations = {
-		has_changesets: async () => ({ok: true, value: true}),
-		read_changesets: async () => ({ok: true, value: []}),
+		has_changesets: async () => ({ ok: true, value: true }),
+		read_changesets: async () => ({ ok: true, value: [] }),
 		predict_next_version: async (options) => ({
 			ok: true,
 			version: options.repo.library.name === 'pkg-a' ? '1.0.1' : '0.1.1',
-			bump_type: 'patch' as const,
-		}),
+			bump_type: 'patch' as const
+		})
 	};
 
-	const plan = await generate_publishing_plan(repos, {ops: mock_ops});
+	const plan = await generate_publishing_plan(repos, { ops: mock_ops });
 
 	// The npm package still plans normally...
 	assert.ok(plan.publishing_order.includes('pkg-a'));

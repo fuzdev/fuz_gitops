@@ -1,9 +1,13 @@
-import {mkdir, readFile, rm, writeFile} from 'node:fs/promises';
-import {dirname, join} from 'node:path';
-import {paths} from '@fuzdev/gro/paths.ts';
-import {format_file} from '@fuzdev/gro/format_file.ts';
-import {deserialize_cache, serialize_cache, type FetchValueCache} from '@fuzdev/fuz_util/fetch.ts';
-import {existsSync} from 'node:fs';
+import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { dirname, join } from 'node:path';
+import { paths } from '@fuzdev/gro/paths.ts';
+import { format_file } from '@fuzdev/gro/format_file.ts';
+import {
+	deserialize_cache,
+	serialize_cache,
+	type FetchValueCache
+} from '@fuzdev/fuz_util/fetch.ts';
+import { existsSync } from 'node:fs';
 
 // TODO upstream to Gro probably, and rename/redesign?
 
@@ -31,7 +35,7 @@ export interface FetchCache {
  */
 export const create_fs_fetch_value_cache = async (
 	name: string,
-	dir = join(paths.build, 'fetch'),
+	dir = join(paths.build, 'fetch')
 ): Promise<FetchCache> => {
 	const data_path = join(dir, name + '.json');
 	let data: FetchValueCache;
@@ -54,10 +58,10 @@ export const create_fs_fetch_value_cache = async (
 			if (deep_equal_maps(initial, data)) {
 				return false; // no changes to save
 			}
-			await mkdir(dirname(data_path), {recursive: true});
-			await writeFile(data_path, await format_file(serialize_cache(data), {filepath: data_path}));
+			await mkdir(dirname(data_path), { recursive: true });
+			await writeFile(data_path, await format_file(serialize_cache(data), { filepath: data_path }));
 			return true;
-		},
+		}
 	};
 };
 

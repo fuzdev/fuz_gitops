@@ -8,14 +8,12 @@
  * @module
  */
 
-import type {PublishingResult} from './multi_repo_publisher.ts';
-import type {PublishingPlan} from './publishing_plan.ts';
+import type { PublishingResult } from './multi_repo_publisher.ts';
+import type { PublishingPlan } from './publishing_plan.ts';
 
 /** What the task should do with a generated plan before executing the cascade. */
 export type PublishGate =
-	| {action: 'blocked'; message: string}
-	| {action: 'confirm'}
-	| {action: 'proceed'};
+	{ action: 'blocked'; message: string } | { action: 'confirm' } | { action: 'proceed' };
 
 export interface PublishGateOptions {
 	/** A real publish (`--wetrun`); a dry run never prompts. */
@@ -36,11 +34,11 @@ export interface PublishGateOptions {
  * - `proceed`: a dry run, or a `--no-plan` real publish — no prompt.
  */
 export const decide_publish_gate = (options: PublishGateOptions): PublishGate => {
-	if (!options.wetrun || !options.show_plan) return {action: 'proceed'};
+	if (!options.wetrun || !options.show_plan) return { action: 'proceed' };
 	if (options.plan.errors.length > 0) {
-		return {action: 'blocked', message: 'Cannot proceed with publishing due to errors'};
+		return { action: 'blocked', message: 'Cannot proceed with publishing due to errors' };
 	}
-	return {action: 'confirm'};
+	return { action: 'confirm' };
 };
 
 /**
@@ -49,5 +47,5 @@ export const decide_publish_gate = (options: PublishGateOptions): PublishGate =>
  */
 export const publish_run_failed = (
 	result: Pick<PublishingResult, 'ok'>,
-	fatal_error: Error | null,
+	fatal_error: Error | null
 ): boolean => !result.ok || fatal_error !== null;

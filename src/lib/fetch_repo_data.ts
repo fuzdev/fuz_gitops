@@ -1,10 +1,10 @@
-import type {Logger} from '@fuzdev/fuz_util/log.ts';
-import {wait} from '@fuzdev/fuz_util/async.ts';
-import type {FetchValueCache} from '@fuzdev/fuz_util/fetch.ts';
+import type { Logger } from '@fuzdev/fuz_util/log.ts';
+import { wait } from '@fuzdev/fuz_util/async.ts';
+import type { FetchValueCache } from '@fuzdev/fuz_util/fetch.ts';
 
-import {fetch_github_check_runs, fetch_github_pull_requests} from './github.ts';
-import type {RepoJson} from './repo.svelte.ts';
-import type {LocalRepo} from './local_repo.ts';
+import { fetch_github_check_runs, fetch_github_pull_requests } from './github.ts';
+import type { RepoJson } from './repo.svelte.ts';
+import type { LocalRepo } from './local_repo.ts';
 
 /**
  * Fetches GitHub metadata (CI status, PRs) for all repos.
@@ -25,10 +25,10 @@ export const fetch_repo_data = async (
 	cache?: FetchValueCache,
 	log?: Logger,
 	delay = 33,
-	github_api_version?: string,
+	github_api_version?: string
 ): Promise<Array<RepoJson>> => {
 	const repos: Array<RepoJson> = [];
-	for (const {library, package_json, repo_config} of resolved_repos) {
+	for (const { library, package_json, repo_config } of resolved_repos) {
 		const repo_url = library.repo_url;
 
 		// CI status
@@ -38,7 +38,7 @@ export const fetch_repo_data = async (
 			log,
 			token,
 			api_version: github_api_version,
-			ref: repo_config.branch,
+			ref: repo_config.branch
 		});
 		if (!check_runs) log?.error('failed to fetch CI status: ' + repo_url);
 
@@ -48,7 +48,7 @@ export const fetch_repo_data = async (
 			cache,
 			log,
 			token,
-			api_version: github_api_version,
+			api_version: github_api_version
 		});
 		if (!pull_requests) log?.error('failed to fetch issues: ' + repo_url);
 
@@ -56,7 +56,7 @@ export const fetch_repo_data = async (
 			library_json: library.library_json,
 			package_json,
 			check_runs,
-			pull_requests,
+			pull_requests
 		});
 	}
 	return repos;

@@ -10,11 +10,11 @@ import type {
 	FsOperations,
 	BuildOperations,
 	PreflightOperations,
-	GitopsOperations,
+	GitopsOperations
 } from '$lib/operations.ts';
-import type {RepoFixtureSet} from './repo_fixture_types.ts';
-import {create_mock_changeset_ops} from './mock_changeset_operations.ts';
-import {create_mock_fs_ops} from '../test_helpers.ts';
+import type { RepoFixtureSet } from './repo_fixture_types.ts';
+import { create_mock_changeset_ops } from './mock_changeset_operations.ts';
+import { create_mock_fs_ops } from '../test_helpers.ts';
 
 /* eslint-disable @typescript-eslint/require-await */
 
@@ -54,39 +54,39 @@ export interface MockOperationsConfig {
  */
 export const create_mock_git_ops = (): GitOperations => ({
 	// Branch info - fixtures always on main
-	current_branch_name: async () => ({ok: true, value: 'main'}),
+	current_branch_name: async () => ({ ok: true, value: 'main' }),
 
 	// Commit info - return stable hash
-	current_commit_hash: async () => ({ok: true, value: 'fixture-commit-hash-001'}),
+	current_commit_hash: async () => ({ ok: true, value: 'fixture-commit-hash-001' }),
 
 	// Workspace state - fixtures always clean
-	check_clean_workspace: async () => ({ok: true, value: true}),
+	check_clean_workspace: async () => ({ ok: true, value: true }),
 
 	// Branch operations - no-op for fixtures
-	checkout: async () => ({ok: true}),
-	pull: async () => ({ok: true}), // No-op - fixtures have no remotes
-	switch_branch: async () => ({ok: true}),
+	checkout: async () => ({ ok: true }),
+	pull: async () => ({ ok: true }), // No-op - fixtures have no remotes
+	switch_branch: async () => ({ ok: true }),
 
 	// Remote operations - fixtures have no remotes
-	has_remote: async () => ({ok: true, value: false}),
+	has_remote: async () => ({ ok: true, value: false }),
 
 	// Staging/commit - no-op for read-only fixtures
-	add: async () => ({ok: true}),
-	commit: async () => ({ok: true}),
-	add_and_commit: async () => ({ok: true}),
+	add: async () => ({ ok: true }),
+	commit: async () => ({ ok: true }),
+	add_and_commit: async () => ({ ok: true }),
 
 	// Change detection - fixtures never change
-	has_changes: async () => ({ok: true, value: false}),
-	list_uncommitted_files: async () => ({ok: true, value: []}),
-	has_file_changed: async () => ({ok: true, value: false}),
+	has_changes: async () => ({ ok: true, value: false }),
+	list_uncommitted_files: async () => ({ ok: true, value: [] }),
+	has_file_changed: async () => ({ ok: true, value: false }),
 
 	// Tags - no-op for fixtures
-	tag: async () => ({ok: true}),
-	push_tag: async () => ({ok: true}),
+	tag: async () => ({ ok: true }),
+	push_tag: async () => ({ ok: true }),
 
 	// Stash - no-op for clean fixtures
-	stash: async () => ({ok: true}),
-	stash_pop: async () => ({ok: true}),
+	stash: async () => ({ ok: true }),
+	stash_pop: async () => ({ ok: true })
 });
 
 /**
@@ -94,16 +94,16 @@ export const create_mock_git_ops = (): GitOperations => ({
  */
 export const create_mock_npm_ops = (): NpmOperations => ({
 	// Install - no-op, fixtures don't need deps installed
-	install: async () => ({ok: true}),
+	install: async () => ({ ok: true }),
 
 	// Auth check - always authenticated for tests
-	check_auth: async () => ({ok: true, username: 'test-user'}),
+	check_auth: async () => ({ ok: true, username: 'test-user' }),
 
 	// Registry check - always available for tests
-	check_registry: async () => ({ok: true}),
+	check_registry: async () => ({ ok: true }),
 
 	// Registry check - simulate package available immediately
-	wait_for_package: async () => ({ok: true}),
+	wait_for_package: async () => ({ ok: true })
 });
 
 /**
@@ -115,14 +115,14 @@ export const create_mock_process_ops = (): ProcessOperations => ({
 		// Simulate success for common commands
 		if (options.cmd === 'gro') {
 			if (options.args[0] === 'build') {
-				return {ok: true, stdout: 'Build successful'};
+				return { ok: true, stdout: 'Build successful' };
 			}
 			if (options.args[0] === 'publish') {
-				return {ok: true, stdout: 'Published'};
+				return { ok: true, stdout: 'Published' };
 			}
 		}
-		return {ok: true};
-	},
+		return { ok: true };
+	}
 });
 
 /**
@@ -148,7 +148,7 @@ export const create_fixture_fs_ops = (fixture: RepoFixtureSet): FsOperations => 
  * Fixtures don't need real builds.
  */
 export const create_mock_build_ops = (): BuildOperations => ({
-	build_package: async () => ({ok: true}),
+	build_package: async () => ({ ok: true })
 });
 
 /**
@@ -174,8 +174,8 @@ export const create_mock_preflight_ops = (fixture: RepoFixtureSet): PreflightOpe
 			warnings: [],
 			errors: [],
 			repos_with_changesets,
-			repos_without_changesets,
-		}),
+			repos_without_changesets
+		})
 	};
 };
 
@@ -189,143 +189,145 @@ export const create_mock_gitops_ops = (fixture: RepoFixtureSet): GitopsOperation
 	process: create_mock_process_ops(),
 	fs: create_fixture_fs_ops(fixture),
 	build: create_mock_build_ops(),
-	preflight: create_mock_preflight_ops(fixture),
+	preflight: create_mock_preflight_ops(fixture)
 });
 
 /**
  * Create configurable git operations for testing specific scenarios.
  */
 export const create_configurable_git_ops = (
-	config: MockOperationsConfig['git'] = {},
+	config: MockOperationsConfig['git'] = {}
 ): GitOperations => ({
 	// Branch info
 	current_branch_name: async () => ({
 		ok: true,
-		value: config.current_branch || 'main',
+		value: config.current_branch || 'main'
 	}),
 
 	// Commit info
 	current_commit_hash: async () => ({
 		ok: true,
-		value: config.commit_hash || 'fixture-commit-hash-001',
+		value: config.commit_hash || 'fixture-commit-hash-001'
 	}),
 
 	// Workspace state
 	check_clean_workspace: async () => ({
 		ok: true,
-		value: config.workspace_clean !== false, // Default to true
+		value: config.workspace_clean !== false // Default to true
 	}),
 
 	// Branch operations
 	checkout: async () => {
 		if (config.checkout_fails) {
-			return {ok: false, message: "error: pathspec 'main' did not match any file(s) known to git"};
+			return {
+				ok: false,
+				message: "error: pathspec 'main' did not match any file(s) known to git"
+			};
 		}
-		return {ok: true};
+		return { ok: true };
 	},
 
 	pull: async () => {
 		if (config.pull_fails) {
 			return {
 				ok: false,
-				message:
-					'cannot pull with rebase: You have unstaged changes.\nPlease commit or stash them.',
+				message: 'cannot pull with rebase: You have unstaged changes.\nPlease commit or stash them.'
 			};
 		}
-		return {ok: true};
+		return { ok: true };
 	},
 
-	switch_branch: async () => ({ok: true}),
+	switch_branch: async () => ({ ok: true }),
 
 	// Remote operations
 	has_remote: async () => ({
 		ok: true,
-		value: config.has_remote !== false, // Default to false for fixtures
+		value: config.has_remote !== false // Default to false for fixtures
 	}),
 
 	// Staging/commit
-	add: async () => ({ok: true}),
-	commit: async () => ({ok: true}),
-	add_and_commit: async () => ({ok: true}),
+	add: async () => ({ ok: true }),
+	commit: async () => ({ ok: true }),
+	add_and_commit: async () => ({ ok: true }),
 
 	// Change detection
 	has_changes: async () => ({
 		ok: true,
-		value: config.has_changes || false,
+		value: config.has_changes || false
 	}),
 	list_uncommitted_files: async () => ({
 		ok: true,
-		value: config.has_changes ? ['package.json'] : [],
+		value: config.has_changes ? ['package.json'] : []
 	}),
 	has_file_changed: async () => ({
 		ok: true,
-		value: config.has_changes || false,
+		value: config.has_changes || false
 	}),
 
 	// Tags
-	tag: async () => ({ok: true}),
-	push_tag: async () => ({ok: true}),
+	tag: async () => ({ ok: true }),
+	push_tag: async () => ({ ok: true }),
 
 	// Stash
-	stash: async () => ({ok: true}),
-	stash_pop: async () => ({ok: true}),
+	stash: async () => ({ ok: true }),
+	stash_pop: async () => ({ ok: true })
 });
 
 /**
  * Create configurable npm operations for testing specific scenarios.
  */
 export const create_configurable_npm_ops = (
-	config: MockOperationsConfig['npm'] = {},
+	config: MockOperationsConfig['npm'] = {}
 ): NpmOperations => ({
 	// Install
 	install: async () => {
 		if (config.install_fails) {
-			return {ok: false, message: 'npm install failed', stderr: 'npm ERR! install failed'};
+			return { ok: false, message: 'npm install failed', stderr: 'npm ERR! install failed' };
 		}
-		return {ok: true};
+		return { ok: true };
 	},
 
 	// Auth check
 	check_auth: async () => {
 		if (config.authenticated === false) {
-			return {ok: false, message: 'Not authenticated to npm'};
+			return { ok: false, message: 'Not authenticated to npm' };
 		}
-		return {ok: true, username: 'test-user'};
+		return { ok: true, username: 'test-user' };
 	},
 
 	// Registry check
 	check_registry: async () => {
 		if (config.registry_available === false) {
-			return {ok: false, message: 'NPM registry unavailable'};
+			return { ok: false, message: 'NPM registry unavailable' };
 		}
-		return {ok: true};
+		return { ok: true };
 	},
 
 	// Wait for package
 	wait_for_package: async () => {
 		if (config.wait_timeout) {
-			return {ok: false, message: 'Timeout waiting for package', timeout: true};
+			return { ok: false, message: 'Timeout waiting for package', timeout: true };
 		}
-		return {ok: true};
-	},
+		return { ok: true };
+	}
 });
 
 /**
  * Create configurable build operations for testing specific scenarios.
  */
 export const create_configurable_build_ops = (
-	config: MockOperationsConfig['build'] = {},
+	config: MockOperationsConfig['build'] = {}
 ): BuildOperations => ({
 	build_package: async () => {
 		if (config.build_fails) {
 			return {
 				ok: false,
 				message: config.build_error_message || 'Build failed',
-				stderr: 'TypeScript compilation errors',
+				stderr: 'TypeScript compilation errors'
 			};
 		}
-		return {ok: true};
-	},
+		return { ok: true };
+	}
 });
 
 /**
@@ -333,7 +335,7 @@ export const create_configurable_build_ops = (
  */
 export const create_configurable_preflight_ops = (
 	fixture: RepoFixtureSet,
-	config: MockOperationsConfig['preflight'] = {},
+	config: MockOperationsConfig['preflight'] = {}
 ): PreflightOperations => {
 	// Determine which repos have changesets
 	const repos_with_changesets: Set<string> = new Set();
@@ -355,7 +357,7 @@ export const create_configurable_preflight_ops = (
 					warnings: config.warnings || [],
 					errors: config.errors || ['Preflight checks failed'],
 					repos_with_changesets,
-					repos_without_changesets,
+					repos_without_changesets
 				};
 			}
 			return {
@@ -363,9 +365,9 @@ export const create_configurable_preflight_ops = (
 				warnings: config.warnings || [],
 				errors: config.errors || [],
 				repos_with_changesets,
-				repos_without_changesets,
+				repos_without_changesets
 			};
-		},
+		}
 	};
 };
 
@@ -374,7 +376,7 @@ export const create_configurable_preflight_ops = (
  */
 export const create_configurable_gitops_ops = (
 	fixture: RepoFixtureSet,
-	config: MockOperationsConfig = {},
+	config: MockOperationsConfig = {}
 ): GitopsOperations => ({
 	changeset: create_mock_changeset_ops(fixture),
 	git: create_configurable_git_ops(config.git),
@@ -382,7 +384,7 @@ export const create_configurable_gitops_ops = (
 	process: create_mock_process_ops(),
 	fs: create_fixture_fs_ops(fixture),
 	build: create_configurable_build_ops(config.build),
-	preflight: create_configurable_preflight_ops(fixture, config.preflight),
+	preflight: create_configurable_preflight_ops(fixture, config.preflight)
 });
 
 //
@@ -394,9 +396,9 @@ export const create_configurable_gitops_ops = (
  */
 export const create_dirty_workspace_git_ops = (): GitOperations => ({
 	...create_mock_git_ops(),
-	check_clean_workspace: async () => ({ok: true, value: false}),
-	has_changes: async () => ({ok: true, value: true}),
-	list_uncommitted_files: async () => ({ok: true, value: ['package.json', 'src/index.ts']}),
+	check_clean_workspace: async () => ({ ok: true, value: false }),
+	has_changes: async () => ({ ok: true, value: true }),
+	list_uncommitted_files: async () => ({ ok: true, value: ['package.json', 'src/index.ts'] })
 });
 
 /**
@@ -404,7 +406,7 @@ export const create_dirty_workspace_git_ops = (): GitOperations => ({
  */
 export const create_wrong_branch_git_ops = (): GitOperations => ({
 	...create_mock_git_ops(),
-	current_branch_name: async () => ({ok: true, value: 'feature-branch'}),
+	current_branch_name: async () => ({ ok: true, value: 'feature-branch' })
 });
 
 /**
@@ -412,7 +414,7 @@ export const create_wrong_branch_git_ops = (): GitOperations => ({
  */
 export const create_unauthenticated_npm_ops = (): NpmOperations => ({
 	...create_mock_npm_ops(),
-	check_auth: async () => ({ok: false, message: 'Not authenticated to npm registry'}),
+	check_auth: async () => ({ ok: false, message: 'Not authenticated to npm registry' })
 });
 
 /**
@@ -420,7 +422,7 @@ export const create_unauthenticated_npm_ops = (): NpmOperations => ({
  */
 export const create_unavailable_registry_npm_ops = (): NpmOperations => ({
 	...create_mock_npm_ops(),
-	check_registry: async () => ({ok: false, message: 'NPM registry is unavailable'}),
+	check_registry: async () => ({ ok: false, message: 'NPM registry is unavailable' })
 });
 
 /**
@@ -430,6 +432,6 @@ export const create_failing_build_ops = (): BuildOperations => ({
 	build_package: async () => ({
 		ok: false,
 		message: 'Build failed with TypeScript errors',
-		stderr: 'error TS2322: Type string is not assignable to type number',
-	}),
+		stderr: 'error TS2322: Type string is not assignable to type number'
+	})
 });

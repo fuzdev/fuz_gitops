@@ -1,12 +1,12 @@
-import {assert, describe, test} from 'vitest';
+import { assert, describe, test } from 'vitest';
 import {
 	generate_changeset_content,
 	create_dependency_updates,
 	create_changeset_for_dependency_updates,
-	type DependencyVersionChange,
+	type DependencyVersionChange
 } from '$lib/changeset_generator.ts';
-import type {PublishedVersion} from '$lib/multi_repo_publisher.ts';
-import {create_mock_repo, create_mock_fs_ops} from './test_helpers.ts';
+import type { PublishedVersion } from '$lib/multi_repo_publisher.ts';
+import { create_mock_repo, create_mock_fs_ops } from './test_helpers.ts';
 
 describe('changeset_generator', () => {
 	describe('generate_changeset_content', () => {
@@ -17,15 +17,15 @@ describe('changeset_generator', () => {
 					from_version: '1.0.0',
 					to_version: '1.0.1',
 					bump_type: 'patch',
-					breaking: false,
+					breaking: false
 				},
 				{
 					package_name: 'lib-b',
 					from_version: '2.1.0',
 					to_version: '2.1.5',
 					bump_type: 'patch',
-					breaking: false,
-				},
+					breaking: false
+				}
 			];
 
 			const content = generate_changeset_content('my-package', updates, 'patch');
@@ -45,8 +45,8 @@ describe('changeset_generator', () => {
 					from_version: '0.5.0',
 					to_version: '0.6.0',
 					bump_type: 'minor',
-					breaking: true,
-				},
+					breaking: true
+				}
 			];
 
 			const content = generate_changeset_content('my-package', updates, 'minor');
@@ -64,15 +64,15 @@ describe('changeset_generator', () => {
 					from_version: '1.0.0',
 					to_version: '2.0.0',
 					bump_type: 'major',
-					breaking: true,
+					breaking: true
 				},
 				{
 					package_name: 'regular-lib',
 					from_version: '1.0.0',
 					to_version: '1.0.1',
 					bump_type: 'patch',
-					breaking: false,
-				},
+					breaking: false
+				}
 			];
 
 			const content = generate_changeset_content('my-package', updates, 'major');
@@ -101,8 +101,8 @@ describe('changeset_generator', () => {
 					from_version: '1.0.0',
 					to_version: '1.1.0',
 					bump_type: 'minor',
-					breaking: false,
-				},
+					breaking: false
+				}
 			];
 
 			const content = generate_changeset_content('test-pkg', updates, 'minor');
@@ -131,7 +131,7 @@ describe('changeset_generator', () => {
 			const dependencies = new Map([
 				['lib-a', '^1.0.0'],
 				['lib-b', '~2.0.0'],
-				['external-lib', '^3.0.0'], // not published
+				['external-lib', '^3.0.0'] // not published
 			]);
 
 			const published_versions: Map<string, PublishedVersion> = new Map([
@@ -144,8 +144,8 @@ describe('changeset_generator', () => {
 						bump_type: 'minor',
 						breaking: false,
 						commit: 'abc123',
-						tag: 'v1.1.0',
-					},
+						tag: 'v1.1.0'
+					}
 				],
 				[
 					'lib-b',
@@ -156,9 +156,9 @@ describe('changeset_generator', () => {
 						bump_type: 'patch',
 						breaking: false,
 						commit: 'def456',
-						tag: 'v2.0.1',
-					},
-				],
+						tag: 'v2.0.1'
+					}
+				]
 			]);
 
 			const updates = create_dependency_updates(dependencies, published_versions);
@@ -171,7 +171,7 @@ describe('changeset_generator', () => {
 				from_version: '1.0.0', // stripped prefix
 				to_version: '1.1.0',
 				bump_type: 'minor',
-				breaking: false,
+				breaking: false
 			});
 
 			const lib_b_update = updates.find((u) => u.package_name === 'lib-b')!;
@@ -180,13 +180,13 @@ describe('changeset_generator', () => {
 				from_version: '2.0.0', // stripped prefix
 				to_version: '2.0.1',
 				bump_type: 'patch',
-				breaking: false,
+				breaking: false
 			});
 
 			// Should not include external-lib (not published)
 			assert.strictEqual(
 				updates.find((u) => u.package_name === 'external-lib'),
-				undefined,
+				undefined
 			);
 		});
 
@@ -203,9 +203,9 @@ describe('changeset_generator', () => {
 						bump_type: 'minor',
 						breaking: true, // Pre-1.0 minor is breaking
 						commit: 'abc123',
-						tag: 'v0.6.0',
-					},
-				],
+						tag: 'v0.6.0'
+					}
+				]
 			]);
 
 			const updates = create_dependency_updates(dependencies, published_versions);
@@ -219,7 +219,7 @@ describe('changeset_generator', () => {
 				['caret-lib', '^1.0.0'],
 				['tilde-lib', '~1.0.0'],
 				['exact-lib', '1.0.0'],
-				['gte-lib', '>=1.0.0'],
+				['gte-lib', '>=1.0.0']
 			]);
 
 			const published_versions: Map<string, PublishedVersion> = new Map([
@@ -232,8 +232,8 @@ describe('changeset_generator', () => {
 						bump_type: 'minor',
 						breaking: false,
 						commit: 'abc123',
-						tag: 'v1.1.0',
-					},
+						tag: 'v1.1.0'
+					}
 				],
 				[
 					'tilde-lib',
@@ -244,8 +244,8 @@ describe('changeset_generator', () => {
 						bump_type: 'patch',
 						breaking: false,
 						commit: 'def456',
-						tag: 'v1.0.1',
-					},
+						tag: 'v1.0.1'
+					}
 				],
 				[
 					'exact-lib',
@@ -256,8 +256,8 @@ describe('changeset_generator', () => {
 						bump_type: 'patch',
 						breaking: false,
 						commit: 'ghi789',
-						tag: 'v1.0.1',
-					},
+						tag: 'v1.0.1'
+					}
 				],
 				[
 					'gte-lib',
@@ -268,9 +268,9 @@ describe('changeset_generator', () => {
 						bump_type: 'patch',
 						breaking: false,
 						commit: 'jkl012',
-						tag: 'v1.0.1',
-					},
-				],
+						tag: 'v1.0.1'
+					}
+				]
 			]);
 
 			const updates = create_dependency_updates(dependencies, published_versions);
@@ -278,15 +278,15 @@ describe('changeset_generator', () => {
 			// All should have stripped version prefixes
 			assert.strictEqual(
 				updates.find((u) => u.package_name === 'caret-lib')?.from_version,
-				'1.0.0',
+				'1.0.0'
 			);
 			assert.strictEqual(
 				updates.find((u) => u.package_name === 'tilde-lib')?.from_version,
-				'1.0.0',
+				'1.0.0'
 			);
 			assert.strictEqual(
 				updates.find((u) => u.package_name === 'exact-lib')?.from_version,
-				'1.0.0',
+				'1.0.0'
 			);
 			assert.strictEqual(updates.find((u) => u.package_name === 'gte-lib')?.from_version, '1.0.0'); // >= fully stripped
 		});
@@ -301,7 +301,7 @@ describe('changeset_generator', () => {
 
 	describe('create_changeset_for_dependency_updates', () => {
 		test('writes a changeset file under .changeset and returns its path', async () => {
-			const repo = create_mock_repo({name: 'pkg', version: '1.0.0'});
+			const repo = create_mock_repo({ name: 'pkg', version: '1.0.0' });
 			const fs = create_mock_fs_ops();
 			const updates: Array<DependencyVersionChange> = [
 				{
@@ -309,11 +309,11 @@ describe('changeset_generator', () => {
 					from_version: '1.0.0',
 					to_version: '2.0.0',
 					bump_type: 'major',
-					breaking: true,
-				},
+					breaking: true
+				}
 			];
 
-			const path = await create_changeset_for_dependency_updates(repo, updates, {fs_ops: fs});
+			const path = await create_changeset_for_dependency_updates(repo, updates, { fs_ops: fs });
 
 			assert.match(path, /\/test\/pkg\/\.changeset\/dependency-update-.+\.md$/);
 			const content = fs.get(path);
@@ -324,7 +324,7 @@ describe('changeset_generator', () => {
 		});
 
 		test('creates the .changeset directory when it is missing', async () => {
-			const repo = create_mock_repo({name: 'pkg', version: '0.5.0'});
+			const repo = create_mock_repo({ name: 'pkg', version: '0.5.0' });
 			const fs = create_mock_fs_ops();
 			let mkdir_path: string | undefined;
 			const base_mkdir = fs.mkdir;
@@ -341,10 +341,10 @@ describe('changeset_generator', () => {
 						from_version: '0.1.0',
 						to_version: '0.2.0',
 						bump_type: 'minor',
-						breaking: true,
-					},
+						breaking: true
+					}
 				],
-				{fs_ops: fs},
+				{ fs_ops: fs }
 			);
 
 			assert.strictEqual(mkdir_path, '/test/pkg/.changeset');
