@@ -461,7 +461,7 @@ refresh repos (switch to the configured branch, pull, install) first.
 - `@fuzdev/gro` - build tool and task runner
 - `@fuzdev/fuz_ui` - UI components and utilities
 - `@fuzdev/fuz_util` - utility functions
-- `@fuzdev/fuz_css` - CSS framework and design tokens
+- `@fuzdev/fuz_css` - semantic-first CSS framework and design system
 - `@sveltejs/kit` - web framework
 - `svelte` - UI framework
 - `zod` - schema validation
