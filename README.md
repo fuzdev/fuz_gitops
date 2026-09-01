@@ -21,6 +21,22 @@ With fuz_gitops you can:
 - publish metadata about your collections of repos to the web for other users and tools
 - publish multiple interdependent packages in dependency order with automatic dependency updates
 
+## Scope
+
+fuz_gitops runs **deterministic, config-driven operations over a declared set
+of repos** — no LLM in the loop, the repo set comes from `gitops.config.ts`,
+and the unit of work is the collection rather than any one repo. Publishing is
+its flagship capability, not its whole identity.
+
+Deliberately out of scope: single-repo work (that's [gro](https://github.com/fuzdev/gro)),
+work whose resolution differs per repo and needs judgment, machine and server
+state, and **secrets** — fuz_gitops never stores, transports, or reads secret
+material as data, including env-file contents. Its own GitHub API token
+(noted below) is the one credential it uses, to authenticate itself.
+
+See [CLAUDE.md](CLAUDE.md#scope-and-boundaries) for the capability tiers, the
+known gaps, and the CLI direction.
+
 ## Usage
 
 ```bash

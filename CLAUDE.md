@@ -14,6 +14,7 @@ this repo — make the edits and stop, the user commits.
 
 ## Table of Contents
 
+- [Scope and boundaries](#scope-and-boundaries)
 - [Core functionality](#core-functionality)
 - [Architecture](#architecture)
 - [Patterns](#patterns)
@@ -28,6 +29,101 @@ this repo — make the edits and stop, the user commits.
 - [Testing](#testing)
 - [Generated Files & Caches](#generated-files--caches)
 - [Additional Documentation](#additional-documentation)
+
+## Scope and boundaries
+
+fuz_gitops runs **deterministic, config-driven operations over a declared set
+of repos.** Every word is load-bearing:
+
+- **deterministic** — no LLM in the loop. Same config plus same repo states
+  produce the same plan. Everything here is reproducible and reviewable.
+- **config-driven** — the repo set comes from `gitops.config.ts`, not from
+  scanning a directory. A repo the config doesn't name doesn't exist.
+- **operations** — it acts, or faithfully previews acting. Observation that
+  never leads to an action belongs in whatever tool owns your policy checks.
+- **a declared set of repos** — the unit is the *collection*. Single-repo work
+  belongs to `gro`.
+
+Publishing is the flagship vertical, not the identity. Reading the tool as
+"the publishing thing" is what keeps the other tiers thin.
+
+### Capability tiers
+
+Multi-repo work doesn't carry uniform risk. Three tiers, ordered by blast
+radius:
+
+| Tier | Writes | Commands |
+| --- | --- | --- |
+| **observe** | nothing | `gitops_analyze`, `gitops_plan` (publish preview), `gitops_run` with read-only commands |
+| **converge** | working trees, refs | `gitops_sync` |
+| **publish** | npm + git + deploys | `gitops_publish` |
+
+`gitops_plan` belongs to the publishing vertical but sits in **observe**
+because it writes nothing. `gitops_validate` composes across tiers and belongs
+to none of them. Unrelated to the converge tier: the publishing docs below say
+a pass "converges" — that's ordinary fixed-point language for "no new version
+changes discovered."
+
+### Out of scope
+
+- **Single-repo work** — build, check, publish, gen, format. That's `gro`.
+  fuz_gitops orchestrates gro across many repos and delegates hard: it carries
+  no install or cache-healing logic of its own because gro's install path
+  already self-heals npm's stale-cache failure. If gro can do it for one repo,
+  fuz_gitops's job is ordering and reporting, not reimplementation.
+- **Work that needs judgment per repo** — a refactor whose resolution differs
+  in each repo, a migration with per-repo edge cases. The rule that follows:
+  **where a plan would have to guess, it must stop and report rather than
+  guess.** A tool that resolves ambiguity on your behalf across many repos
+  multiplies its mistakes.
+- **Secrets and env files.** fuz_gitops never stores, transports, or reads
+  secret material as data — not as a convenience, not behind a flag. Its own
+  operating credential (`SECRET_GITHUB_API_TOKEN`, read from `.env` and sent
+  only to the GitHub API) is the tool authenticating itself, not fleet secrets
+  passing through it. A gitops config is committed and often public-adjacent;
+  a tool that reads it should never be somewhere secrets could land. Reporting
+  an env file's *presence* is legitimate fleet state; its contents never are.
+- **Machine and server state.** Provisioning and deployment convergence is a
+  different target with its own tooling.
+
+### Known gap: fleet git state
+
+The **observe** tier is thin, and it's the tier everything else should be
+built on. There is no structured, read-only model of each repo's git state —
+configured branch vs actual, ahead/behind against the upstream, dirty split
+into tracked/untracked/staged, unpushed branches, stashes, worktrees, missing
+clones. Today that means reaching for `gitops_run "git status"` and parsing
+porcelain by hand.
+
+`GitOperations` is where this starts: it exposes no `fetch`, no `push` (only
+`push_tag`), no ahead/behind, no upstream tracking, no branch enumeration.
+`@fuzdev/fuz_util`'s `git.ts` already has fetch/push and a workspace status
+that splits staged/unstaged/untracked (which this package currently narrows
+to a boolean); ahead/behind, upstream tracking, and branch/stash/worktree
+enumeration are new code. Surfacing what exists is the cheap first step.
+
+**Designed, not built.** The design's invariants are settled — never `pull`
+across a fleet; model host repo rules; never auto-resolve conflicts (and gate
+any history-changing action on a per-repo verify command before push); model
+write authority per repo; classify unpushed refs by type — but the state
+model and its converge step are not yet implemented.
+
+### Entry points and the CLI direction
+
+Every entry point today is a Gro task (`src/lib/gitops_*.task.ts`). That means
+fuz_gitops runs from a Gro project, consumers add one-line re-export shims,
+and `--config` defaults to the CWD's config.
+
+**Direction, decided but not built:** a standalone TS binary owns the command
+surface and argument parsing, and each `*.task.ts` demotes to a thin
+re-export. The library API stays the real surface — it already is. This can
+land incrementally, one task at a time, with no flag day.
+
+A Rust CLI was considered and set aside: it would split the repo against a TS
+dashboard and a TS publishing cascade that have no reason to move.
+
+`gro gitops_*` remains the supported invocation. Nothing is deprecated, and
+the task modules stay the documented entry point until a binary exists.
 
 ## Core functionality
 
