@@ -65,8 +65,10 @@
 										<!-- eslint-disable-next-line svelte/no-navigation-without-resolve --><a
 											href="{ensure_end(repo.repo_url, '/')}blob/main/{path === 'package.json'
 												? ''
-												: 'src/lib/'}{path}">{path}</a
+												: 'src/lib/'}{path}"
 										>
+											{path}
+										</a>
 									</div>
 								{:else}
 									<span class="chip">{path}</span>

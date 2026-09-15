@@ -20,7 +20,10 @@
 	<section>
 		<menu class="unstyled">
 			<li>
-				<Card href={resolve('/docs')}>docs{#snippet icon()}{site.glyph}{/snippet}</Card>
+				<Card href={resolve('/docs')}>
+					docs
+					{#snippet icon()}{site.glyph}{/snippet}
+				</Card>
 			</li>
 			<li>
 				<Card href={resolve('/tree')} icon="">tree</Card>

@@ -110,13 +110,16 @@
 									title={!check_runs_completed
 										? `status: ${check_runs.status}`
 										: `CI failed: ${check_runs.conclusion}`}
-									>{#if !check_runs_completed}🟡{:else}⚠️{/if}</a
 								>
+									{#if !check_runs_completed}🟡{:else}⚠️{/if}
+								</a>
 							{/if}
 						{:else}
 							<!-- eslint-disable-next-line svelte/no-navigation-without-resolve --><a
-								href={repo.repo_url}>{format_url(repo.repo_url)}</a
+								href={repo.repo_url}
 							>
+								{format_url(repo.repo_url)}
+							</a>
 						{/if}
 					</div>
 				</td>
@@ -124,16 +127,20 @@
 					{#if repo.npm_url}
 						<div class="row">
 							<!-- eslint-disable-next-line svelte/no-navigation-without-resolve --><a
-								href={repo.npm_url}><code>{repo.name}</code></a
+								href={repo.npm_url}
 							>
+								<code>{repo.name}</code>
+							</a>
 						</div>
 					{/if}
 				</td>
 				<td>
 					{#if package_json.version !== '0.0.1'}
 						<!-- eslint-disable-next-line svelte/no-navigation-without-resolve --><a
-							href={repo.changelog_url}>{format_version(package_json.version)}</a
+							href={repo.changelog_url}
 						>
+							{format_version(package_json.version)}
+						</a>
 					{/if}
 				</td>
 				{#each deps as dep (dep)}
@@ -158,8 +165,10 @@
 									<!-- eslint-disable-next-line svelte/no-navigation-without-resolve --><a
 										href={to_pull_url(repo.repo_url, pull)}
 										class="chip"
-										title={pull.title}>#{pull.number}</a
+										title={pull.title}
 									>
+										#{pull.number}
+									</a>
 								{/each}
 							{/if}
 						</div>
