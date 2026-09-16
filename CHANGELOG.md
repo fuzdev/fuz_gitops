@@ -1,5 +1,11 @@
 # @fuzdev/fuz_gitops
 
+## 0.78.1
+
+### Patch Changes
+
+- fix: format generated JSON ([0524412](https://github.com/fuzdev/fuz_gitops/commit/0524412))
+
 ## 0.78.0
 
 ### Minor Changes
