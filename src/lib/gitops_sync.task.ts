@@ -53,8 +53,17 @@ export type Args = z.infer<typeof Args>;
 export const task: Task<Args> = {
 	Args,
 	summary: 'syncs local repos and generates UI data from repo metadata',
-	run: async ({ args, log, svelte_config, invoke_task }) => {
-		const { config, dir, outdir = svelte_config.routes_path, download, check, allow_dirty } = args;
+	run: async (ctx) => {
+		const { args, log, invoke_task } = ctx;
+		// `ctx.svelte_config` is a lazy getter, so it's only read when `outdir` isn't provided
+		const {
+			config,
+			dir,
+			outdir = (await ctx.svelte_config).routes_path,
+			download,
+			check,
+			allow_dirty
+		} = args;
 
 		// `gitops_sync` is the task whose job is to mutate working trees, so it always syncs.
 		const { local_repos } = await get_gitops_ready({
@@ -96,7 +105,7 @@ export const task: Task<Args> = {
 		log.info(`generating ${outfile_json} and ${outfile_ts}`);
 
 		// Generate repos.json with the raw data
-		const json_contents = await format_file(JSON.stringify(repos_json, compactReplacer), {
+		const json_contents = format_file(JSON.stringify(repos_json, compactReplacer), {
 			filepath: outfile_json
 		});
 		const existing_json = existsSync(outfile_json) ? await readFile(outfile_json, 'utf8') : '';
@@ -123,7 +132,7 @@ export const task: Task<Args> = {
 			export const repos_json: Array<RepoJson> = json as unknown as Array<RepoJson>;
 		`;
 		// TODO think about possibly using the `gen` functionality in this task, not sure what the API design could look like
-		const formatted_ts = await format_file(ts_contents, { filepath: outfile_ts });
+		const formatted_ts = format_file(ts_contents, { filepath: outfile_ts });
 		const existing_ts = existsSync(outfile_ts) ? await readFile(outfile_ts, 'utf8') : '';
 		if (existing_ts === formatted_ts) {
 			log.info(`no changes to ${print_path(outfile_ts)}`);
