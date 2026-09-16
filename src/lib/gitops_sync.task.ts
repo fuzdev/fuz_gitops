@@ -106,7 +106,7 @@ export const task: Task<Args> = {
 
 		// Generate repos.json with the raw data
 		const json_contents = format_file(JSON.stringify(repos_json, compactReplacer), {
-			filepath: outfile_json
+			lang: 'json'
 		});
 		const existing_json = existsSync(outfile_json) ? await readFile(outfile_json, 'utf8') : '';
 		const json_changed = existing_json !== json_contents;

@@ -59,7 +59,7 @@ export const create_fs_fetch_value_cache = async (
 				return false; // no changes to save
 			}
 			await mkdir(dirname(data_path), { recursive: true });
-			await writeFile(data_path, format_file(serialize_cache(data), { filepath: data_path }));
+			await writeFile(data_path, format_file(serialize_cache(data), { lang: 'json' }));
 			return true;
 		}
 	};
