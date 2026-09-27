@@ -27,7 +27,7 @@ export interface FetchCache {
  * cache is cleared (delete file) and starts fresh. This handles format changes.
  *
  * Uses `structuredClone` to track changes - only writes to disk if data modified.
- * Formatted with Prettier before writing for version control friendliness.
+ * Formatted with gro's `format_file` before writing for version control friendliness.
  *
  * @param name - cache filename (without .json extension)
  * @param dir - cache directory (defaults to `.gro/build/fetch/`)
