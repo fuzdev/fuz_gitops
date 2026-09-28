@@ -7,7 +7,11 @@
 
 pub mod discover;
 pub mod error;
+pub mod git;
+pub mod porcelain;
+pub mod probe;
 pub mod registry;
+pub mod state;
 
 /// The version of the `repos status --json` document. Bumped on any breaking
 /// change to its shape (a removal, a rename, a changed meaning); additions
