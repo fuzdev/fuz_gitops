@@ -90,26 +90,29 @@ pub fn fetches(entry: &Entry) -> bool {
 /// Probes one entry.
 pub fn probe(entry: &Entry, cx: ProbeContext<'_>) -> ProbeRun {
     let start = Instant::now();
-    let dir = cx.root.join(&entry.dir);
-    let mut run = ProbeRun {
-        probed: Probed::Missing,
-        fetch: None,
-        fetch_time: Duration::ZERO,
-        probe_time: Duration::ZERO,
-    };
-    run.probed = match probe_present(entry, &dir, cx, &mut run) {
-        Ok(p) => p,
-        Err(error) => Probed::Failed { error },
-    };
-    run.probe_time = start.elapsed().saturating_sub(run.fetch_time);
-    run
+    let mut fetch = FetchRun::default();
+    let probed = probe_present(entry, &cx.root.join(&entry.dir), cx, &mut fetch)
+        .unwrap_or_else(|error| Probed::Failed { error });
+    ProbeRun {
+        probed,
+        fetch: fetch.result,
+        fetch_time: fetch.time,
+        probe_time: start.elapsed().saturating_sub(fetch.time),
+    }
+}
+
+/// The fetch step's outcome, recorded even when a later step fails.
+#[derive(Debug, Default)]
+struct FetchRun {
+    result: Option<Result<(), String>>,
+    time: Duration,
 }
 
 fn probe_present(
     entry: &Entry,
     dir: &Path,
     cx: ProbeContext<'_>,
-    run: &mut ProbeRun,
+    fetch: &mut FetchRun,
 ) -> Result<Probed, String> {
     // 1. presence
     if !dir.exists() {
@@ -172,7 +175,7 @@ fn probe_present(
                 batch_ssh: !config.ssh_command && !Git::env_configures_ssh(),
             }),
         };
-        run.fetch = Some(
+        fetch.result = Some(
             cx.git
                 .output(dir, &args, net)
                 .map(drop)
@@ -181,10 +184,10 @@ fn probe_present(
                     e => e.to_string(),
                 }),
         );
-        run.fetch_time = start.elapsed();
+        fetch.time = start.elapsed();
     }
     // a fetch may have added shallow roots
-    let shallow_roots = if run.fetch.is_some() {
+    let shallow_roots = if fetch.result.is_some() {
         read_shallow_roots(&common_dir)
     } else {
         shallow_roots

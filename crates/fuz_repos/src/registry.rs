@@ -191,8 +191,6 @@ pub enum EntryKind {
 
 /// One registry entry, repo or reference, with its defaults and derived
 /// fields resolved — what the probe and the report work from.
-// Independent declared facts (and one derived), not a hidden state machine.
-#[allow(clippy::struct_excessive_bools)]
 #[derive(Debug, Clone)]
 pub struct Entry {
     pub key: String,
@@ -207,8 +205,6 @@ pub struct Entry {
     pub visibility: Option<Visibility>,
     pub ci: bool,
     pub checkout_mode: CheckoutMode,
-    /// The declared clone recipe, not the checkout's actual layout.
-    pub shallow: bool,
 }
 
 impl Registry {
@@ -260,7 +256,6 @@ impl Registry {
                     .clone()
                     .unwrap_or_else(|| DEFAULT_BRANCH.to_owned()),
             },
-            shallow: false,
         });
         let references = self.references.iter().map(|(key, r)| Entry {
             key: key.clone(),
@@ -272,7 +267,6 @@ impl Registry {
             visibility: None,
             ci: false,
             checkout_mode: r.checkout.clone(),
-            shallow: r.shallow,
         });
         repos.chain(references).collect()
     }
@@ -377,7 +371,7 @@ purpose = "leave HEAD"
         assert!(!loose.writable && !loose.ci && loose.visibility.is_none());
 
         let spec = &entries[4];
-        assert!(spec.writable && spec.shallow);
+        assert!(spec.writable);
     }
 
     #[test]

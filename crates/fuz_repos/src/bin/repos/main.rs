@@ -75,11 +75,12 @@ fn main() -> ExitCode {
     let cli = match Cli::from_args(&["repos"], &args) {
         Ok(cli) => cli,
         Err(EarlyExit { output, status }) => {
+            // argh's output already ends in a newline
             return if status.is_ok() {
-                println!("{output}");
+                print!("{output}");
                 ExitCode::SUCCESS
             } else {
-                eprintln!("{output}");
+                eprint!("{output}");
                 ExitCode::from(2)
             };
         }

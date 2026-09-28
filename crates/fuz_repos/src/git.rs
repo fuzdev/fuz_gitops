@@ -336,12 +336,10 @@ mod tests {
     fn runs_git_in_a_dir() {
         let git = Git::new();
         let tmp = tempfile::tempdir().unwrap();
-        let out = git.output_string(tmp.path(), &["--version"], CallOptions::default());
-        match out {
-            Ok(v) => assert!(v.starts_with("git version"), "{v}"),
-            Err(GitError::NotFound) => {}
-            Err(e) => panic!("{e}"),
-        }
+        let v = git
+            .output_string(tmp.path(), &["--version"], CallOptions::default())
+            .unwrap();
+        assert!(v.starts_with("git version"), "{v}");
         assert_eq!(git.spawns(), 1);
     }
 }

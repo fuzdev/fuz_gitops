@@ -69,18 +69,6 @@ impl Error {
             Self::RegistryRead { .. } | Self::RegistryParse { .. } | Self::Io { .. } => None,
         }
     }
-
-    /// A stable `snake_case` name for the variant, for `--json` error documents.
-    pub const fn kind(&self) -> &'static str {
-        match self {
-            Self::RegistryNotFound { .. } => "registry_not_found",
-            Self::RegistryRead { .. } => "registry_read",
-            Self::RegistryParse { .. } => "registry_parse",
-            Self::GitNotFound => "git_not_found",
-            Self::UnknownEntry { .. } => "unknown_entry",
-            Self::Io { .. } => "io",
-        }
-    }
 }
 
 /// Result alias for the crate.

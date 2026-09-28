@@ -213,7 +213,6 @@ mod tests {
             visibility: None,
             ci: false,
             checkout_mode: mode,
-            shallow: false,
         }
     }
 
