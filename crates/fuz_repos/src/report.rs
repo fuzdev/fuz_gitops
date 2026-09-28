@@ -71,7 +71,12 @@ pub struct EntryStatus {
     pub needs_human: Vec<NeedsHuman>,
     /// A git call that failed after the repo was found; the facts above are
     /// then incomplete.
+    // TODO: settle at the pass 1 checkpoint — a plain message for now, not
+    // yet in the spec's types
     pub probe_error: Option<String>,
     /// Under `--fetch`, git's message when the fetch failed.
+    // TODO: slice 2 classifies fetch failures from stderr (a missing remote
+    // ref is the upstream gone; auth, host-key, and connection errors are the
+    // host unreachable), likely turning this into a `kind`-tagged enum
     pub fetch_error: Option<String>,
 }
