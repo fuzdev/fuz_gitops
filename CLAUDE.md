@@ -101,9 +101,9 @@ porcelain by hand.
 
 **Designed, not built** — as the Rust `repos` tool, not by growing
 `GitOperations`. Its invariants are settled: never `pull` across a set of repos
-(fetch, classify, then fast-forward or report); model host repo rules; never
-auto-resolve conflicts (and gate any history-changing action on a per-repo
-verify command before push); derive write authority from owner accounts;
+(fetch, classify, then fast-forward or report); never rebase, merge, or
+auto-resolve conflicts — anything history-changing stops and reports, so host
+repo rules never need modelling; derive write authority from owner accounts;
 classify unpushed refs by type.
 
 ### The TS and Rust halves
@@ -113,13 +113,14 @@ from a Gro project, consumers add one-line re-export shims, and `--config`
 defaults to the CWD's config. `gro gitops_*` stays the supported invocation for
 a project's own config, publishing, and dashboard data.
 
-**Direction, decided but not built:** the Rust side lives in this repo as three
-crates — `fuz_repos_types` (IO-free types; the JSON contract other tools read),
-`fuz_repos_core` (registry, git plumbing, plan/apply, policy), and `fuz_repos`
-(the `repos` CLI). Rust takes everything but the dashboard: git state and sync,
-the gateway, GitHub metadata, and eventually the publish cascade. The SvelteKit
-dashboard stays TS and reads the Rust tool's JSON. Pieces move one at a time;
-nothing is deprecated until its Rust replacement ships.
+**Direction, decided but not built:** the Rust side lives in this repo as one
+crate, `fuz_repos` (a library plus the `repos` binary), and it owns git: repo
+state, sync, and the agent push path — git only, no API calls. TS keeps
+everything else: the dashboard, its data step (GitHub metadata and
+svelte-docinfo library analysis), and the publish cascade. Once `repos sync`
+ships, the TS tasks stop cloning and pulling and read repo state from
+`repos status --json`, and a project's `gitops.config.ts` shrinks to a list of
+registry keys. Nothing is deprecated until its Rust replacement ships.
 
 ## Core functionality
 
