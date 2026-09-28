@@ -24,18 +24,20 @@ With fuz_gitops you can:
 ## Scope
 
 fuz_gitops runs **deterministic, config-driven operations over a declared set
-of repos** — no LLM in the loop, the repo set comes from `gitops.config.ts`,
-and the unit of work is the collection rather than any one repo. Publishing is
-its flagship capability, not its whole identity.
+of repos** — no LLM in the loop, and the repo set comes from a declared list
+(`gitops.config.ts` today). Publishing is its flagship capability, not its whole
+identity. A Rust `repos` tool is planned in this repo — syncing every declared
+repo and acting as the gateway agents use for pushes — along with a rename to
+`fuz_repos`.
 
-Deliberately out of scope: single-repo work (that's [gro](https://github.com/fuzdev/gro)),
+Deliberately out of scope: single-repo build work (that's [gro](https://github.com/fuzdev/gro)),
 work whose resolution differs per repo and needs judgment, machine and server
 state, and **secrets** — fuz_gitops never stores, transports, or reads secret
 material as data, including env-file contents. Its own GitHub API token
 (noted below) is the one credential it uses, to authenticate itself.
 
 See [CLAUDE.md](CLAUDE.md#scope-and-boundaries) for the capability tiers, the
-known gaps, and the CLI direction.
+known gaps, and the TS/Rust split.
 
 ## Usage
 
