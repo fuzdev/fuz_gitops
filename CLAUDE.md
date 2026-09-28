@@ -99,8 +99,8 @@ into tracked/untracked/staged, unpushed branches, stashes, worktrees, missing
 clones. Today that means reaching for `gitops_run "git status"` and parsing
 porcelain by hand.
 
-**Designed, not built** — as the Rust `repos` tool, not by growing
-`GitOperations`. Its invariants are settled: never `pull` across a set of repos
+**Being built** as the Rust `repos` tool, not by growing `GitOperations` — an
+early read-only `repos status` exists (see below). Its invariants are settled: never `pull` across a set of repos
 (fetch, classify, then fast-forward or report); never rebase, merge, or
 auto-resolve conflicts — anything history-changing stops and reports, so host
 repo rules never need modelling; derive write authority from owner accounts;
@@ -113,9 +113,12 @@ from a Gro project, consumers add one-line re-export shims, and `--config`
 defaults to the CWD's config. `gro gitops_*` stays the supported invocation for
 a project's own config, publishing, and dashboard data.
 
-**Direction, decided but not built:** the Rust side lives in this repo as one
-crate, `fuz_repos` (a library plus the `repos` binary), and it owns git: repo
-state, sync, and the agent push path — git only, no API calls. TS keeps
+**Direction, decided and underway:** the Rust side lives in this repo as one
+crate, `crates/fuz_repos` (a library plus the `repos` binary), and it owns git:
+repo state, sync, and the agent push path — git only, no API calls. So far it
+has `repos status`: every registry entry's branches and their relation to
+origin, uncommitted work, and what needs a human, grouped by what to do next,
+from local refs (`--fetch` refreshes them first). Sync and push aren't built. TS keeps
 everything else: the dashboard, its data step (GitHub metadata and
 svelte-docinfo library analysis), and the publish cascade. Once `repos sync`
 ships, the TS tasks stop cloning and pulling and read repo state from
@@ -504,6 +507,22 @@ gro deploy     # deploy to GitHub Pages
 # Fixture Management
 gro src/test/fixtures/generate_repos # generate test git repos from fixture data
 gro test src/test/fixtures/check     # validate gitops commands against fixture expectations
+```
+
+The Rust `repos` tool (`crates/fuz_repos`, a Cargo workspace beside the
+SvelteKit app; gro never invokes cargo):
+
+```bash
+cargo install --path crates/fuz_repos --locked # install the `repos` binary
+repos status                 # git state of every repos.toml entry, local refs only
+repos status gro .           # narrow to targets: a key, a dir name, or a path
+repos status --verbose       # plus stash counts and a block per entry
+repos status --json          # the versioned report
+repos status --fetch         # fetch owned entries from origin first (writes remote-tracking refs)
+repos status --jobs 16 --timings # parallelism, and per-phase timings on stderr
+
+cargo clippy --workspace --all-targets -- -D warnings
+cargo test --workspace
 ```
 
 ### Commands by Side Effects
