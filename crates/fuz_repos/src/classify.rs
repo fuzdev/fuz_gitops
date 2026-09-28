@@ -1,9 +1,9 @@
-//! Probe facts → each branch's relation and the entry's `needs_human`
-//! reasons. Pure.
+//! Probe facts → each branch's relation and verdict, and the entry's
+//! `needs_human` reasons. Pure.
 //!
-//! Entry-level reasons live here; branch-level ones (diverged, unmapped,
-//! ahead on an archived repo, shallow with local commits) are read off the
-//! relations by whatever renders them.
+//! The verdict is the one place sync's per-branch decision is made: `status`
+//! previews it, `sync` executes it, and JSON consumers read it rather than
+//! re-deriving policy from relations.
 
 use std::time::SystemTime;
 
@@ -12,9 +12,13 @@ use serde::Serialize;
 use crate::porcelain::{BranchConfig, Track};
 use crate::probe::{BranchFacts, RepoFacts};
 use crate::registry::{CheckoutMode, Entry, RepoUrl};
-use crate::state::{BranchStatus, Head, InProgressOp, Relation};
+use crate::state::{
+    BranchNeedsHuman, BranchStatus, CleanupReason, Head, InProgressOp, Relation, SyncAction,
+    Verdict,
+};
 
-/// Why `sync` would stop on an entry and leave it to a person.
+/// Why `sync` would stop on an entry and leave it to a person. Branch-level
+/// reasons are on each branch's `Verdict`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum NeedsHuman {
@@ -47,6 +51,25 @@ pub enum NeedsHuman {
     },
 }
 
+impl NeedsHuman {
+    /// Whether the reason stops sync on the whole entry, holding every
+    /// branch's action: an operation mid-way owns the checkout, and a wrong
+    /// origin would move branches to another repo's history. The rest concern
+    /// one branch or the checkout's HEAD, and leave the other branches safe
+    /// to sync.
+    pub const fn holds_entry(&self) -> bool {
+        match self {
+            Self::NotARepo { .. }
+            | Self::OperationInProgress { .. }
+            | Self::OriginMismatch { .. } => true,
+            Self::DefaultBranchMissing { .. }
+            | Self::DefaultBranchNoUpstream { .. }
+            | Self::UnexpectedDetached { .. }
+            | Self::PinnedOnBranch { .. } => false,
+        }
+    }
+}
+
 /// What `classify` derives for a present repo.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Classified {
@@ -64,6 +87,8 @@ pub fn classify(entry: &Entry, facts: &RepoFacts, now: SystemTime) -> Classified
         .duration_since(SystemTime::UNIX_EPOCH)
         .unwrap_or_default()
         .as_secs();
+    let needs_human = needs_human(entry, facts);
+    let held = needs_human.iter().any(NeedsHuman::holds_entry);
     let branches = facts
         .branches
         .iter()
@@ -75,23 +100,26 @@ pub fn classify(entry: &Entry, facts: &RepoFacts, now: SystemTime) -> Classified
             } else {
                 return None;
             };
+            let upstream = facts
+                .config
+                .branches
+                .get(&b.branch.name)
+                .and_then(BranchConfig::display);
+            let verdict = verdict(entry, b, relation, upstream.is_some(), held);
             Some(BranchStatus {
                 name: b.branch.name.clone(),
-                upstream: facts
-                    .config
-                    .branches
-                    .get(&b.branch.name)
-                    .and_then(BranchConfig::display),
+                upstream,
                 worktree: b.branch.worktree.clone(),
                 unique_commits: b.unique_commits,
                 newest_commit_age_secs: now_secs.saturating_sub(b.branch.committer_time),
                 relation,
+                verdict,
             })
         })
         .collect();
     Classified {
         branches,
-        needs_human: needs_human(entry, facts),
+        needs_human,
     }
 }
 
@@ -118,6 +146,79 @@ fn relation(b: &BranchFacts, facts: &RepoFacts) -> Relation {
         (Track::Ahead(commits), false) => Relation::Ahead { commits },
         (Track::Behind(commits), false) => Relation::Behind { commits },
         (Track::Diverged { ahead, behind }, false) => Relation::Diverged { ahead, behind },
+    }
+}
+
+/// What sync does with a branch. `has_upstream` is whether any upstream is
+/// configured; `held` whether an entry-level reason stops sync on the entry.
+fn verdict(
+    entry: &Entry,
+    b: &BranchFacts,
+    relation: Relation,
+    has_upstream: bool,
+    held: bool,
+) -> Verdict {
+    let follow = match &entry.checkout_mode {
+        CheckoutMode::Follow { branch } => Some(branch.as_str()),
+        CheckoutMode::Pinned | CheckoutMode::Head => None,
+    };
+    let action = match relation {
+        Relation::Ahead { .. } if entry.archived => {
+            return Verdict::NeedsHuman {
+                reason: BranchNeedsHuman::ArchivedAhead,
+            };
+        }
+        Relation::Ahead { commits } => SyncAction::Push { commits },
+        Relation::Behind { commits } => SyncAction::FastForward { commits },
+        // nothing local at stake: a stale pointer at an old root
+        Relation::Shallow if b.unique_commits == 0 => SyncAction::Move,
+        Relation::Shallow => {
+            return Verdict::NeedsHuman {
+                reason: BranchNeedsHuman::ShallowLocalWork,
+            };
+        }
+        Relation::Diverged { .. } => {
+            return Verdict::NeedsHuman {
+                reason: BranchNeedsHuman::Diverged,
+            };
+        }
+        Relation::Unmapped => {
+            return Verdict::NeedsHuman {
+                reason: BranchNeedsHuman::Unmapped,
+            };
+        }
+        Relation::Gone => {
+            return Verdict::Cleanup {
+                reason: CleanupReason::UpstreamGone,
+            };
+        }
+        Relation::Untracked if b.unique_commits > 0 => return Verdict::LocalOnly,
+        // nothing unique and no upstream: merged, unless it's checked out (a
+        // fresh branch) or the registry's branch (a needs-human reason)
+        Relation::Untracked
+            if !has_upstream
+                && b.branch.worktree.is_none()
+                && Some(b.branch.name.as_str()) != follow =>
+        {
+            return Verdict::Cleanup {
+                reason: CleanupReason::Merged,
+            };
+        }
+        // in sync; tracking another remote; checked out with nothing committed
+        Relation::InSync | Relation::Untracked => return Verdict::Quiet,
+    };
+    // a pinned checkout is never fetched, moved, or pushed; commits it
+    // carries are local work
+    if entry.checkout_mode == CheckoutMode::Pinned {
+        return match action {
+            SyncAction::Push { .. } => Verdict::LocalOnly,
+            SyncAction::FastForward { .. } | SyncAction::Move => Verdict::Quiet,
+        };
+    }
+    if held {
+        Verdict::Held { action }
+    } else {
+        Verdict::Act { action }
     }
 }
 
@@ -382,6 +483,211 @@ mod tests {
         ];
         let want: Vec<_> = want.iter().map(|(n, r)| ((*n).to_owned(), *r)).collect();
         assert_eq!(got, want);
+    }
+
+    fn verdicts(entry: &Entry, f: &RepoFacts) -> Vec<(String, Verdict)> {
+        classify(entry, f, now())
+            .branches
+            .into_iter()
+            .map(|b| (b.name, b.verdict))
+            .collect()
+    }
+
+    fn named(want: &[(&str, Verdict)]) -> Vec<(String, Verdict)> {
+        want.iter().map(|(n, v)| ((*n).to_owned(), *v)).collect()
+    }
+
+    const fn act(action: SyncAction) -> Verdict {
+        Verdict::Act { action }
+    }
+
+    const fn needs(reason: BranchNeedsHuman) -> Verdict {
+        Verdict::NeedsHuman { reason }
+    }
+
+    #[test]
+    fn owned_verdicts() {
+        let mut f = facts(
+            on("fresh"),
+            &[
+                b("main", None, false, Track::Even),
+                b("ahead", O, true, Track::Ahead(2)).unique(2),
+                b("behind", O, true, Track::Behind(3)),
+                b(
+                    "diverged",
+                    O,
+                    true,
+                    Track::Diverged {
+                        ahead: 1,
+                        behind: 4,
+                    },
+                )
+                .unique(1),
+                b("gone", O, true, Track::Gone).unique(1),
+                b("unmapped", O, false, Track::Even).unique(5),
+                b("local", None, false, Track::Even).unique(1),
+                b("merged", None, false, Track::Even),
+                b("other", Some("upstream"), true, Track::Behind(9)),
+                b("fresh", None, false, Track::Even),
+            ],
+        );
+        f.branches[9].branch.worktree = Some("/ws/app".into());
+        assert_eq!(
+            verdicts(&owned(follow("main")), &f),
+            named(&[
+                // the registry's branch without an upstream is an entry
+                // reason, not merged work
+                ("main", Verdict::Quiet),
+                ("ahead", act(SyncAction::Push { commits: 2 })),
+                ("behind", act(SyncAction::FastForward { commits: 3 })),
+                ("diverged", needs(BranchNeedsHuman::Diverged)),
+                (
+                    "gone",
+                    Verdict::Cleanup {
+                        reason: CleanupReason::UpstreamGone
+                    }
+                ),
+                ("unmapped", needs(BranchNeedsHuman::Unmapped)),
+                ("local", Verdict::LocalOnly),
+                (
+                    "merged",
+                    Verdict::Cleanup {
+                        reason: CleanupReason::Merged
+                    }
+                ),
+                ("other", Verdict::Quiet),
+                // checked out with nothing committed: a fresh branch
+                ("fresh", Verdict::Quiet),
+            ])
+        );
+    }
+
+    #[test]
+    fn entry_reasons_hold_every_action() {
+        let branches = [
+            b("main", O, true, Track::Ahead(1)).unique(1),
+            b("feat", O, true, Track::Behind(2)),
+            b("wip", None, false, Track::Even).unique(1),
+        ];
+        let held = [
+            (
+                "main",
+                Verdict::Held {
+                    action: SyncAction::Push { commits: 1 },
+                },
+            ),
+            (
+                "feat",
+                Verdict::Held {
+                    action: SyncAction::FastForward { commits: 2 },
+                },
+            ),
+            // not an action, so not held
+            ("wip", Verdict::LocalOnly),
+        ];
+        let e = owned(follow("main"));
+
+        let mut drift = facts(on("main"), &branches);
+        drift.config.origin_url = Some("git@github.com:someone/app".into());
+        assert_eq!(verdicts(&e, &drift), named(&held));
+
+        let mut rebasing = facts(on("main"), &branches);
+        rebasing.in_progress = Some(InProgressOp::Rebase);
+        assert_eq!(verdicts(&e, &rebasing), named(&held));
+
+        // a branch-scoped reason leaves the other branches to sync
+        let detached = facts(
+            Head::Detached {
+                commit: "abc".into(),
+            },
+            &branches,
+        );
+        assert_eq!(
+            verdicts(&e, &detached)[..2],
+            named(&[
+                ("main", act(SyncAction::Push { commits: 1 })),
+                ("feat", act(SyncAction::FastForward { commits: 2 })),
+            ])
+        );
+    }
+
+    #[test]
+    fn archived_and_pinned_verdicts() {
+        let f = facts(
+            on("main"),
+            &[
+                b("main", O, true, Track::Ahead(1)).unique(1),
+                b("feat", O, true, Track::Behind(2)),
+            ],
+        );
+        let archived = Entry {
+            archived: true,
+            ..owned(follow("main"))
+        };
+        assert_eq!(
+            verdicts(&archived, &f),
+            named(&[
+                ("main", needs(BranchNeedsHuman::ArchivedAhead)),
+                // the host serves reads, so behind still fast-forwards
+                ("feat", act(SyncAction::FastForward { commits: 2 })),
+            ])
+        );
+        // a pinned checkout is never moved or pushed; its commits are local
+        // work
+        assert_eq!(
+            verdicts(&owned(CheckoutMode::Pinned), &f),
+            named(&[("main", Verdict::LocalOnly), ("feat", Verdict::Quiet)])
+        );
+    }
+
+    #[test]
+    fn shallow_verdicts() {
+        let mut f = facts(
+            on("main"),
+            &[
+                b(
+                    "moved",
+                    O,
+                    true,
+                    Track::Diverged {
+                        ahead: 1,
+                        behind: 1,
+                    },
+                ),
+                b(
+                    "stranded",
+                    O,
+                    true,
+                    Track::Diverged {
+                        ahead: 2,
+                        behind: 1,
+                    },
+                )
+                .unique(1),
+            ],
+        );
+        f.layout.shallow = true;
+        assert_eq!(
+            verdicts(&owned(CheckoutMode::Head), &f),
+            named(&[
+                ("moved", act(SyncAction::Move)),
+                ("stranded", needs(BranchNeedsHuman::ShallowLocalWork)),
+            ])
+        );
+    }
+
+    #[test]
+    fn third_party_local_work_is_local_only() {
+        let f = facts(
+            Head::Detached {
+                commit: "abc".into(),
+            },
+            &[b("audit", None, false, Track::Even).unique(2)],
+        );
+        assert_eq!(
+            verdicts(&third_party(CheckoutMode::Head), &f),
+            named(&[("audit", Verdict::LocalOnly)])
+        );
     }
 
     #[test]

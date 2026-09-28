@@ -6,7 +6,10 @@ use std::fmt::Write as _;
 use fuz_repos::classify::NeedsHuman;
 use fuz_repos::registry::{CheckoutMode, EntryKind, Visibility};
 use fuz_repos::report::{EntryStatus, StatusReport};
-use fuz_repos::state::{BranchStatus, Head, Presence, Relation, Uncommitted};
+use fuz_repos::state::{
+    BranchNeedsHuman, BranchStatus, CleanupReason, Head, Presence, Relation, SyncAction,
+    Uncommitted, Verdict,
+};
 
 /// The label column's width.
 const LABEL_WIDTH: usize = 13;
@@ -60,17 +63,12 @@ pub fn render_summary(report: &StatusReport, paths: Paths<'_>, verbose: bool) ->
         let hint = "hint: git -C <dir> remote set-url origin <url> (each under --verbose)";
         line("", &[hint.to_owned()], "");
     }
-    let sync: Vec<String> = [
-        ("push", &g.push),
-        ("ff", &g.ff),
-        ("move", &g.moves),
-        ("clone", &g.clone),
-    ]
-    .into_iter()
-    .filter(|(_, items)| !items.is_empty())
-    .map(|(verb, items)| format!("{verb} {}", items.join(", ")))
-    .collect();
+    let mut sync = g.act.verbs();
+    if !g.clone.is_empty() {
+        sync.push(format!("clone {}", g.clone.join(", ")));
+    }
     line("sync would", &sync, " · ");
+    line("held", &g.held.verbs(), " · ");
     line("local-only", &g.local_only, "  ");
     line("uncommitted", &g.uncommitted, "  ");
     line("cleanup", &g.cleanup, "  ");
@@ -91,14 +89,48 @@ struct Counts {
     pinned: u32,
 }
 
+/// Sync actions by verb, each item a labeled branch.
+#[derive(Debug, Default)]
+struct Actions {
+    push: Vec<String>,
+    ff: Vec<String>,
+    moves: Vec<String>,
+}
+
+impl Actions {
+    fn add(&mut self, action: SyncAction, label: String) {
+        match action {
+            SyncAction::Push { commits } => self.push.push(format!("{label} +{commits}")),
+            SyncAction::FastForward { commits } => self.ff.push(format!("{label} −{commits}")),
+            SyncAction::Move => self.moves.push(label),
+        }
+    }
+
+    /// `push a +1, b +2`, `ff …`, `move …`, omitting empty verbs.
+    fn verbs(&self) -> Vec<String> {
+        [
+            ("push", &self.push),
+            ("ff", &self.ff),
+            ("move", &self.moves),
+        ]
+        .into_iter()
+        .filter(|(_, items)| !items.is_empty())
+        .map(|(verb, items)| format!("{verb} {}", items.join(", ")))
+        .collect()
+    }
+
+    const fn len(&self) -> usize {
+        self.push.len() + self.ff.len() + self.moves.len()
+    }
+}
+
 #[derive(Debug, Default)]
 struct Groups {
     failed: Vec<String>,
     needs_human: Vec<String>,
     origin_drift: Vec<String>,
-    push: Vec<String>,
-    ff: Vec<String>,
-    moves: Vec<String>,
+    act: Actions,
+    held: Actions,
     clone: Vec<String>,
     local_only: Vec<String>,
     uncommitted: Vec<String>,
@@ -148,43 +180,28 @@ impl Groups {
             self.clone.push(key.clone());
         }
         for b in &e.branches {
-            match b.relation {
-                Relation::Diverged { ahead, behind } => {
-                    self.needs_human
-                        .push(format!("{} (diverged +{ahead} −{behind})", label(b)));
-                }
-                Relation::Unmapped => self
-                    .needs_human
-                    .push(format!("{} (outside refspec)", label(b))),
-                // nothing local at stake: the branch can move to the fetched tip
-                Relation::Shallow if b.unique_commits == 0 => self.moves.push(label(b)),
-                Relation::Shallow => {
-                    self.needs_human.push(format!(
-                        "{} (shallow, tips differ, +{} local)",
-                        label(b),
-                        b.unique_commits
-                    ));
-                }
-                Relation::Ahead { commits } if e.archived => {
-                    self.needs_human
-                        .push(format!("{} (archived, +{commits})", label(b)));
-                }
-                Relation::Ahead { commits } if e.writable => {
-                    self.push.push(format!("{} +{commits}", label(b)));
-                }
-                Relation::Behind { commits } if e.writable => {
-                    self.ff.push(format!("{} −{commits}", label(b)));
-                }
-                Relation::Gone if e.writable => {
-                    let unique = if b.unique_commits > 0 {
-                        format!(", +{}", b.unique_commits)
-                    } else {
-                        String::new()
+            match b.verdict {
+                Verdict::Quiet => {}
+                Verdict::Act { action } => self.act.add(action, label(b)),
+                Verdict::Held { action } => self.held.add(action, label(b)),
+                Verdict::NeedsHuman { reason } => {
+                    let why = match (reason, b.relation) {
+                        (BranchNeedsHuman::Diverged, Relation::Diverged { ahead, behind }) => {
+                            format!("diverged +{ahead} −{behind}")
+                        }
+                        (BranchNeedsHuman::Diverged, _) => "diverged".into(),
+                        (BranchNeedsHuman::Unmapped, _) => "outside refspec".into(),
+                        (BranchNeedsHuman::ArchivedAhead, Relation::Ahead { commits }) => {
+                            format!("archived, +{commits}")
+                        }
+                        (BranchNeedsHuman::ArchivedAhead, _) => "archived, ahead".into(),
+                        (BranchNeedsHuman::ShallowLocalWork, _) => {
+                            format!("shallow, tips differ, +{} local", b.unique_commits)
+                        }
                     };
-                    self.cleanup
-                        .push(format!("{} (upstream gone{unique})", label(b)));
+                    self.needs_human.push(format!("{} ({why})", label(b)));
                 }
-                Relation::Untracked if b.unique_commits > 0 => {
+                Verdict::LocalOnly => {
                     let read_only = if e.writable { "" } else { ", read-only" };
                     self.local_only.push(format!(
                         "{} (+{}, {}{read_only})",
@@ -193,21 +210,20 @@ impl Groups {
                         format_age(b.newest_commit_age_secs)
                     ));
                 }
-                // nothing unique and no upstream: merged, unless it's the
-                // default branch (a needs-human reason) or checked out
-                Relation::Untracked
-                    if e.writable
-                        && b.upstream.is_none()
-                        && b.worktree.is_none()
-                        && Some(b.name.as_str()) != follow =>
-                {
-                    self.cleanup.push(format!("{} (merged)", label(b)));
+                Verdict::Cleanup {
+                    reason: CleanupReason::UpstreamGone,
+                } => {
+                    let unique = if b.unique_commits > 0 {
+                        format!(", +{}", b.unique_commits)
+                    } else {
+                        String::new()
+                    };
+                    self.cleanup
+                        .push(format!("{} (upstream gone{unique})", label(b)));
                 }
-                Relation::InSync
-                | Relation::Ahead { .. }
-                | Relation::Behind { .. }
-                | Relation::Gone
-                | Relation::Untracked => {}
+                Verdict::Cleanup {
+                    reason: CleanupReason::Merged,
+                } => self.cleanup.push(format!("{} (merged)", label(b))),
             }
         }
         for c in &e.checkouts {
@@ -231,9 +247,8 @@ impl Groups {
         self.failed.len()
             + self.needs_human.len()
             + self.origin_drift.len()
-            + self.push.len()
-            + self.ff.len()
-            + self.moves.len()
+            + self.act.len()
+            + self.held.len()
             + self.clone.len()
             + self.local_only.len()
             + self.uncommitted.len()
@@ -389,6 +404,9 @@ pub fn render_entry(e: &EntryStatus, paths: Paths<'_>) -> String {
         if b.worktree.is_some() {
             detail.push_str(" · checked out");
         }
+        if let Some(verdict) = verdict_label(b.verdict) {
+            let _ = write!(detail, " → {verdict}");
+        }
         let _ = writeln!(
             out,
             "  {:<10}{:<name_width$}  {:<upstream_width$}  {detail}",
@@ -452,6 +470,27 @@ fn relation_label(r: Relation) -> String {
         Relation::Unmapped => "outside refspec".into(),
         Relation::Untracked => "untracked".into(),
     }
+}
+
+/// The verdict for `--verbose`'s branch lines; `None` when quiet.
+fn verdict_label(v: Verdict) -> Option<&'static str> {
+    let action = |a| match a {
+        SyncAction::Push { .. } => "push",
+        SyncAction::FastForward { .. } => "ff",
+        SyncAction::Move => "move",
+    };
+    Some(match v {
+        Verdict::Quiet => return None,
+        Verdict::Act { action: a } => action(a),
+        Verdict::Held { action: a } => match a {
+            SyncAction::Push { .. } => "held push",
+            SyncAction::FastForward { .. } => "held ff",
+            SyncAction::Move => "held move",
+        },
+        Verdict::NeedsHuman { .. } => "needs human",
+        Verdict::LocalOnly => "local-only",
+        Verdict::Cleanup { .. } => "cleanup",
+    })
 }
 
 fn uncommitted_detail(u: &Uncommitted) -> String {
@@ -533,7 +572,13 @@ mod tests {
         }
     }
 
-    fn branch(name: &str, upstream: Option<&str>, relation: Relation, unique: u32) -> BranchStatus {
+    fn branch(
+        name: &str,
+        upstream: Option<&str>,
+        relation: Relation,
+        unique: u32,
+        verdict: Verdict,
+    ) -> BranchStatus {
         BranchStatus {
             name: name.into(),
             upstream: upstream.map(str::to_owned),
@@ -541,7 +586,20 @@ mod tests {
             unique_commits: unique,
             newest_commit_age_secs: 2 * 86400,
             relation,
+            verdict,
         }
+    }
+
+    const fn act(action: SyncAction) -> Verdict {
+        Verdict::Act { action }
+    }
+
+    const fn needs(reason: BranchNeedsHuman) -> Verdict {
+        Verdict::NeedsHuman { reason }
+    }
+
+    const fn cleanup(reason: CleanupReason) -> Verdict {
+        Verdict::Cleanup { reason }
     }
 
     fn report(entries: Vec<EntryStatus>) -> StatusReport {
@@ -564,6 +622,7 @@ mod tests {
             Some("origin/feature"),
             Relation::InSync,
             0,
+            Verdict::Quiet,
         )];
         let pinned = EntryStatus {
             checkout_mode: CheckoutMode::Pinned,
@@ -590,6 +649,7 @@ mod tests {
                 Some("origin/main"),
                 Relation::Ahead { commits: 13 },
                 13,
+                act(SyncAction::Push { commits: 13 }),
             ),
             branch(
                 "arc",
@@ -599,11 +659,30 @@ mod tests {
                     behind: 5,
                 },
                 2,
+                needs(BranchNeedsHuman::Diverged),
             ),
-            branch("old", Some("origin/old"), Relation::Gone, 1),
-            branch("done", None, Relation::Untracked, 0),
-            branch("wip", None, Relation::Untracked, 1),
-            branch("theirs", Some("upstream/main"), Relation::Untracked, 0),
+            branch(
+                "old",
+                Some("origin/old"),
+                Relation::Gone,
+                1,
+                cleanup(CleanupReason::UpstreamGone),
+            ),
+            branch(
+                "done",
+                None,
+                Relation::Untracked,
+                0,
+                cleanup(CleanupReason::Merged),
+            ),
+            branch("wip", None, Relation::Untracked, 1, Verdict::LocalOnly),
+            branch(
+                "theirs",
+                Some("upstream/main"),
+                Relation::Untracked,
+                0,
+                Verdict::Quiet,
+            ),
         ];
         uz.checkouts[0].uncommitted.unstaged = 1;
         uz.stashes = 2;
@@ -613,6 +692,7 @@ mod tests {
             Some("origin/main"),
             Relation::Behind { commits: 3 },
             0,
+            act(SyncAction::FastForward { commits: 3 }),
         )];
         zzz.fetched_age_secs = None;
         let mut blake3 = entry("blake3", main(), "main");
@@ -625,13 +705,20 @@ mod tests {
             Some("origin/main"),
             Relation::Ahead { commits: 1 },
             1,
+            needs(BranchNeedsHuman::ArchivedAhead),
         )];
         let mut svelte = entry("svelte", CheckoutMode::Pinned, "x");
         svelte.writable = false;
         svelte.checkouts[0].head = Head::Detached {
             commit: "abc".into(),
         };
-        svelte.branches = vec![branch("audit", None, Relation::Untracked, 4)];
+        svelte.branches = vec![branch(
+            "audit",
+            None,
+            Relation::Untracked,
+            4,
+            Verdict::LocalOnly,
+        )];
         let mut wpt = entry(
             "wpt",
             CheckoutMode::Follow {
@@ -639,7 +726,13 @@ mod tests {
             },
             "fork",
         );
-        wpt.branches = vec![branch("fork", Some("origin/fork"), Relation::Unmapped, 3)];
+        wpt.branches = vec![branch(
+            "fork",
+            Some("origin/fork"),
+            Relation::Unmapped,
+            3,
+            needs(BranchNeedsHuman::Unmapped),
+        )];
         wpt.needs_human = vec![NeedsHuman::OperationInProgress {
             checkout: "/home/me/dev/wpt".into(),
             op: fuz_repos::state::InProgressOp::Rebase,
@@ -679,6 +772,15 @@ clean 1 · on branches 0 · pinned 0      ~/dev/repos.toml · fetched 3h ago, 1 
     fn origin_drift_shallow_moves_and_not_a_repo() {
         let mut blog = entry("fuz_blog", main(), "main");
         blog.url = "https://github.com/fuzdev/fuz_blog".into();
+        blog.branches = vec![branch(
+            "main",
+            Some("origin/main"),
+            Relation::Ahead { commits: 2 },
+            2,
+            Verdict::Held {
+                action: SyncAction::Push { commits: 2 },
+            },
+        )];
         blog.needs_human = vec![NeedsHuman::OriginMismatch {
             origin: Some("git@github.com:ryanatkn/fuz_blog".into()),
             expected: "git@github.com:fuzdev/fuz_blog".into(),
@@ -695,8 +797,20 @@ clean 1 · on branches 0 · pinned 0      ~/dev/repos.toml · fetched 3h ago, 1 
             commit: "abc".into(),
         };
         test262.branches = vec![
-            branch("main", Some("origin/main"), Relation::Shallow, 0),
-            branch("work", Some("origin/work"), Relation::Shallow, 2),
+            branch(
+                "main",
+                Some("origin/main"),
+                Relation::Shallow,
+                0,
+                act(SyncAction::Move),
+            ),
+            branch(
+                "work",
+                Some("origin/work"),
+                Relation::Shallow,
+                2,
+                needs(BranchNeedsHuman::ShallowLocalWork),
+            ),
         ];
         let mut goblins = entry("goblins", CheckoutMode::Head, "x");
         goblins.presence = Presence::NotARepo;
@@ -714,6 +828,7 @@ needs human   test262:work (shallow, tips differ, +2 local)  goblins (not a repo
 origin drift  fuz_blog (ryanatkn/fuz_blog)  kit (https://codeberg.org/someone/kit)
               hint: git -C <dir> remote set-url origin <url> (each under --verbose)
 sync would    move test262:main
+held          push fuz_blog +2
 clean 0 · on branches 0 · pinned 0      ~/dev/repos.toml · fetched 3h ago
 "
         );
@@ -741,8 +856,9 @@ clean 0 · on branches 0 · pinned 0      ~/dev/repos.toml · fetched 3h ago
                 Some("origin/main"),
                 Relation::Ahead { commits: 1 },
                 1,
+                act(SyncAction::Push { commits: 1 }),
             ),
-            branch("feature-x", None, Relation::Untracked, 0),
+            branch("feature-x", None, Relation::Untracked, 0, Verdict::Quiet),
         ];
         e.branches[0].worktree = Some("/home/me/dev/gro".into());
         e.checkouts[0].uncommitted.unstaged = 1;
@@ -754,7 +870,7 @@ gro  repo · owned · public · ci · follow main
   url       https://github.com/me/gro
   state     fetched 3h ago · stashes 1
   checkout  ~/dev/gro on main · 1 unstaged
-  branch    main       origin/main  ahead 1 · 1 unique · 2d · checked out
+  branch    main       origin/main  ahead 1 · 1 unique · 2d · checked out → push
   branch    feature-x  -            untracked · 2d
 "
         );

@@ -1,5 +1,5 @@
 //! A checkout's git state as the report carries it: facts, plus the
-//! per-branch relation `classify` derives. No IO.
+//! per-branch relation and verdict `classify` derives. No IO.
 
 use serde::Serialize;
 
@@ -89,6 +89,69 @@ pub struct BranchStatus {
     pub unique_commits: u32,
     pub newest_commit_age_secs: u64,
     pub relation: Relation,
+    /// What `sync` does with the branch — the one decision `status` previews
+    /// and `sync` executes.
+    pub verdict: Verdict,
+}
+
+/// What `sync` does with a branch, given its relation, its entry, and the
+/// entry's `needs_human` reasons.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum Verdict {
+    /// Nothing to do or to say.
+    Quiet,
+    /// Sync takes the action.
+    Act { action: SyncAction },
+    /// Sync would take the action, but an entry-level `needs_human` reason
+    /// stops it on the whole entry.
+    Held { action: SyncAction },
+    /// Sync won't touch the branch; a person decides.
+    NeedsHuman { reason: BranchNeedsHuman },
+    /// Commits on no remote that sync never pushes: no origin upstream, a
+    /// read-only entry, or a pinned one.
+    LocalOnly,
+    /// Deletable by hand; sync never deletes.
+    Cleanup { reason: CleanupReason },
+}
+
+/// A move `sync` makes on a branch.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum SyncAction {
+    Push {
+        commits: u32,
+    },
+    FastForward {
+        commits: u32,
+    },
+    /// A shallow branch with nothing local, moved to the fetched tip.
+    Move,
+}
+
+/// Why sync leaves a branch to a person. The counts are on its relation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum BranchNeedsHuman {
+    /// Placing it needs a force-push or a rebase, which sync never does.
+    Diverged,
+    /// Its origin upstream lies outside the fetch refspec.
+    Unmapped,
+    /// Ahead on an archived repo, whose host refuses writes.
+    ArchivedAhead,
+    /// A shallow branch with local commits off the fetched tip.
+    ShallowLocalWork,
+}
+
+/// Why a branch reads as deletable.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CleanupReason {
+    /// No unique commits and no upstream: its work is on a remote.
+    Merged,
+    /// Its upstream was deleted — likely merged, but a squash merge leaves
+    /// its commits reading unique.
+    UpstreamGone,
 }
 
 /// A local branch's relation to its remote.
