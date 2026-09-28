@@ -268,11 +268,15 @@ fn probe_present(
     })))
 }
 
-/// Why a dir isn't a repo: empty (a clone that never started), or git's
-/// message (a dir that isn't a checkout, dubious ownership, …).
+/// Why a dir isn't a repo: empty (a clone that never started), files with no
+/// `.git` (a copy or an unpacked archive, not a clone), or git's message when
+/// a `.git` is there but unusable (corrupt, dubious ownership, …).
 fn not_a_repo_detail(dir: &Path, stderr: &str) -> String {
     if std::fs::read_dir(dir).is_ok_and(|mut d| d.next().is_none()) {
         return "empty directory".into();
+    }
+    if dir.is_dir() && !dir.join(".git").exists() {
+        return "no .git: a copy of the files, not a clone".into();
     }
     let line = stderr
         .lines()
@@ -418,12 +422,17 @@ purpose = "a clone that never started"
 url = "https://github.com/me/plain"
 visibility = "public"
 purpose = "a dir that isn't a checkout"
+[repos.stub]
+url = "https://github.com/me/stub"
+visibility = "public"
+purpose = "a .git git can't use"
 "#,
         )
         .unwrap();
         std::fs::create_dir(tmp.path().join("empty")).unwrap();
         std::fs::create_dir(tmp.path().join("plain")).unwrap();
         std::fs::write(tmp.path().join("plain/file"), "x").unwrap();
+        std::fs::create_dir_all(tmp.path().join("stub/.git")).unwrap();
         let git = Git::new();
         let cx = ProbeContext {
             git: &git,
@@ -440,10 +449,11 @@ purpose = "a dir that isn't a checkout"
             })
             .collect();
         assert_eq!(details[0], "empty directory");
+        assert_eq!(details[1], "no .git: a copy of the files, not a clone");
         assert!(
-            details[1].contains("not a git repository"),
+            details[2].contains("not a git repository"),
             "{}",
-            details[1]
+            details[2]
         );
     }
 }
