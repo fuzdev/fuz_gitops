@@ -26,9 +26,10 @@ With fuz_gitops you can:
 fuz_gitops runs **deterministic, config-driven operations over a declared set
 of repos** — no LLM in the loop, and the repo set comes from a declared list
 (`gitops.config.ts` today). Publishing is its flagship capability, not its whole
-identity. A Rust `repos` tool is planned in this repo — syncing every declared
-repo and acting as the gateway agents use for pushes — along with a rename to
-`fuz_repos`.
+identity. A Rust `repos` tool is being built in this repo (`crates/fuz_repos`)
+— reporting every declared repo's git state (an early, read-only `repos status`
+works today), then syncing them and acting as the gateway agents use for
+pushes — along with a rename to `fuz_repos`.
 
 Deliberately out of scope: single-repo build work (that's [gro](https://github.com/fuzdev/gro)),
 work whose resolution differs per repo and needs judgment, machine and server

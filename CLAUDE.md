@@ -90,21 +90,22 @@ changes discovered."
 - **Machine and server state.** Provisioning and deployment convergence is a
   different target with its own tooling.
 
-### Known gap: fleet git state
+### Filling the gap: fleet git state
 
-The **observe** tier is thin, and it's the tier everything else should be
-built on. There is no structured, read-only model of each repo's git state —
-configured branch vs actual, ahead/behind against the upstream, dirty split
-into tracked/untracked/staged, unpushed branches, stashes, worktrees, missing
-clones. Today that means reaching for `gitops_run "git status"` and parsing
-porcelain by hand.
+The **observe** tier is the one everything else should be built on: a
+structured, read-only model of each repo's git state — every local branch
+against its upstream, dirt split into staged/unstaged/untracked/conflicted,
+local-only work, stashes, operations in progress, missing clones. The TS side
+never had one (the fallback is `gitops_run "git status"` and parsing porcelain
+by hand).
 
-**Being built** as the Rust `repos` tool, not by growing `GitOperations` — an
-early read-only `repos status` exists (see below). Its invariants are settled: never `pull` across a set of repos
-(fetch, classify, then fast-forward or report); never rebase, merge, or
-auto-resolve conflicts — anything history-changing stops and reports, so host
-repo rules never need modelling; derive write authority from owner accounts;
-classify unpushed refs by type.
+It's **being built** as the Rust `repos` tool, not by growing `GitOperations`:
+a read-only `repos status` works today; linked worktrees, the unregistered-clone
+scan, `sync`, and `push` are still to come. Its invariants are settled: never
+`pull` across a set of repos (fetch, classify, then fast-forward or report);
+never rebase, merge, or auto-resolve conflicts — anything history-changing
+stops and reports, so host repo rules never need modelling; derive write
+authority from owner accounts; classify unpushed refs by type.
 
 ### The TS and Rust halves
 
@@ -151,6 +152,8 @@ gitops.config.ts -> local repos -> GitHub API -> repos.ts -> UI components
 - `src/lib/github.ts` - GitHub API client for PRs, CI status
 - `src/lib/fetch_repo_data.ts` - fetches remote repo metadata
 - `src/routes/repos.ts` - generated data file with all repo info
+- `crates/fuz_repos/` - the Rust `repos` tool: registry, git runner, probe,
+  classification (library) and the `repos` binary
 
 ## Patterns
 
@@ -524,6 +527,15 @@ repos status --jobs 16 --timings # parallelism, and per-phase timings on stderr
 cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
 ```
+
+`repos` finds its registry by walking up from the cwd to the first
+`repos.toml`, and the **workspace root is the directory holding it as found** —
+entry dirs resolve against that root. A `repos.toml` symlink at the workspace
+root pointing at a registry kept elsewhere works (the root stays the link's
+dir); `--registry` naming a file in some other directory makes *that* directory
+the root. `rust-toolchain.toml` pins the toolchain (rustup fetches it on first
+build), and git must be 2.44 or newer (`GIT_NO_LAZY_FETCH` keeps a local
+`status` on a partial clone off the network).
 
 ### Commands by Side Effects
 
