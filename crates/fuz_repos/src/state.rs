@@ -12,14 +12,117 @@ pub enum Presence {
     NotARepo,
 }
 
-/// A checkout: the main one, or (from pass 2) a linked worktree.
+/// A checkout of the entry's repo: the primary — the registry's dir — or
+/// another worktree of the same repo (a linked one, or the main worktree
+/// when the registry's dir is itself linked).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct Checkout {
+    /// The primary's path is the workspace root joined with the entry's dir;
+    /// another worktree's is the one git's worktree list prints.
     pub path: String,
     pub primary: bool,
     pub head: Head,
     pub uncommitted: Uncommitted,
     pub in_progress: Option<InProgressOp>,
+    /// Locked with `git worktree lock`: git refuses to remove or prune it.
+    pub locked: bool,
+    /// A linked worktree, which `git worktree remove` can remove; `false`
+    /// for the main worktree, which it refuses. The primary is linked when
+    /// the registry's dir is itself a linked worktree.
+    pub linked: bool,
+    /// Whether `git worktree remove` would refuse it over submodules: one
+    /// was initialized in it (its git dir holds `modules/`, even after
+    /// `deinit`) or a gitlink in its index is populated. `None` when not
+    /// checked: without `modules/`, the index is read only for a worktree
+    /// that could otherwise be removed with its branch (linked, unlocked, no
+    /// operation, clean, on a branch whose upstream is gone).
+    pub submodules: Option<bool>,
+}
+
+/// A worktree that couldn't be probed as a checkout.
+///
+/// One `git worktree list` names that's gone or failing, or a git dir under
+/// `<commondir>/worktrees/` the list leaves out. It's still a fact: an
+/// operation in progress in it is a reason, and a branch checked out in it
+/// is `HeldBy::UnprobedWorktree`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct UnprobedWorktree {
+    /// The worktree's path as git's worktree list prints it, or as its
+    /// `gitdir` file names it; for one whose `gitdir` can't be read, its own
+    /// git dir.
+    pub path: String,
+    pub head: UnprobedHead,
+    pub locked: bool,
+    /// From its own git dir, which outlives the worktree's files.
+    pub in_progress: Option<InProgressOp>,
+    pub why: UnprobedWhy,
+}
+
+/// An unprobed worktree as the report carries it: the probe's facts, plus
+/// what `classify` decided about pruning it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct UnprobedWorktreeStatus {
+    #[serde(flatten)]
+    pub worktree: UnprobedWorktree,
+    /// What `git worktree prune` would do to it; `Some` exactly when it's
+    /// `Prunable`.
+    pub prune: Option<Prune>,
+}
+
+/// What pruning a gone worktree would do.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum Prune {
+    /// Nothing is lost: its HEAD is on a branch that exists, and no
+    /// operation is in progress.
+    Safe,
+    /// Pruning discards these.
+    Loses { losses: Vec<PruneLoss> },
+}
+
+/// Something a prune would discard with the worktree's git dir.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum PruneLoss {
+    /// Its operation's state (`rebase-merge/`, `MERGE_HEAD`, …).
+    Operation { op: InProgressOp },
+    /// A detached HEAD, which may be the only ref to its commit.
+    DetachedHead,
+    /// A HEAD that can't be read, so what it holds is unknown.
+    UnknownHead,
+    /// Its HEAD names a branch that no longer exists, so the HEAD may be the
+    /// only ref to its commit.
+    MissingBranch { name: String },
+}
+
+/// What an unprobed worktree's HEAD is, from git's worktree list or, for one
+/// it doesn't list, the worktree's own `HEAD` file.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum UnprobedHead {
+    Branch {
+        name: String,
+    },
+    Detached {
+        commit: String,
+    },
+    /// Unreadable: any branch might be checked out there, so every
+    /// fast-forward or move in the entry is held.
+    Unknown,
+}
+
+/// Why a worktree wasn't probed.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum UnprobedWhy {
+    /// Its dir is gone and git would prune it — or it was moved by hand, and
+    /// `git worktree repair` at the new path reconnects it.
+    Prunable,
+    /// Its dir is gone but git keeps it — locked, as on unmounted media.
+    Missing,
+    /// It's there but couldn't be probed — no `.git`, unreadable, a failed
+    /// status — or git doesn't list it.
+    Failed { error: String },
 }
 
 /// What a checkout's HEAD points at.
@@ -97,7 +200,7 @@ pub struct BranchStatus {
 
 /// What `sync` does with a branch, given its relation, its entry, and the
 /// entry's `needs_human` reasons.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Verdict {
     /// Nothing to do or to say.
@@ -112,8 +215,14 @@ pub enum Verdict {
     /// Commits on no remote that sync never pushes: no origin upstream, a
     /// read-only entry, or a pinned one.
     LocalOnly,
-    /// Deletable by hand; sync never deletes.
-    Cleanup { reason: CleanupReason },
+    /// Deletable by hand; sync never deletes. `removable_worktree` is the
+    /// clean linked worktree it's checked out in, removable along with it;
+    /// `None` when it's in none, or the one it's in is dirty (and its dirt
+    /// shows as uncommitted).
+    Cleanup {
+        reason: CleanupReason,
+        removable_worktree: Option<String>,
+    },
 }
 
 /// What holds a branch's action back.
@@ -126,9 +235,9 @@ pub enum HeldBy {
     /// sync never touches a dirty working tree. Pushes aren't held: they only
     /// move refs.
     DirtyCheckout,
-    /// The branch is checked out in a linked worktree whose state isn't
-    /// probed, so whether it's clean is unknown. Pushes aren't held.
-    // TODO: gone once pass 2 probes linked worktrees
+    /// The branch is checked out in a worktree that couldn't be probed (one
+    /// of the entry's `unprobed_worktrees`), so whether it's clean is
+    /// unknown. Pushes aren't held.
     UnprobedWorktree,
 }
 

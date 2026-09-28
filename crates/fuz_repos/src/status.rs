@@ -102,6 +102,7 @@ pub fn entry_status(entry: &Entry, run: ProbeRun) -> EntryStatus {
         fetched_at: None,
         needs_human: Vec::new(),
         probe_error: None,
+        unprobed_worktrees: Vec::new(),
         fetch_error: run.fetch.and_then(Result::err),
     };
     match run.probed {
@@ -123,7 +124,13 @@ pub fn entry_status(entry: &Entry, run: ProbeRun) -> EntryStatus {
                 head: facts.status.head,
                 uncommitted: facts.status.uncommitted,
                 in_progress: facts.in_progress,
+                locked: facts.primary_locked,
+                linked: facts.primary_linked,
+                // never removed: not checked
+                submodules: None,
             });
+            status.checkouts.extend(facts.worktrees);
+            status.unprobed_worktrees = classified.unprobed;
             status.layout = Some(facts.layout);
         }
     }

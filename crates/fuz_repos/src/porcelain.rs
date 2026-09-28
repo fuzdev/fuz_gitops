@@ -1,5 +1,6 @@
 //! Pure parsers for git's machine-readable output: `status --porcelain=v2
-//! -z`, `for-each-ref` with NUL-separated fields, and `config -z`.
+//! -z`, `for-each-ref` with NUL-separated fields, `worktree list --porcelain
+//! -z`, and `config -z`.
 
 use std::collections::BTreeMap;
 
@@ -176,6 +177,167 @@ pub fn parse_refs(out: &[u8]) -> Result<Vec<RefFacts>, String> {
             })
         })
         .collect()
+}
+
+/// One worktree as `git worktree list --porcelain -z` reports it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WorktreeRecord {
+    /// The worktree's path as git prints it: the one its `gitdir` file names
+    /// (or, for the main worktree, git's view of it), not necessarily with
+    /// symlinks resolved.
+    pub path: String,
+    pub head: WorktreeHead,
+    /// `Some` when locked, with the reason (empty when none was given).
+    pub locked: Option<String>,
+    /// `Some` when git would prune it — its dir is gone — with git's reason.
+    pub prunable: Option<String>,
+}
+
+/// What a worktree record says its HEAD is.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum WorktreeHead {
+    /// The main worktree of a bare repo.
+    Bare,
+    Detached {
+        commit: String,
+    },
+    /// Checked out on a branch, by short name; possibly unborn.
+    Branch {
+        name: String,
+    },
+    /// git couldn't read it: a missing or garbled `HEAD` lists as the null
+    /// object id, with `detached` or with no head line at all.
+    Unknown,
+}
+
+/// Whether `s` is a full object id (SHA-1 or SHA-256 hex) other than the
+/// null one.
+pub fn is_object_id(s: &str) -> bool {
+    matches!(s.len(), 40 | 64)
+        && s.bytes().all(|b| b.is_ascii_hexdigit())
+        && s.bytes().any(|b| b != b'0')
+}
+
+/// A record being read: its head lines are folded when it ends.
+#[derive(Debug)]
+struct PendingRecord {
+    path: String,
+    oid: Option<String>,
+    bare: bool,
+    detached: bool,
+    branch: Option<String>,
+    locked: Option<String>,
+    prunable: Option<String>,
+}
+
+impl PendingRecord {
+    fn finish(self) -> WorktreeRecord {
+        let head = if self.bare {
+            WorktreeHead::Bare
+        } else if let Some(name) = self.branch {
+            WorktreeHead::Branch { name }
+        } else {
+            match self.oid {
+                Some(commit) if self.detached && is_object_id(&commit) => {
+                    WorktreeHead::Detached { commit }
+                }
+                _ => WorktreeHead::Unknown,
+            }
+        };
+        WorktreeRecord {
+            path: self.path,
+            head,
+            locked: self.locked,
+            prunable: self.prunable,
+        }
+    }
+}
+
+/// Parses `git worktree list --porcelain -z`.
+///
+/// Each attribute is NUL-terminated and each record ended by an empty
+/// attribute; the main worktree comes first. Attributes this parser doesn't
+/// know are skipped, so a newer git's additions don't break it. A record
+/// whose HEAD git couldn't read is `WorktreeHead::Unknown`, never detached.
+///
+/// # Errors
+///
+/// Returns a message on non-UTF-8 output, or a record that doesn't start
+/// with its `worktree` path.
+pub fn parse_worktrees(out: &[u8]) -> Result<Vec<WorktreeRecord>, String> {
+    let out = std::str::from_utf8(out).map_err(|_| "worktree list: non-UTF-8 output".to_owned())?;
+    let mut records = Vec::new();
+    let mut current: Option<PendingRecord> = None;
+    // the output ends with the last record's empty attribute and then the
+    // final terminator; `split` yields one trailing empty string past it
+    let fields = out.strip_suffix('\0').unwrap_or(out).split('\0');
+    for field in fields {
+        if field.is_empty() {
+            records.extend(current.take().map(PendingRecord::finish));
+            continue;
+        }
+        let (key, value) = field.split_once(' ').unwrap_or((field, ""));
+        if key == "worktree" {
+            if current.is_some() {
+                return Err(format!(
+                    "worktree list: record for `{value}` starts before the last one ended"
+                ));
+            }
+            current = Some(PendingRecord {
+                path: value.to_owned(),
+                oid: None,
+                bare: false,
+                detached: false,
+                branch: None,
+                locked: None,
+                prunable: None,
+            });
+            continue;
+        }
+        let Some(record) = current.as_mut() else {
+            return Err(format!("worktree list: `{key}` outside a record"));
+        };
+        match key {
+            "HEAD" => record.oid = Some(value.to_owned()),
+            "bare" => record.bare = true,
+            "detached" => record.detached = true,
+            "branch" => {
+                record.branch = Some(
+                    value
+                        .strip_prefix("refs/heads/")
+                        .unwrap_or(value)
+                        .to_owned(),
+                );
+            }
+            "locked" => record.locked = Some(value.to_owned()),
+            "prunable" => record.prunable = Some(value.to_owned()),
+            // anything a newer git adds
+            _ => {}
+        }
+    }
+    records.extend(current.map(PendingRecord::finish));
+    Ok(records)
+}
+
+/// The paths of the gitlinks (mode `160000`: submodules, committed nested
+/// repos) in `git ls-files --stage -z`: `<mode> <oid> <stage>\t<path>` per
+/// NUL-terminated entry.
+///
+/// # Errors
+///
+/// Returns a message on non-UTF-8 output or an entry without its tab.
+pub fn parse_gitlinks(out: &[u8]) -> Result<Vec<String>, String> {
+    let out = std::str::from_utf8(out).map_err(|_| "ls-files: non-UTF-8 output".to_owned())?;
+    let mut gitlinks = Vec::new();
+    for entry in out.split('\0').filter(|e| !e.is_empty()) {
+        let (meta, path) = entry
+            .split_once('\t')
+            .ok_or_else(|| format!("ls-files: malformed entry `{entry}`"))?;
+        if meta.starts_with("160000 ") {
+            gitlinks.push(path.to_owned());
+        }
+    }
+    Ok(gitlinks)
 }
 
 /// The config pattern `ConfigFacts::parse` reads.
@@ -393,6 +555,176 @@ mod tests {
         assert_eq!(refs[1].track, Track::Even);
         assert_eq!(refs[2].track, Track::Gone);
         assert!(parse_refs(b"main\0only-two\n").is_err());
+    }
+
+    #[test]
+    fn worktree_records() {
+        // what git prints: every attribute NUL-terminated, an empty one after
+        // each record
+        let out = z(&[
+            "worktree /ws/app",
+            "HEAD 3890426260f93bbbdf34262c865872c38302836e",
+            "branch refs/heads/main",
+            "",
+            "worktree /elsewhere/app-feat",
+            "HEAD 3890426260f93bbbdf34262c865872c38302836e",
+            "branch refs/heads/feat/x",
+            "",
+            "worktree /ws/app-detached",
+            "HEAD 3890426260f93bbbdf34262c865872c38302836e",
+            "detached",
+            "",
+            "worktree /ws/app-gone",
+            "HEAD 3890426260f93bbbdf34262c865872c38302836e",
+            "branch refs/heads/gone",
+            "prunable gitdir file points to non-existent location",
+            "",
+            "worktree /media/usb/app",
+            "HEAD 3890426260f93bbbdf34262c865872c38302836e",
+            "branch refs/heads/usb",
+            "locked on a\nremovable drive",
+            "",
+            "worktree /ws/app-locked",
+            "HEAD 3890426260f93bbbdf34262c865872c38302836e",
+            "detached",
+            "locked",
+            "some-future-attribute value",
+            "",
+        ]);
+        let w = parse_worktrees(&out).unwrap();
+        let paths: Vec<&str> = w.iter().map(|r| r.path.as_str()).collect();
+        assert_eq!(
+            paths,
+            [
+                "/ws/app",
+                "/elsewhere/app-feat",
+                "/ws/app-detached",
+                "/ws/app-gone",
+                "/media/usb/app",
+                "/ws/app-locked"
+            ]
+        );
+        assert_eq!(
+            w[1],
+            WorktreeRecord {
+                path: "/elsewhere/app-feat".into(),
+                head: WorktreeHead::Branch {
+                    name: "feat/x".into()
+                },
+                locked: None,
+                prunable: None,
+            }
+        );
+        let oid = "3890426260f93bbbdf34262c865872c38302836e".to_owned();
+        assert_eq!(
+            w[2].head,
+            WorktreeHead::Detached {
+                commit: oid.clone()
+            }
+        );
+        assert_eq!(
+            w[3].prunable.as_deref(),
+            Some("gitdir file points to non-existent location")
+        );
+        assert_eq!(w[3].locked, None);
+        // under -z a reason keeps its newline verbatim
+        assert_eq!(w[4].locked.as_deref(), Some("on a\nremovable drive"));
+        assert_eq!(w[5].locked.as_deref(), Some(""));
+        assert_eq!(w[5].head, WorktreeHead::Detached { commit: oid });
+    }
+
+    #[test]
+    fn worktree_records_nul_framing() {
+        // a path with a space and a newline survives NUL framing
+        let out = z(&[
+            "worktree /repos/bare.git",
+            "bare",
+            "",
+            "worktree /ws/odd name\nhere",
+            "HEAD 0000000000000000000000000000000000000000",
+            "branch refs/heads/unborn",
+            "",
+        ]);
+        let w = parse_worktrees(&out).unwrap();
+        assert_eq!(w.len(), 2);
+        assert_eq!(w[0].head, WorktreeHead::Bare);
+        assert_eq!(w[1].path, "/ws/odd name\nhere");
+        assert_eq!(
+            w[1].head,
+            WorktreeHead::Branch {
+                name: "unborn".into()
+            }
+        );
+        // a final record without its empty terminator still counts
+        let w = parse_worktrees(b"worktree /ws/app\0branch refs/heads/main\0").unwrap();
+        assert_eq!(w.len(), 1);
+        assert!(parse_worktrees(b"").unwrap().is_empty());
+    }
+
+    #[test]
+    fn worktree_heads_git_could_not_read_are_unknown() {
+        // a missing HEAD lists as the null id and `detached`; a garbled one
+        // as the null id alone; neither is a detached HEAD
+        let out = z(&[
+            "worktree /ws/missing-head",
+            "HEAD 0000000000000000000000000000000000000000",
+            "detached",
+            "",
+            "worktree /ws/garbled-head",
+            "HEAD 0000000000000000000000000000000000000000",
+            "",
+            "worktree /ws/no-head-lines",
+            "",
+            "worktree /ws/not-an-id",
+            "HEAD garbage",
+            "detached",
+            "",
+            "worktree /ws/sha256",
+            "HEAD 8a5b0f7f2bd8f0e1c3f1a0b9e8d7c6b5a4f3e2d1c0b9a8f7e6d5c4b3a2f1e0d9",
+            "detached",
+            "",
+        ]);
+        let heads: Vec<WorktreeHead> = parse_worktrees(&out)
+            .unwrap()
+            .into_iter()
+            .map(|r| r.head)
+            .collect();
+        assert_eq!(
+            heads[..4],
+            [
+                WorktreeHead::Unknown,
+                WorktreeHead::Unknown,
+                WorktreeHead::Unknown,
+                WorktreeHead::Unknown
+            ]
+        );
+        assert!(matches!(heads[4], WorktreeHead::Detached { .. }));
+        assert!(is_object_id("3890426260f93bbbdf34262c865872c38302836e"));
+        assert!(!is_object_id("0000000000000000000000000000000000000000"));
+        assert!(!is_object_id("3890426260f93bbbdf34262c865872c3830283"));
+        assert!(!is_object_id("ref: refs/heads/main"));
+    }
+
+    #[test]
+    fn worktree_records_reject_garbage() {
+        // an attribute before any record
+        assert!(parse_worktrees(b"detached\0\0").is_err());
+        // two records run together without the empty separator
+        assert!(parse_worktrees(b"worktree /a\0worktree /b\0\0").is_err());
+        assert!(parse_worktrees(b"worktree /a\xff\0\0").is_err());
+    }
+
+    #[test]
+    fn gitlinks_from_the_index() {
+        let out = z(&[
+            "100644 78981922613b2afb6025042ff6bd878ac1994e85 0\ta",
+            "160000 1e7973f7c6a50768ef95e46ddd24698efcf4c233 0\tnested repo",
+            "160000 1e7973f7c6a50768ef95e46ddd24698efcf4c233 0\tdeps/sub",
+            "120000 78981922613b2afb6025042ff6bd878ac1994e85 0\tlink",
+        ]);
+        assert_eq!(parse_gitlinks(&out).unwrap(), ["nested repo", "deps/sub"]);
+        assert!(parse_gitlinks(&z(&["160000 no-tab"])).is_err());
+        assert!(parse_gitlinks(b"").unwrap().is_empty());
     }
 
     #[test]

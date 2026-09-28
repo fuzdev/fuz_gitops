@@ -6,7 +6,7 @@ use serde::Serialize;
 use crate::STATUS_FORMAT_VERSION;
 use crate::classify::NeedsHuman;
 use crate::registry::{CheckoutMode, EntryKind, Visibility};
-use crate::state::{BranchStatus, Checkout, Layout, Presence};
+use crate::state::{BranchStatus, Checkout, Layout, Presence, UnprobedWorktreeStatus};
 
 /// The whole report.
 #[derive(Debug, Clone, Serialize)]
@@ -64,6 +64,8 @@ pub struct EntryStatus {
     pub checkout_mode: CheckoutMode,
     pub presence: Presence,
     pub layout: Option<Layout>,
+    /// The primary checkout first, then each of the repo's other worktrees
+    /// probed.
     pub checkouts: Vec<Checkout>,
     pub branches: Vec<BranchStatus>,
     pub stashes: u32,
@@ -75,6 +77,9 @@ pub struct EntryStatus {
     // TODO: settle at the pass 1 checkpoint — a plain message for now, not
     // yet in the spec's types
     pub probe_error: Option<String>,
+    /// The repo's worktrees that couldn't be probed — gone, or failing; the
+    /// rest of the entry's facts stand.
+    pub unprobed_worktrees: Vec<UnprobedWorktreeStatus>,
     /// Under `--fetch`, git's message when the fetch failed.
     // TODO: slice 2 classifies fetch failures from stderr (a missing remote
     // ref is the upstream gone; auth, host-key, and connection errors are the

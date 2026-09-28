@@ -7,8 +7,8 @@ use fuz_repos::classify::NeedsHuman;
 use fuz_repos::registry::{CheckoutMode, EntryKind, Visibility};
 use fuz_repos::report::{EntryStatus, StatusReport};
 use fuz_repos::state::{
-    BranchNeedsHuman, BranchStatus, CleanupReason, Head, HeldBy, Presence, Relation, SyncAction,
-    Uncommitted, Verdict,
+    BranchNeedsHuman, BranchStatus, CleanupReason, Head, HeldBy, Presence, Prune, PruneLoss,
+    Relation, SyncAction, Uncommitted, UnprobedHead, UnprobedWhy, Verdict,
 };
 
 /// The label column's width.
@@ -184,19 +184,21 @@ impl Groups {
                 }
                 reason => self
                     .needs_human
-                    .push(format!("{key} ({})", needs_human_label(reason))),
+                    .push(format!("{key} ({})", needs_human_label(reason, e, view))),
             }
         }
         if e.presence == Presence::Missing {
             self.clone.push(key.clone());
         }
         for b in &e.branches {
-            match b.verdict {
+            match &b.verdict {
                 Verdict::Quiet => {}
-                Verdict::Act { action } => self.act.add(action, &label(b), ""),
-                Verdict::Held { action, by } => self.held.add(action, &label(b), held_note(by)),
+                Verdict::Act { action } => self.act.add(*action, &label(b), ""),
+                Verdict::Held { action, by } => {
+                    self.held.add(*action, &label(b), held_note(*by));
+                }
                 Verdict::NeedsHuman { reason } => {
-                    let why = match (reason, b.relation) {
+                    let why = match (*reason, b.relation) {
                         (BranchNeedsHuman::Diverged, Relation::Diverged { ahead, behind }) => {
                             format!("diverged +{ahead} −{behind}")
                         }
@@ -222,19 +224,50 @@ impl Groups {
                     ));
                 }
                 Verdict::Cleanup {
-                    reason: CleanupReason::UpstreamGone,
+                    reason,
+                    removable_worktree,
                 } => {
-                    let unique = if b.unique_commits > 0 {
-                        format!(", +{}", b.unique_commits)
-                    } else {
-                        String::new()
+                    let mut why = match reason {
+                        CleanupReason::UpstreamGone if b.unique_commits > 0 => {
+                            format!("upstream gone, +{}", b.unique_commits)
+                        }
+                        CleanupReason::UpstreamGone => "upstream gone".to_owned(),
+                        CleanupReason::Merged => "merged".to_owned(),
                     };
-                    self.cleanup
-                        .push(format!("{} (upstream gone{unique})", label(b)));
+                    if let Some(path) = removable_worktree {
+                        let _ = write!(why, ", worktree {} removable", view.show(path));
+                    }
+                    self.cleanup.push(format!("{} ({why})", label(b)));
                 }
-                Verdict::Cleanup {
-                    reason: CleanupReason::Merged,
-                } => self.cleanup.push(format!("{} (merged)", label(b))),
+            }
+        }
+        for u in &e.unprobed_worktrees {
+            let at = view.show(&u.worktree.path);
+            match (&u.worktree.why, &u.prune) {
+                (UnprobedWhy::Failed { error }, _) => self
+                    .failed
+                    .push(format!("{key} (worktree {at}: {})", first_line(error))),
+                (UnprobedWhy::Prunable, Some(Prune::Safe)) => self.cleanup.push(format!(
+                    "{key} (worktree {at} gone — git worktree prune, \
+                     or git worktree repair <new path> if it moved)"
+                )),
+                // classify found pruning would lose something: word it
+                (UnprobedWhy::Prunable, loses) => {
+                    let losses = match loses {
+                        Some(Prune::Loses { losses }) => {
+                            losses.iter().map(prune_loss_label).collect::<Vec<_>>()
+                        }
+                        _ => vec!["its state".to_owned()],
+                    };
+                    self.cleanup.push(format!(
+                        "{key} (worktree {at} gone — git worktree repair <new path> if it \
+                         moved; pruning discards {})",
+                        losses.join(" and ")
+                    ));
+                }
+                // intentional, as on unmounted media: `--verbose` shows it,
+                // and it still holds its branch
+                (UnprobedWhy::Missing, _) => {}
             }
         }
         for c in &e.checkouts {
@@ -244,7 +277,13 @@ impl Groups {
                 } else {
                     c.uncommitted.total().to_string()
                 };
-                self.uncommitted.push(format!("{key} ({detail})"));
+                // another worktree by its shown path, beside the primary's key
+                let label = if c.primary {
+                    format!("{key} ({detail})")
+                } else {
+                    format!("{key} (worktree {}, {detail})", view.show(&c.path))
+                };
+                self.uncommitted.push(label);
             }
         }
         let said = self.len() > before;
@@ -267,15 +306,31 @@ impl Groups {
     }
 }
 
-fn needs_human_label(reason: &NeedsHuman) -> String {
+/// A reason's label; an operation outside the primary checkout names the
+/// worktree it's in.
+fn needs_human_label(reason: &NeedsHuman, e: &EntryStatus, view: View<'_>) -> String {
     match reason {
         NeedsHuman::NotARepo { .. } => "not a repo".into(),
-        NeedsHuman::OperationInProgress { op, .. } => format!("{} in progress", op.label()),
+        NeedsHuman::OperationInProgress { checkout, op } => {
+            let primary = e.checkouts.iter().find(|c| c.primary);
+            if primary.is_some_and(|c| c.path == *checkout) {
+                format!("{} in progress", op.label())
+            } else {
+                format!(
+                    "{} in progress, worktree {}",
+                    op.label(),
+                    view.show(checkout)
+                )
+            }
+        }
         NeedsHuman::OriginMismatch {
             origin: Some(origin),
             ..
         } => format!("origin is {origin}"),
         NeedsHuman::OriginMismatch { origin: None, .. } => "no origin".into(),
+        NeedsHuman::WorktreeUnreadable { path } => {
+            format!("worktree git dir unreadable: {}", view.show(path))
+        }
         NeedsHuman::DefaultBranchMissing { branch } => format!("no local {branch}"),
         NeedsHuman::DefaultBranchNoUpstream { branch } => {
             format!("{branch} has no origin upstream")
@@ -393,11 +448,43 @@ pub fn render_entry(e: &EntryStatus, view: View<'_>) -> String {
             .in_progress
             .map(|op| format!(" · {} in progress", op.label()))
             .unwrap_or_default();
+        let mark = match (c.primary, c.linked, c.locked) {
+            (true, _, false) => "",
+            (true, _, true) => " (locked)",
+            (false, false, _) => " (main worktree)",
+            (false, true, false) => " (worktree)",
+            (false, true, true) => " (worktree, locked)",
+        };
         let _ = writeln!(
             out,
-            "  {:<10}{} {head} · {dirt}{op}",
+            "  {:<10}{}{mark} {head} · {dirt}{op}",
             "checkout",
             view.show(&c.path)
+        );
+    }
+    for u in e.unprobed_worktrees.iter().map(|u| &u.worktree) {
+        let why = match u.why {
+            UnprobedWhy::Prunable => "prunable",
+            UnprobedWhy::Missing => "missing",
+            UnprobedWhy::Failed { .. } => "probe failed",
+        };
+        let locked = if u.locked { ", locked" } else { "" };
+        let head = match &u.head {
+            UnprobedHead::Branch { name } => format!(" on {name}"),
+            UnprobedHead::Detached { commit } => {
+                format!(" detached at {}", commit.get(..12).unwrap_or(commit))
+            }
+            UnprobedHead::Unknown => " HEAD unreadable".to_owned(),
+        };
+        let op = u
+            .in_progress
+            .map(|op| format!(" · {} in progress", op.label()))
+            .unwrap_or_default();
+        let _ = writeln!(
+            out,
+            "  {:<10}{} (worktree, {why}{locked}){head}{op}",
+            "checkout",
+            view.show(&u.path)
         );
     }
     let name_width = e.branches.iter().map(|b| b.name.len()).max().unwrap_or(0);
@@ -416,7 +503,7 @@ pub fn render_entry(e: &EntryStatus, view: View<'_>) -> String {
         if b.worktree.is_some() {
             detail.push_str(" · checked out");
         }
-        if let Some(verdict) = verdict_label(b.verdict) {
+        if let Some(verdict) = verdict_label(&b.verdict) {
             let _ = write!(detail, " → {verdict}");
         }
         let _ = writeln!(
@@ -436,9 +523,9 @@ pub fn render_entry(e: &EntryStatus, view: View<'_>) -> String {
             NeedsHuman::NotARepo { detail } => format!("not a repo: {detail}"),
             NeedsHuman::OriginMismatch { expected, .. } => format!(
                 "{} — git -C {dir} remote set-url origin {expected}",
-                needs_human_label(reason)
+                needs_human_label(reason, e, view)
             ),
-            reason => needs_human_label(reason),
+            reason => needs_human_label(reason, e, view),
         };
         let _ = writeln!(out, "  {:<10}{detail}", "needs");
     }
@@ -447,6 +534,16 @@ pub fn render_entry(e: &EntryStatus, view: View<'_>) -> String {
     }
     if let Some(error) = &e.fetch_error {
         let _ = writeln!(out, "  {:<10}fetch: {error}", "error");
+    }
+    for u in e.unprobed_worktrees.iter().map(|u| &u.worktree) {
+        if let UnprobedWhy::Failed { error } = &u.why {
+            let _ = writeln!(
+                out,
+                "  {:<10}worktree {}: {error}",
+                "error",
+                view.show(&u.path)
+            );
+        }
     }
     out
 }
@@ -485,7 +582,7 @@ fn relation_label(r: Relation) -> String {
 }
 
 /// The verdict for `--verbose`'s branch lines; `None` when quiet.
-fn verdict_label(v: Verdict) -> Option<String> {
+fn verdict_label(v: &Verdict) -> Option<String> {
     let verb = |a| match a {
         SyncAction::Push { .. } => "push",
         SyncAction::FastForward { .. } => "ff",
@@ -493,10 +590,14 @@ fn verdict_label(v: Verdict) -> Option<String> {
     };
     Some(match v {
         Verdict::Quiet => return None,
-        Verdict::Act { action } => verb(action).to_owned(),
-        Verdict::Held { action, by } => format!("held {}{}", verb(action), held_note(by)),
+        Verdict::Act { action } => verb(*action).to_owned(),
+        Verdict::Held { action, by } => format!("held {}{}", verb(*action), held_note(*by)),
         Verdict::NeedsHuman { .. } => "needs human".to_owned(),
         Verdict::LocalOnly => "local-only".to_owned(),
+        Verdict::Cleanup {
+            removable_worktree: Some(_),
+            ..
+        } => "cleanup, worktree removable (ignored files go with it)".to_owned(),
         Verdict::Cleanup { .. } => "cleanup".to_owned(),
     })
 }
@@ -507,7 +608,17 @@ const fn held_note(by: HeldBy) -> &'static str {
     match by {
         HeldBy::Entry => "",
         HeldBy::DirtyCheckout => " (dirty)",
-        HeldBy::UnprobedWorktree => " (worktree)",
+        HeldBy::UnprobedWorktree => " (unprobed worktree)",
+    }
+}
+
+/// What a prune would discard, as the cleanup line words it.
+fn prune_loss_label(loss: &PruneLoss) -> String {
+    match loss {
+        PruneLoss::Operation { op } => format!("its {} in progress", op.label()),
+        PruneLoss::DetachedHead => "its detached HEAD".into(),
+        PruneLoss::UnknownHead => "its HEAD".into(),
+        PruneLoss::MissingBranch { name } => format!("its HEAD (branch {name} is gone)"),
     }
 }
 
@@ -547,7 +658,9 @@ pub fn format_age(secs: u64) -> String {
 #[cfg(test)]
 mod tests {
     use fuz_repos::registry::{EntryKind, Visibility};
-    use fuz_repos::state::{Checkout, Layout};
+    use fuz_repos::state::{
+        Checkout, InProgressOp, Layout, UnprobedWorktree, UnprobedWorktreeStatus,
+    };
 
     use super::*;
 
@@ -574,12 +687,16 @@ mod tests {
                 head: Head::Branch { name: head.into() },
                 uncommitted: Uncommitted::default(),
                 in_progress: None,
+                locked: false,
+                linked: false,
+                submodules: None,
             }],
             branches: vec![],
             stashes: 0,
             fetched_at: Some(NOW - 3 * 3600),
             needs_human: vec![],
             probe_error: None,
+            unprobed_worktrees: vec![],
             fetch_error: None,
         }
     }
@@ -617,7 +734,47 @@ mod tests {
     }
 
     const fn cleanup(reason: CleanupReason) -> Verdict {
-        Verdict::Cleanup { reason }
+        Verdict::Cleanup {
+            reason,
+            removable_worktree: None,
+        }
+    }
+
+    /// A clean linked worktree at `path` on `head`.
+    fn linked(path: &str, head: &str) -> Checkout {
+        Checkout {
+            path: path.into(),
+            primary: false,
+            head: Head::Branch { name: head.into() },
+            uncommitted: Uncommitted::default(),
+            in_progress: None,
+            locked: false,
+            linked: true,
+            submodules: Some(false),
+        }
+    }
+
+    /// An unprobed worktree at `path`.
+    fn unprobed(path: &str, branch: Option<&str>, why: UnprobedWhy) -> UnprobedWorktree {
+        UnprobedWorktree {
+            path: path.into(),
+            head: branch.map_or_else(
+                || UnprobedHead::Detached {
+                    commit: "0123456789abcdef0123456789abcdef01234567".into(),
+                },
+                |name| UnprobedHead::Branch {
+                    name: name.to_owned(),
+                },
+            ),
+            locked: false,
+            in_progress: None,
+            why,
+        }
+    }
+
+    /// An unprobed worktree as the report carries it.
+    const fn status(worktree: UnprobedWorktree, prune: Option<Prune>) -> UnprobedWorktreeStatus {
+        UnprobedWorktreeStatus { worktree, prune }
     }
 
     fn report(entries: Vec<EntryStatus>) -> StatusReport {
@@ -756,7 +913,7 @@ mod tests {
         )];
         wpt.needs_human = vec![NeedsHuman::OperationInProgress {
             checkout: "/home/me/dev/wpt".into(),
-            op: fuz_repos::state::InProgressOp::Rebase,
+            op: InProgressOp::Rebase,
         }];
         wpt.fetch_error = Some("fatal: couldn't find remote ref fork\n".into());
 
@@ -927,6 +1084,232 @@ gro  repo · owned · public · ci · follow main
   checkout  ~/dev/gro on main · 1 unstaged
   branch    main       origin/main  ahead 1 · 1 unique · 2d · checked out → push
   branch    feature-x  -            untracked · 2d
+"
+        );
+    }
+
+    #[test]
+    fn linked_worktrees_in_the_summary() {
+        let mut app = entry("app", main(), "main");
+        let mut dirty = linked("/home/me/dev/app-feat", "feat");
+        dirty.uncommitted.unstaged = 2;
+        dirty.uncommitted.untracked = 1;
+        app.checkouts.push(dirty);
+        app.checkouts.push(linked("/home/me/wt/app-old", "old"));
+        app.branches = vec![
+            branch(
+                "feat",
+                Some("origin/feat"),
+                Relation::Behind { commits: 1 },
+                0,
+                Verdict::Held {
+                    action: SyncAction::FastForward { commits: 1 },
+                    by: HeldBy::DirtyCheckout,
+                },
+            ),
+            branch(
+                "old",
+                Some("origin/old"),
+                Relation::Gone,
+                0,
+                Verdict::Cleanup {
+                    reason: CleanupReason::UpstreamGone,
+                    removable_worktree: Some("/home/me/wt/app-old".into()),
+                },
+            ),
+            branch(
+                "usb",
+                Some("origin/usb"),
+                Relation::Behind { commits: 4 },
+                0,
+                Verdict::Held {
+                    action: SyncAction::FastForward { commits: 4 },
+                    by: HeldBy::UnprobedWorktree,
+                },
+            ),
+        ];
+        // two worktrees sharing a dir name stay apart by path
+        let mut other_feat = linked("/home/me/wt/app-feat", "feat-2");
+        other_feat.uncommitted.staged = 1;
+        app.checkouts.push(other_feat);
+        let mut usb = unprobed("/media/usb/app", Some("usb"), UnprobedWhy::Missing);
+        usb.locked = true;
+        let loses = |losses| Some(Prune::Loses { losses });
+        app.unprobed_worktrees = vec![
+            status(
+                unprobed(
+                    "/home/me/dev/app-broken",
+                    None,
+                    UnprobedWhy::Failed {
+                        error: "git status failed (128): fatal: not a git repository\nmore".into(),
+                    },
+                ),
+                None,
+            ),
+            status(
+                unprobed("/home/me/dev/app-gone", Some("gone"), UnprobedWhy::Prunable),
+                Some(Prune::Safe),
+            ),
+            status(usb, None),
+            // pruning would lose something: classify said what
+            status(
+                unprobed("/home/me/dev/app-spike", None, UnprobedWhy::Prunable),
+                loses(vec![PruneLoss::DetachedHead]),
+            ),
+            status(
+                UnprobedWorktree {
+                    in_progress: Some(InProgressOp::Rebase),
+                    ..unprobed("/home/me/moved-fix", None, UnprobedWhy::Prunable)
+                },
+                loses(vec![
+                    PruneLoss::Operation {
+                        op: InProgressOp::Rebase,
+                    },
+                    PruneLoss::DetachedHead,
+                ]),
+            ),
+            status(
+                unprobed(
+                    "/home/me/dev/app-deleted",
+                    Some("feat"),
+                    UnprobedWhy::Prunable,
+                ),
+                loses(vec![PruneLoss::MissingBranch {
+                    name: "feat".into(),
+                }]),
+            ),
+            status(
+                UnprobedWorktree {
+                    head: UnprobedHead::Unknown,
+                    ..unprobed("/home/me/dev/app-garbled", None, UnprobedWhy::Prunable)
+                },
+                loses(vec![PruneLoss::UnknownHead]),
+            ),
+        ];
+        let r = report(vec![app]);
+        // the missing worktree says nothing here but holds its branch
+        assert_eq!(
+            render_summary(&r, VIEW, false),
+            "\
+failed        app (worktree ~/dev/app-broken: git status failed (128): fatal: not a git repository)
+held          ff app:feat −1 (dirty), app:usb −4 (unprobed worktree)
+uncommitted   app (worktree ~/dev/app-feat, 3)  app (worktree ~/wt/app-feat, 1)
+cleanup       app:old (upstream gone, worktree ~/wt/app-old removable)  app (worktree ~/dev/app-gone gone — git worktree prune, or git worktree repair <new path> if it moved)  app (worktree ~/dev/app-spike gone — git worktree repair <new path> if it moved; pruning discards its detached HEAD)  app (worktree ~/moved-fix gone — git worktree repair <new path> if it moved; pruning discards its rebase in progress and its detached HEAD)  app (worktree ~/dev/app-deleted gone — git worktree repair <new path> if it moved; pruning discards its HEAD (branch feat is gone))  app (worktree ~/dev/app-garbled gone — git worktree repair <new path> if it moved; pruning discards its HEAD)
+clean 0 · on branches 0 · pinned 0      ~/dev/repos.toml · fetched 3h ago
+"
+        );
+        assert!(
+            render_summary(&r, VIEW, true)
+                .contains("uncommitted   app (worktree ~/dev/app-feat, 2 unstaged, 1 untracked)")
+        );
+    }
+
+    #[test]
+    fn linked_worktrees_in_the_entry_block() {
+        let mut e = entry("app", main(), "main");
+        let mut rebasing = linked("/home/me/dev/app-fix", "x");
+        rebasing.head = Head::Detached {
+            commit: "0123456789abcdef".into(),
+        };
+        rebasing.in_progress = Some(InProgressOp::Rebase);
+        rebasing.uncommitted.conflicted = 1;
+        let mut locked = linked("/home/me/wt/app-keep", "keep");
+        locked.locked = true;
+        e.checkouts.push(linked("/home/me/wt/app-old", "old"));
+        e.checkouts.push(rebasing);
+        e.checkouts.push(locked);
+        let mut main_wt = linked("/home/me/dev/app-main", "trunk");
+        main_wt.linked = false;
+        e.checkouts.push(main_wt);
+        e.branches = vec![
+            branch(
+                "main",
+                Some("origin/main"),
+                Relation::InSync,
+                0,
+                Verdict::Quiet,
+            ),
+            branch(
+                "old",
+                Some("origin/old"),
+                Relation::Gone,
+                0,
+                Verdict::Cleanup {
+                    reason: CleanupReason::UpstreamGone,
+                    removable_worktree: Some("/home/me/wt/app-old".into()),
+                },
+            ),
+        ];
+        e.branches[0].worktree = Some("/home/me/dev/app".into());
+        e.branches[1].worktree = Some("/home/me/wt/app-old".into());
+        let mut usb = unprobed("/media/usb/app", None, UnprobedWhy::Missing);
+        usb.locked = true;
+        usb.in_progress = Some(InProgressOp::Merge);
+        e.unprobed_worktrees = vec![
+            status(
+                unprobed(
+                    "/home/me/dev/app-broken",
+                    Some("broken"),
+                    UnprobedWhy::Failed {
+                        error: "fatal: not a git repository".into(),
+                    },
+                ),
+                None,
+            ),
+            status(
+                unprobed("/home/me/dev/app-gone", Some("gone"), UnprobedWhy::Prunable),
+                Some(Prune::Safe),
+            ),
+            status(usb, None),
+            status(
+                UnprobedWorktree {
+                    head: UnprobedHead::Unknown,
+                    ..unprobed(
+                        "/home/me/dev/app/.git/worktrees/x",
+                        None,
+                        UnprobedWhy::Failed {
+                            error: "not listed by git: reading …: Permission denied".into(),
+                        },
+                    )
+                },
+                None,
+            ),
+        ];
+        e.needs_human = vec![
+            NeedsHuman::OperationInProgress {
+                checkout: "/home/me/dev/app-fix".into(),
+                op: InProgressOp::Rebase,
+            },
+            NeedsHuman::OperationInProgress {
+                checkout: "/media/usb/app".into(),
+                op: InProgressOp::Merge,
+            },
+            NeedsHuman::WorktreeUnreadable {
+                path: "/home/me/dev/app/.git/worktrees/x".into(),
+            },
+        ];
+        assert_eq!(
+            render_entry(&e, VIEW),
+            "\
+app  repo · owned · public · ci · follow main
+  url       https://github.com/me/app
+  state     fetched 3h ago
+  checkout  ~/dev/app on main · clean
+  checkout  ~/wt/app-old (worktree) on old · clean
+  checkout  ~/dev/app-fix (worktree) detached at 0123456789ab · 1 conflicted · rebase in progress
+  checkout  ~/wt/app-keep (worktree, locked) on keep · clean
+  checkout  ~/dev/app-main (main worktree) on trunk · clean
+  checkout  ~/dev/app-broken (worktree, probe failed) on broken
+  checkout  ~/dev/app-gone (worktree, prunable) on gone
+  checkout  /media/usb/app (worktree, missing, locked) detached at 0123456789ab · merge in progress
+  checkout  ~/dev/app/.git/worktrees/x (worktree, probe failed) HEAD unreadable
+  branch    main  origin/main  in sync · 2d · checked out
+  branch    old   origin/old   upstream gone · 2d · checked out → cleanup, worktree removable (ignored files go with it)
+  needs     rebase in progress, worktree ~/dev/app-fix
+  needs     merge in progress, worktree /media/usb/app
+  needs     worktree git dir unreadable: ~/dev/app/.git/worktrees/x
+  error     worktree ~/dev/app-broken: fatal: not a git repository
+  error     worktree ~/dev/app/.git/worktrees/x: not listed by git: reading …: Permission denied
 "
         );
     }

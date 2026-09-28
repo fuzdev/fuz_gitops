@@ -681,7 +681,8 @@ fn fetch_prunes_a_deleted_upstream_to_gone() {
     assert_eq!(
         feat.verdict,
         Verdict::Cleanup {
-            reason: fuz_repos::state::CleanupReason::UpstreamGone
+            reason: fuz_repos::state::CleanupReason::UpstreamGone,
+            removable_worktree: None
         }
     );
 }

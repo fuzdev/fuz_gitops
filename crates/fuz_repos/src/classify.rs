@@ -11,8 +11,9 @@ use crate::porcelain::{BranchConfig, Track};
 use crate::probe::{BranchFacts, RepoFacts};
 use crate::registry::{CheckoutMode, Entry, RepoUrl};
 use crate::state::{
-    BranchNeedsHuman, BranchStatus, CleanupReason, Head, HeldBy, InProgressOp, Relation,
-    SyncAction, Verdict,
+    BranchNeedsHuman, BranchStatus, CleanupReason, Head, HeldBy, InProgressOp, Prune, PruneLoss,
+    Relation, SyncAction, UnprobedHead, UnprobedWhy, UnprobedWorktree, UnprobedWorktreeStatus,
+    Verdict,
 };
 
 /// Why `sync` would stop on an entry and leave it to a person. Branch-level
@@ -35,6 +36,11 @@ pub enum NeedsHuman {
         origin: Option<String>,
         expected: String,
     },
+    /// A worktree's git dir (or `<commondir>/worktrees/` itself) can't be
+    /// read, so whether an operation is in progress there is unknowable.
+    WorktreeUnreadable {
+        path: String,
+    },
     DefaultBranchMissing {
         branch: String,
     },
@@ -51,15 +57,17 @@ pub enum NeedsHuman {
 
 impl NeedsHuman {
     /// Whether the reason stops sync on the whole entry, holding every
-    /// branch's action: an operation mid-way owns the checkout, and a wrong
-    /// origin would move branches to another repo's history. The rest concern
+    /// branch's action: an operation mid-way owns the checkout (and one that
+    /// can't be ruled out counts the same), and a wrong origin would move
+    /// branches to another repo's history. The rest concern
     /// one branch or the checkout's HEAD, and leave the other branches safe
     /// to sync.
     pub const fn holds_entry(&self) -> bool {
         match self {
             Self::NotARepo { .. }
             | Self::OperationInProgress { .. }
-            | Self::OriginMismatch { .. } => true,
+            | Self::OriginMismatch { .. }
+            | Self::WorktreeUnreadable { .. } => true,
             Self::DefaultBranchMissing { .. }
             | Self::DefaultBranchNoUpstream { .. }
             | Self::UnexpectedDetached { .. }
@@ -73,6 +81,38 @@ impl NeedsHuman {
 pub struct Classified {
     pub branches: Vec<BranchStatus>,
     pub needs_human: Vec<NeedsHuman>,
+    /// The repo's unprobed worktrees, each with what pruning it would do.
+    pub unprobed: Vec<UnprobedWorktreeStatus>,
+}
+
+/// What `git worktree prune` would do to an unprobed worktree.
+///
+/// `None` unless it's `Prunable` (its dir gone); `Safe` when it loses
+/// nothing; else what it loses — an operation's state, or a HEAD that may be
+/// the only ref to its commit (detached, unreadable, or on a branch that no
+/// longer exists).
+fn prune(u: &UnprobedWorktree, facts: &RepoFacts) -> Option<Prune> {
+    if u.why != UnprobedWhy::Prunable {
+        return None;
+    }
+    let mut losses = Vec::new();
+    if let Some(op) = u.in_progress {
+        losses.push(PruneLoss::Operation { op });
+    }
+    match &u.head {
+        UnprobedHead::Branch { name } => {
+            if !facts.branches.iter().any(|b| b.branch.name == *name) {
+                losses.push(PruneLoss::MissingBranch { name: name.clone() });
+            }
+        }
+        UnprobedHead::Detached { .. } => losses.push(PruneLoss::DetachedHead),
+        UnprobedHead::Unknown => losses.push(PruneLoss::UnknownHead),
+    }
+    Some(if losses.is_empty() {
+        Prune::Safe
+    } else {
+        Prune::Loses { losses }
+    })
 }
 
 /// Classifies a present repo's facts against its registry entry.
@@ -99,12 +139,13 @@ pub fn classify(entry: &Entry, facts: &RepoFacts) -> Classified {
                 .branches
                 .get(&b.branch.name)
                 .and_then(BranchConfig::display);
+            let on = checkouts_on(b, facts);
             let held = if entry_held {
                 Some(HeldBy::Entry)
             } else {
-                checkout_hold(b, facts)
+                on.hold()
             };
-            let verdict = verdict(entry, b, relation, upstream.is_some(), held);
+            let verdict = verdict(entry, b, relation, upstream.is_some(), held, &on);
             Some(BranchStatus {
                 name: b.branch.name.clone(),
                 upstream,
@@ -116,9 +157,18 @@ pub fn classify(entry: &Entry, facts: &RepoFacts) -> Classified {
             })
         })
         .collect();
+    let unprobed = facts
+        .unprobed
+        .iter()
+        .map(|u| UnprobedWorktreeStatus {
+            prune: prune(u, facts),
+            worktree: u.clone(),
+        })
+        .collect();
     Classified {
         branches,
         needs_human,
+        unprobed,
     }
 }
 
@@ -148,30 +198,98 @@ fn relation(b: &BranchFacts, facts: &RepoFacts) -> Relation {
     }
 }
 
-/// What the branch's checkout holds back, if it's checked out: the primary
-/// checkout when it's dirty, or a linked worktree, whose state isn't probed
-/// yet. Matched by name against the primary's HEAD, not by path, so a
-/// symlinked workspace root can't make the primary look like a worktree.
-fn checkout_hold(b: &BranchFacts, facts: &RepoFacts) -> Option<HeldBy> {
-    b.branch.worktree.as_ref()?;
-    match &facts.status.head {
-        Head::Branch { name } if *name == b.branch.name => {
-            (!facts.status.uncommitted.is_clean()).then_some(HeldBy::DirtyCheckout)
+/// Every checkout a branch is on, folded: git allows one branch on HEAD in
+/// several (`worktree add -f`, `checkout --ignore-other-worktrees`), and any
+/// one of them dirty or unknown holds it.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+struct CheckoutsOn<'a> {
+    /// On HEAD in some checkout — or possibly, in one whose HEAD is unknown.
+    checked_out: bool,
+    dirty: bool,
+    unprobed: bool,
+    /// The one checkout it's on, when that's a worktree `git worktree
+    /// remove` would take: linked (never the main worktree), no submodules,
+    /// not locked, no operation in progress, clean.
+    removable: Option<&'a str>,
+}
+
+impl CheckoutsOn<'_> {
+    /// A dirty checkout holds the branch; so does one that couldn't be
+    /// probed, its state unknown.
+    const fn hold(&self) -> Option<HeldBy> {
+        if self.dirty {
+            Some(HeldBy::DirtyCheckout)
+        } else if self.unprobed {
+            Some(HeldBy::UnprobedWorktree)
+        } else {
+            None
         }
-        // TODO: read the linked worktree's dirt once pass 2 probes worktrees
-        _ => Some(HeldBy::UnprobedWorktree),
     }
+}
+
+/// Folds every checkout whose HEAD is the branch — the primary, each probed
+/// worktree, and each unprobed one on it; an unprobed one whose HEAD is
+/// unknown might be on any branch, so it counts for all. Matched by name,
+/// never by path: `%(worktreepath)` names only one checkout, git's paths are
+/// resolved while the primary's is root-joined, and a symlinked workspace
+/// root makes them differ.
+fn checkouts_on<'a>(b: &BranchFacts, facts: &'a RepoFacts) -> CheckoutsOn<'a> {
+    let name = b.branch.name.as_str();
+    let on = |head: &Head| matches!(head, Head::Branch { name: n } if n == name);
+    let mut folded = CheckoutsOn::default();
+    let mut count = 0;
+    let mut removable = None;
+    if on(&facts.status.head) {
+        count += 1;
+        folded.dirty |= !facts.status.uncommitted.is_clean();
+    }
+    for c in facts.worktrees.iter().filter(|c| on(&c.head)) {
+        count += 1;
+        folded.dirty |= !c.uncommitted.is_clean();
+        let removable_here = c.linked
+            && c.submodules == Some(false)
+            && !c.locked
+            && c.in_progress.is_none()
+            && c.uncommitted.is_clean();
+        if removable_here {
+            removable = Some(c.path.as_str());
+        }
+    }
+    let unprobed = facts
+        .unprobed
+        .iter()
+        .filter(|u| match &u.head {
+            UnprobedHead::Branch { name: n } => n == name,
+            UnprobedHead::Detached { .. } => false,
+            UnprobedHead::Unknown => true,
+        })
+        .count();
+    if unprobed > 0 {
+        count += unprobed;
+        folded.unprobed = true;
+    }
+    // git says it's checked out, but in no checkout it listed: unknown
+    if count == 0 && b.branch.worktree.is_some() {
+        folded.unprobed = true;
+    }
+    folded.checked_out = count > 0 || b.branch.worktree.is_some();
+    if count == 1 {
+        folded.removable = removable;
+    }
+    folded
 }
 
 /// What sync does with a branch. `has_upstream` is whether any upstream is
 /// configured; `held` what, if anything, holds a fast-forward or move back —
-/// an entry-level reason holds every action, a checkout all but a push.
+/// an entry-level reason holds every action, a checkout all but a push;
+/// `on` the checkouts it's on.
 fn verdict(
     entry: &Entry,
     b: &BranchFacts,
     relation: Relation,
     has_upstream: bool,
     held: Option<HeldBy>,
+    on: &CheckoutsOn<'_>,
 ) -> Verdict {
     let follow = match &entry.checkout_mode {
         CheckoutMode::Follow { branch } => Some(branch.as_str()),
@@ -205,18 +323,20 @@ fn verdict(
         Relation::Gone => {
             return Verdict::Cleanup {
                 reason: CleanupReason::UpstreamGone,
+                removable_worktree: on.removable.map(str::to_owned),
             };
         }
         Relation::Untracked if b.unique_commits > 0 => return Verdict::LocalOnly,
-        // nothing unique and no upstream: merged, unless it's checked out (a
-        // fresh branch) or the registry's branch (a needs-human reason)
+        // nothing unique and no upstream: merged, unless it's checked out
+        // anywhere, possibly (a fresh branch looks the same), or the
+        // registry's branch (a needs-human reason) — so never in a worktree
+        // to remove
         Relation::Untracked
-            if !has_upstream
-                && b.branch.worktree.is_none()
-                && Some(b.branch.name.as_str()) != follow =>
+            if !has_upstream && !on.checked_out && Some(b.branch.name.as_str()) != follow =>
         {
             return Verdict::Cleanup {
                 reason: CleanupReason::Merged,
+                removable_worktree: None,
             };
         }
         // in sync; tracking another remote; checked out with nothing committed
@@ -241,11 +361,22 @@ fn verdict(
 
 fn needs_human(entry: &Entry, facts: &RepoFacts) -> Vec<NeedsHuman> {
     let mut reasons = Vec::new();
-    if let Some(op) = facts.in_progress {
-        reasons.push(NeedsHuman::OperationInProgress {
-            checkout: facts.path.clone(),
-            op,
-        });
+    // one per checkout with an operation mid-way, the primary's first, then
+    // the other worktrees', probed or not
+    let ops = std::iter::once((&facts.path, facts.in_progress))
+        .chain(facts.worktrees.iter().map(|c| (&c.path, c.in_progress)))
+        .chain(facts.unprobed.iter().map(|u| (&u.path, u.in_progress)));
+    for (checkout, op) in ops {
+        if let Some(op) = op {
+            reasons.push(NeedsHuman::OperationInProgress {
+                checkout: checkout.clone(),
+                op,
+            });
+        }
+    }
+    // an operation there can't be ruled out
+    for path in &facts.unreadable {
+        reasons.push(NeedsHuman::WorktreeUnreadable { path: path.clone() });
     }
     match &facts.config.origin_url {
         Some(origin) if origin_matches(origin, &entry.url) => {}
@@ -274,9 +405,9 @@ fn needs_human(entry: &Entry, facts: &RepoFacts) -> Vec<NeedsHuman> {
             // a rebase or bisect detaches HEAD by design: the operation is
             // the reason, and reattaching mid-way would be the wrong fix; a
             // merge, cherry-pick, revert, or sequencer keeps HEAD on its
-            // branch, so a detach beside one is still unexpected
-            // TODO: once linked worktrees are probed, key this on the primary
-            // checkout's operation, not any checkout's
+            // branch, so a detach beside one is still unexpected. Only the
+            // primary's HEAD and operation count: a linked worktree detached
+            // is normal, and its operation can't explain the primary's HEAD
             if matches!(head, Head::Detached { .. })
                 && !matches!(
                     facts.in_progress,
@@ -325,7 +456,7 @@ mod tests {
     use super::*;
     use crate::porcelain::{ConfigFacts, RefFacts, StatusFacts};
     use crate::registry::EntryKind;
-    use crate::state::{Layout, Uncommitted};
+    use crate::state::{Checkout, Layout, Uncommitted, UnprobedWhy, UnprobedWorktree};
 
     const NOW: u64 = 1_800_000_000;
 
@@ -422,6 +553,11 @@ mod tests {
                 stashes: 0,
             },
             in_progress: None,
+            primary_linked: false,
+            primary_locked: false,
+            worktrees: Vec::new(),
+            unprobed: Vec::new(),
+            unreadable: Vec::new(),
             branches: branches
                 .iter()
                 .map(|b| BranchFacts {
@@ -517,7 +653,9 @@ mod tests {
     }
 
     fn named(want: &[(&str, Verdict)]) -> Vec<(String, Verdict)> {
-        want.iter().map(|(n, v)| ((*n).to_owned(), *v)).collect()
+        want.iter()
+            .map(|(n, v)| ((*n).to_owned(), v.clone()))
+            .collect()
     }
 
     const fn act(action: SyncAction) -> Verdict {
@@ -567,7 +705,8 @@ mod tests {
                 (
                     "gone",
                     Verdict::Cleanup {
-                        reason: CleanupReason::UpstreamGone
+                        reason: CleanupReason::UpstreamGone,
+                        removable_worktree: None
                     }
                 ),
                 ("unmapped", needs(BranchNeedsHuman::Unmapped)),
@@ -575,7 +714,8 @@ mod tests {
                 (
                     "merged",
                     Verdict::Cleanup {
-                        reason: CleanupReason::Merged
+                        reason: CleanupReason::Merged,
+                        removable_worktree: None
                     }
                 ),
                 ("other", Verdict::Quiet),
@@ -636,6 +776,38 @@ mod tests {
         );
     }
 
+    /// A linked worktree at `path`, on `head`, clean.
+    fn linked(path: &str, head: Head) -> Checkout {
+        Checkout {
+            path: path.into(),
+            primary: false,
+            head,
+            uncommitted: Uncommitted::default(),
+            in_progress: None,
+            locked: false,
+            linked: true,
+            submodules: Some(false),
+        }
+    }
+
+    /// An unprobed worktree at `path`, on `branch`.
+    fn unprobed(path: &str, branch: Option<&str>, why: UnprobedWhy) -> UnprobedWorktree {
+        UnprobedWorktree {
+            path: path.into(),
+            head: branch.map_or_else(
+                || UnprobedHead::Detached {
+                    commit: "0123456789abcdef0123456789abcdef01234567".into(),
+                },
+                |name| UnprobedHead::Branch {
+                    name: name.to_owned(),
+                },
+            ),
+            locked: false,
+            in_progress: None,
+            why,
+        }
+    }
+
     #[test]
     fn a_dirty_checkout_holds_all_but_a_push() {
         let ff = |commits| SyncAction::FastForward { commits };
@@ -649,37 +821,57 @@ mod tests {
                 b("linked-ahead", O, true, Track::Ahead(1)).unique(1),
             ],
         );
-        f.branches[0].branch.worktree = Some("/ws/app".into());
-        f.branches[2].branch.worktree = Some("/ws/app-linked".into());
-        f.branches[3].branch.worktree = Some("/ws/app-linked-2".into());
-        let e = owned(follow("main"));
-        let unprobed = [
-            ("linked", held(ff(1), HeldBy::UnprobedWorktree)),
-            // a push only moves refs
-            ("linked-ahead", act(SyncAction::Push { commits: 1 })),
+        // `%(worktreepath)` is git's resolved path; the checkouts are matched
+        // by the branch on their HEAD, never by path
+        f.branches[0].branch.worktree = Some("/real/ws/app".into());
+        f.branches[2].branch.worktree = Some("/real/ws/app-linked".into());
+        f.branches[3].branch.worktree = Some("/real/ws/app-linked-2".into());
+        f.worktrees = vec![
+            linked("/ws/app-linked", on("linked")),
+            linked("/ws/app-linked-2", on("linked-ahead")),
         ];
+        let e = owned(follow("main"));
 
         let clean = verdicts(&e, &f);
         assert_eq!(
-            clean[..2],
-            named(&[("main", act(ff(2))), ("other", act(ff(3)))])
+            clean,
+            named(&[
+                ("main", act(ff(2))),
+                ("other", act(ff(3))),
+                // a clean linked worktree holds nothing
+                ("linked", act(ff(1))),
+                ("linked-ahead", act(SyncAction::Push { commits: 1 })),
+            ])
         );
-        // a linked worktree isn't probed yet: unknown, not dirty
-        assert_eq!(clean[2..], named(&unprobed));
 
         f.status.uncommitted.unstaged = 1;
         let dirty = verdicts(&e, &f);
         assert_eq!(
-            dirty[..2],
+            dirty[..3],
             named(&[
                 ("main", held(ff(2), HeldBy::DirtyCheckout)),
                 // not checked out: moves in place
                 ("other", act(ff(3))),
+                // its own checkout is clean
+                ("linked", act(ff(1))),
             ])
         );
-        assert_eq!(dirty[2..], named(&unprobed));
+
+        // a dirty linked worktree holds its own branch's fast-forward, and a
+        // push on a branch checked out in one still acts
+        f.status.uncommitted.unstaged = 0;
+        f.worktrees[0].uncommitted.untracked = 1;
+        f.worktrees[1].uncommitted.staged = 1;
+        assert_eq!(
+            verdicts(&e, &f)[2..],
+            named(&[
+                ("linked", held(ff(1), HeldBy::DirtyCheckout)),
+                ("linked-ahead", act(SyncAction::Push { commits: 1 })),
+            ])
+        );
 
         // ahead, checked out in the dirty primary: the push still acts
+        f.status.uncommitted.unstaged = 1;
         f.branches[0].branch.track = Track::Ahead(2);
         f.branches[0].unique_commits = 2;
         assert_eq!(verdicts(&e, &f)[0].1, act(SyncAction::Push { commits: 2 }));
@@ -689,6 +881,406 @@ mod tests {
         assert_eq!(
             verdicts(&e, &f)[0].1,
             held(SyncAction::Push { commits: 2 }, HeldBy::Entry)
+        );
+    }
+
+    #[test]
+    fn a_worktree_that_was_not_probed_holds_all_but_a_push() {
+        // git says both are checked out, but no probed checkout has them on
+        // HEAD: the worktree's dir is gone, or its probe failed
+        let mut f = facts(
+            on("main"),
+            &[
+                b("main", O, true, Track::Even),
+                b("gone-wt", O, true, Track::Behind(1)),
+                b("gone-wt-ahead", O, true, Track::Ahead(1)).unique(1),
+            ],
+        );
+        f.branches[1].branch.worktree = Some("/ws/app-gone".into());
+        f.branches[2].branch.worktree = Some("/ws/app-gone-2".into());
+        f.unprobed = vec![
+            unprobed("/ws/app-gone", Some("gone-wt"), UnprobedWhy::Prunable),
+            unprobed(
+                "/ws/app-gone-2",
+                Some("gone-wt-ahead"),
+                UnprobedWhy::Missing,
+            ),
+        ];
+        // a probed linked worktree on another branch doesn't count
+        f.worktrees = vec![linked("/ws/app-other", on("main-2"))];
+        assert_eq!(
+            verdicts(&owned(follow("main")), &f),
+            named(&[
+                ("main", Verdict::Quiet),
+                (
+                    "gone-wt",
+                    Verdict::Held {
+                        action: SyncAction::FastForward { commits: 1 },
+                        by: HeldBy::UnprobedWorktree,
+                    }
+                ),
+                ("gone-wt-ahead", act(SyncAction::Push { commits: 1 })),
+            ])
+        );
+    }
+
+    #[test]
+    fn unprobed_worktrees_hold_by_name_and_git_is_trusted_for_the_rest() {
+        let held = Verdict::Held {
+            action: SyncAction::FastForward { commits: 1 },
+            by: HeldBy::UnprobedWorktree,
+        };
+        let mut f = facts(
+            on("main"),
+            &[
+                b("main", O, true, Track::Even),
+                b("listed", O, true, Track::Behind(1)),
+                b("unlisted", O, true, Track::Behind(1)),
+            ],
+        );
+        // named only by the worktree list: `%(worktreepath)` is empty
+        f.unprobed = vec![unprobed(
+            "/ws/app-failed",
+            Some("listed"),
+            UnprobedWhy::Failed {
+                error: "boom".into(),
+            },
+        )];
+        // named only by `%(worktreepath)`: fail closed
+        f.branches[2].branch.worktree = Some("/ws/app-somewhere".into());
+        assert_eq!(
+            verdicts(&owned(follow("main")), &f)[1..],
+            named(&[("listed", held.clone()), ("unlisted", held)])
+        );
+    }
+
+    #[test]
+    fn a_worktree_whose_head_is_unknown_holds_every_fast_forward() {
+        let mut f = facts(
+            on("main"),
+            &[
+                b("main", O, true, Track::Behind(1)),
+                b("ahead", O, true, Track::Ahead(1)).unique(1),
+                b("gone", O, true, Track::Gone),
+                b("merged", None, false, Track::Even),
+            ],
+        );
+        f.branches[2].branch.worktree = Some("/ws/app-gone".into());
+        f.worktrees = vec![linked("/ws/app-gone", on("gone"))];
+        f.unprobed = vec![UnprobedWorktree {
+            head: UnprobedHead::Unknown,
+            ..unprobed(
+                "/ws/app/.git/worktrees/x",
+                None,
+                UnprobedWhy::Failed {
+                    error: "not listed by git".into(),
+                },
+            )
+        }];
+        assert_eq!(
+            verdicts(&owned(follow("main")), &f),
+            named(&[
+                (
+                    "main",
+                    Verdict::Held {
+                        action: SyncAction::FastForward { commits: 1 },
+                        by: HeldBy::UnprobedWorktree,
+                    }
+                ),
+                // a push only moves refs
+                ("ahead", act(SyncAction::Push { commits: 1 })),
+                // it might be checked out there too: not the one to remove
+                (
+                    "gone",
+                    Verdict::Cleanup {
+                        reason: CleanupReason::UpstreamGone,
+                        removable_worktree: None,
+                    }
+                ),
+                // it might be checked out there: a fresh branch, not merged
+                ("merged", Verdict::Quiet),
+            ])
+        );
+    }
+
+    #[test]
+    fn an_unreadable_git_dir_holds_the_entry_pushes_too() {
+        let mut f = facts(
+            on("main"),
+            &[
+                b("main", O, true, Track::Behind(1)),
+                b("ahead", O, true, Track::Ahead(1)).unique(1),
+            ],
+        );
+        f.unreadable = vec!["/ws/app/.git/worktrees".into()];
+        let c = classify(&owned(follow("main")), &f);
+        assert_eq!(
+            c.needs_human,
+            [NeedsHuman::WorktreeUnreadable {
+                path: "/ws/app/.git/worktrees".into()
+            }]
+        );
+        assert_eq!(
+            verdicts(&owned(follow("main")), &f),
+            named(&[
+                (
+                    "main",
+                    Verdict::Held {
+                        action: SyncAction::FastForward { commits: 1 },
+                        by: HeldBy::Entry,
+                    }
+                ),
+                (
+                    "ahead",
+                    Verdict::Held {
+                        action: SyncAction::Push { commits: 1 },
+                        by: HeldBy::Entry,
+                    }
+                ),
+            ])
+        );
+    }
+
+    #[test]
+    fn what_a_prune_would_lose() {
+        let f = facts(
+            on("main"),
+            &[
+                b("main", O, true, Track::Even),
+                b("feat", O, true, Track::Even),
+            ],
+        );
+        let gone = unprobed("/ws/app-gone", Some("feat"), UnprobedWhy::Prunable);
+        let loses = |losses| Some(Prune::Loses { losses });
+        // on a branch that exists, at rest: nothing
+        assert_eq!(prune(&gone, &f), Some(Prune::Safe));
+        // a merge keeps HEAD on its branch: the operation alone is lost
+        let merging = UnprobedWorktree {
+            in_progress: Some(InProgressOp::Merge),
+            ..gone.clone()
+        };
+        assert_eq!(
+            prune(&merging, &f),
+            loses(vec![PruneLoss::Operation {
+                op: InProgressOp::Merge
+            }])
+        );
+        let detached = unprobed("/ws/app-gone", None, UnprobedWhy::Prunable);
+        assert_eq!(prune(&detached, &f), loses(vec![PruneLoss::DetachedHead]));
+        let unknown = UnprobedWorktree {
+            head: UnprobedHead::Unknown,
+            ..gone.clone()
+        };
+        assert_eq!(prune(&unknown, &f), loses(vec![PruneLoss::UnknownHead]));
+        // its branch deleted: its HEAD may be the only ref to its commit
+        let orphaned = unprobed("/ws/app-gone", Some("deleted"), UnprobedWhy::Prunable);
+        assert_eq!(
+            prune(&orphaned, &f),
+            loses(vec![PruneLoss::MissingBranch {
+                name: "deleted".into()
+            }])
+        );
+        // every loss, listed
+        let both = UnprobedWorktree {
+            in_progress: Some(InProgressOp::Rebase),
+            ..detached
+        };
+        assert_eq!(
+            prune(&both, &f),
+            loses(vec![
+                PruneLoss::Operation {
+                    op: InProgressOp::Rebase
+                },
+                PruneLoss::DetachedHead
+            ])
+        );
+        // not gone: no prune at all
+        for why in [
+            UnprobedWhy::Missing,
+            UnprobedWhy::Failed { error: "x".into() },
+        ] {
+            let u = UnprobedWorktree {
+                why,
+                ..gone.clone()
+            };
+            assert_eq!(prune(&u, &f), None);
+        }
+    }
+
+    #[test]
+    fn every_checkout_on_a_branch_counts() {
+        // git allows one branch on HEAD in several checkouts
+        // (`worktree add -f`); any dirty one holds it
+        let ff1 = Verdict::Act {
+            action: SyncAction::FastForward { commits: 1 },
+        };
+        let mut f = facts(
+            on("main"),
+            &[
+                b("main", O, true, Track::Behind(1)),
+                b("twice", O, true, Track::Gone),
+            ],
+        );
+        f.branches[0].branch.worktree = Some("/ws/app".into());
+        f.branches[1].branch.worktree = Some("/ws/app-twice-1".into());
+        f.worktrees = vec![
+            linked("/ws/app-main", on("main")),
+            linked("/ws/app-twice-1", on("twice")),
+            linked("/ws/app-twice-2", on("twice")),
+        ];
+        let e = owned(follow("main"));
+        let v = verdicts(&e, &f);
+        assert_eq!(v[0].1, ff1);
+        // two clean worktrees on it: neither is the branch's to remove
+        assert_eq!(
+            v[1].1,
+            Verdict::Cleanup {
+                reason: CleanupReason::UpstreamGone,
+                removable_worktree: None,
+            }
+        );
+
+        // a clean primary doesn't hide a dirty worktree on the same branch
+        f.worktrees[0].uncommitted.unstaged = 1;
+        assert_eq!(
+            verdicts(&e, &f)[0].1,
+            Verdict::Held {
+                action: SyncAction::FastForward { commits: 1 },
+                by: HeldBy::DirtyCheckout,
+            }
+        );
+        // nor does a clean worktree hide an unprobed one
+        f.worktrees[0].uncommitted.unstaged = 0;
+        f.unprobed = vec![unprobed(
+            "/ws/app-main-2",
+            Some("main"),
+            UnprobedWhy::Missing,
+        )];
+        assert_eq!(
+            verdicts(&e, &f)[0].1,
+            Verdict::Held {
+                action: SyncAction::FastForward { commits: 1 },
+                by: HeldBy::UnprobedWorktree,
+            }
+        );
+        // dirty outranks unknown
+        f.status.uncommitted.untracked = 1;
+        assert_eq!(
+            verdicts(&e, &f)[0].1,
+            Verdict::Held {
+                action: SyncAction::FastForward { commits: 1 },
+                by: HeldBy::DirtyCheckout,
+            }
+        );
+    }
+
+    #[test]
+    fn a_worktree_is_removable_only_when_git_would_remove_it() {
+        let cleanup = |removable_worktree: Option<&str>| Verdict::Cleanup {
+            reason: CleanupReason::UpstreamGone,
+            removable_worktree: removable_worktree.map(str::to_owned),
+        };
+        let mut f = facts(
+            on("main"),
+            &[
+                b("main", O, true, Track::Even),
+                b("plain", O, true, Track::Gone),
+                b("locked", O, true, Track::Gone),
+                b("picking", O, true, Track::Gone),
+                b("in-main", O, true, Track::Gone),
+                b("with-submodules", O, true, Track::Gone),
+                b("unchecked", O, true, Track::Gone),
+            ],
+        );
+        let mut locked = linked("/ws/app-locked", on("locked"));
+        locked.locked = true;
+        let mut picking = linked("/ws/app-picking", on("picking"));
+        picking.in_progress = Some(InProgressOp::CherryPick);
+        // the main worktree, when the registry's dir is a linked one
+        let mut main_wt = linked("/ws/app-main", on("in-main"));
+        main_wt.linked = false;
+        let mut submodules = linked("/ws/app-subs", on("with-submodules"));
+        submodules.submodules = Some(true);
+        // clean, unlocked, linked, but its submodules weren't checked
+        let mut unchecked = linked("/ws/app-unchecked", on("unchecked"));
+        unchecked.submodules = None;
+        f.worktrees = vec![
+            linked("/ws/app-plain", on("plain")),
+            locked,
+            picking,
+            main_wt,
+            submodules,
+            unchecked,
+        ];
+        for i in 1..7 {
+            f.branches[i].branch.worktree = Some(f.worktrees[i - 1].path.clone());
+        }
+        let v = verdicts(&owned(follow("main")), &f);
+        assert_eq!(
+            v[1..],
+            named(&[
+                ("plain", cleanup(Some("/ws/app-plain"))),
+                // `git worktree remove` refuses a locked worktree
+                ("locked", cleanup(None)),
+                ("picking", cleanup(None)),
+                // `git worktree remove` refuses the main worktree, and one
+                // with initialized submodules
+                ("in-main", cleanup(None)),
+                ("with-submodules", cleanup(None)),
+                // unknown is not "none"
+                ("unchecked", cleanup(None)),
+            ])
+        );
+    }
+
+    #[test]
+    fn a_gone_branch_in_a_clean_linked_worktree_is_removable() {
+        let cleanup = |removable_worktree: Option<&str>| Verdict::Cleanup {
+            reason: CleanupReason::UpstreamGone,
+            removable_worktree: removable_worktree.map(str::to_owned),
+        };
+        let mut f = facts(
+            on("in-primary"),
+            &[
+                b("main", O, true, Track::Even),
+                b("in-clean", O, true, Track::Gone).unique(1),
+                b("in-dirty", O, true, Track::Gone),
+                b("in-primary", O, true, Track::Gone),
+                b("in-none", O, true, Track::Gone),
+                b("in-unprobed", O, true, Track::Gone),
+                b("merged-in-wt", None, false, Track::Even),
+            ],
+        );
+        for (i, path) in [
+            (1, "/ws/app-clean"),
+            (2, "/ws/app-dirty"),
+            (3, "/ws/app"),
+            (5, "/ws/app-unprobed"),
+            (6, "/ws/app-merged"),
+        ] {
+            f.branches[i].branch.worktree = Some(path.into());
+        }
+        let mut dirty = linked("/ws/app-dirty", on("in-dirty"));
+        dirty.uncommitted.unstaged = 1;
+        f.worktrees = vec![
+            linked("/ws/app-clean", on("in-clean")),
+            dirty,
+            linked("/ws/app-merged", on("merged-in-wt")),
+        ];
+        assert_eq!(
+            verdicts(&owned(follow("main")), &f),
+            named(&[
+                ("main", Verdict::Quiet),
+                ("in-clean", cleanup(Some("/ws/app-clean"))),
+                // not removable: its dirt shows as uncommitted instead
+                ("in-dirty", cleanup(None)),
+                // the primary checkout is never removable
+                ("in-primary", cleanup(None)),
+                ("in-none", cleanup(None)),
+                ("in-unprobed", cleanup(None)),
+                // nothing unique and checked out reads as a fresh branch
+                ("merged-in-wt", Verdict::Quiet),
+            ])
         );
     }
 
@@ -965,6 +1557,95 @@ mod tests {
                 NeedsHuman::OperationInProgress {
                     checkout: "/ws/app".into(),
                     op: InProgressOp::Merge
+                },
+                NeedsHuman::UnexpectedDetached {
+                    checkout: "/ws/app".into()
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn each_checkout_with_an_operation_is_a_reason() {
+        let mut f = facts(on("main"), &[b("main", O, true, Track::Ahead(1)).unique(1)]);
+        let mut rebasing = linked(
+            "/ws/app-rebasing",
+            Head::Detached {
+                commit: "abc".into(),
+            },
+        );
+        rebasing.in_progress = Some(InProgressOp::Rebase);
+        let mut merging = linked("/ws/app-merging", on("feat"));
+        merging.in_progress = Some(InProgressOp::Merge);
+        f.worktrees = vec![linked("/ws/app-quiet", on("other")), rebasing, merging];
+        // gone from disk, but its git dir says a revert is mid-way
+        let mut reverting = unprobed("/media/usb/app", None, UnprobedWhy::Missing);
+        reverting.in_progress = Some(InProgressOp::Revert);
+        f.unprobed = vec![reverting];
+        f.in_progress = Some(InProgressOp::CherryPick);
+        let c = classify(&owned(follow("main")), &f);
+        assert_eq!(
+            c.needs_human,
+            [
+                NeedsHuman::OperationInProgress {
+                    checkout: "/ws/app".into(),
+                    op: InProgressOp::CherryPick
+                },
+                NeedsHuman::OperationInProgress {
+                    checkout: "/ws/app-rebasing".into(),
+                    op: InProgressOp::Rebase
+                },
+                NeedsHuman::OperationInProgress {
+                    checkout: "/ws/app-merging".into(),
+                    op: InProgressOp::Merge
+                },
+                NeedsHuman::OperationInProgress {
+                    checkout: "/media/usb/app".into(),
+                    op: InProgressOp::Revert
+                },
+            ]
+        );
+
+        // a linked worktree's operation alone holds the entry
+        f.in_progress = None;
+        f.unprobed.clear();
+        f.worktrees.remove(2);
+        assert_eq!(
+            verdicts(&owned(follow("main")), &f),
+            named(&[(
+                "main",
+                Verdict::Held {
+                    action: SyncAction::Push { commits: 1 },
+                    by: HeldBy::Entry
+                }
+            )])
+        );
+    }
+
+    #[test]
+    fn only_the_primary_counts_for_a_detached_head() {
+        let e = owned(follow("main"));
+        // a linked worktree detached is normal
+        let mut f = facts(on("main"), &[b("main", O, true, Track::Even)]);
+        f.worktrees = vec![linked(
+            "/ws/app-detached",
+            Head::Detached {
+                commit: "abc".into(),
+            },
+        )];
+        assert!(classify(&e, &f).needs_human.is_empty());
+
+        // a rebase in a linked worktree doesn't explain the primary's detach
+        f.status.head = Head::Detached {
+            commit: "abc".into(),
+        };
+        f.worktrees[0].in_progress = Some(InProgressOp::Rebase);
+        assert_eq!(
+            classify(&e, &f).needs_human,
+            [
+                NeedsHuman::OperationInProgress {
+                    checkout: "/ws/app-detached".into(),
+                    op: InProgressOp::Rebase
                 },
                 NeedsHuman::UnexpectedDetached {
                     checkout: "/ws/app".into()

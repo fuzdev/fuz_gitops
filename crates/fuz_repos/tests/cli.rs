@@ -73,6 +73,113 @@ fn status_targets_from_inside_a_checkout() {
 }
 
 #[test]
+fn status_from_a_linked_worktree_outside_the_workspace() {
+    let ws = workspace();
+    let app = ws.dir("app");
+    // `feature` merged and deleted upstream, its clean worktree removable;
+    // `scratch` dirty
+    let feature = ws.outside("app-feature");
+    ws.add_worktree(&app, &feature, &["-b", "feature"]);
+    ws.git(&feature, &["push", "-q", "-u", "origin", "feature"]);
+    ws.upstream_delete_branch("app", "feature");
+    ws.git(&app, &["fetch", "-q", "--prune", "origin"]);
+    ws.assert_track(&app, "feature", "[gone]");
+    ws.assert_clean(&feature);
+    let scratch = ws.outside("app-scratch");
+    ws.add_worktree(&app, &scratch, &["-b", "scratch"]);
+    support::write(&scratch, "notes.txt", "x\n");
+    ws.assert_porcelain(&scratch, &["?? notes.txt"]);
+    // and one deleted by hand
+    let gone = ws.outside("app-gone");
+    ws.add_worktree(&app, &gone, &["-b", "gone"]);
+    std::fs::remove_dir_all(&gone).unwrap();
+    for wt in [&feature, &scratch, &gone] {
+        assert!(!wt.starts_with(ws.root()));
+    }
+
+    // outside the workspace, discovery can't walk up to the registry
+    let registry = ws.root().join("repos.toml");
+    let registry = registry.to_str().unwrap();
+    let report = parse(&repos(
+        &ws,
+        &feature,
+        &["--registry", registry, "status", "--json", "."],
+    ));
+    let entries = report["entries"].as_array().unwrap();
+    assert_eq!(entries.len(), 1);
+    let e = &entries[0];
+    assert_eq!(e["key"], "app");
+    assert_eq!(
+        e["unprobed_worktrees"],
+        serde_json::json!([{
+            "path": gone.to_str().unwrap(),
+            "head": {"kind": "branch", "name": "gone"},
+            "locked": false,
+            "in_progress": null,
+            "why": {"kind": "prunable"},
+            "prune": {"kind": "safe"},
+        }])
+    );
+    let checkouts = e["checkouts"].as_array().unwrap();
+    let paths: Vec<(&str, bool)> = checkouts
+        .iter()
+        .map(|c| (c["path"].as_str().unwrap(), c["primary"].as_bool().unwrap()))
+        .collect();
+    assert_eq!(
+        paths,
+        [
+            (app.to_str().unwrap(), true),
+            (feature.to_str().unwrap(), false),
+            (scratch.to_str().unwrap(), false),
+        ]
+    );
+    assert_eq!(checkouts[2]["uncommitted"]["untracked"], 1);
+    assert_eq!(checkouts[1]["locked"], false);
+    assert_eq!(checkouts[1]["linked"], true);
+    assert_eq!(checkouts[0]["linked"], false);
+    // checked for the clean worktree that could be removed; not otherwise
+    assert_eq!(checkouts[1]["submodules"], false);
+    assert_eq!(checkouts[2]["submodules"], Value::Null);
+    assert_eq!(checkouts[0]["submodules"], Value::Null);
+    let branch = e["branches"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|b| b["name"] == "feature")
+        .unwrap();
+    assert_eq!(
+        branch["verdict"],
+        serde_json::json!({
+            "kind": "cleanup",
+            "reason": "upstream_gone",
+            "removable_worktree": feature.to_str().unwrap(),
+        })
+    );
+
+    let out = repos(&ws, &feature, &["--registry", registry, "status", "."]);
+    assert_eq!(out.status.code(), Some(0), "stderr: {}", stderr(&out));
+    let text = stdout(&out);
+    assert!(
+        text.contains(&format!(
+            "uncommitted   app (worktree {}, 1)\n",
+            scratch.display()
+        )),
+        "{text}"
+    );
+    assert!(
+        text.contains(&format!(
+            // main's local commit is on it too, on no remote
+            "cleanup       app:feature (upstream gone, +1, worktree {} removable)  \
+             app (worktree {} gone — git worktree prune, or git worktree repair <new path> \
+             if it moved)\n",
+            feature.display(),
+            gone.display()
+        )),
+        "{text}"
+    );
+}
+
+#[test]
 fn status_text_exits_zero_whatever_it_reports() {
     let ws = workspace();
     for args in [&["status"][..], &["status", "--verbose"]] {

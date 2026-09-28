@@ -260,7 +260,8 @@ fn a_merged_branch_is_cleanup_unless_checked_out() {
     assert_eq!(
         done.verdict,
         Verdict::Cleanup {
-            reason: CleanupReason::Merged
+            reason: CleanupReason::Merged,
+            removable_worktree: None
         }
     );
     assert_eq!(branch(&e, "fresh").verdict, Verdict::Quiet);
@@ -303,7 +304,8 @@ fn a_gone_upstream_with_and_without_unique_commits() {
         assert_eq!(
             s.verdict,
             Verdict::Cleanup {
-                reason: CleanupReason::UpstreamGone
+                reason: CleanupReason::UpstreamGone,
+                removable_worktree: None
             },
             "{b}"
         );

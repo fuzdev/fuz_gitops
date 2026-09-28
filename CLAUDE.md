@@ -100,12 +100,13 @@ never had one (the fallback is `gitops_run "git status"` and parsing porcelain
 by hand).
 
 It's **being built** as the Rust `repos` tool, not by growing `GitOperations`:
-a read-only `repos status` works today; linked worktrees, the unregistered-clone
-scan, `sync`, and `push` are still to come. Its invariants are settled: never
-`pull` across a set of repos (fetch, classify, then fast-forward or report);
-never rebase, merge, or auto-resolve conflicts — anything history-changing
-stops and reports, so host repo rules never need modelling; derive write
-authority from owner accounts; classify unpushed refs by type.
+a read-only `repos status` works today, linked worktrees included; the
+unregistered-clone scan, `sync`, and `push` are still to come. Its invariants
+are settled: never `pull` across a set of repos (fetch, classify, then
+fast-forward or report); never rebase, merge, or auto-resolve conflicts —
+anything history-changing stops and reports, so host repo rules never need
+modelling; derive write authority from owner accounts; classify unpushed refs
+by type.
 
 ### The TS and Rust halves
 
@@ -118,13 +119,14 @@ a project's own config, publishing, and dashboard data.
 crate, `crates/fuz_repos` (a library plus the `repos` binary), and it owns git:
 repo state, sync, and the agent push path — git only, no API calls. So far it
 has `repos status`: every registry entry's branches and their relation to
-origin, uncommitted work, and what needs a human, grouped by what to do next,
-from local refs (`--fetch` refreshes them first). Sync and push aren't built. TS keeps
-everything else: the dashboard, its data step (GitHub metadata and
-svelte-docinfo library analysis), and the publish cascade. Once `repos sync`
-ships, the TS tasks stop cloning and pulling and read repo state from
-`repos status --json`, and a project's `gitops.config.ts` shrinks to a list of
-registry keys. Nothing is deprecated until its Rust replacement ships.
+origin, uncommitted work in each checkout (linked worktrees too), and what
+needs a human, grouped by what to do next, from local refs (`--fetch`
+refreshes them first). Sync and push aren't built. TS keeps everything else:
+the dashboard, its data step (GitHub metadata and svelte-docinfo library
+analysis), and the publish cascade. Once `repos sync` ships, the TS tasks stop
+cloning and pulling and read repo state from `repos status --json`, and a
+project's `gitops.config.ts` shrinks to a list of registry keys. Nothing is
+deprecated until its Rust replacement ships.
 
 ## Core functionality
 

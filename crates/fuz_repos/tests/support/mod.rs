@@ -40,7 +40,7 @@ use fuz_repos::discover::{REGISTRY_FILE, find_registry};
 use fuz_repos::git::Git;
 use fuz_repos::registry::{Entry, Registry};
 use fuz_repos::report::EntryStatus;
-use fuz_repos::state::BranchStatus;
+use fuz_repos::state::{BranchStatus, UnprobedWorktree};
 use fuz_repos::status::{StatusOptions, status};
 use tempfile::TempDir;
 
@@ -311,6 +311,34 @@ impl FixtureWorkspace {
         );
     }
 
+    /// Adds a linked worktree of `repo` at `path` (`args` follow it: a
+    /// branch to check out, `-b <new>`, `--detach`, …) and returns its own
+    /// git dir, `<commondir>/worktrees/<id>`.
+    pub fn add_worktree(&self, repo: &Path, path: &Path, args: &[&str]) -> PathBuf {
+        let mut all = vec!["worktree", "add", "-q", path.to_str().unwrap()];
+        all.extend(args);
+        self.git(repo, &all);
+        assert!(path.join(".git").is_file(), "{} is linked", path.display());
+        let admin = PathBuf::from(self.git(path, &["rev-parse", "--absolute-git-dir"]));
+        let common = PathBuf::from(self.git(
+            repo,
+            &["rev-parse", "--path-format=absolute", "--git-common-dir"],
+        ));
+        assert_eq!(admin.parent(), Some(common.join("worktrees").as_path()));
+        admin
+    }
+
+    /// The `git worktree list --porcelain` record for the worktree at
+    /// `path`, as its attribute lines.
+    pub fn worktree_record(&self, repo: &Path, path: &Path) -> Vec<String> {
+        let out = self.git_raw(repo, &["worktree", "list", "--porcelain"]);
+        let head = format!("worktree {}", path.display());
+        out.split("\n\n")
+            .map(|r| r.lines().map(str::to_owned).collect::<Vec<_>>())
+            .find(|r| r.first() == Some(&head))
+            .unwrap_or_else(|| panic!("no worktree {} in:\n{out}", path.display()))
+    }
+
     /// Writes a file and commits it; returns the commit.
     pub fn commit(&self, repo: &Path, label: &str) -> String {
         let n = self.clock.get();
@@ -520,6 +548,16 @@ pub fn find_entry<'a>(entries: &'a [EntryStatus], key: &str) -> &'a EntryStatus 
         .iter()
         .find(|e| e.key == key)
         .unwrap_or_else(|| panic!("no entry `{key}` in the report"))
+}
+
+/// An entry's unprobed worktrees, as the probe's facts (without what
+/// `classify` decided about pruning them).
+pub fn unprobed_facts(entry: &EntryStatus) -> Vec<UnprobedWorktree> {
+    entry
+        .unprobed_worktrees
+        .iter()
+        .map(|u| u.worktree.clone())
+        .collect()
 }
 
 /// The branch named `name` in an entry's report.
