@@ -5,6 +5,10 @@
 //! and the pure classification; the `repos` binary parses arguments, renders
 //! reports, and owns exit codes.
 
+pub mod discover;
+pub mod error;
+pub mod registry;
+
 /// The version of the `repos status --json` document. Bumped on any breaking
 /// change to its shape (a removal, a rename, a changed meaning); additions
 /// don't bump it.
