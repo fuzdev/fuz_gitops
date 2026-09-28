@@ -169,6 +169,14 @@ impl TryFrom<String> for RepoUrl {
     }
 }
 
+impl RepoUrl {
+    /// The SSH form, `git@<host>:<account>/<name>` — how owned repos clone
+    /// and push.
+    pub fn ssh(&self) -> String {
+        format!("git@{}:{}/{}", self.host, self.account, self.name)
+    }
+}
+
 impl From<RepoUrl> for String {
     fn from(url: RepoUrl) -> Self {
         url.to_string()
@@ -205,6 +213,18 @@ pub struct Entry {
     pub visibility: Option<Visibility>,
     pub ci: bool,
     pub checkout_mode: CheckoutMode,
+}
+
+impl Entry {
+    /// The URL `origin` should hold: SSH for owned entries, HTTPS for
+    /// third-party ones — transport follows write authority.
+    pub fn remote_url(&self) -> String {
+        if self.writable {
+            self.url.ssh()
+        } else {
+            self.url.to_string()
+        }
+    }
 }
 
 impl Registry {
@@ -478,6 +498,7 @@ purpose = "x"
             ok("https://github.com/a/b.git").to_string(),
             "https://github.com/a/b"
         );
+        assert_eq!(ok("https://codeberg.org/a/b").ssh(), "git@codeberg.org:a/b");
         for bad in [
             "git@github.com:a/b",
             "http://github.com/a/b",

@@ -55,11 +55,21 @@ pub fn render_summary(report: &StatusReport, paths: Paths<'_>, verbose: bool) ->
     };
     line("failed", &g.failed, "  ");
     line("needs human", &g.needs_human, "  ");
-    let sync: Vec<String> = [("push", &g.push), ("ff", &g.ff), ("clone", &g.clone)]
-        .into_iter()
-        .filter(|(_, items)| !items.is_empty())
-        .map(|(verb, items)| format!("{verb} {}", items.join(", ")))
-        .collect();
+    line("origin drift", &g.origin_drift, "  ");
+    if !g.origin_drift.is_empty() {
+        let hint = "hint: git -C <dir> remote set-url origin <url> (each under --verbose)";
+        line("", &[hint.to_owned()], "");
+    }
+    let sync: Vec<String> = [
+        ("push", &g.push),
+        ("ff", &g.ff),
+        ("move", &g.moves),
+        ("clone", &g.clone),
+    ]
+    .into_iter()
+    .filter(|(_, items)| !items.is_empty())
+    .map(|(verb, items)| format!("{verb} {}", items.join(", ")))
+    .collect();
     line("sync would", &sync, " · ");
     line("local-only", &g.local_only, "  ");
     line("uncommitted", &g.uncommitted, "  ");
@@ -85,8 +95,10 @@ struct Counts {
 struct Groups {
     failed: Vec<String>,
     needs_human: Vec<String>,
+    origin_drift: Vec<String>,
     push: Vec<String>,
     ff: Vec<String>,
+    moves: Vec<String>,
     clone: Vec<String>,
     local_only: Vec<String>,
     uncommitted: Vec<String>,
@@ -120,8 +132,17 @@ impl Groups {
                 .push(format!("{key} (fetch: {})", first_line(error)));
         }
         for reason in &e.needs_human {
-            self.needs_human
-                .push(format!("{key} ({})", needs_human_label(reason)));
+            match reason {
+                NeedsHuman::OriginMismatch { origin, .. } => {
+                    let was = origin
+                        .as_deref()
+                        .map_or_else(|| "no origin".to_owned(), |o| compact_remote(o, &e.url));
+                    self.origin_drift.push(format!("{key} ({was})"));
+                }
+                reason => self
+                    .needs_human
+                    .push(format!("{key} ({})", needs_human_label(reason))),
+            }
         }
         if e.presence == Presence::Missing {
             self.clone.push(key.clone());
@@ -135,14 +156,14 @@ impl Groups {
                 Relation::Unmapped => self
                     .needs_human
                     .push(format!("{} (outside refspec)", label(b))),
+                // nothing local at stake: the branch can move to the fetched tip
+                Relation::Shallow if b.unique_commits == 0 => self.moves.push(label(b)),
                 Relation::Shallow => {
-                    let local = if b.unique_commits > 0 {
-                        format!(", +{} local", b.unique_commits)
-                    } else {
-                        String::new()
-                    };
-                    self.needs_human
-                        .push(format!("{} (shallow, tips differ{local})", label(b)));
+                    self.needs_human.push(format!(
+                        "{} (shallow, tips differ, +{} local)",
+                        label(b),
+                        b.unique_commits
+                    ));
                 }
                 Relation::Ahead { commits } if e.archived => {
                     self.needs_human
@@ -209,8 +230,10 @@ impl Groups {
     const fn len(&self) -> usize {
         self.failed.len()
             + self.needs_human.len()
+            + self.origin_drift.len()
             + self.push.len()
             + self.ff.len()
+            + self.moves.len()
             + self.clone.len()
             + self.local_only.len()
             + self.uncommitted.len()
@@ -220,12 +243,13 @@ impl Groups {
 
 fn needs_human_label(reason: &NeedsHuman) -> String {
     match reason {
-        NeedsHuman::NotARepo => "not a repo".into(),
+        NeedsHuman::NotARepo { .. } => "not a repo".into(),
         NeedsHuman::OperationInProgress { op, .. } => format!("{} in progress", op.label()),
         NeedsHuman::OriginMismatch {
             origin: Some(origin),
+            ..
         } => format!("origin is {origin}"),
-        NeedsHuman::OriginMismatch { origin: None } => "no origin".into(),
+        NeedsHuman::OriginMismatch { origin: None, .. } => "no origin".into(),
         NeedsHuman::DefaultBranchMissing { branch } => format!("no local {branch}"),
         NeedsHuman::DefaultBranchNoUpstream { branch } => {
             format!("{branch} has no origin upstream")
@@ -373,8 +397,20 @@ pub fn render_entry(e: &EntryStatus, paths: Paths<'_>) -> String {
             b.upstream.as_deref().unwrap_or("-"),
         );
     }
+    let dir = e
+        .checkouts
+        .first()
+        .map_or_else(|| e.dir.clone(), |c| paths.show(&c.path));
     for reason in &e.needs_human {
-        let _ = writeln!(out, "  {:<10}{}", "needs", needs_human_label(reason));
+        let detail = match reason {
+            NeedsHuman::NotARepo { detail } => format!("not a repo: {detail}"),
+            NeedsHuman::OriginMismatch { expected, .. } => format!(
+                "{} — git -C {dir} remote set-url origin {expected}",
+                needs_human_label(reason)
+            ),
+            reason => needs_human_label(reason),
+        };
+        let _ = writeln!(out, "  {:<10}{detail}", "needs");
     }
     if let Some(error) = &e.probe_error {
         let _ = writeln!(out, "  {:<10}probe: {error}", "error");
@@ -383,6 +419,26 @@ pub fn render_entry(e: &EntryStatus, paths: Paths<'_>) -> String {
         let _ = writeln!(out, "  {:<10}fetch: {error}", "error");
     }
     out
+}
+
+/// A remote URL shortened for the summary: `account/name` when it's on the
+/// registry URL's host, else the URL as configured.
+fn compact_remote(origin: &str, registry_url: &str) -> String {
+    let host = registry_url
+        .strip_prefix("https://")
+        .and_then(|r| r.split('/').next())
+        .unwrap_or_default();
+    let path = [
+        format!("git@{host}:"),
+        format!("ssh://git@{host}/"),
+        format!("https://{host}/"),
+    ]
+    .iter()
+    .find_map(|prefix| origin.strip_prefix(prefix.as_str()));
+    path.map_or_else(
+        || origin.to_owned(),
+        |p| p.trim_end_matches('/').trim_end_matches(".git").to_owned(),
+    )
 }
 
 fn relation_label(r: Relation) -> String {
@@ -617,6 +673,63 @@ clean 1 · on branches 0 · pinned 0      ~/dev/repos.toml · fetched 3h ago, 1 
             "{verbose}"
         );
         assert!(verbose.contains("stashes       uz (2)\n"), "{verbose}");
+    }
+
+    #[test]
+    fn origin_drift_shallow_moves_and_not_a_repo() {
+        let mut blog = entry("fuz_blog", main(), "main");
+        blog.url = "https://github.com/fuzdev/fuz_blog".into();
+        blog.needs_human = vec![NeedsHuman::OriginMismatch {
+            origin: Some("git@github.com:ryanatkn/fuz_blog".into()),
+            expected: "git@github.com:fuzdev/fuz_blog".into(),
+        }];
+        let mut kit = entry("kit", CheckoutMode::Head, "main");
+        kit.writable = false;
+        kit.url = "https://github.com/sveltejs/kit".into();
+        kit.needs_human = vec![NeedsHuman::OriginMismatch {
+            origin: Some("https://codeberg.org/someone/kit".into()),
+            expected: "https://github.com/sveltejs/kit".into(),
+        }];
+        let mut test262 = entry("test262", CheckoutMode::Head, "x");
+        test262.checkouts[0].head = Head::Detached {
+            commit: "abc".into(),
+        };
+        test262.branches = vec![
+            branch("main", Some("origin/main"), Relation::Shallow, 0),
+            branch("work", Some("origin/work"), Relation::Shallow, 2),
+        ];
+        let mut goblins = entry("goblins", CheckoutMode::Head, "x");
+        goblins.presence = Presence::NotARepo;
+        goblins.checkouts.clear();
+        goblins.layout = None;
+        goblins.needs_human = vec![NeedsHuman::NotARepo {
+            detail: "empty directory".into(),
+        }];
+
+        let r = report(vec![blog, kit, test262, goblins]);
+        assert_eq!(
+            render_summary(&r, PATHS, false),
+            "\
+needs human   test262:work (shallow, tips differ, +2 local)  goblins (not a repo)
+origin drift  fuz_blog (ryanatkn/fuz_blog)  kit (https://codeberg.org/someone/kit)
+              hint: git -C <dir> remote set-url origin <url> (each under --verbose)
+sync would    move test262:main
+clean 0 · on branches 0 · pinned 0      ~/dev/repos.toml · fetched 3h ago
+"
+        );
+        let blog_block = render_entry(&r.entries[0], PATHS);
+        assert!(
+            blog_block.contains(
+                "  needs     origin is git@github.com:ryanatkn/fuz_blog — git -C ~/dev/fuz_blog \
+                 remote set-url origin git@github.com:fuzdev/fuz_blog\n"
+            ),
+            "{blog_block}"
+        );
+        let goblins_block = render_entry(&r.entries[3], PATHS);
+        assert!(
+            goblins_block.contains("  needs     not a repo: empty directory\n"),
+            "{goblins_block}"
+        );
     }
 
     #[test]

@@ -2,8 +2,8 @@
 //! reasons. Pure.
 //!
 //! Entry-level reasons live here; branch-level ones (diverged, unmapped,
-//! ahead on an archived repo, shallow) are read off the relations by
-//! whatever renders them.
+//! ahead on an archived repo, shallow with local commits) are read off the
+//! relations by whatever renders them.
 
 use std::time::SystemTime;
 
@@ -18,14 +18,20 @@ use crate::state::{BranchStatus, Head, InProgressOp, Relation};
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum NeedsHuman {
-    NotARepo,
+    /// The dir exists but git finds no repo there; `detail` says why (an
+    /// empty dir, or git's message).
+    NotARepo {
+        detail: String,
+    },
     OperationInProgress {
         checkout: String,
         op: InProgressOp,
     },
     /// `origin` isn't the registry's `url`; `None` when there's no `origin`.
+    /// `expected` is the URL to set it to (SSH when owned, else HTTPS).
     OriginMismatch {
         origin: Option<String>,
+        expected: String,
     },
     DefaultBranchMissing {
         branch: String,
@@ -127,6 +133,7 @@ fn needs_human(entry: &Entry, facts: &RepoFacts) -> Vec<NeedsHuman> {
         Some(origin) if origin_matches(origin, &entry.url) => {}
         origin => reasons.push(NeedsHuman::OriginMismatch {
             origin: origin.clone(),
+            expected: entry.remote_url(),
         }),
     }
     let head = &facts.status.head;
@@ -537,7 +544,10 @@ mod tests {
                     checkout: "/ws/app".into(),
                     op: InProgressOp::Rebase
                 },
-                NeedsHuman::OriginMismatch { origin: None },
+                NeedsHuman::OriginMismatch {
+                    origin: None,
+                    expected: "git@github.com:me/app".into()
+                },
             ]
         );
     }

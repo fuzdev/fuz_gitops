@@ -37,7 +37,10 @@ pub struct ProbeRun {
 #[derive(Debug)]
 pub enum Probed {
     Missing,
-    NotARepo,
+    /// The dir exists but holds no repo; `detail` says why.
+    NotARepo {
+        detail: String,
+    },
     Present(Box<RepoFacts>),
     /// The dir is a repo, but a later call failed.
     Failed {
@@ -137,7 +140,11 @@ fn probe_present(
         local,
     ) {
         Ok(out) => out,
-        Err(GitError::Failed { .. }) => return Ok(Probed::NotARepo),
+        Err(GitError::Failed { stderr, .. }) => {
+            return Ok(Probed::NotARepo {
+                detail: not_a_repo_detail(dir, &stderr),
+            });
+        }
         Err(e) => return Err(e.to_string()),
     };
     let mut lines = dirs.lines();
@@ -261,6 +268,20 @@ fn probe_present(
     })))
 }
 
+/// Why a dir isn't a repo: empty (a clone that never started), or git's
+/// message (a dir that isn't a checkout, dubious ownership, …).
+fn not_a_repo_detail(dir: &Path, stderr: &str) -> String {
+    if std::fs::read_dir(dir).is_ok_and(|mut d| d.next().is_none()) {
+        return "empty directory".into();
+    }
+    let line = stderr
+        .lines()
+        .find(|l| !l.trim().is_empty())
+        .unwrap_or(stderr)
+        .trim();
+    line.strip_prefix("fatal: ").unwrap_or(line).to_owned()
+}
+
 /// Counts a branch's commits on no remote. In a shallow clone every fetched
 /// commit is a root (the clone recipe is depth 1), so roots are subtracted —
 /// a tip fetched rather than made here isn't local work — and for what
@@ -345,6 +366,7 @@ fn read_in_progress(git_dir: &Path) -> Option<InProgressOp> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::registry::Registry;
 
     fn r(upstream: Option<&str>, track: Track) -> RefFacts {
         RefFacts {
@@ -380,5 +402,48 @@ mod tests {
         assert_eq!(read_in_progress(tmp.path()), None);
         std::fs::create_dir(tmp.path().join("rebase-merge")).unwrap();
         assert_eq!(read_in_progress(tmp.path()), Some(InProgressOp::Rebase));
+    }
+
+    #[test]
+    fn not_a_repo_says_why() {
+        let tmp = tempfile::tempdir().unwrap();
+        let registry = Registry::parse(
+            r#"
+owners = ["me"]
+[repos.empty]
+url = "https://github.com/me/empty"
+visibility = "public"
+purpose = "a clone that never started"
+[repos.plain]
+url = "https://github.com/me/plain"
+visibility = "public"
+purpose = "a dir that isn't a checkout"
+"#,
+        )
+        .unwrap();
+        std::fs::create_dir(tmp.path().join("empty")).unwrap();
+        std::fs::create_dir(tmp.path().join("plain")).unwrap();
+        std::fs::write(tmp.path().join("plain/file"), "x").unwrap();
+        let git = Git::new();
+        let cx = ProbeContext {
+            git: &git,
+            root: tmp.path(),
+            now: SystemTime::now(),
+            fetch: false,
+        };
+        let details: Vec<String> = registry
+            .entries()
+            .iter()
+            .map(|e| match probe(e, cx).probed {
+                Probed::NotARepo { detail } => detail,
+                p => panic!("{}: {p:?}", e.key),
+            })
+            .collect();
+        assert_eq!(details[0], "empty directory");
+        assert!(
+            details[1].contains("not a git repository"),
+            "{}",
+            details[1]
+        );
     }
 }

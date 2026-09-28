@@ -107,7 +107,9 @@ pub enum Relation {
         behind: u32,
     },
     /// A shallow clone whose tips differ and can't be compared; commits on
-    /// the fetched tip are `Ahead` instead.
+    /// the fetched tip are `Ahead` instead. With no unique commits nothing
+    /// local is at stake, so the branch can move to the fetched tip; with
+    /// some, it needs a human.
     Shallow,
     /// An origin upstream is configured but its tracking ref was pruned.
     Gone,

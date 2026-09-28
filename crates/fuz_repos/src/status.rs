@@ -113,9 +113,9 @@ pub fn entry_status(entry: &Entry, run: ProbeRun, now: SystemTime) -> EntryStatu
     };
     match run.probed {
         Probed::Missing => status.presence = Presence::Missing,
-        Probed::NotARepo => {
+        Probed::NotARepo { detail } => {
             status.presence = Presence::NotARepo;
-            status.needs_human.push(NeedsHuman::NotARepo);
+            status.needs_human.push(NeedsHuman::NotARepo { detail });
         }
         Probed::Failed { error } => status.probe_error = Some(error),
         Probed::Present(facts) => {
