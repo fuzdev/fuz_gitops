@@ -5,6 +5,7 @@
 //! and the pure classification; the `repos` binary parses arguments, renders
 //! reports, and owns exit codes.
 
+pub mod classify;
 pub mod discover;
 pub mod error;
 pub mod git;
