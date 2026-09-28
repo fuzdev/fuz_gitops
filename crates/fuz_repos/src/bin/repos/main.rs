@@ -1,8 +1,254 @@
 //! `repos` — git state over the repos a `repos.toml` registry declares.
+//!
+//! Exit codes: `0` when the command ran (what the report says is data, not
+//! failure); `1` for a runtime failure; `2` when the caller must change
+//! something — usage, a missing or invalid registry, git missing, an unknown
+//! target.
 
+mod render;
+
+use std::fmt::Write as _;
+use std::io::{self, Write as _};
+use std::path::Path;
 use std::process::ExitCode;
+use std::time::{Duration, Instant, SystemTime};
+
+use argh::{EarlyExit, FromArgs};
+use fuz_repos::discover::{find_registry, resolve_targets};
+use fuz_repos::error::{Error, Result};
+use fuz_repos::git::{CallOptions, Git, GitError};
+use fuz_repos::registry::Registry;
+use fuz_repos::report::StatusReport;
+use fuz_repos::status::{EntryTiming, StatusOptions, status};
+
+use crate::render::{Paths, render_entry, render_summary};
+
+/// repos — git state over the repos a repos.toml registry declares.
+#[derive(FromArgs, Debug)]
+struct Cli {
+    /// path to the registry (default: the first repos.toml in the cwd or a
+    /// parent)
+    #[argh(option)]
+    registry: Option<String>,
+    #[argh(subcommand)]
+    command: Command,
+}
+
+#[derive(FromArgs, Debug)]
+#[argh(subcommand)]
+enum Command {
+    Status(StatusArgs),
+}
+
+/// Report every entry's git state from local refs, grouped by what to do next.
+// A flat bundle of CLI switches, not domain state.
+#[allow(clippy::struct_excessive_bools)]
+#[derive(FromArgs, Debug)]
+#[argh(subcommand, name = "status")]
+struct StatusArgs {
+    /// registry keys, dir names, or paths inside checkouts (default: every
+    /// entry)
+    #[argh(positional)]
+    targets: Vec<String>,
+    /// fetch owned, non-pinned entries from origin first (writes
+    /// remote-tracking refs)
+    #[argh(switch)]
+    fetch: bool,
+    /// print the report as JSON
+    #[argh(switch)]
+    json: bool,
+    /// add stash counts, the uncommitted split, and a block per entry
+    #[argh(switch)]
+    verbose: bool,
+    /// entries probed at once
+    #[argh(option, default = "8")]
+    jobs: usize,
+    /// print wall time per phase, git spawns, and the slowest entries to
+    /// stderr
+    #[argh(switch)]
+    timings: bool,
+}
 
 fn main() -> ExitCode {
-    println!("repos {}", fuz_repos::STATUS_FORMAT_VERSION);
-    ExitCode::SUCCESS
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    let args: Vec<&str> = args.iter().map(String::as_str).collect();
+    let cli = match Cli::from_args(&["repos"], &args) {
+        Ok(cli) => cli,
+        Err(EarlyExit { output, status }) => {
+            return if status.is_ok() {
+                println!("{output}");
+                ExitCode::SUCCESS
+            } else {
+                eprintln!("{output}");
+                ExitCode::from(2)
+            };
+        }
+    };
+    let Err(e) = run(cli) else {
+        return ExitCode::SUCCESS;
+    };
+    let mut message = e.to_string();
+    let mut source = std::error::Error::source(&e);
+    while let Some(s) = source {
+        message = format!("{message}: {s}");
+        source = s.source();
+    }
+    eprintln!("error: {message}");
+    if let Some(hint) = e.hint() {
+        eprintln!("hint: {hint}");
+    }
+    ExitCode::from(e.exit_code())
+}
+
+fn run(cli: Cli) -> Result<()> {
+    match cli.command {
+        Command::Status(args) => run_status(cli.registry.as_deref(), &args),
+    }
+}
+
+fn run_status(registry: Option<&str>, args: &StatusArgs) -> Result<()> {
+    let start = Instant::now();
+    let now = SystemTime::now();
+    let cwd = std::env::current_dir().map_err(|source| Error::Io {
+        context: "failed to read the current directory".into(),
+        source,
+    })?;
+    let loc = find_registry(&cwd, registry.map(Path::new))?;
+    let registry = Registry::load(&loc.path)?;
+    let git = Git::new();
+    // TODO: check git ≥ 2.44 for `GIT_NO_LAZY_FETCH` (`GitTooOld`, pass 2)
+    if matches!(
+        git.run(&cwd, &["--version"], CallOptions::default()),
+        Err(GitError::NotFound)
+    ) {
+        return Err(Error::GitNotFound);
+    }
+    let entries = resolve_targets(&registry.entries(), &loc.root, &cwd, &args.targets, &git)?;
+    let load_time = start.elapsed();
+
+    let run = status(
+        &entries,
+        &loc.root,
+        &git,
+        StatusOptions {
+            fetch: args.fetch,
+            jobs: args.jobs,
+        },
+        now,
+    );
+    let report = StatusReport::new(
+        loc.root.to_string_lossy().into_owned(),
+        loc.path.to_string_lossy().into_owned(),
+        run.entries,
+    );
+
+    let render_start = Instant::now();
+    let home = std::env::var("HOME").ok();
+    let paths = Paths {
+        home: home.as_deref(),
+    };
+    let out = if args.json {
+        let mut json = serde_json::to_string_pretty(&report).map_err(|e| Error::Io {
+            context: "failed to serialize the report".into(),
+            source: io::Error::other(e),
+        })?;
+        json.push('\n');
+        json
+    } else {
+        let mut out = String::new();
+        if args.verbose {
+            for e in &report.entries {
+                out.push_str(&render_entry(e, paths));
+                out.push('\n');
+            }
+        }
+        out.push_str(&render_summary(&report, paths, args.verbose));
+        out
+    };
+    let render_time = render_start.elapsed();
+    write_stdout(&out)?;
+
+    if args.timings {
+        eprint!(
+            "{}",
+            render_timings(&Timings {
+                load: load_time,
+                probe: run.elapsed,
+                render: render_time,
+                total: start.elapsed(),
+                jobs: args.jobs,
+                spawns: git.spawns(),
+                entries: &run.timings,
+            })
+        );
+    }
+    Ok(())
+}
+
+/// Writes to stdout, treating a closed pipe (`repos status | head`) as done.
+fn write_stdout(s: &str) -> Result<()> {
+    match io::stdout().lock().write_all(s.as_bytes()) {
+        Err(e) if e.kind() != io::ErrorKind::BrokenPipe => Err(Error::Io {
+            context: "failed to write to stdout".into(),
+            source: e,
+        }),
+        _ => Ok(()),
+    }
+}
+
+#[derive(Debug)]
+struct Timings<'a> {
+    load: Duration,
+    probe: Duration,
+    render: Duration,
+    total: Duration,
+    jobs: usize,
+    spawns: u32,
+    entries: &'a [EntryTiming],
+}
+
+/// How many of the slowest entries `--timings` names.
+const SLOWEST: usize = 6;
+
+fn render_timings(t: &Timings<'_>) -> String {
+    let ms = |d: Duration| format!("{}ms", d.as_millis());
+    let fetched = t.entries.iter().any(|e| !e.fetch.is_zero());
+    let phase = if fetched { "fetch + probe" } else { "probe" };
+    let mut out = format!(
+        "timings   load {} · {phase} {} (jobs {}) · render {} · total {}\n",
+        ms(t.load),
+        ms(t.probe),
+        t.jobs,
+        ms(t.render),
+        ms(t.total),
+    );
+    let probe_sum: Duration = t.entries.iter().map(|e| e.probe).sum();
+    let _ = writeln!(
+        out,
+        "git       {} spawns over {} entries · probe time summed {}",
+        t.spawns,
+        t.entries.len(),
+        ms(probe_sum)
+    );
+    let slowest = |pick: fn(&EntryTiming) -> Duration| {
+        let mut sorted: Vec<_> = t.entries.iter().filter(|e| !pick(e).is_zero()).collect();
+        sorted.sort_by_key(|e| std::cmp::Reverse(pick(e)));
+        sorted
+            .iter()
+            .take(SLOWEST)
+            .map(|e| format!("{} {}", e.key, ms(pick(e))))
+            .collect::<Vec<_>>()
+            .join(" · ")
+    };
+    let _ = writeln!(out, "slowest   probe: {}", slowest(|e| e.probe));
+    if fetched {
+        let fetch_sum: Duration = t.entries.iter().map(|e| e.fetch).sum();
+        let _ = writeln!(
+            out,
+            "          fetch: {} (summed {})",
+            slowest(|e| e.fetch),
+            ms(fetch_sum)
+        );
+    }
+    out
 }
