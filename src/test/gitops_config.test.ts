@@ -3,6 +3,7 @@ import { assert, describe, test } from 'vitest';
 import {
 	normalize_gitops_config,
 	create_empty_gitops_config,
+	gitops_config_leaked_private_repos,
 	type GitopsRepoConfig,
 	type RawGitopsRepoConfig
 } from '$lib/gitops_config.ts';
@@ -153,5 +154,32 @@ describe('normalize_gitops_config', () => {
 		assert.equal(repos[0]?.repo_url, 'https://github.com/fuzdev/a');
 		assert.equal(repos[1]?.repo_url, 'https://github.com/fuzdev/b');
 		assert.equal(repos[1]?.visibility, 'private');
+	});
+});
+
+describe('gitops_config_leaked_private_repos', () => {
+	const repos = normalize_gitops_config({
+		repos: [
+			'https://github.com/fuzdev/fuz_util',
+			{ repo_url: 'https://github.com/ryanatkn/private_thing', visibility: 'private' }
+		]
+	}).repos;
+
+	test('a public host leaks its private repos', () => {
+		const leaked = gitops_config_leaked_private_repos(repos, false);
+		assert.deepEqual(
+			leaked.map((r) => r.repo_url),
+			['https://github.com/ryanatkn/private_thing']
+		);
+	});
+
+	test('a private host leaks nothing', () => {
+		assert.deepEqual(gitops_config_leaked_private_repos(repos, true), []);
+	});
+
+	test('an all-public config leaks nothing from a public host', () => {
+		const [public_repo] = repos;
+		assert(public_repo);
+		assert.deepEqual(gitops_config_leaked_private_repos([public_repo], false), []);
 	});
 });

@@ -140,6 +140,21 @@ const parse_fuz_repo_config = (r: Url | RawGitopsRepoConfig): GitopsRepoConfig =
 	};
 };
 
+/**
+ * The private repos a public host package must not publish. `gitops_sync` writes
+ * every configured repo's GitHub metadata into the host project's generated
+ * `repos.json` — a public site's data when the host package is public — so a
+ * private repo in that config would leak. Empty when the host is private.
+ *
+ * @param repos - the configured repos
+ * @param host_is_private - whether the host `package.json` sets `private: true`
+ */
+export const gitops_config_leaked_private_repos = (
+	repos: ReadonlyArray<GitopsRepoConfig>,
+	host_is_private: boolean
+): Array<GitopsRepoConfig> =>
+	host_is_private ? [] : repos.filter((r) => r.visibility === 'private');
+
 export interface GitopsConfigModule {
 	readonly default: RawGitopsConfig | CreateGitopsConfig;
 }

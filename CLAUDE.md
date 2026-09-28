@@ -225,7 +225,9 @@ Requires `SECRET_GITHUB_API_TOKEN` in `.env` for API access.
 
 ### `gro gitops_sync` Task
 
-1. Loads config from `gitops.config.ts`
+1. Loads config from `gitops.config.ts`, and refuses to run when a public host
+   package's config lists private repos (`gitops_config_leaked_private_repos`) —
+   the generated `repos.json` is that package's public site data
 2. Resolves local repos (clones missing if `--download`)
 3. Switches branches and syncs as needed
 4. Fetches GitHub data (CI, PRs)
