@@ -28,29 +28,37 @@ For coding conventions, see Skill(fuz-stack).
 ## Scope and boundaries
 
 fuz_gitops runs **deterministic, config-driven operations over a declared set
-of repos.** Every word is load-bearing:
+of repos — and is the gateway agents use for sensitive git operations.** Every
+word is load-bearing:
 
 - **deterministic** — no LLM in the loop. Same config plus same repo states
   produce the same plan. Everything here is reproducible and reviewable.
-- **config-driven** — the repo set comes from `gitops.config.ts`, not from
-  scanning a directory. A repo the config doesn't name doesn't exist.
+- **config-driven** — the repo set comes from a declared list (a project's
+  `gitops.config.ts` for the TS tasks; a `repos.toml` registry for the Rust
+  `repos` tool), not from scanning a directory. Scanning only reports what the
+  list misses.
 - **operations** — it acts, or faithfully previews acting. Observation that
   never leads to an action belongs in whatever tool owns your policy checks.
-- **a declared set of repos** — the unit is the *collection*. Single-repo work
-  belongs to `gro`.
+- **the gateway** — agents push through the tool instead of raw git, so write
+  policy lives in one place. Write authority is derived from the registry's
+  owner accounts, never declared per repo.
 
-Publishing is the flagship vertical, not the identity. Reading the tool as
-"the publishing thing" is what keeps the other tiers thin.
+The package is renaming to **fuz_repos**, with a `repos` binary: "GitOps" names
+the inverse relationship (git as the desired state, infrastructure as the
+target), where this tool treats the repos themselves as the target.
+
+Publishing is the flagship vertical of the TS side, not the identity.
 
 ### Capability tiers
 
-Multi-repo work doesn't carry uniform risk. Three tiers, ordered by blast
-radius:
+Multi-repo work doesn't carry uniform risk. Four tiers, ordered by blast
+radius (the `repos` commands are planned):
 
 | Tier | Writes | Commands |
 | --- | --- | --- |
-| **observe** | nothing | `gitops_analyze`, `gitops_plan` (publish preview), `gitops_run` with read-only commands |
-| **converge** | working trees, refs | `gitops_sync` |
+| **observe** | nothing | `gitops_analyze`, `gitops_plan` (publish preview), `gitops_run` with read-only commands; `repos status` |
+| **converge** | working trees, refs | `gitops_sync`; `repos sync` |
+| **gateway** | remote refs, under policy | `repos push` |
 | **publish** | npm + git + deploys | `gitops_publish` |
 
 `gitops_plan` belongs to the publishing vertical but sits in **observe**
@@ -61,7 +69,8 @@ changes discovered."
 
 ### Out of scope
 
-- **Single-repo work** — build, check, publish, gen, format. That's `gro`.
+- **Single-repo work** — build, check, publish, gen, format. That's `gro`. (A
+  single-repo *push* by an agent is the exception: it goes through the gateway.)
   fuz_gitops orchestrates gro across many repos and delegates hard: it carries
   no install or cache-healing logic of its own because gro's install path
   already self-heals npm's stale-cache failure. If gro can do it for one repo,
@@ -90,35 +99,27 @@ into tracked/untracked/staged, unpushed branches, stashes, worktrees, missing
 clones. Today that means reaching for `gitops_run "git status"` and parsing
 porcelain by hand.
 
-`GitOperations` is where this starts: it exposes no `fetch`, no `push` (only
-`push_tag`), no ahead/behind, no upstream tracking, no branch enumeration.
-`@fuzdev/fuz_util`'s `git.ts` already has fetch/push and a workspace status
-that splits staged/unstaged/untracked (which this package currently narrows
-to a boolean); ahead/behind, upstream tracking, and branch/stash/worktree
-enumeration are new code. Surfacing what exists is the cheap first step.
+**Designed, not built** — as the Rust `repos` tool, not by growing
+`GitOperations`. Its invariants are settled: never `pull` across a set of repos
+(fetch, classify, then fast-forward or report); model host repo rules; never
+auto-resolve conflicts (and gate any history-changing action on a per-repo
+verify command before push); derive write authority from owner accounts;
+classify unpushed refs by type.
 
-**Designed, not built.** The design's invariants are settled — never `pull`
-across a fleet; model host repo rules; never auto-resolve conflicts (and gate
-any history-changing action on a per-repo verify command before push); model
-write authority per repo; classify unpushed refs by type — but the state
-model and its converge step are not yet implemented.
+### The TS and Rust halves
 
-### Entry points and the CLI direction
+Every TS entry point is a Gro task (`src/lib/gitops_*.task.ts`), so it runs
+from a Gro project, consumers add one-line re-export shims, and `--config`
+defaults to the CWD's config. `gro gitops_*` stays the supported invocation for
+a project's own config, publishing, and dashboard data.
 
-Every entry point today is a Gro task (`src/lib/gitops_*.task.ts`). That means
-fuz_gitops runs from a Gro project, consumers add one-line re-export shims,
-and `--config` defaults to the CWD's config.
-
-**Direction, decided but not built:** a standalone TS binary owns the command
-surface and argument parsing, and each `*.task.ts` demotes to a thin
-re-export. The library API stays the real surface — it already is. This can
-land incrementally, one task at a time, with no flag day.
-
-A Rust CLI was considered and set aside: it would split the repo against a TS
-dashboard and a TS publishing cascade that have no reason to move.
-
-`gro gitops_*` remains the supported invocation. Nothing is deprecated, and
-the task modules stay the documented entry point until a binary exists.
+**Direction, decided but not built:** the Rust side lives in this repo as three
+crates — `fuz_repos_types` (IO-free types; the JSON contract other tools read),
+`fuz_repos_core` (registry, git plumbing, plan/apply, policy), and `fuz_repos`
+(the `repos` CLI). Rust takes everything but the dashboard: git state and sync,
+the gateway, GitHub metadata, and eventually the publish cascade. The SvelteKit
+dashboard stays TS and reads the Rust tool's JSON. Pieces move one at a time;
+nothing is deprecated until its Rust replacement ships.
 
 ## Core functionality
 
