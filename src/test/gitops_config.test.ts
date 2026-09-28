@@ -161,7 +161,7 @@ describe('gitops_config_leaked_private_repos', () => {
 	const repos = normalize_gitops_config({
 		repos: [
 			'https://github.com/fuzdev/fuz_util',
-			{ repo_url: 'https://github.com/ryanatkn/private_thing', visibility: 'private' }
+			{ repo_url: 'https://github.com/ryanatkn/hidden_repo', visibility: 'private' }
 		]
 	}).repos;
 
@@ -169,7 +169,7 @@ describe('gitops_config_leaked_private_repos', () => {
 		const leaked = gitops_config_leaked_private_repos(repos, false);
 		assert.deepEqual(
 			leaked.map((r) => r.repo_url),
-			['https://github.com/ryanatkn/private_thing']
+			['https://github.com/ryanatkn/hidden_repo']
 		);
 	});
 
