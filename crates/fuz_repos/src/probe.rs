@@ -179,7 +179,7 @@ fn probe_present(
         let net = CallOptions {
             ceiling: Some(cx.root),
             network: Some(NetworkOptions {
-                batch_ssh: !config.ssh_command && !Git::env_configures_ssh(),
+                batch_ssh: !config.ssh_command && !cx.git.env_configures_ssh(),
             }),
         };
         fetch.result = Some(

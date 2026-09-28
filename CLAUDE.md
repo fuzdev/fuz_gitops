@@ -154,6 +154,8 @@ gitops.config.ts -> local repos -> GitHub API -> repos.ts -> UI components
 - `src/routes/repos.ts` - generated data file with all repo info
 - `crates/fuz_repos/` - the Rust `repos` tool: registry, git runner, probe,
   classification (library) and the `repos` binary
+- `crates/fuz_repos/tests/` - its integration tests over fixture workspaces
+  (`tests/support`)
 
 ## Patterns
 
@@ -539,6 +541,12 @@ the root, unless `--root <dir>` names it. `rust-toolchain.toml` pins the
 toolchain (rustup fetches it on first build), and git must be 2.44 or newer
 (`GIT_NO_LAZY_FETCH` keeps a local `status` on a partial clone off the
 network).
+
+`cargo test --workspace` runs integration tests over hermetic fixture
+workspaces (`crates/fuz_repos/tests/support`): real repos in a tempdir, each
+cloned from a local bare remote, with git's environment cleared (no global or
+system config, fixed identities and dates) and no network. They need git 2.44
+or newer on `PATH`.
 
 ### Commands by Side Effects
 

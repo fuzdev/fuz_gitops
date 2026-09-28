@@ -7,6 +7,7 @@
 //! fetching is off, so a local call on a partial clone never touches the
 //! network.
 
+use std::ffi::OsString;
 use std::io::{self, Read};
 use std::path::Path;
 use std::process::{Child, Command, ExitStatus, Stdio};
@@ -97,6 +98,9 @@ pub struct GitOutput {
 #[derive(Debug, Default)]
 pub struct Git {
     spawns: AtomicU32,
+    /// When set, the only environment git sees besides the runner's own
+    /// hardening; `None` inherits the caller's.
+    env: Option<Vec<(OsString, OsString)>>,
 }
 
 impl Git {
@@ -104,14 +108,32 @@ impl Git {
         Self::default()
     }
 
+    /// A runner whose git calls see only `env` plus the runner's own
+    /// hardening — no inherited variable reaches git, so neither the caller's
+    /// `HOME` (and with it the global config and excludes file) nor its
+    /// `GIT_*` settings apply. The system config still does unless `env` sets
+    /// `GIT_CONFIG_NOSYSTEM`. For hermetic callers like the fixture tests.
+    /// git and its own children (ssh, `!` aliases, hooks) all search `env`'s
+    /// `PATH`, never the caller's, so `env` should carry one.
+    pub const fn with_clean_env(env: Vec<(OsString, OsString)>) -> Self {
+        Self {
+            spawns: AtomicU32::new(0),
+            env: Some(env),
+        }
+    }
+
     /// How many git processes this runner has spawned.
     pub fn spawns(&self) -> u32 {
         self.spawns.load(Ordering::Relaxed)
     }
 
-    /// Whether the environment already configures git's SSH.
-    pub fn env_configures_ssh() -> bool {
-        std::env::var_os("GIT_SSH_COMMAND").is_some() || std::env::var_os("GIT_SSH").is_some()
+    /// Whether the environment git sees already configures its SSH.
+    pub fn env_configures_ssh(&self) -> bool {
+        const VARS: [&str; 2] = ["GIT_SSH_COMMAND", "GIT_SSH"];
+        self.env.as_ref().map_or_else(
+            || VARS.iter().any(|v| std::env::var_os(v).is_some()),
+            |env| env.iter().any(|(k, _)| VARS.iter().any(|v| k == v)),
+        )
     }
 
     /// Runs `git -C <dir> <args>` and returns its output whatever the exit
@@ -127,6 +149,10 @@ impl Git {
         opts: CallOptions<'_>,
     ) -> Result<GitOutput, GitError> {
         let mut cmd = Command::new("git");
+        // first, so the hardening below wins over anything the caller sets
+        if let Some(env) = &self.env {
+            cmd.env_clear().envs(env.iter().map(|(k, v)| (k, v)));
+        }
         cmd.args([
             "--no-optional-locks",
             "-c",
@@ -330,6 +356,80 @@ mod tests {
         let e = wait_capped(child, Duration::from_millis(100), || "sleep".into()).unwrap_err();
         assert!(matches!(e, GitError::Timeout { .. }), "{e}");
         assert!(start.elapsed() < Duration::from_secs(5));
+    }
+
+    /// Variables the runner sets, plus the ones a shell between git and `env`
+    /// would rewrite (none runs for a bare `!env`; skipped as a defence), so
+    /// never the same on both sides of the seam.
+    const UNSTABLE_ENV: [&str; 7] = [
+        "PATH",
+        "FIXTURE_VAR",
+        "LC_ALL",
+        "PWD",
+        "OLDPWD",
+        "SHLVL",
+        "_",
+    ];
+
+    /// The environment a runner's git sees, via a `!` alias.
+    fn seen_env(git: &Git, dir: &Path) -> Vec<String> {
+        git.output_string(
+            dir,
+            &["-c", "alias.fixture-env=!env", "fixture-env"],
+            CallOptions::default(),
+        )
+        .unwrap()
+        .lines()
+        .map(str::to_owned)
+        .collect()
+    }
+
+    #[test]
+    fn a_clean_env_is_all_git_sees_and_the_hardening_wins() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mut env: Vec<(OsString, OsString)> = vec![
+            ("GIT_CONFIG_GLOBAL".into(), "/dev/null".into()),
+            ("GIT_CONFIG_NOSYSTEM".into(), "1".into()),
+            ("FIXTURE_VAR".into(), "kept".into()),
+            // each contradicts the runner's hardening
+            ("GIT_NO_LAZY_FETCH".into(), "0".into()),
+            ("GIT_OPTIONAL_LOCKS".into(), "1".into()),
+            ("GIT_TERMINAL_PROMPT".into(), "1".into()),
+            ("LC_ALL".into(), "tr_TR.UTF-8".into()),
+            ("GIT_DIR".into(), "/nowhere".into()),
+        ];
+        if let Some(path) = std::env::var_os("PATH") {
+            env.push(("PATH".into(), path));
+        }
+        let seen = seen_env(&Git::with_clean_env(env), tmp.path());
+        let has = |line: &str| seen.iter().any(|l| l == line);
+        let has_var = |name: &str| seen.iter().any(|l| l.starts_with(&format!("{name}=")));
+        assert!(has("FIXTURE_VAR=kept"), "{seen:?}");
+        for hardened in [
+            "GIT_NO_LAZY_FETCH=1",
+            "GIT_OPTIONAL_LOCKS=0",
+            "GIT_TERMINAL_PROMPT=0",
+            "LC_ALL=C",
+        ] {
+            assert!(has(hardened), "{hardened}: {seen:?}");
+        }
+        // any variable of this process that reaches the alias unchanged
+        let inherited = std::env::vars_os()
+            .filter_map(|(k, v)| Some((k.into_string().ok()?, v.into_string().ok()?)))
+            .find(|(k, v)| {
+                !k.starts_with("GIT_") && !UNSTABLE_ENV.contains(&k.as_str()) && !v.contains('\n')
+            })
+            .map(|(k, v)| format!("{k}={v}"))
+            .expect("the test process has an environment");
+        // scrubbed even when the caller sets it; not inherited when it doesn't
+        assert!(!has_var("GIT_DIR"), "{seen:?}");
+        assert!(!has_var("HOME"), "{seen:?}");
+        assert!(!has(&inherited), "{inherited}: {seen:?}");
+
+        // control: the default runner inherits the caller's environment
+        let seen = seen_env(&Git::new(), tmp.path());
+        assert!(seen.contains(&inherited), "{inherited}: {seen:?}");
+        assert!(!seen.iter().any(|l| l == "FIXTURE_VAR=kept"));
     }
 
     #[test]

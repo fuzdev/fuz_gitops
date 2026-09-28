@@ -271,7 +271,18 @@ fn needs_human(entry: &Entry, facts: &RepoFacts) -> Vec<NeedsHuman> {
                     branch: branch.clone(),
                 });
             }
-            if matches!(head, Head::Detached { .. }) {
+            // a rebase or bisect detaches HEAD by design: the operation is
+            // the reason, and reattaching mid-way would be the wrong fix; a
+            // merge, cherry-pick, revert, or sequencer keeps HEAD on its
+            // branch, so a detach beside one is still unexpected
+            // TODO: once linked worktrees are probed, key this on the primary
+            // checkout's operation, not any checkout's
+            if matches!(head, Head::Detached { .. })
+                && !matches!(
+                    facts.in_progress,
+                    Some(InProgressOp::Rebase | InProgressOp::Bisect)
+                )
+            {
                 reasons.push(NeedsHuman::UnexpectedDetached {
                     checkout: facts.path.clone(),
                 });
@@ -923,6 +934,40 @@ mod tests {
                 NeedsHuman::OriginMismatch {
                     origin: None,
                     expected: "git@github.com:me/app".into()
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn an_operation_in_progress_owns_a_detached_head() {
+        let mut f = facts(
+            Head::Detached {
+                commit: "abc".into(),
+            },
+            &[b("main", O, true, Track::Even)],
+        );
+        for op in [InProgressOp::Rebase, InProgressOp::Bisect] {
+            f.in_progress = Some(op);
+            assert_eq!(
+                classify(&owned(follow("main")), &f).needs_human,
+                [NeedsHuman::OperationInProgress {
+                    checkout: "/ws/app".into(),
+                    op
+                }]
+            );
+        }
+        // a merge doesn't detach HEAD, so a detach beside one is its own reason
+        f.in_progress = Some(InProgressOp::Merge);
+        assert_eq!(
+            classify(&owned(follow("main")), &f).needs_human,
+            [
+                NeedsHuman::OperationInProgress {
+                    checkout: "/ws/app".into(),
+                    op: InProgressOp::Merge
+                },
+                NeedsHuman::UnexpectedDetached {
+                    checkout: "/ws/app".into()
                 },
             ]
         );
