@@ -11,7 +11,7 @@ use std::fmt::Write as _;
 use std::io::{self, Write as _};
 use std::path::Path;
 use std::process::ExitCode;
-use std::time::{Duration, Instant, SystemTime};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use argh::{EarlyExit, FromArgs};
 use fuz_repos::discover::{find_registry, resolve_targets};
@@ -21,7 +21,11 @@ use fuz_repos::registry::Registry;
 use fuz_repos::report::StatusReport;
 use fuz_repos::status::{EntryTiming, StatusOptions, status};
 
-use crate::render::{Paths, render_entry, render_summary};
+use crate::render::{View, render_entry, render_summary};
+
+/// The build's identity: the crate version, and the commit the binary was
+/// built from (stamped by `build.rs`).
+const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), " (", env!("REPOS_BUILD"), ")");
 
 /// repos — git state over the repos a repos.toml registry declares.
 #[derive(FromArgs, Debug)]
@@ -30,8 +34,15 @@ struct Cli {
     /// parent)
     #[argh(option)]
     registry: Option<String>,
+    /// the workspace root entry dirs resolve against (default: the dir
+    /// holding the registry as found)
+    #[argh(option)]
+    root: Option<String>,
+    /// print the version and the commit this binary was built from
+    #[argh(switch)]
+    version: bool,
     #[argh(subcommand)]
-    command: Command,
+    command: Option<Command>,
 }
 
 #[derive(FromArgs, Debug)]
@@ -61,7 +72,7 @@ struct StatusArgs {
     #[argh(switch)]
     verbose: bool,
     /// entries probed at once
-    #[argh(option, default = "8")]
+    #[argh(option, default = "16")]
     jobs: usize,
     /// print wall time per phase, git spawns, and the slowest entries to
     /// stderr
@@ -102,19 +113,34 @@ fn main() -> ExitCode {
 }
 
 fn run(cli: Cli) -> Result<()> {
+    if cli.version {
+        println!("repos {VERSION}");
+        return Ok(());
+    }
+    let locate = Locate {
+        registry: cli.registry.as_deref().map(Path::new),
+        root: cli.root.as_deref().map(Path::new),
+    };
     match cli.command {
-        Command::Status(args) => run_status(cli.registry.as_deref(), &args),
+        Some(Command::Status(args)) => run_status(locate, &args),
+        None => Err(Error::MissingCommand),
     }
 }
 
-fn run_status(registry: Option<&str>, args: &StatusArgs) -> Result<()> {
+/// Where the global flags say the registry and the workspace root are.
+#[derive(Debug, Clone, Copy)]
+struct Locate<'a> {
+    registry: Option<&'a Path>,
+    root: Option<&'a Path>,
+}
+
+fn run_status(locate: Locate<'_>, args: &StatusArgs) -> Result<()> {
     let start = Instant::now();
-    let now = SystemTime::now();
     let cwd = std::env::current_dir().map_err(|source| Error::Io {
         context: "failed to read the current directory".into(),
         source,
     })?;
-    let loc = find_registry(&cwd, registry.map(Path::new))?;
+    let loc = find_registry(&cwd, locate.registry, locate.root)?;
     let registry = Registry::load(&loc.path)?;
     let git = Git::new();
     // TODO: check git ≥ 2.44 for `GIT_NO_LAZY_FETCH` (`GitTooOld`, pass 2)
@@ -135,7 +161,6 @@ fn run_status(registry: Option<&str>, args: &StatusArgs) -> Result<()> {
             fetch: args.fetch,
             jobs: args.jobs,
         },
-        now,
     );
     let report = StatusReport::new(
         loc.root.to_string_lossy().into_owned(),
@@ -145,8 +170,12 @@ fn run_status(registry: Option<&str>, args: &StatusArgs) -> Result<()> {
 
     let render_start = Instant::now();
     let home = std::env::var("HOME").ok();
-    let paths = Paths {
+    let view = View {
         home: home.as_deref(),
+        now: SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs(),
     };
     let out = if args.json {
         let mut json = serde_json::to_string_pretty(&report).map_err(|e| Error::Io {
@@ -159,11 +188,11 @@ fn run_status(registry: Option<&str>, args: &StatusArgs) -> Result<()> {
         let mut out = String::new();
         if args.verbose {
             for e in &report.entries {
-                out.push_str(&render_entry(e, paths));
+                out.push_str(&render_entry(e, view));
                 out.push('\n');
             }
         }
-        out.push_str(&render_summary(&report, paths, args.verbose));
+        out.push_str(&render_summary(&report, view, args.verbose));
         out
     };
     let render_time = render_start.elapsed();
@@ -252,4 +281,24 @@ fn render_timings(t: &Timings<'_>) -> String {
         );
     }
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn no_subcommand_is_a_usage_error() {
+        let cli = Cli::from_args(&["repos"], &[]).unwrap();
+        let e = run(cli).unwrap_err();
+        assert!(matches!(e, Error::MissingCommand), "{e}");
+        assert_eq!(e.exit_code(), 2);
+    }
+
+    #[test]
+    fn version_needs_no_subcommand() {
+        let cli = Cli::from_args(&["repos"], &["--version"]).unwrap();
+        assert!(cli.version && cli.command.is_none());
+        assert!(VERSION.starts_with(env!("CARGO_PKG_VERSION")));
+    }
 }

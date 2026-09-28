@@ -5,16 +5,14 @@
 //! previews it, `sync` executes it, and JSON consumers read it rather than
 //! re-deriving policy from relations.
 
-use std::time::SystemTime;
-
 use serde::Serialize;
 
 use crate::porcelain::{BranchConfig, Track};
 use crate::probe::{BranchFacts, RepoFacts};
 use crate::registry::{CheckoutMode, Entry, RepoUrl};
 use crate::state::{
-    BranchNeedsHuman, BranchStatus, CleanupReason, Head, InProgressOp, Relation, SyncAction,
-    Verdict,
+    BranchNeedsHuman, BranchStatus, CleanupReason, Head, HeldBy, InProgressOp, Relation,
+    SyncAction, Verdict,
 };
 
 /// Why `sync` would stop on an entry and leave it to a person. Branch-level
@@ -82,13 +80,9 @@ pub struct Classified {
 /// Owned entries get a relation per branch. Third-party references are never
 /// compared against a remote: they keep only branches with commits on no
 /// remote, as `Untracked` — local work that can never be pushed.
-pub fn classify(entry: &Entry, facts: &RepoFacts, now: SystemTime) -> Classified {
-    let now_secs = now
-        .duration_since(SystemTime::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs();
+pub fn classify(entry: &Entry, facts: &RepoFacts) -> Classified {
     let needs_human = needs_human(entry, facts);
-    let held = needs_human.iter().any(NeedsHuman::holds_entry);
+    let entry_held = needs_human.iter().any(NeedsHuman::holds_entry);
     let branches = facts
         .branches
         .iter()
@@ -105,13 +99,18 @@ pub fn classify(entry: &Entry, facts: &RepoFacts, now: SystemTime) -> Classified
                 .branches
                 .get(&b.branch.name)
                 .and_then(BranchConfig::display);
+            let held = if entry_held {
+                Some(HeldBy::Entry)
+            } else {
+                checkout_hold(b, facts)
+            };
             let verdict = verdict(entry, b, relation, upstream.is_some(), held);
             Some(BranchStatus {
                 name: b.branch.name.clone(),
                 upstream,
                 worktree: b.branch.worktree.clone(),
                 unique_commits: b.unique_commits,
-                newest_commit_age_secs: now_secs.saturating_sub(b.branch.committer_time),
+                newest_commit_at: b.branch.committer_time,
                 relation,
                 verdict,
             })
@@ -149,14 +148,30 @@ fn relation(b: &BranchFacts, facts: &RepoFacts) -> Relation {
     }
 }
 
+/// What the branch's checkout holds back, if it's checked out: the primary
+/// checkout when it's dirty, or a linked worktree, whose state isn't probed
+/// yet. Matched by name against the primary's HEAD, not by path, so a
+/// symlinked workspace root can't make the primary look like a worktree.
+fn checkout_hold(b: &BranchFacts, facts: &RepoFacts) -> Option<HeldBy> {
+    b.branch.worktree.as_ref()?;
+    match &facts.status.head {
+        Head::Branch { name } if *name == b.branch.name => {
+            (!facts.status.uncommitted.is_clean()).then_some(HeldBy::DirtyCheckout)
+        }
+        // TODO: read the linked worktree's dirt once pass 2 probes worktrees
+        _ => Some(HeldBy::UnprobedWorktree),
+    }
+}
+
 /// What sync does with a branch. `has_upstream` is whether any upstream is
-/// configured; `held` whether an entry-level reason stops sync on the entry.
+/// configured; `held` what, if anything, holds a fast-forward or move back —
+/// an entry-level reason holds every action, a checkout all but a push.
 fn verdict(
     entry: &Entry,
     b: &BranchFacts,
     relation: Relation,
     has_upstream: bool,
-    held: bool,
+    held: Option<HeldBy>,
 ) -> Verdict {
     let follow = match &entry.checkout_mode {
         CheckoutMode::Follow { branch } => Some(branch.as_str()),
@@ -215,10 +230,12 @@ fn verdict(
             SyncAction::FastForward { .. } | SyncAction::Move => Verdict::Quiet,
         };
     }
-    if held {
-        Verdict::Held { action }
-    } else {
-        Verdict::Act { action }
+    match held {
+        // a push only moves refs, so only an entry-level reason holds it
+        Some(by) if by == HeldBy::Entry || !matches!(action, SyncAction::Push { .. }) => {
+            Verdict::Held { action, by }
+        }
+        _ => Verdict::Act { action },
     }
 }
 
@@ -293,7 +310,6 @@ fn normalize_remote(url: &str) -> String {
 #[cfg(test)]
 mod tests {
     use std::path::PathBuf;
-    use std::time::Duration;
 
     use super::*;
     use crate::porcelain::{ConfigFacts, RefFacts, StatusFacts};
@@ -301,10 +317,6 @@ mod tests {
     use crate::state::{Layout, Uncommitted};
 
     const NOW: u64 = 1_800_000_000;
-
-    fn now() -> SystemTime {
-        SystemTime::UNIX_EPOCH + Duration::from_secs(NOW)
-    }
 
     fn url(s: &str) -> RepoUrl {
         RepoUrl::try_from(s.to_owned()).unwrap()
@@ -420,7 +432,7 @@ mod tests {
                 sparse: false,
                 partial_filter: None,
             },
-            fetched_age_secs: None,
+            fetched_at: None,
         }
     }
 
@@ -429,7 +441,7 @@ mod tests {
     }
 
     fn relations(entry: &Entry, f: &RepoFacts) -> Vec<(String, Relation)> {
-        classify(entry, f, now())
+        classify(entry, f)
             .branches
             .into_iter()
             .map(|b| (b.name, b.relation))
@@ -486,7 +498,7 @@ mod tests {
     }
 
     fn verdicts(entry: &Entry, f: &RepoFacts) -> Vec<(String, Verdict)> {
-        classify(entry, f, now())
+        classify(entry, f)
             .branches
             .into_iter()
             .map(|b| (b.name, b.verdict))
@@ -574,12 +586,14 @@ mod tests {
                 "main",
                 Verdict::Held {
                     action: SyncAction::Push { commits: 1 },
+                    by: HeldBy::Entry,
                 },
             ),
             (
                 "feat",
                 Verdict::Held {
                     action: SyncAction::FastForward { commits: 2 },
+                    by: HeldBy::Entry,
                 },
             ),
             // not an action, so not held
@@ -608,6 +622,62 @@ mod tests {
                 ("main", act(SyncAction::Push { commits: 1 })),
                 ("feat", act(SyncAction::FastForward { commits: 2 })),
             ])
+        );
+    }
+
+    #[test]
+    fn a_dirty_checkout_holds_all_but_a_push() {
+        let ff = |commits| SyncAction::FastForward { commits };
+        let held = |action, by| Verdict::Held { action, by };
+        let mut f = facts(
+            on("main"),
+            &[
+                b("main", O, true, Track::Behind(2)),
+                b("other", O, true, Track::Behind(3)),
+                b("linked", O, true, Track::Behind(1)),
+                b("linked-ahead", O, true, Track::Ahead(1)).unique(1),
+            ],
+        );
+        f.branches[0].branch.worktree = Some("/ws/app".into());
+        f.branches[2].branch.worktree = Some("/ws/app-linked".into());
+        f.branches[3].branch.worktree = Some("/ws/app-linked-2".into());
+        let e = owned(follow("main"));
+        let unprobed = [
+            ("linked", held(ff(1), HeldBy::UnprobedWorktree)),
+            // a push only moves refs
+            ("linked-ahead", act(SyncAction::Push { commits: 1 })),
+        ];
+
+        let clean = verdicts(&e, &f);
+        assert_eq!(
+            clean[..2],
+            named(&[("main", act(ff(2))), ("other", act(ff(3)))])
+        );
+        // a linked worktree isn't probed yet: unknown, not dirty
+        assert_eq!(clean[2..], named(&unprobed));
+
+        f.status.uncommitted.unstaged = 1;
+        let dirty = verdicts(&e, &f);
+        assert_eq!(
+            dirty[..2],
+            named(&[
+                ("main", held(ff(2), HeldBy::DirtyCheckout)),
+                // not checked out: moves in place
+                ("other", act(ff(3))),
+            ])
+        );
+        assert_eq!(dirty[2..], named(&unprobed));
+
+        // ahead, checked out in the dirty primary: the push still acts
+        f.branches[0].branch.track = Track::Ahead(2);
+        f.branches[0].unique_commits = 2;
+        assert_eq!(verdicts(&e, &f)[0].1, act(SyncAction::Push { commits: 2 }));
+
+        // an entry-level reason outranks the checkout, and holds the push too
+        f.in_progress = Some(InProgressOp::Merge);
+        assert_eq!(
+            verdicts(&e, &f)[0].1,
+            held(SyncAction::Push { commits: 2 }, HeldBy::Entry)
         );
     }
 
@@ -749,12 +819,12 @@ mod tests {
                 b("master", O, true, Track::Gone),
             ],
         );
-        let c = classify(&third_party(CheckoutMode::Pinned), &f, now());
+        let c = classify(&third_party(CheckoutMode::Pinned), &f);
         assert_eq!(c.branches.len(), 1);
         assert_eq!(c.branches[0].name, "tsv-format-audit");
         assert_eq!(c.branches[0].relation, Relation::Untracked);
         assert_eq!(c.branches[0].unique_commits, 3);
-        assert_eq!(c.branches[0].newest_commit_age_secs, 3600);
+        assert_eq!(c.branches[0].newest_commit_at, NOW - 3600);
         // origin is the registry url in SSH form for the owned fixture; the
         // third-party url differs
         assert!(matches!(
@@ -768,14 +838,14 @@ mod tests {
         let e = owned(follow("main"));
         let missing = facts(on("dev"), &[b("dev", O, true, Track::Even)]);
         assert_eq!(
-            classify(&e, &missing, now()).needs_human,
+            classify(&e, &missing).needs_human,
             [NeedsHuman::DefaultBranchMissing {
                 branch: "main".into()
             }]
         );
         let no_upstream = facts(on("main"), &[b("main", None, false, Track::Even)]);
         assert_eq!(
-            classify(&e, &no_upstream, now()).needs_human,
+            classify(&e, &no_upstream).needs_human,
             [NeedsHuman::DefaultBranchNoUpstream {
                 branch: "main".into()
             }]
@@ -785,14 +855,14 @@ mod tests {
             &[b("main", Some("upstream"), true, Track::Even)],
         );
         assert_eq!(
-            classify(&e, &other_remote, now()).needs_human,
+            classify(&e, &other_remote).needs_human,
             [NeedsHuman::DefaultBranchNoUpstream {
                 branch: "main".into()
             }]
         );
         // unmapped is a branch-level reason, not a missing upstream
         let unmapped = facts(on("main"), &[b("main", O, false, Track::Even)]);
-        assert!(classify(&e, &unmapped, now()).needs_human.is_empty());
+        assert!(classify(&e, &unmapped).needs_human.is_empty());
         let detached = facts(
             Head::Detached {
                 commit: "abc".into(),
@@ -800,7 +870,7 @@ mod tests {
             &[b("main", O, true, Track::Even)],
         );
         assert_eq!(
-            classify(&e, &detached, now()).needs_human,
+            classify(&e, &detached).needs_human,
             [NeedsHuman::UnexpectedDetached {
                 checkout: "/ws/app".into()
             }]
@@ -813,7 +883,7 @@ mod tests {
                 b("feat", O, true, Track::Even),
             ],
         );
-        assert!(classify(&e, &feature, now()).needs_human.is_empty());
+        assert!(classify(&e, &feature).needs_human.is_empty());
     }
 
     #[test]
@@ -827,15 +897,15 @@ mod tests {
         let on_main = facts(on("main"), &[b("main", O, true, Track::Even)]);
         let pinned = owned(CheckoutMode::Pinned);
         let head = owned(CheckoutMode::Head);
-        assert!(classify(&pinned, &detached, now()).needs_human.is_empty());
+        assert!(classify(&pinned, &detached).needs_human.is_empty());
         assert_eq!(
-            classify(&pinned, &on_main, now()).needs_human,
+            classify(&pinned, &on_main).needs_human,
             [NeedsHuman::PinnedOnBranch {
                 branch: "main".into()
             }]
         );
-        assert!(classify(&head, &detached, now()).needs_human.is_empty());
-        assert!(classify(&head, &on_main, now()).needs_human.is_empty());
+        assert!(classify(&head, &detached).needs_human.is_empty());
+        assert!(classify(&head, &on_main).needs_human.is_empty());
     }
 
     #[test]
@@ -844,7 +914,7 @@ mod tests {
         f.in_progress = Some(InProgressOp::Rebase);
         f.config.origin_url = None;
         assert_eq!(
-            classify(&owned(follow("main")), &f, now()).needs_human,
+            classify(&owned(follow("main")), &f).needs_human,
             [
                 NeedsHuman::OperationInProgress {
                     checkout: "/ws/app".into(),

@@ -522,7 +522,9 @@ repos status gro .           # narrow to targets: a key, a dir name, or a path
 repos status --verbose       # plus stash counts and a block per entry
 repos status --json          # the versioned report
 repos status --fetch         # fetch owned entries from origin first (writes remote-tracking refs)
-repos status --jobs 16 --timings # parallelism, and per-phase timings on stderr
+repos status --jobs 4 --timings # parallelism (default 16), and per-phase timings on stderr
+repos --version              # the crate version and the commit the binary was built from
+repos --registry <file> --root <dir> status # a registry kept outside the workspace
 
 cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
@@ -533,9 +535,10 @@ cargo test --workspace
 entry dirs resolve against that root. A `repos.toml` symlink at the workspace
 root pointing at a registry kept elsewhere works (the root stays the link's
 dir); `--registry` naming a file in some other directory makes *that* directory
-the root. `rust-toolchain.toml` pins the toolchain (rustup fetches it on first
-build), and git must be 2.44 or newer (`GIT_NO_LAZY_FETCH` keeps a local
-`status` on a partial clone off the network).
+the root, unless `--root <dir>` names it. `rust-toolchain.toml` pins the
+toolchain (rustup fetches it on first build), and git must be 2.44 or newer
+(`GIT_NO_LAZY_FETCH` keeps a local `status` on a partial clone off the
+network).
 
 ### Commands by Side Effects
 

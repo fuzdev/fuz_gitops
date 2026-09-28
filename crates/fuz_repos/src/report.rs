@@ -18,9 +18,10 @@ pub struct StatusReport {
     /// The registry's path as found.
     pub registry: String,
     pub entries: Vec<EntryStatus>,
-    /// Clones under the workspace root the registry doesn't claim.
-    // TODO: the unregistered scan (pass 2); always empty until then
-    pub unregistered: Vec<UnregisteredClone>,
+    /// Clones under the workspace root the registry doesn't claim; `None`
+    /// when the scan didn't run.
+    // TODO: the unregistered scan (pass 2); always `None` until then
+    pub unregistered: Option<Vec<UnregisteredClone>>,
 }
 
 impl StatusReport {
@@ -30,7 +31,7 @@ impl StatusReport {
             workspace,
             registry,
             entries,
-            unregistered: Vec::new(),
+            unregistered: None,
         }
     }
 }
@@ -66,8 +67,8 @@ pub struct EntryStatus {
     pub checkouts: Vec<Checkout>,
     pub branches: Vec<BranchStatus>,
     pub stashes: u32,
-    /// `FETCH_HEAD`'s age; `None` when never fetched.
-    pub fetched_age_secs: Option<u64>,
+    /// `FETCH_HEAD`'s mtime, in unix seconds; `None` when never fetched.
+    pub fetched_at: Option<u64>,
     pub needs_human: Vec<NeedsHuman>,
     /// A git call that failed after the repo was found; the facts above are
     /// then incomplete.

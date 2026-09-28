@@ -6,7 +6,7 @@
 
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
-use std::time::{Duration, Instant, SystemTime};
+use std::time::{Duration, Instant, UNIX_EPOCH};
 
 use crate::git::{CallOptions, Git, GitError, NetworkOptions};
 use crate::porcelain::{self, ConfigFacts, RefFacts, StatusFacts, Track};
@@ -18,7 +18,6 @@ use crate::state::{InProgressOp, Layout};
 pub struct ProbeContext<'a> {
     pub git: &'a Git,
     pub root: &'a Path,
-    pub now: SystemTime,
     /// Fetch owned, non-pinned entries from `origin` before probing.
     pub fetch: bool,
 }
@@ -60,8 +59,9 @@ pub struct RepoFacts {
     pub in_progress: Option<InProgressOp>,
     pub branches: Vec<BranchFacts>,
     pub layout: Layout,
-    /// `FETCH_HEAD`'s age; `None` when the repo was never fetched.
-    pub fetched_age_secs: Option<u64>,
+    /// `FETCH_HEAD`'s mtime, in unix seconds; `None` when the repo was never
+    /// fetched.
+    pub fetched_at: Option<u64>,
 }
 
 /// A local branch's facts.
@@ -245,10 +245,10 @@ fn probe_present(
 
     // 7. files
     let in_progress = read_in_progress(&git_dir);
-    let fetched_age_secs = std::fs::metadata(git_dir.join("FETCH_HEAD"))
+    let fetched_at = std::fs::metadata(git_dir.join("FETCH_HEAD"))
         .and_then(|m| m.modified())
         .ok()
-        .map(|t| cx.now.duration_since(t).unwrap_or_default().as_secs());
+        .map(|t| t.duration_since(UNIX_EPOCH).unwrap_or_default().as_secs());
     let layout = Layout {
         shallow: !shallow_roots.is_empty(),
         sparse: config.sparse,
@@ -264,7 +264,7 @@ fn probe_present(
         in_progress,
         branches,
         layout,
-        fetched_age_secs,
+        fetched_at,
     })))
 }
 
@@ -437,7 +437,6 @@ purpose = "a .git git can't use"
         let cx = ProbeContext {
             git: &git,
             root: tmp.path(),
-            now: SystemTime::now(),
             fetch: false,
         };
         let details: Vec<String> = registry

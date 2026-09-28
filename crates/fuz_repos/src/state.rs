@@ -87,7 +87,8 @@ pub struct BranchStatus {
     /// minus shallow roots. Counted only where the relation leaves room for
     /// local work; zero otherwise.
     pub unique_commits: u32,
-    pub newest_commit_age_secs: u64,
+    /// The newest commit's committer time, in unix seconds.
+    pub newest_commit_at: u64,
     pub relation: Relation,
     /// What `sync` does with the branch — the one decision `status` previews
     /// and `sync` executes.
@@ -103,9 +104,9 @@ pub enum Verdict {
     Quiet,
     /// Sync takes the action.
     Act { action: SyncAction },
-    /// Sync would take the action, but an entry-level `needs_human` reason
-    /// stops it on the whole entry.
-    Held { action: SyncAction },
+    /// Sync would take the action, but something holds it back until a
+    /// person clears it.
+    Held { action: SyncAction, by: HeldBy },
     /// Sync won't touch the branch; a person decides.
     NeedsHuman { reason: BranchNeedsHuman },
     /// Commits on no remote that sync never pushes: no origin upstream, a
@@ -113,6 +114,22 @@ pub enum Verdict {
     LocalOnly,
     /// Deletable by hand; sync never deletes.
     Cleanup { reason: CleanupReason },
+}
+
+/// What holds a branch's action back.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum HeldBy {
+    /// An entry-level `needs_human` reason stops sync on the whole entry.
+    Entry,
+    /// The branch is checked out in a checkout with uncommitted changes, and
+    /// sync never touches a dirty working tree. Pushes aren't held: they only
+    /// move refs.
+    DirtyCheckout,
+    /// The branch is checked out in a linked worktree whose state isn't
+    /// probed, so whether it's clean is unknown. Pushes aren't held.
+    // TODO: gone once pass 2 probes linked worktrees
+    UnprobedWorktree,
 }
 
 /// A move `sync` makes on a branch.

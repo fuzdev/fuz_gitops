@@ -10,6 +10,12 @@ use thiserror::Error;
 /// A failure that stops a run before it has a report.
 #[derive(Debug, Error)]
 pub enum Error {
+    /// No subcommand, and no flag that runs without one.
+    #[error("a subcommand is required")]
+    MissingCommand,
+    /// `--root` names no directory.
+    #[error("no workspace root at {}", root.display())]
+    RootNotFound { root: PathBuf },
     /// No `repos.toml` in the start dir or any ancestor.
     #[error("no repos.toml found in {} or any parent directory", start.display())]
     RegistryNotFound { start: PathBuf },
@@ -46,7 +52,9 @@ impl Error {
     /// before re-running, `1` for everything else.
     pub const fn exit_code(&self) -> u8 {
         match self {
-            Self::RegistryNotFound { .. }
+            Self::MissingCommand
+            | Self::RootNotFound { .. }
+            | Self::RegistryNotFound { .. }
             | Self::RegistryRead { .. }
             | Self::RegistryParse { .. }
             | Self::GitNotFound
@@ -58,6 +66,8 @@ impl Error {
     /// A fix suggestion for the user, when there is one.
     pub const fn hint(&self) -> Option<&'static str> {
         match self {
+            Self::MissingCommand => Some("see `repos --help`"),
+            Self::RootNotFound { .. } => Some("`--root` names the dir the entries live under"),
             Self::RegistryNotFound { .. } => {
                 Some("run inside the workspace, or pass `--registry <path>`")
             }
@@ -81,6 +91,10 @@ mod tests {
     #[test]
     fn exit_codes_by_remediation() {
         let caller_fixes = [
+            Error::MissingCommand,
+            Error::RootNotFound {
+                root: PathBuf::from("/x"),
+            },
             Error::RegistryNotFound {
                 start: PathBuf::from("/x"),
             },

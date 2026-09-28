@@ -7,20 +7,28 @@ use fuz_repos::classify::NeedsHuman;
 use fuz_repos::registry::{CheckoutMode, EntryKind, Visibility};
 use fuz_repos::report::{EntryStatus, StatusReport};
 use fuz_repos::state::{
-    BranchNeedsHuman, BranchStatus, CleanupReason, Head, Presence, Relation, SyncAction,
+    BranchNeedsHuman, BranchStatus, CleanupReason, Head, HeldBy, Presence, Relation, SyncAction,
     Uncommitted, Verdict,
 };
 
 /// The label column's width.
 const LABEL_WIDTH: usize = 13;
 
-/// Renders paths with the home dir as `~`.
+/// What rendering needs from the environment: the home dir, shown as `~`,
+/// and the current time, which the report's timestamps become ages against.
 #[derive(Debug, Clone, Copy)]
-pub struct Paths<'a> {
+pub struct View<'a> {
     pub home: Option<&'a str>,
+    /// Unix seconds.
+    pub now: u64,
 }
 
-impl Paths<'_> {
+impl View<'_> {
+    /// A timestamp's compact age.
+    fn age(&self, at: u64) -> String {
+        format_age(self.now.saturating_sub(at))
+    }
+
     pub fn show(&self, path: &str) -> String {
         match self.home {
             Some(home) if !home.is_empty() => match path.strip_prefix(home) {
@@ -34,11 +42,11 @@ impl Paths<'_> {
 
 /// The grouped summary: what to act on, the quiet entries as counts, and the
 /// footer. A workspace with nothing to act on prints just the last line.
-pub fn render_summary(report: &StatusReport, paths: Paths<'_>, verbose: bool) -> String {
+pub fn render_summary(report: &StatusReport, view: View<'_>, verbose: bool) -> String {
     let mut g = Groups::default();
     let mut quiet = Counts::default();
     for e in &report.entries {
-        if g.add(e, verbose) {
+        if g.add(e, view, verbose) {
             continue;
         }
         match (&e.checkout_mode, e.checkouts.first().map(|c| &c.head)) {
@@ -78,7 +86,7 @@ pub fn render_summary(report: &StatusReport, paths: Paths<'_>, verbose: bool) ->
         "clean {} · on branches {} · pinned {}",
         quiet.clean, quiet.on_branches, quiet.pinned
     );
-    let _ = writeln!(out, "{counts}      {}", footer(report, paths));
+    let _ = writeln!(out, "{counts}      {}", footer(report, view));
     out
 }
 
@@ -98,11 +106,14 @@ struct Actions {
 }
 
 impl Actions {
-    fn add(&mut self, action: SyncAction, label: String) {
+    /// Adds a labeled branch's action; `note` follows it, e.g. ` (dirty)`.
+    fn add(&mut self, action: SyncAction, label: &str, note: &str) {
         match action {
-            SyncAction::Push { commits } => self.push.push(format!("{label} +{commits}")),
-            SyncAction::FastForward { commits } => self.ff.push(format!("{label} −{commits}")),
-            SyncAction::Move => self.moves.push(label),
+            SyncAction::Push { commits } => self.push.push(format!("{label} +{commits}{note}")),
+            SyncAction::FastForward { commits } => {
+                self.ff.push(format!("{label} −{commits}{note}"));
+            }
+            SyncAction::Move => self.moves.push(format!("{label}{note}")),
         }
     }
 
@@ -140,7 +151,7 @@ struct Groups {
 
 impl Groups {
     /// Adds an entry's lines; returns whether it had anything to say.
-    fn add(&mut self, e: &EntryStatus, verbose: bool) -> bool {
+    fn add(&mut self, e: &EntryStatus, view: View<'_>, verbose: bool) -> bool {
         let before = self.len();
         let key = &e.key;
         let follow = match &e.checkout_mode {
@@ -182,8 +193,8 @@ impl Groups {
         for b in &e.branches {
             match b.verdict {
                 Verdict::Quiet => {}
-                Verdict::Act { action } => self.act.add(action, label(b)),
-                Verdict::Held { action } => self.held.add(action, label(b)),
+                Verdict::Act { action } => self.act.add(action, &label(b), ""),
+                Verdict::Held { action, by } => self.held.add(action, &label(b), held_note(by)),
                 Verdict::NeedsHuman { reason } => {
                     let why = match (reason, b.relation) {
                         (BranchNeedsHuman::Diverged, Relation::Diverged { ahead, behind }) => {
@@ -207,7 +218,7 @@ impl Groups {
                         "{} (+{}, {}{read_only})",
                         label(b),
                         b.unique_commits,
-                        format_age(b.newest_commit_age_secs)
+                        view.age(b.newest_commit_at)
                     ));
                 }
                 Verdict::Cleanup {
@@ -275,36 +286,37 @@ fn needs_human_label(reason: &NeedsHuman) -> String {
 }
 
 /// The registry, and how fresh the remote view is: the oldest fetch among
-/// the entries sync fetches (owned, active, not pinned), with never-fetched
-/// ones counted apart.
-fn footer(report: &StatusReport, paths: Paths<'_>) -> String {
+/// the owned repos sync fetches (active, not references — dormant forks
+/// would pin it at months), with never-fetched ones counted apart.
+fn footer(report: &StatusReport, view: View<'_>) -> String {
     let fetched: Vec<Option<u64>> = report
         .entries
         .iter()
         .filter(|e| {
-            e.writable
+            e.kind == EntryKind::Repo
+                && e.writable
                 && !e.archived
                 && e.checkout_mode != CheckoutMode::Pinned
                 && e.presence == Presence::Present
                 && e.probe_error.is_none()
         })
-        .map(|e| e.fetched_age_secs)
+        .map(|e| e.fetched_at)
         .collect();
     let never = fetched.iter().filter(|a| a.is_none()).count();
-    let oldest = fetched.iter().flatten().max();
+    let oldest = fetched.iter().flatten().min();
     let freshness = match (oldest, never) {
         (None, 0) => None,
         (None, _) => Some("never fetched".to_owned()),
-        (Some(age), 0) => Some(format!("fetched {} ago", format_age(*age))),
-        (Some(age), n) => Some(format!("fetched {} ago, {n} never", format_age(*age))),
+        (Some(at), 0) => Some(format!("fetched {} ago", view.age(*at))),
+        (Some(at), n) => Some(format!("fetched {} ago, {n} never", view.age(*at))),
     };
-    let registry = paths.show(&report.registry);
+    let registry = view.show(&report.registry);
     freshness.map_or_else(|| registry.clone(), |f| format!("{registry} · {f}"))
 }
 
 /// `--verbose`'s block for one entry, to check a classification against git
 /// by eye.
-pub fn render_entry(e: &EntryStatus, paths: Paths<'_>) -> String {
+pub fn render_entry(e: &EntryStatus, view: View<'_>) -> String {
     let mut out = String::new();
     let mut tags = vec![
         match e.kind {
@@ -344,9 +356,9 @@ pub fn render_entry(e: &EntryStatus, paths: Paths<'_>) -> String {
             let _ = writeln!(out, "  {:<10}not a repo: {}", "dir", e.dir);
         }
         Presence::Present => {
-            let mut facts = vec![e.fetched_age_secs.map_or_else(
+            let mut facts = vec![e.fetched_at.map_or_else(
                 || "never fetched".to_owned(),
-                |age| format!("fetched {} ago", format_age(age)),
+                |at| format!("fetched {} ago", view.age(at)),
             )];
             if e.stashes > 0 {
                 facts.push(format!("stashes {}", e.stashes));
@@ -385,7 +397,7 @@ pub fn render_entry(e: &EntryStatus, paths: Paths<'_>) -> String {
             out,
             "  {:<10}{} {head} · {dirt}{op}",
             "checkout",
-            paths.show(&c.path)
+            view.show(&c.path)
         );
     }
     let name_width = e.branches.iter().map(|b| b.name.len()).max().unwrap_or(0);
@@ -400,7 +412,7 @@ pub fn render_entry(e: &EntryStatus, paths: Paths<'_>) -> String {
         if b.unique_commits > 0 {
             let _ = write!(detail, " · {} unique", b.unique_commits);
         }
-        let _ = write!(detail, " · {}", format_age(b.newest_commit_age_secs));
+        let _ = write!(detail, " · {}", view.age(b.newest_commit_at));
         if b.worktree.is_some() {
             detail.push_str(" · checked out");
         }
@@ -418,7 +430,7 @@ pub fn render_entry(e: &EntryStatus, paths: Paths<'_>) -> String {
     let dir = e
         .checkouts
         .first()
-        .map_or_else(|| e.dir.clone(), |c| paths.show(&c.path));
+        .map_or_else(|| e.dir.clone(), |c| view.show(&c.path));
     for reason in &e.needs_human {
         let detail = match reason {
             NeedsHuman::NotARepo { detail } => format!("not a repo: {detail}"),
@@ -473,24 +485,30 @@ fn relation_label(r: Relation) -> String {
 }
 
 /// The verdict for `--verbose`'s branch lines; `None` when quiet.
-fn verdict_label(v: Verdict) -> Option<&'static str> {
-    let action = |a| match a {
+fn verdict_label(v: Verdict) -> Option<String> {
+    let verb = |a| match a {
         SyncAction::Push { .. } => "push",
         SyncAction::FastForward { .. } => "ff",
         SyncAction::Move => "move",
     };
     Some(match v {
         Verdict::Quiet => return None,
-        Verdict::Act { action: a } => action(a),
-        Verdict::Held { action: a } => match a {
-            SyncAction::Push { .. } => "held push",
-            SyncAction::FastForward { .. } => "held ff",
-            SyncAction::Move => "held move",
-        },
-        Verdict::NeedsHuman { .. } => "needs human",
-        Verdict::LocalOnly => "local-only",
-        Verdict::Cleanup { .. } => "cleanup",
+        Verdict::Act { action } => verb(action).to_owned(),
+        Verdict::Held { action, by } => format!("held {}{}", verb(action), held_note(by)),
+        Verdict::NeedsHuman { .. } => "needs human".to_owned(),
+        Verdict::LocalOnly => "local-only".to_owned(),
+        Verdict::Cleanup { .. } => "cleanup".to_owned(),
     })
+}
+
+/// What a held action's label carries after it; an entry-level hold has its
+/// reason printed on the entry instead.
+const fn held_note(by: HeldBy) -> &'static str {
+    match by {
+        HeldBy::Entry => "",
+        HeldBy::DirtyCheckout => " (dirty)",
+        HeldBy::UnprobedWorktree => " (worktree)",
+    }
 }
 
 fn uncommitted_detail(u: &Uncommitted) -> String {
@@ -559,7 +577,7 @@ mod tests {
             }],
             branches: vec![],
             stashes: 0,
-            fetched_age_secs: Some(3 * 3600),
+            fetched_at: Some(NOW - 3 * 3600),
             needs_human: vec![],
             probe_error: None,
             fetch_error: None,
@@ -584,7 +602,7 @@ mod tests {
             upstream: upstream.map(str::to_owned),
             worktree: None,
             unique_commits: unique,
-            newest_commit_age_secs: 2 * 86400,
+            newest_commit_at: NOW - 2 * 86400,
             relation,
             verdict,
         }
@@ -610,8 +628,11 @@ mod tests {
         )
     }
 
-    const PATHS: Paths<'static> = Paths {
+    const NOW: u64 = 1_800_000_000;
+
+    const VIEW: View<'static> = View {
         home: Some("/home/me"),
+        now: NOW,
     };
 
     #[test]
@@ -631,7 +652,7 @@ mod tests {
         };
         let out = render_summary(
             &report(vec![entry("app", main(), "main"), feature, pinned]),
-            PATHS,
+            VIEW,
             false,
         );
         assert_eq!(
@@ -694,7 +715,7 @@ mod tests {
             0,
             act(SyncAction::FastForward { commits: 3 }),
         )];
-        zzz.fetched_age_secs = None;
+        zzz.fetched_at = None;
         let mut blake3 = entry("blake3", main(), "main");
         blake3.presence = Presence::Missing;
         blake3.checkouts.clear();
@@ -748,7 +769,7 @@ mod tests {
             wpt,
             entry("quiet", main(), "main"),
         ]);
-        let out = render_summary(&r, PATHS, false);
+        let out = render_summary(&r, VIEW, false);
         let want = "\
 failed        wpt (fetch: fatal: couldn't find remote ref fork)
 needs human   uz:arc (diverged +2 −5)  old (archived, +1)  wpt (rebase in progress)  wpt (outside refspec)
@@ -760,7 +781,7 @@ clean 1 · on branches 0 · pinned 0      ~/dev/repos.toml · fetched 3h ago, 1 
 ";
         assert_eq!(out, want);
 
-        let verbose = render_summary(&r, PATHS, true);
+        let verbose = render_summary(&r, VIEW, true);
         assert!(
             verbose.contains("uncommitted   uz (1 unstaged)\n"),
             "{verbose}"
@@ -779,6 +800,7 @@ clean 1 · on branches 0 · pinned 0      ~/dev/repos.toml · fetched 3h ago, 1 
             2,
             Verdict::Held {
                 action: SyncAction::Push { commits: 2 },
+                by: HeldBy::Entry,
             },
         )];
         blog.needs_human = vec![NeedsHuman::OriginMismatch {
@@ -822,7 +844,7 @@ clean 1 · on branches 0 · pinned 0      ~/dev/repos.toml · fetched 3h ago, 1 
 
         let r = report(vec![blog, kit, test262, goblins]);
         assert_eq!(
-            render_summary(&r, PATHS, false),
+            render_summary(&r, VIEW, false),
             "\
 needs human   test262:work (shallow, tips differ, +2 local)  goblins (not a repo)
 origin drift  fuz_blog (ryanatkn/fuz_blog)  kit (https://codeberg.org/someone/kit)
@@ -832,7 +854,7 @@ held          push fuz_blog +2
 clean 0 · on branches 0 · pinned 0      ~/dev/repos.toml · fetched 3h ago
 "
         );
-        let blog_block = render_entry(&r.entries[0], PATHS);
+        let blog_block = render_entry(&r.entries[0], VIEW);
         assert!(
             blog_block.contains(
                 "  needs     origin is git@github.com:ryanatkn/fuz_blog — git -C ~/dev/fuz_blog \
@@ -840,10 +862,43 @@ clean 0 · on branches 0 · pinned 0      ~/dev/repos.toml · fetched 3h ago
             ),
             "{blog_block}"
         );
-        let goblins_block = render_entry(&r.entries[3], PATHS);
+        let goblins_block = render_entry(&r.entries[3], VIEW);
         assert!(
             goblins_block.contains("  needs     not a repo: empty directory\n"),
             "{goblins_block}"
+        );
+    }
+
+    #[test]
+    fn dirty_holds_and_a_footer_over_repos_only() {
+        let mut gro = entry("gro", main(), "main");
+        gro.branches = vec![branch(
+            "main",
+            Some("origin/main"),
+            Relation::Behind { commits: 1 },
+            0,
+            Verdict::Held {
+                action: SyncAction::FastForward { commits: 1 },
+                by: HeldBy::DirtyCheckout,
+            },
+        )];
+        gro.checkouts[0].uncommitted.unstaged = 2;
+        // a dormant owned fork, fetched long ago: not the freshness it reports
+        let mut spec = entry("spec", CheckoutMode::Head, "x");
+        spec.kind = EntryKind::Reference;
+        spec.fetched_at = Some(NOW - 90 * 86400);
+        assert!(
+            render_entry(&gro, VIEW).contains("behind 1 · 2d → held ff (dirty)\n"),
+            "{}",
+            render_entry(&gro, VIEW)
+        );
+        assert_eq!(
+            render_summary(&report(vec![gro, spec]), VIEW, false),
+            "\
+held          ff gro −1 (dirty)
+uncommitted   gro (2)
+clean 1 · on branches 0 · pinned 0      ~/dev/repos.toml · fetched 3h ago
+"
         );
     }
 
@@ -864,7 +919,7 @@ clean 0 · on branches 0 · pinned 0      ~/dev/repos.toml · fetched 3h ago
         e.checkouts[0].uncommitted.unstaged = 1;
         e.stashes = 1;
         assert_eq!(
-            render_entry(&e, PATHS),
+            render_entry(&e, VIEW),
             "\
 gro  repo · owned · public · ci · follow main
   url       https://github.com/me/gro
@@ -888,9 +943,9 @@ gro  repo · owned · public · ci · follow main
 
     #[test]
     fn home_paths() {
-        assert_eq!(PATHS.show("/home/me/dev"), "~/dev");
-        assert_eq!(PATHS.show("/home/me"), "~");
-        assert_eq!(PATHS.show("/home/meadow/x"), "/home/meadow/x");
-        assert_eq!(Paths { home: None }.show("/x"), "/x");
+        assert_eq!(VIEW.show("/home/me/dev"), "~/dev");
+        assert_eq!(VIEW.show("/home/me"), "~");
+        assert_eq!(VIEW.show("/home/meadow/x"), "/home/meadow/x");
+        assert_eq!(View { home: None, now: 0 }.show("/x"), "/x");
     }
 }

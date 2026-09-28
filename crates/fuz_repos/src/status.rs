@@ -3,7 +3,7 @@
 use std::path::Path;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::thread;
-use std::time::{Duration, Instant, SystemTime};
+use std::time::{Duration, Instant};
 
 use crate::classify::{NeedsHuman, classify};
 use crate::git::Git;
@@ -38,18 +38,11 @@ pub struct StatusRun {
 }
 
 /// Probes and classifies `entries` over a pool of `opts.jobs` threads.
-pub fn status(
-    entries: &[Entry],
-    root: &Path,
-    git: &Git,
-    opts: StatusOptions,
-    now: SystemTime,
-) -> StatusRun {
+pub fn status(entries: &[Entry], root: &Path, git: &Git, opts: StatusOptions) -> StatusRun {
     let start = Instant::now();
     let cx = ProbeContext {
         git,
         root,
-        now,
         fetch: opts.fetch,
     };
     let next = AtomicUsize::new(0);
@@ -68,7 +61,7 @@ pub fn status(
                             fetch: run.fetch_time,
                             probe: run.probe_time,
                         };
-                        out.push((i, entry_status(entry, run, now), timing));
+                        out.push((i, entry_status(entry, run), timing));
                     }
                     out
                 })
@@ -90,7 +83,7 @@ pub fn status(
 }
 
 /// Assembles an entry's report from its probe.
-pub fn entry_status(entry: &Entry, run: ProbeRun, now: SystemTime) -> EntryStatus {
+pub fn entry_status(entry: &Entry, run: ProbeRun) -> EntryStatus {
     let mut status = EntryStatus {
         key: entry.key.clone(),
         kind: entry.kind,
@@ -106,7 +99,7 @@ pub fn entry_status(entry: &Entry, run: ProbeRun, now: SystemTime) -> EntryStatu
         checkouts: Vec::new(),
         branches: Vec::new(),
         stashes: 0,
-        fetched_age_secs: None,
+        fetched_at: None,
         needs_human: Vec::new(),
         probe_error: None,
         fetch_error: run.fetch.and_then(Result::err),
@@ -119,11 +112,11 @@ pub fn entry_status(entry: &Entry, run: ProbeRun, now: SystemTime) -> EntryStatu
         }
         Probed::Failed { error } => status.probe_error = Some(error),
         Probed::Present(facts) => {
-            let classified = classify(entry, &facts, now);
+            let classified = classify(entry, &facts);
             status.branches = classified.branches;
             status.needs_human = classified.needs_human;
             status.stashes = facts.status.stashes;
-            status.fetched_age_secs = facts.fetched_age_secs;
+            status.fetched_at = facts.fetched_at;
             status.checkouts.push(Checkout {
                 path: facts.path,
                 primary: true,
