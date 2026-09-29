@@ -2,8 +2,8 @@
 //! registry declares.
 //!
 //! The library holds the registry types, the hardened git runner, the probe,
-//! and the pure classification; the `repos` binary parses arguments, renders
-//! reports, and owns exit codes.
+//! the unregistered scan, and the pure classification; the `repos` binary
+//! parses arguments, renders reports, and owns exit codes.
 
 pub mod classify;
 pub mod discover;
@@ -13,6 +13,7 @@ pub mod porcelain;
 pub mod probe;
 pub mod registry;
 pub mod report;
+pub mod scan;
 pub mod state;
 pub mod status;
 

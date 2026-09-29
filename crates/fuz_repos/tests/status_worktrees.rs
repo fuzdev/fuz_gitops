@@ -15,7 +15,7 @@ use fuz_repos::state::{
     UnprobedHead, UnprobedWhy, UnprobedWorktree, Verdict,
 };
 use fuz_repos::status::{StatusOptions, status};
-use support::{FixtureWorkspace, branch, find_entry, unprobed_facts};
+use support::{FixtureWorkspace, Unseal, branch, find_entry, unprobed_facts};
 
 const fn ff(commits: u32) -> SyncAction {
     SyncAction::FastForward { commits }
@@ -803,17 +803,6 @@ fn a_fetch_from_a_linked_worktree_counts_as_the_repos_fetch() {
         ws.entry("app").fetched_at,
         Some(support::CLOCK_START + 2000)
     );
-}
-
-/// Restores a dir's permissions on drop, so the tempdir can be deleted
-/// whether or not the test passes.
-struct Unseal(std::path::PathBuf);
-
-impl Drop for Unseal {
-    fn drop(&mut self) {
-        use std::os::unix::fs::PermissionsExt;
-        let _ = std::fs::set_permissions(&self.0, std::fs::Permissions::from_mode(0o755));
-    }
 }
 
 #[test]
@@ -1687,4 +1676,53 @@ fn pruning_a_gone_worktree_whose_branch_was_deleted_would_lose_its_commit() {
             }]
         })
     );
+}
+
+#[test]
+fn a_gitdir_written_without_its_git_suffix_names_the_worktree_itself() {
+    let mut ws = FixtureWorkspace::new();
+    let app = app(&mut ws);
+    let k = ws.outside("k");
+    let admin = ws.add_worktree(&app, &k, &["-b", "k"]);
+    // by hand: git takes a `gitdir` without `/.git` as the worktree's path
+    std::fs::write(admin.join("gitdir"), format!("{}\n", k.display())).unwrap();
+    assert_eq!(
+        ws.worktree_record(&app, &k)[0],
+        format!("worktree {}", k.display())
+    );
+
+    let e = ws.entry("app");
+    let paths: Vec<&str> = e.checkouts.iter().map(|c| c.path.as_str()).collect();
+    assert_eq!(paths, [path(&app).as_str(), path(&k).as_str()]);
+    assert_eq!(unprobed_facts(&e), []);
+}
+
+#[test]
+fn a_worktree_whose_git_is_a_fifo_fails_its_probe_without_blocking() {
+    let mut ws = FixtureWorkspace::new();
+    let app = app(&mut ws);
+    let wt = ws.outside("app-fifo");
+    ws.add_worktree(&app, &wt, &["-b", "fifo"]);
+    std::fs::remove_file(wt.join(".git")).unwrap();
+    let out = ws
+        .command("mkfifo", ws.base())
+        .arg(wt.join(".git"))
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "{out:?}");
+
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let _ = tx.send(ws.entry("app"));
+    });
+    let done = rx.recv_timeout(std::time::Duration::from_secs(60));
+    assert!(done.is_ok(), "blocked: not finished within a minute");
+    let e = done.unwrap();
+    let u = unprobed_facts(&e);
+    assert_eq!(u.len(), 1, "{u:?}");
+    assert_eq!(u[0].path, path(&wt));
+    match &u[0].why {
+        UnprobedWhy::Failed { error } => assert!(error.contains("not a regular file"), "{error}"),
+        why => panic!("{why:?}"),
+    }
 }

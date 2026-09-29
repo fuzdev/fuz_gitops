@@ -100,10 +100,10 @@ never had one (the fallback is `gitops_run "git status"` and parsing porcelain
 by hand).
 
 It's **being built** as the Rust `repos` tool, not by growing `GitOperations`:
-a read-only `repos status` works today, linked worktrees included; the
-unregistered-clone scan, `sync`, and `push` are still to come. Its invariants
-are settled: never `pull` across a set of repos (fetch, classify, then
-fast-forward or report); never rebase, merge, or auto-resolve conflicts —
+a read-only `repos status` works today, linked worktrees and the scan for
+unregistered clones included; `sync` and `push` are still to come. Its
+invariants are settled: never `pull` across a set of repos (fetch, classify,
+then fast-forward or report); never rebase, merge, or auto-resolve conflicts —
 anything history-changing stops and reports, so host repo rules never need
 modelling; derive write authority from owner accounts; classify unpushed refs
 by type.
@@ -119,9 +119,10 @@ a project's own config, publishing, and dashboard data.
 crate, `crates/fuz_repos` (a library plus the `repos` binary), and it owns git:
 repo state, sync, and the agent push path — git only, no API calls. So far it
 has `repos status`: every registry entry's branches and their relation to
-origin, uncommitted work in each checkout (linked worktrees too), and what
-needs a human, grouped by what to do next, from local refs (`--fetch`
-refreshes them first). Sync and push aren't built. TS keeps everything else:
+origin, uncommitted work in each checkout (linked worktrees too), what needs
+a human, and the clones at the workspace root the registry doesn't name,
+grouped by what to do next, from local refs (`--fetch` refreshes them
+first). Sync and push aren't built. TS keeps everything else:
 the dashboard, its data step (GitHub metadata and svelte-docinfo library
 analysis), and the publish cascade. Once `repos sync` ships, the TS tasks stop
 cloning and pulling and read repo state from `repos status --json`, and a
@@ -155,7 +156,7 @@ gitops.config.ts -> local repos -> GitHub API -> repos.ts -> UI components
 - `src/lib/fetch_repo_data.ts` - fetches remote repo metadata
 - `src/routes/repos.ts` - generated data file with all repo info
 - `crates/fuz_repos/` - the Rust `repos` tool: registry, git runner, probe,
-  classification (library) and the `repos` binary
+  unregistered scan, classification (library) and the `repos` binary
 - `crates/fuz_repos/tests/` - its integration tests over fixture workspaces
   (`tests/support`)
 
@@ -521,9 +522,9 @@ SvelteKit app; gro never invokes cargo):
 
 ```bash
 cargo install --path crates/fuz_repos --locked # install the `repos` binary
-repos status                 # git state of every repos.toml entry, local refs only
-repos status gro .           # narrow to targets: a key, a dir name, or a path
-repos status --verbose       # plus stash counts and a block per entry
+repos status                 # git state of every repos.toml entry, local refs only, plus unregistered clones
+repos status gro .           # narrow to targets: a key, a dir name, or a path (no unregistered scan)
+repos status --verbose       # plus stash counts and a block per entry and unregistered dir
 repos status --json          # the versioned report
 repos status --fetch         # fetch owned entries from origin first (writes remote-tracking refs)
 repos status --jobs 4 --timings # parallelism (default 16), and per-phase timings on stderr

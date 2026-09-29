@@ -39,7 +39,8 @@ use std::time::SystemTime;
 use fuz_repos::discover::{REGISTRY_FILE, find_registry};
 use fuz_repos::git::Git;
 use fuz_repos::registry::{Entry, Registry};
-use fuz_repos::report::EntryStatus;
+use fuz_repos::report::{EntryStatus, UnregisteredClone};
+use fuz_repos::scan::scan_unregistered;
 use fuz_repos::state::{BranchStatus, UnprobedWorktree};
 use fuz_repos::status::{StatusOptions, status};
 use tempfile::TempDir;
@@ -425,6 +426,14 @@ impl FixtureWorkspace {
         run.entries
     }
 
+    /// The unregistered scan over the workspace root, with the registry's
+    /// entries and owners as the binary loads them.
+    pub fn unregistered(&self) -> Vec<UnregisteredClone> {
+        let entries = self.entries();
+        let registry = Registry::load(&self.root().join(REGISTRY_FILE)).unwrap();
+        scan_unregistered(&self.root(), &entries, &registry.owners, &self.runner()).unwrap()
+    }
+
     /// One entry's status, from a run over every entry.
     pub fn entry(&self, key: &str) -> EntryStatus {
         take_entry(self.status(), key)
@@ -612,6 +621,36 @@ pub fn assert_git_dir_unchanged(before: &GitDirSnapshot, after: &GitDirSnapshot)
         .filter(|path| before.get(*path) != after.get(*path))
         .collect();
     assert!(changed.is_empty(), "the git dir changed: {changed:?}");
+}
+
+/// Restores a path's permissions on drop, so the tempdir can be deleted
+/// whether or not the test passes.
+#[derive(Debug)]
+pub struct Unseal(pub PathBuf);
+
+impl Drop for Unseal {
+    fn drop(&mut self) {
+        let _ = std::fs::set_permissions(&self.0, std::fs::Permissions::from_mode(0o755));
+    }
+}
+
+/// Sets `path`'s mode, restored on the guard's drop; `None` (already
+/// restored) when permissions don't bind this user (root), so the caller
+/// skips its test.
+pub fn seal(path: &Path, mode: u32) -> Option<Unseal> {
+    std::fs::set_permissions(path, std::fs::Permissions::from_mode(mode)).unwrap();
+    let guard = Unseal(path.to_owned());
+    let binds = if path.is_dir() {
+        std::fs::read_dir(path).is_err()
+    } else {
+        std::fs::File::open(path).is_err()
+    };
+    if binds {
+        Some(guard)
+    } else {
+        eprintln!("skipped: permissions don't bind this user (root)");
+        None
+    }
 }
 
 /// Sets a file's mtime, so its stat info no longer matches the index.

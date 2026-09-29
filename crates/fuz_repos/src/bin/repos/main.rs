@@ -19,9 +19,10 @@ use fuz_repos::error::{Error, Result};
 use fuz_repos::git::{CallOptions, Git, GitError};
 use fuz_repos::registry::Registry;
 use fuz_repos::report::StatusReport;
+use fuz_repos::scan::scan_unregistered;
 use fuz_repos::status::{EntryTiming, StatusOptions, status};
 
-use crate::render::{View, render_entry, render_summary};
+use crate::render::{View, render_entry, render_summary, render_unregistered};
 
 /// The build's identity: the crate version, and the commit the binary was
 /// built from (stamped by `build.rs`).
@@ -68,7 +69,8 @@ struct StatusArgs {
     /// print the report as JSON
     #[argh(switch)]
     json: bool,
-    /// add stash counts, the uncommitted split, and a block per entry
+    /// add stash counts, the uncommitted split, and a block per entry and per
+    /// unregistered dir
     #[argh(switch)]
     verbose: bool,
     /// entries probed at once
@@ -150,7 +152,8 @@ fn run_status(locate: Locate<'_>, args: &StatusArgs) -> Result<()> {
     ) {
         return Err(Error::GitNotFound);
     }
-    let entries = resolve_targets(&registry.entries(), &loc.root, &cwd, &args.targets, &git)?;
+    let all = registry.entries();
+    let entries = resolve_targets(&all, &loc.root, &cwd, &args.targets, &git)?;
     let load_time = start.elapsed();
 
     let run = status(
@@ -162,11 +165,27 @@ fn run_status(locate: Locate<'_>, args: &StatusArgs) -> Result<()> {
             jobs: args.jobs,
         },
     );
-    let report = StatusReport::new(
+    let mut report = StatusReport::new(
         loc.root.to_string_lossy().into_owned(),
         loc.path.to_string_lossy().into_owned(),
         run.entries,
     );
+    // the whole workspace only: with targets the report is about the named
+    // entries, and `unregistered` stays `null`
+    let scan_start = Instant::now();
+    let scan_time = if args.targets.is_empty() {
+        let found =
+            scan_unregistered(&loc.root, &all, &registry.owners, &git).map_err(|source| {
+                Error::Io {
+                    context: format!("failed to list the workspace root {}", loc.root.display()),
+                    source,
+                }
+            })?;
+        report.unregistered = Some(found);
+        Some(scan_start.elapsed())
+    } else {
+        None
+    };
 
     let render_start = Instant::now();
     let home = std::env::var("HOME").ok();
@@ -191,6 +210,10 @@ fn run_status(locate: Locate<'_>, args: &StatusArgs) -> Result<()> {
                 out.push_str(&render_entry(e, view));
                 out.push('\n');
             }
+            for u in report.unregistered.iter().flatten() {
+                out.push_str(&render_unregistered(u, &report, view));
+                out.push('\n');
+            }
         }
         out.push_str(&render_summary(&report, view, args.verbose));
         out
@@ -204,6 +227,7 @@ fn run_status(locate: Locate<'_>, args: &StatusArgs) -> Result<()> {
             render_timings(&Timings {
                 load: load_time,
                 probe: run.elapsed,
+                scan: scan_time,
                 render: render_time,
                 total: start.elapsed(),
                 jobs: args.jobs,
@@ -230,6 +254,8 @@ fn write_stdout(s: &str) -> Result<()> {
 struct Timings<'a> {
     load: Duration,
     probe: Duration,
+    /// `None` when the unregistered scan didn't run.
+    scan: Option<Duration>,
     render: Duration,
     total: Duration,
     jobs: usize,
@@ -244,8 +270,12 @@ fn render_timings(t: &Timings<'_>) -> String {
     let ms = |d: Duration| format!("{}ms", d.as_millis());
     let fetched = t.entries.iter().any(|e| !e.fetch.is_zero());
     let phase = if fetched { "fetch + probe" } else { "probe" };
+    let scan = t
+        .scan
+        .map(|d| format!(" · scan {}", ms(d)))
+        .unwrap_or_default();
     let mut out = format!(
-        "timings   load {} · {phase} {} (jobs {}) · render {} · total {}\n",
+        "timings   load {} · {phase} {} (jobs {}){scan} · render {} · total {}\n",
         ms(t.load),
         ms(t.probe),
         t.jobs,

@@ -189,6 +189,13 @@ impl fmt::Display for RepoUrl {
     }
 }
 
+/// Whether `account` is one of `owners`, ignoring ASCII case: host
+/// accounts (GitHub's) are case-insensitive. The one ownership comparison,
+/// for registry entries and unregistered clones alike.
+pub fn is_owner(owners: &[String], account: &str) -> bool {
+    owners.iter().any(|o| o.eq_ignore_ascii_case(account))
+}
+
 /// Which registry table an entry comes from.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -254,9 +261,9 @@ impl Registry {
         })
     }
 
-    /// Whether `url`'s account is one of the owners.
+    /// Whether `url`'s account is one of the owners (`is_owner`).
     pub fn is_owned(&self, url: &RepoUrl) -> bool {
-        self.owners.contains(&url.account)
+        is_owner(&self.owners, &url.account)
     }
 
     /// Every entry, repos then references, each sorted by key.
@@ -392,6 +399,28 @@ purpose = "leave HEAD"
 
         let spec = &entries[4];
         assert!(spec.writable);
+    }
+
+    #[test]
+    fn ownership_ignores_case() {
+        let r = Registry::parse(
+            r#"
+owners = ["Me"]
+[repos.x]
+url = "https://github.com/ME/x"
+visibility = "public"
+purpose = "x"
+[references.y]
+url = "https://github.com/them/y"
+purpose = "y"
+"#,
+        )
+        .unwrap();
+        let entries = r.entries();
+        assert!(entries[0].writable);
+        assert!(!entries[1].writable);
+        assert!(is_owner(&r.owners, "me"));
+        assert!(!is_owner(&r.owners, "mee"));
     }
 
     #[test]

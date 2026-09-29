@@ -18,9 +18,9 @@ pub struct StatusReport {
     /// The registry's path as found.
     pub registry: String,
     pub entries: Vec<EntryStatus>,
-    /// Clones under the workspace root the registry doesn't claim; `None`
-    /// when the scan didn't run.
-    // TODO: the unregistered scan (pass 2); always `None` until then
+    /// The workspace root's children holding a `.git` that no registry
+    /// entry claims, by dir name; `None` when the scan didn't run (it runs
+    /// only when no targets are given).
     pub unregistered: Option<Vec<UnregisteredClone>>,
 }
 
@@ -36,13 +36,68 @@ impl StatusReport {
     }
 }
 
-/// A clone under the workspace root that no registry entry claims.
-#[derive(Debug, Clone, Serialize)]
+/// A child of the workspace root holding a `.git` that no registry entry
+/// claims — a clone, or a worktree that isn't a live linked worktree of a
+/// registered repo.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct UnregisteredClone {
+    /// Its name under the workspace root (lossy when not UTF-8).
     pub dir: String,
-    pub origin: String,
+    /// `remote.origin.url` as git reads it (includes applied; the first when
+    /// several are set); `None` when it has none or git can't read its
+    /// config.
+    pub origin: Option<String>,
     /// Whether the origin's account is one of the registry's owners.
     pub owned: bool,
+    /// Flattened: the stray's `kind` tag and its payload sit beside `dir`.
+    #[serde(flatten)]
+    pub kind: UnregisteredKind,
+}
+
+/// What an unregistered dir is.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum UnregisteredKind {
+    /// A repo of its own: a `.git` dir, or a `.git` file naming a git dir
+    /// that isn't a linked worktree's.
+    Clone,
+    /// A worktree the scan offers no fix for, one of: a linked worktree of a
+    /// repo the registry doesn't name; a worktree of a registered repo whose
+    /// git dir sits outside its `worktrees/`, so git doesn't list it; a
+    /// moved worktree whose `.git` is a link (replace the link with its
+    /// file, then rerun `repos status`, which decides whether a repair is
+    /// safe); or a `.git` that can't be read.
+    Worktree,
+    /// A linked worktree of a registered entry whose git dir names another
+    /// path (or none) that doesn't use it: it was moved by hand. `git -C
+    /// <entry dir> worktree repair <this path>` reconnects it — offered only
+    /// when `blocked_by` is `None`. The repair also walks every other
+    /// worktree git dir of the repo and rewrites the `.git` of each existing
+    /// dir one names whose `.git` is missing or names another git dir;
+    /// `blocked_by` is the first such dir, which a repair here would hijack.
+    MovedWorktree {
+        entry: String,
+        blocked_by: Option<RepairBlock>,
+        /// With the repair offered, a path git's walk over the other
+        /// worktree git dirs will complain about (as the git dir writes it)
+        /// — one isn't a dir, or its `.git` isn't a file — exiting 1 while
+        /// repairing this one all the same; `None` when the repair exits 0.
+        exit_noise: Option<String>,
+    },
+    /// A linked worktree of a registered entry whose git dir is gone (pruned
+    /// or deleted) or holds no `HEAD`: its index and HEAD are lost, and `git
+    /// worktree repair` can't restore them.
+    OrphanedWorktree { entry: String },
+    /// A checkout whose `.git` names a git dir of a registered entry that
+    /// the checkout at `with` uses, or may use: a copy of it, a copy of a
+    /// locked worktree whose original is absent (unmounted media), one of
+    /// several copies of a moved worktree, or an orphan whose git-dir id git
+    /// reused for a newer worktree. `with` is `None` when git's record of
+    /// that checkout can't be read, or is lost from a locked worktree's git
+    /// dir. Git would show that checkout's index and HEAD here, and `git
+    /// worktree repair` here would take the git dir from it — so no fix is
+    /// offered.
+    SharedGitDir { entry: String, with: Option<String> },
 }
 
 /// One registry entry's state.
@@ -85,4 +140,24 @@ pub struct EntryStatus {
     // ref is the upstream gone; auth, host-key, and connection errors are the
     // host unreachable), likely turning this into a `kind`-tagged enum
     pub fetch_error: Option<String>,
+}
+
+/// What a repair of a moved worktree would also rewrite, so it isn't offered.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum RepairBlock {
+    /// Another checkout, `path` (as the worktree git dir `git_dir` writes
+    /// it), which `git_dir` names but whose `.git` is missing or names
+    /// another git dir: fix it first.
+    Rewrites { path: String, git_dir: String },
+    /// This very dir: the worktree git dir `git_dir` names it, and a repair
+    /// would point its `.git` there. The moved worktree whose `.git` names
+    /// `git_dir` is to be repaired first (it's in the same list, with its
+    /// repair offered when that's safe); then rerun.
+    ClaimedDir { git_dir: String },
+    /// This dir and `with`'s were swapped by hand: `git_dir` names this dir
+    /// while `with`'s `.git` names it, and the other way round. Moving the
+    /// two dirs back reconnects both; a repair of either would hijack the
+    /// other.
+    Swapped { git_dir: String, with: String },
 }

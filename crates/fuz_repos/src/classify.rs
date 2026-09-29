@@ -436,9 +436,22 @@ pub fn origin_matches(origin: &str, url: &RepoUrl) -> bool {
     normalize_remote(origin) == normalize_remote(&url.to_string())
 }
 
+/// The account a remote URL names, in `origin_matches`'s normalized
+/// (lowercased) form: the second segment of `host/account/name…`; `None`
+/// for a URL with no host and account, such as a local path.
+pub fn remote_account(url: &str) -> Option<String> {
+    let normalized = normalize_remote(url);
+    let mut parts = normalized.split('/');
+    let (Some(host), Some(account), Some(name)) = (parts.next(), parts.next(), parts.next()) else {
+        return None;
+    };
+    let named = |s: &str| !s.is_empty() && s != "." && s != "..";
+    (named(host) && named(account) && named(name)).then(|| account.to_owned())
+}
+
 fn normalize_remote(url: &str) -> String {
     let url = url.trim();
-    let scheme_less = ["ssh://", "https://", "http://"]
+    let scheme_less = ["ssh://", "git://", "https://", "http://"]
         .iter()
         .find_map(|scheme| url.strip_prefix(scheme));
     // otherwise scp-like `git@host:account/name`
@@ -1663,6 +1676,7 @@ mod tests {
             "ssh://git@github.com/me/app.git",
             "https://github.com/me/app/",
             "https://token@github.com/me/app",
+            "git://github.com/me/app.git",
         ] {
             assert!(origin_matches(same, &u), "{same}");
         }
@@ -1670,8 +1684,31 @@ mod tests {
             "git@github.com:me/other",
             "git@gitlab.com:me/app",
             "https://github.com/them/app",
+            "git://github.com/them/app",
         ] {
             assert!(!origin_matches(different, &u), "{different}");
+        }
+    }
+
+    #[test]
+    fn remote_accounts() {
+        for (url, account) in [
+            ("git@github.com:Me/app", Some("me")),
+            ("git@github.com:me/app.git", Some("me")),
+            ("ssh://git@github.com/me/app.git", Some("me")),
+            ("ssh://git@host:2222/me/app", Some("me")),
+            ("https://token@github.com/them/app/", Some("them")),
+            ("https://gitlab.com/group/sub/app", Some("group")),
+            ("gh:me/app", Some("me")),
+            ("git://github.com/Me/app.git", Some("me")),
+            ("/home/me/dev/app", None),
+            ("../app", None),
+            ("./me/app", None),
+            ("file:///srv/git/app.git", None),
+            ("https://github.com/me", None),
+            ("", None),
+        ] {
+            assert_eq!(remote_account(url).as_deref(), account, "{url}");
         }
     }
 }

@@ -50,7 +50,8 @@ fn status_json_is_the_versioned_report() {
     let report = parse(&repos(&ws, &ws.root(), &["status", "--json"]));
     assert_eq!(report["version"], STATUS_FORMAT_VERSION);
     assert_eq!(report["workspace"], ws.root().to_str().unwrap());
-    assert_eq!(report["unregistered"], Value::Null);
+    // the scan ran and found nothing
+    assert_eq!(report["unregistered"], serde_json::json!([]));
     let entries = report["entries"].as_array().unwrap();
     let keys: Vec<&str> = entries.iter().map(|e| e["key"].as_str().unwrap()).collect();
     assert_eq!(keys, ["app", "gone"]);
@@ -177,6 +178,78 @@ fn status_from_a_linked_worktree_outside_the_workspace() {
         )),
         "{text}"
     );
+}
+
+#[test]
+fn status_scans_for_unregistered_dirs_only_over_the_whole_workspace() {
+    let ws = workspace();
+    let app = ws.dir("app");
+    let feat = ws.dir("app-feat");
+    ws.add_worktree(&app, &feat, &["-b", "feat"]);
+    let moved = ws.dir("app-moved");
+    std::fs::rename(&feat, &moved).unwrap();
+
+    let report = parse(&repos(&ws, &ws.root(), &["status", "--json"]));
+    assert_eq!(
+        report["unregistered"],
+        serde_json::json!([{
+            "dir": "app-moved",
+            "origin": support::owned_origin("app"),
+            "owned": true,
+            "kind": "moved_worktree",
+            "entry": "app",
+            "blocked_by": null,
+            "exit_noise": null,
+        }])
+    );
+    // with targets the report is about them alone: the scan didn't run
+    let report = parse(&repos(&ws, &ws.root(), &["status", "--json", "app"]));
+    assert_eq!(report["unregistered"], Value::Null);
+
+    let out = repos(&ws, &ws.root(), &["status"]);
+    assert_eq!(out.status.code(), Some(0), "stderr: {}", stderr(&out));
+    let text = stdout(&out);
+    assert!(
+        text.contains(
+            "unregistered  owned: app-moved (moved worktree of app — git worktree repair)\n"
+        ),
+        "{text}"
+    );
+    let out = repos(&ws, &ws.root(), &["status", "--verbose"]);
+    let text = stdout(&out);
+    assert!(
+        text.contains(&format!(
+            "app-moved  unregistered · owned · moved worktree of app\n  \
+             dir       {moved}\n  \
+             origin    git@github.com:me/app\n  \
+             fix       git -C {app} worktree repair {moved}\n",
+            moved = moved.display(),
+            app = app.display(),
+        )),
+        "{text}"
+    );
+    let out = repos(&ws, &ws.root(), &["status", "app"]);
+    assert!(!stdout(&out).contains("unregistered"), "{}", stdout(&out));
+}
+
+#[test]
+fn a_workspace_root_that_cannot_be_listed_exits_one() {
+    let ws = workspace();
+    let root = ws.root();
+    let Some(_unseal) = support::seal(&root, 0o311) else {
+        return;
+    };
+    let out = repos(&ws, &root, &["status"]);
+    assert_eq!(out.status.code(), Some(1), "stderr: {}", stderr(&out));
+    assert!(
+        stderr(&out).contains("failed to list the workspace root"),
+        "{}",
+        stderr(&out)
+    );
+    assert!(stdout(&out).is_empty());
+    // with targets there's no scan, and no listing
+    let out = repos(&ws, &root, &["status", "app"]);
+    assert_eq!(out.status.code(), Some(0), "stderr: {}", stderr(&out));
 }
 
 #[test]

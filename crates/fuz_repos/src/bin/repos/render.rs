@@ -2,10 +2,13 @@
 //! per-entry blocks.
 
 use std::fmt::Write as _;
+use std::path::Path;
 
 use fuz_repos::classify::NeedsHuman;
 use fuz_repos::registry::{CheckoutMode, EntryKind, Visibility};
-use fuz_repos::report::{EntryStatus, StatusReport};
+use fuz_repos::report::{
+    EntryStatus, RepairBlock, StatusReport, UnregisteredClone, UnregisteredKind,
+};
 use fuz_repos::state::{
     BranchNeedsHuman, BranchStatus, CleanupReason, Head, HeldBy, Presence, Prune, PruneLoss,
     Relation, SyncAction, Uncommitted, UnprobedHead, UnprobedWhy, Verdict,
@@ -80,6 +83,7 @@ pub fn render_summary(report: &StatusReport, view: View<'_>, verbose: bool) -> S
     line("local-only", &g.local_only, "  ");
     line("uncommitted", &g.uncommitted, "  ");
     line("cleanup", &g.cleanup, "  ");
+    line("unregistered", &unregistered_groups(report, view), "  ");
     line("stashes", &g.stashes, "  ");
 
     let counts = format!(
@@ -544,6 +548,231 @@ pub fn render_entry(e: &EntryStatus, view: View<'_>) -> String {
                 view.show(&u.path)
             );
         }
+    }
+    out
+}
+
+/// The summary's `unregistered` groups — `owned: …`, `third-party: …`,
+/// `no origin: …` — each stray by dir name, a worktree marked with what it is
+/// and, when moved, its fix. Nothing when the scan didn't run or found none.
+fn unregistered_groups(report: &StatusReport, view: View<'_>) -> Vec<String> {
+    let mut owned = Vec::new();
+    let mut third_party = Vec::new();
+    let mut no_origin = Vec::new();
+    for u in report.unregistered.iter().flatten() {
+        let label = match &u.kind {
+            UnregisteredKind::Clone => u.dir.clone(),
+            UnregisteredKind::Worktree => format!("{} (worktree)", u.dir),
+            UnregisteredKind::MovedWorktree {
+                entry,
+                blocked_by: None,
+                ..
+            } => format!(
+                "{} (moved worktree of {entry} — git worktree repair)",
+                u.dir
+            ),
+            UnregisteredKind::MovedWorktree {
+                entry,
+                blocked_by: Some(block),
+                ..
+            } => format!(
+                "{} (moved worktree of {entry} — {})",
+                u.dir,
+                repair_block_summary(block, view)
+            ),
+            UnregisteredKind::OrphanedWorktree { entry } => {
+                format!(
+                    "{} (orphaned worktree of {entry} — its git dir is lost)",
+                    u.dir
+                )
+            }
+            UnregisteredKind::SharedGitDir { entry, with } => format!(
+                "{} (shares {entry}'s git dir with {} — don't repair)",
+                u.dir,
+                shared_with(with.as_deref(), view)
+            ),
+        };
+        match (u.owned, &u.origin) {
+            (true, _) => owned.push(label),
+            (false, Some(_)) => third_party.push(label),
+            (false, None) => no_origin.push(label),
+        }
+    }
+    [
+        ("owned", owned),
+        ("third-party", third_party),
+        ("no origin", no_origin),
+    ]
+    .into_iter()
+    .filter(|(_, items)| !items.is_empty())
+    .map(|(group, items)| format!("{group}: {}", items.join(", ")))
+    .collect()
+}
+
+/// The checkout a `SharedGitDir` stray shares with, shown; `None` is one
+/// git's record can't name — locked, or unreadable.
+fn shared_with(with: Option<&str>, view: View<'_>) -> String {
+    with.map_or_else(
+        || "a locked or unreadable worktree".to_owned(),
+        |with| view.show(with),
+    )
+}
+
+/// A worktree git dir by its id, the last component of
+/// `<common>/worktrees/<id>`.
+fn git_dir_id(git_dir: &str) -> &str {
+    Path::new(git_dir)
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or(git_dir)
+}
+
+/// What blocks a moved worktree's repair, for the summary.
+fn repair_block_summary(block: &RepairBlock, view: View<'_>) -> String {
+    match block {
+        RepairBlock::Rewrites { path, .. } => {
+            format!(
+                "a repair would also rewrite {}; fix that first",
+                view.show(path)
+            )
+        }
+        RepairBlock::ClaimedDir { .. } => {
+            "another moved worktree claims this dir; repair it first, then rerun".to_owned()
+        }
+        RepairBlock::Swapped { with, .. } => format!("swapped with {with}; move the dirs back"),
+    }
+}
+
+/// `--verbose`'s block for one unregistered dir: what it is, its origin,
+/// and the fix when there's a mechanical one.
+pub fn render_unregistered(u: &UnregisteredClone, report: &StatusReport, view: View<'_>) -> String {
+    let workspace = Path::new(&report.workspace);
+    let at = view.show(&workspace.join(&u.dir).to_string_lossy());
+    let entry_dir = |key: &str| {
+        let dir = report
+            .entries
+            .iter()
+            .find(|e| e.key == key)
+            .map_or(key, |e| e.dir.as_str());
+        view.show(&workspace.join(dir).to_string_lossy())
+    };
+    let owner = match (u.owned, &u.origin) {
+        (true, _) => "owned",
+        (false, Some(_)) => "third-party",
+        (false, None) => "no origin",
+    };
+    let (kind, detail) = match &u.kind {
+        UnregisteredKind::Clone => ("clone".to_owned(), vec![]),
+        UnregisteredKind::Worktree => (
+            "worktree".to_owned(),
+            vec![(
+                "note",
+                "a worktree git doesn't list for any registered repo, a moved worktree whose \
+                 .git is a link (replace the link with its file, then rerun repos status), or a \
+                 .git that can't be read"
+                    .to_owned(),
+            )],
+        ),
+        UnregisteredKind::MovedWorktree {
+            entry,
+            blocked_by: None,
+            exit_noise,
+        } => {
+            let mut detail = vec![(
+                "fix",
+                format!("git -C {} worktree repair {at}", entry_dir(entry)),
+            )];
+            if let Some(path) = exit_noise {
+                detail.push((
+                    "note",
+                    format!(
+                        "git will complain about {} and exit 1, leaving it be; this one is \
+                         repaired all the same",
+                        view.show(path)
+                    ),
+                ));
+            }
+            (format!("moved worktree of {entry}"), detail)
+        }
+        UnregisteredKind::MovedWorktree {
+            entry,
+            blocked_by: Some(RepairBlock::Rewrites { path, git_dir }),
+            ..
+        } => (
+            format!("moved worktree of {entry}"),
+            vec![(
+                "note",
+                format!(
+                    "git worktree repair would also rewrite {}/.git — {entry}'s worktree git \
+                     dir {} names it, and its .git is missing or names another — fix that first",
+                    view.show(path),
+                    git_dir_id(git_dir)
+                ),
+            )],
+        ),
+        UnregisteredKind::MovedWorktree {
+            entry,
+            blocked_by: Some(RepairBlock::Swapped { git_dir, with }),
+            ..
+        } => (
+            format!("moved worktree of {entry}"),
+            vec![(
+                "note",
+                format!(
+                    "swapped by hand with {with}: {entry}'s worktree git dir {} names this dir \
+                     while {with}'s .git names it — move the two dirs back; a repair of either \
+                     would hijack the other",
+                    git_dir_id(git_dir)
+                ),
+            )],
+        ),
+        UnregisteredKind::MovedWorktree {
+            entry,
+            blocked_by: Some(RepairBlock::ClaimedDir { git_dir }),
+            ..
+        } => (
+            format!("moved worktree of {entry}"),
+            vec![(
+                "note",
+                format!(
+                    "{entry}'s worktree git dir {} names this dir, so a repair would point this \
+                     .git there — repair the moved worktree whose .git names it first, then \
+                     rerun repos status",
+                    git_dir_id(git_dir)
+                ),
+            )],
+        ),
+        UnregisteredKind::OrphanedWorktree { entry } => (
+            format!("orphaned worktree of {entry}"),
+            vec![(
+                "note",
+                "its git dir is gone or holds no HEAD — its index and HEAD are lost, and git \
+                 worktree repair can't reconnect it"
+                    .to_owned(),
+            )],
+        ),
+        UnregisteredKind::SharedGitDir { entry, with } => (
+            format!("shares a git dir of {entry}"),
+            vec![(
+                "note",
+                format!(
+                    "{} uses or may use it: this is a copy, or an orphan whose git-dir id git \
+                     reused — git worktree repair here would take the git dir from there",
+                    shared_with(with.as_deref(), view)
+                ),
+            )],
+        ),
+    };
+    let mut out = format!("{}  unregistered · {owner} · {kind}\n", u.dir);
+    let _ = writeln!(out, "  {:<10}{at}", "dir");
+    let _ = writeln!(
+        out,
+        "  {:<10}{}",
+        "origin",
+        u.origin.as_deref().unwrap_or("none")
+    );
+    for (label, detail) in detail {
+        let _ = writeln!(out, "  {label:<10}{detail}");
     }
     out
 }
@@ -1310,6 +1539,275 @@ app  repo · owned · public · ci · follow main
   needs     worktree git dir unreadable: ~/dev/app/.git/worktrees/x
   error     worktree ~/dev/app-broken: fatal: not a git repository
   error     worktree ~/dev/app/.git/worktrees/x: not listed by git: reading …: Permission denied
+"
+        );
+    }
+
+    fn unregistered(
+        dir: &str,
+        origin: Option<&str>,
+        owned: bool,
+        kind: UnregisteredKind,
+    ) -> UnregisteredClone {
+        UnregisteredClone {
+            dir: dir.into(),
+            origin: origin.map(str::to_owned),
+            owned,
+            kind,
+        }
+    }
+
+    /// One of each kind, over each ownership.
+    fn strays() -> Vec<UnregisteredClone> {
+        vec![
+            unregistered(
+                "app-copy",
+                Some("git@github.com:me/app"),
+                true,
+                UnregisteredKind::SharedGitDir {
+                    entry: "app".into(),
+                    with: Some("/home/me/wt/app-feat".into()),
+                },
+            ),
+            unregistered(
+                "app-old",
+                Some("git@github.com:me/app"),
+                true,
+                UnregisteredKind::MovedWorktree {
+                    entry: "app".into(),
+                    blocked_by: None,
+                    exit_noise: None,
+                },
+            ),
+            unregistered(
+                "lib",
+                Some("https://github.com/them/lib"),
+                false,
+                UnregisteredKind::Clone,
+            ),
+            unregistered(
+                "lib-feat",
+                Some("https://github.com/them/lib"),
+                false,
+                UnregisteredKind::Worktree,
+            ),
+            unregistered(
+                "mine",
+                Some("git@github.com:me/mine"),
+                true,
+                UnregisteredKind::Clone,
+            ),
+            unregistered(
+                "site-orphan",
+                None,
+                false,
+                UnregisteredKind::OrphanedWorktree {
+                    entry: "site".into(),
+                },
+            ),
+        ]
+    }
+
+    #[test]
+    fn unregistered_in_the_summary() {
+        let mut r = report(vec![entry("app", main(), "main")]);
+        r.unregistered = Some(strays());
+        assert_eq!(
+            render_summary(&r, VIEW, false),
+            "\
+unregistered  owned: app-copy (shares app's git dir with ~/wt/app-feat — don't repair), app-old \
+(moved worktree of app — git worktree repair), mine  third-party: lib, lib-feat (worktree)  no \
+origin: site-orphan (orphaned worktree of site — its git dir is lost)
+clean 1 · on branches 0 · pinned 0      ~/dev/repos.toml · fetched 3h ago
+"
+        );
+        // strays aren't entries: a workspace with only strays is otherwise clean
+        for none in [None, Some(vec![])] {
+            r.unregistered = none;
+            assert_eq!(
+                render_summary(&r, VIEW, false),
+                "clean 1 · on branches 0 · pinned 0      ~/dev/repos.toml · fetched 3h ago\n"
+            );
+        }
+    }
+
+    #[test]
+    fn a_shared_git_dir_git_cannot_name() {
+        let u = unregistered(
+            "app-copy",
+            Some("git@github.com:me/app"),
+            true,
+            UnregisteredKind::SharedGitDir {
+                entry: "app".into(),
+                with: None,
+            },
+        );
+        let mut r = report(vec![entry("app", main(), "main")]);
+        r.unregistered = Some(vec![u.clone()]);
+        assert_eq!(
+            render_summary(&r, VIEW, false),
+            "\
+unregistered  owned: app-copy (shares app's git dir with a locked or unreadable worktree — don't \
+repair)
+clean 1 · on branches 0 · pinned 0      ~/dev/repos.toml · fetched 3h ago
+"
+        );
+        assert!(
+            render_unregistered(&u, &r, VIEW).contains(
+                "  note      a locked or unreadable worktree uses or may use it: this is a copy"
+            ),
+            "{}",
+            render_unregistered(&u, &r, VIEW)
+        );
+    }
+
+    #[test]
+    fn a_moved_worktree_whose_repair_is_blocked() {
+        let moved = |dir: &str, block: RepairBlock| {
+            unregistered(
+                dir,
+                Some("git@github.com:me/app"),
+                true,
+                UnregisteredKind::MovedWorktree {
+                    entry: "app".into(),
+                    blocked_by: Some(block),
+                    exit_noise: None,
+                },
+            )
+        };
+        let git_dir = |id: &str| format!("/home/me/dev/app/.git/worktrees/{id}");
+        let strays = vec![
+            moved(
+                "app-feat",
+                RepairBlock::ClaimedDir {
+                    git_dir: git_dir("app-feat"),
+                },
+            ),
+            moved(
+                "s-moved",
+                RepairBlock::Rewrites {
+                    path: "/home/me/dev/q".into(),
+                    git_dir: git_dir("q"),
+                },
+            ),
+        ];
+        let mut r = report(vec![entry("app", main(), "main")]);
+        r.unregistered = Some(strays.clone());
+        assert_eq!(
+            render_summary(&r, VIEW, false),
+            "\
+unregistered  owned: app-feat (moved worktree of app — another moved worktree claims this dir; \
+repair it first, then rerun), s-moved (moved worktree of app — a repair would also rewrite \
+~/dev/q; fix that first)
+clean 1 · on branches 0 · pinned 0      ~/dev/repos.toml · fetched 3h ago
+"
+        );
+        let blocks: String = strays
+            .iter()
+            .map(|u| render_unregistered(u, &r, VIEW))
+            .collect();
+        assert_eq!(
+            blocks,
+            "\
+app-feat  unregistered · owned · moved worktree of app
+  dir       ~/dev/app-feat
+  origin    git@github.com:me/app
+  note      app's worktree git dir app-feat names this dir, so a repair would point this .git there — repair the moved worktree whose .git names it first, then rerun repos status
+s-moved  unregistered · owned · moved worktree of app
+  dir       ~/dev/s-moved
+  origin    git@github.com:me/app
+  note      git worktree repair would also rewrite ~/dev/q/.git — app's worktree git dir q names it, and its .git is missing or names another — fix that first
+"
+        );
+    }
+
+    #[test]
+    fn a_swapped_worktree_and_a_repair_git_complains_through() {
+        let swapped = unregistered(
+            "wa",
+            Some("git@github.com:me/app"),
+            true,
+            UnregisteredKind::MovedWorktree {
+                entry: "app".into(),
+                blocked_by: Some(RepairBlock::Swapped {
+                    git_dir: "/home/me/dev/app/.git/worktrees/wa".into(),
+                    with: "wb".into(),
+                }),
+                exit_noise: None,
+            },
+        );
+        let noisy = unregistered(
+            "s-moved",
+            Some("git@github.com:me/app"),
+            true,
+            UnregisteredKind::MovedWorktree {
+                entry: "app".into(),
+                blocked_by: None,
+                exit_noise: Some("/home/me/y".into()),
+            },
+        );
+        let mut r = report(vec![entry("app", main(), "main")]);
+        r.unregistered = Some(vec![noisy.clone(), swapped.clone()]);
+        assert_eq!(
+            render_summary(&r, VIEW, false),
+            "\
+unregistered  owned: s-moved (moved worktree of app — git worktree repair), wa (moved worktree of \
+app — swapped with wb; move the dirs back)
+clean 1 · on branches 0 · pinned 0      ~/dev/repos.toml · fetched 3h ago
+"
+        );
+        assert_eq!(
+            render_unregistered(&swapped, &r, VIEW)
+                + &render_unregistered(&noisy, &r, VIEW),
+            "\
+wa  unregistered · owned · moved worktree of app
+  dir       ~/dev/wa
+  origin    git@github.com:me/app
+  note      swapped by hand with wb: app's worktree git dir wa names this dir while wb's .git names it — move the two dirs back; a repair of either would hijack the other
+s-moved  unregistered · owned · moved worktree of app
+  dir       ~/dev/s-moved
+  origin    git@github.com:me/app
+  fix       git -C ~/dev/app worktree repair ~/dev/s-moved
+  note      git will complain about ~/y and exit 1, leaving it be; this one is repaired all the same
+"
+        );
+    }
+
+    #[test]
+    fn unregistered_blocks() {
+        let mut app = entry("app", main(), "main");
+        app.dir = "app-dir".into();
+        let mut r = report(vec![app]);
+        r.unregistered = Some(strays());
+        let blocks: String = strays()
+            .iter()
+            .map(|u| render_unregistered(u, &r, VIEW))
+            .collect();
+        assert_eq!(
+            blocks,
+            "\
+app-copy  unregistered · owned · shares a git dir of app
+  dir       ~/dev/app-copy
+  origin    git@github.com:me/app
+  note      ~/wt/app-feat uses or may use it: this is a copy, or an orphan whose git-dir id git reused — git worktree repair here would take the git dir from there
+app-old  unregistered · owned · moved worktree of app
+  dir       ~/dev/app-old
+  origin    git@github.com:me/app
+  fix       git -C ~/dev/app-dir worktree repair ~/dev/app-old
+lib  unregistered · third-party · clone
+  dir       ~/dev/lib
+  origin    https://github.com/them/lib
+lib-feat  unregistered · third-party · worktree
+  dir       ~/dev/lib-feat
+  origin    https://github.com/them/lib
+  note      a worktree git doesn't list for any registered repo, a moved worktree whose .git is a link (replace the link with its file, then rerun repos status), or a .git that can't be read
+mine  unregistered · owned · clone
+  dir       ~/dev/mine
+  origin    git@github.com:me/mine
+site-orphan  unregistered · no origin · orphaned worktree of site
+  dir       ~/dev/site-orphan
+  origin    none
+  note      its git dir is gone or holds no HEAD — its index and HEAD are lost, and git worktree repair can't reconnect it
 "
         );
     }
