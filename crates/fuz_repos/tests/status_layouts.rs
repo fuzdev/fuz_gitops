@@ -4,7 +4,7 @@
 
 mod support;
 
-use fuz_repos::state::{BranchNeedsHuman, Presence, Relation, SyncAction, Verdict};
+use fuz_repos::state::{BranchNeedsHuman, Head, Presence, Relation, SyncAction, Verdict};
 use support::{FixtureWorkspace, branch, find_entry};
 
 /// Every object reachable from a ref, missing ones marked `?`.
@@ -201,6 +201,70 @@ fn a_probe_that_needs_a_missing_object_fails_rather_than_fetching() {
     assert_eq!(e.presence, Presence::Present);
     let error = e.probe_error.as_deref().unwrap_or_default();
     assert!(error.contains("bad tree object HEAD"), "{e:?}");
+    // the layout survives the failure, so the hint keys on the filter
+    assert_eq!(
+        e.layout.as_ref().and_then(|l| l.partial_filter.as_deref()),
+        Some("tree:0")
+    );
+    assert!(e.probe_failed_partial());
+}
+
+/// The partial-clone hint's advice works: `checkout`, run by a person (lazy
+/// fetching allowed), fetches what the probe lacked and fills the checkout —
+/// clean, not an empty index reading every file as a staged deletion. Run
+/// again on the filled checkout, it changes nothing.
+#[test]
+fn a_partial_clone_probes_clean_once_checked_out() {
+    let mut ws = FixtureWorkspace::new();
+    ws.remote("app", &[("dir/a.txt", "a\n")]);
+    ws.declare_repo("app", "app", "");
+    let app = ws.clone_owned("app", "app", &["--filter=tree:0", "--no-checkout"]);
+    assert_eq!(missing_objects(&ws, &app), 1);
+    assert!(ws.entry("app").probe_failed_partial());
+
+    ws.git(&app, &["checkout"]);
+    ws.assert_clean(&app);
+    let e = ws.entry("app");
+    assert_eq!(e.probe_error, None);
+    assert!(!e.probe_failed_partial());
+    assert!(e.checkouts[0].uncommitted.is_clean(), "{:?}", e.checkouts);
+    assert_eq!(
+        e.checkouts[0].head,
+        Head::Branch {
+            name: "main".into()
+        }
+    );
+
+    // harmless on a checkout that's already there, dirt and all
+    let head = ws.git(&app, &["rev-parse", "HEAD"]);
+    support::write(&app, "dir/a.txt", "edited\n");
+    ws.git(&app, &["checkout"]);
+    ws.assert_porcelain(&app, &[" M dir/a.txt"]);
+    assert_eq!(ws.git(&app, &["rev-parse", "HEAD"]), head);
+    ws.assert_head(&app, Some("main"));
+}
+
+/// A failure outside a partial clone gets no partial-clone hint.
+#[test]
+fn a_full_clone_probe_failure_is_not_a_partial_one() {
+    let mut ws = FixtureWorkspace::new();
+    let app = ws.owned_repo("app", &[]);
+    // a local commit's tree, loose, deleted: `status` fails on HEAD's tree
+    // as the tree:0 clone's does, and there's no promisor to fetch it from
+    ws.commit(&app, "local");
+    // `HEAD:` names HEAD's root tree
+    let tree = ws.git(&app, &["rev-parse", "HEAD:"]);
+    let (dir, file) = tree.split_at(2);
+    std::fs::remove_file(app.join(".git/objects").join(dir).join(file)).unwrap();
+
+    let e = ws.entry("app");
+    let error = e.probe_error.as_deref().unwrap_or_default();
+    assert!(error.contains("bad tree object HEAD"), "{e:?}");
+    assert_eq!(
+        e.layout.as_ref().map(|l| l.partial_filter.as_deref()),
+        Some(None)
+    );
+    assert!(!e.probe_failed_partial());
 }
 
 #[test]

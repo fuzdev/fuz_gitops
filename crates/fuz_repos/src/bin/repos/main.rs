@@ -23,7 +23,8 @@ use argh::{EarlyExit, FromArgs};
 use fuz_repos::discover::{find_registry, resolve_targets};
 use fuz_repos::error::{Error, Result};
 use fuz_repos::git::Git;
-use fuz_repos::registry::Registry;
+use fuz_repos::probe::RegistryDirs;
+use fuz_repos::registry::ValidRegistry;
 use fuz_repos::report::{ErrorReport, StatusReport};
 use fuz_repos::scan::scan_unregistered;
 use fuz_repos::status::{EntryTiming, StatusOptions, mark_moved_worktrees, status};
@@ -201,13 +202,15 @@ fn run_status(locate: Locate<'_>, args: &StatusArgs) -> Result<Printed> {
     // first: discovery's fallback runs git too
     git.check_version(&cwd)?;
     let loc = find_registry(&cwd, locate.registry, locate.root, &git)?;
-    let registry = Registry::load(&loc.path)?;
+    // validated before targets resolve and anything is probed
+    let registry = ValidRegistry::load(&loc.path)?;
     let all = registry.entries();
     let entries = resolve_targets(&all, &loc.root, &cwd, &args.targets, &git)?;
     let load_time = start.elapsed();
 
     let run = status(
         &entries,
+        &RegistryDirs::new(&loc.root, &all),
         &loc.root,
         &git,
         StatusOptions {
@@ -225,7 +228,7 @@ fn run_status(locate: Locate<'_>, args: &StatusArgs) -> Result<Printed> {
     let scan_start = Instant::now();
     let scan_time = if args.targets.is_empty() {
         let scan =
-            scan_unregistered(&loc.root, &all, &registry.owners, &git).map_err(|source| {
+            scan_unregistered(&loc.root, &all, registry.owners(), &git).map_err(|source| {
                 Error::Io {
                     context: format!("failed to list the workspace root {}", loc.root.display()),
                     source,
@@ -259,7 +262,7 @@ fn run_status(locate: Locate<'_>, args: &StatusArgs) -> Result<Printed> {
         let mut out = String::new();
         if args.verbose {
             for e in &report.entries {
-                out.push_str(&render_entry(e, view));
+                out.push_str(&render_entry(e, &loc.root, view));
                 out.push('\n');
             }
             for u in report.unregistered.iter().flatten() {

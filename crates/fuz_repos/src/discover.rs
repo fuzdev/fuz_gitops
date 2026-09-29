@@ -378,7 +378,11 @@ mod tests {
                  purpose = \"x\"\ndir = \"{dir}\"\n"
             );
         }
-        crate::registry::Registry::parse(&toml).unwrap().entries()
+        crate::registry::Registry::parse(&toml)
+            .unwrap()
+            .validate()
+            .unwrap()
+            .entries()
     }
 
     #[test]

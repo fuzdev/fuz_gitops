@@ -10,6 +10,7 @@ mod support;
 use std::path::Path;
 
 use fuz_repos::classify::NeedsHuman;
+use fuz_repos::probe::RegistryDirs;
 use fuz_repos::state::{
     Checkout, CleanupReason, GitDirHolds, Head, HeldBy, InProgressOp, Prune, PruneLoss, SyncAction,
     Uncommitted, UnprobedHead, UnprobedWhy, UnprobedWorktree, Verdict,
@@ -444,6 +445,69 @@ fn a_gone_branch_in_a_clean_linked_worktree_is_removable() {
 }
 
 #[test]
+fn a_worktree_that_is_another_entrys_dir_is_never_removable() {
+    let mut ws = FixtureWorkspace::new();
+    let app = app(&mut ws);
+    for b in ["old", "stray"] {
+        pushed_branch(&ws, &app, b);
+        ws.upstream_delete_branch("app", b);
+    }
+    ws.git(&app, &["fetch", "-q", "--prune", "origin"]);
+    // two entries share the repo: `app_old`'s dir is a linked worktree of
+    // `app`'s, on a gone branch — otherwise just like `app-stray`, which no
+    // entry claims
+    let old = ws.dir("app-old");
+    ws.add_worktree(&app, &old, &["old"]);
+    ws.declare_repo("app_old", "app", "dir = \"app-old\"");
+    let stray = ws.dir("app-stray");
+    ws.add_worktree(&app, &stray, &["stray"]);
+    for (b, wt) in [("old", &old), ("stray", &stray)] {
+        ws.assert_track(&app, b, "[gone]");
+        ws.assert_clean(wt);
+        assert!(!ws.worktree_record(&app, wt).iter().any(|l| l == "locked"));
+    }
+
+    // through a symlinked root too: registry dirs compare canonicalized,
+    // against git's resolved worktree paths
+    let link = ws.outside("ws-link");
+    std::os::unix::fs::symlink(ws.root(), &link).unwrap();
+    for root in [ws.root(), link] {
+        let entries = ws.status_at(&root, false);
+        let e = find_entry(&entries, "app");
+        assert_eq!(
+            branch(e, "old").verdict,
+            Verdict::Cleanup {
+                reason: CleanupReason::UpstreamGone,
+                removable_worktree: None,
+            },
+            "{}",
+            root.display()
+        );
+        assert_eq!(
+            branch(e, "stray").verdict,
+            Verdict::Cleanup {
+                reason: CleanupReason::UpstreamGone,
+                removable_worktree: Some(path(&stray)),
+            }
+        );
+    }
+
+    let entries = ws.status();
+    let e = find_entry(&entries, "app");
+    // both probed alike: only the registry tells them apart
+    for wt in [&old, &stray] {
+        let c = e.checkouts.iter().find(|c| c.path == path(wt)).unwrap();
+        assert!(c.linked && !c.locked && c.in_progress.is_none());
+        assert_eq!(c.submodules, Some(false));
+    }
+    // seen from the other entry, `app`'s dir is the main worktree: never
+    // removable either way
+    let other = find_entry(&entries, "app_old");
+    assert_eq!(other.checkouts[1].path, path(&app));
+    assert!(!other.checkouts[1].linked);
+}
+
+#[test]
 fn a_symlinked_root_reports_git_paths_for_worktrees() {
     // the primary's path is the symlinked root joined with its dir; the
     // worktrees' are git's, resolved, and the verdicts don't depend on
@@ -601,6 +665,7 @@ fn worktrees_are_listed_only_when_the_repo_has_some() {
         let git = ws.runner();
         let run = status(
             &entries,
+            &RegistryDirs::new(&ws.root(), &entries),
             &ws.root(),
             &git,
             StatusOptions {
@@ -1660,6 +1725,7 @@ fn the_index_is_read_only_for_a_worktree_on_a_gone_branch() {
     let git = ws.runner();
     let run = status(
         &entries,
+        &RegistryDirs::new(&ws.root(), &entries),
         &ws.root(),
         &git,
         StatusOptions {

@@ -216,12 +216,17 @@ impl Uncommitted {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum InProgressOp {
+    /// Either backend: `rebase-merge/`, or `rebase-apply/` without am's
+    /// `applying` mark.
     Rebase,
     Merge,
     CherryPick,
     Revert,
     Bisect,
     Sequencer,
+    /// `git am`: `rebase-apply/` marked `applying`. Unlike a rebase, it
+    /// applies onto the branch HEAD is on.
+    Am,
 }
 
 impl InProgressOp {
@@ -233,6 +238,7 @@ impl InProgressOp {
             Self::Revert => "revert",
             Self::Bisect => "bisect",
             Self::Sequencer => "sequencer",
+            Self::Am => "am",
         }
     }
 }
@@ -276,8 +282,8 @@ pub enum Verdict {
     LocalOnly,
     /// Deletable by hand; sync never deletes. `removable_worktree` is the
     /// clean linked worktree it's checked out in, removable along with it;
-    /// `None` when it's in none, or the one it's in is dirty (and its dirt
-    /// shows as uncommitted).
+    /// `None` when it's in none, the one it's in is dirty (and its dirt
+    /// shows as uncommitted), or that one is a registry entry's dir.
     Cleanup {
         reason: CleanupReason,
         removable_worktree: Option<String>,

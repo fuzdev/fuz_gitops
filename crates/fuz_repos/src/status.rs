@@ -7,7 +7,7 @@ use std::time::{Duration, Instant};
 
 use crate::classify::{NeedsHuman, classify};
 use crate::git::Git;
-use crate::probe::{ProbeContext, ProbeRun, Probed, probe};
+use crate::probe::{ProbeContext, ProbeRun, Probed, RegistryDirs, probe};
 use crate::registry::Entry;
 use crate::report::EntryStatus;
 use crate::scan::Scan;
@@ -38,12 +38,20 @@ pub struct StatusRun {
     pub elapsed: Duration,
 }
 
-/// Probes and classifies `entries` over a pool of `opts.jobs` threads.
-pub fn status(entries: &[Entry], root: &Path, git: &Git, opts: StatusOptions) -> StatusRun {
+/// Probes and classifies `entries` over a pool of `opts.jobs` threads;
+/// `registry_dirs` are the whole registry's dirs, whatever `entries` holds.
+pub fn status(
+    entries: &[Entry],
+    registry_dirs: &RegistryDirs,
+    root: &Path,
+    git: &Git,
+    opts: StatusOptions,
+) -> StatusRun {
     let start = Instant::now();
     let cx = ProbeContext {
         git,
         root,
+        registry_dirs,
         fetch: opts.fetch,
     };
     let next = AtomicUsize::new(0);
@@ -112,7 +120,10 @@ pub fn entry_status(entry: &Entry, run: ProbeRun) -> EntryStatus {
             status.presence = Presence::NotARepo;
             status.needs_human.push(NeedsHuman::NotARepo { detail });
         }
-        Probed::Failed { error } => status.probe_error = Some(error),
+        Probed::Failed { error, layout } => {
+            status.probe_error = Some(error);
+            status.layout = layout;
+        }
         Probed::Present(facts) => {
             let classified = classify(entry, &facts);
             status.branches = classified.branches;

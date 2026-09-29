@@ -913,6 +913,102 @@ fn an_invalid_registry_exits_two() {
 }
 
 #[test]
+fn an_integrity_issue_is_a_registry_invalid_document() {
+    let ws = workspace();
+    let root = ws.root();
+    let registry = root.join("repos.toml");
+    std::fs::write(
+        &registry,
+        r#"owners = ["me"]
+[repos.app]
+url = "https://github.com/me/app"
+visibility = "public"
+purpose = "x"
+requires = ["spec"]
+[repos.theirs]
+url = "https://github.com/them/theirs"
+dir = "app"
+visibility = "public"
+purpose = "x"
+"#,
+    )
+    .unwrap();
+    let message = format!(
+        "invalid registry at {}:\n  \
+         repo `theirs` sits under `them`, not an owner — a third-party clone belongs in \
+         [references]\n  \
+         repo `theirs` claims dir `app`, already claimed by repo `app`\n  \
+         repo `app` requires `spec`, which is neither a repo nor a reference",
+        registry.display()
+    );
+    let hint = "fix each issue in the registry; nothing is probed until it validates";
+    // validated before targets resolve: the unknown one is never looked at
+    let error = error_doc(&repos(&ws, &root, &["status", "--json", "nope"]), 2);
+    assert_eq!(
+        error,
+        serde_json::json!({
+            "kind": "registry_invalid",
+            "issues": [
+                {"kind": "repo_not_owned", "key": "theirs", "account": "them"},
+                {
+                    "kind": "dir_claimed_twice",
+                    "dir": "app",
+                    "first": {"kind": "repo", "key": "app"},
+                    "second": {"kind": "repo", "key": "theirs"},
+                },
+                {
+                    "kind": "unknown_checkout_ref",
+                    "key": "app",
+                    "field": "requires",
+                    "target": "spec",
+                },
+            ],
+            "message": message,
+            "hint": hint,
+        })
+    );
+    // text: every issue on stderr, nothing on stdout
+    let out = repos(&ws, &root, &["status"]);
+    assert_eq!(out.status.code(), Some(2));
+    assert!(stdout(&out).is_empty(), "{}", stdout(&out));
+    assert_eq!(stderr(&out), format!("error: {message}\nhint: {hint}\n"));
+}
+
+#[test]
+fn a_worktree_another_entry_uses_is_kept_whatever_the_targets() {
+    let mut ws = FixtureWorkspace::new();
+    let app = ws.owned_repo("app", &[]);
+    // `old`, its upstream gone, checked out in a clean linked worktree that
+    // is itself a registry entry's dir
+    ws.git(&app, &["branch", "-q", "old", "main"]);
+    ws.git(&app, &["push", "-q", "-u", "origin", "old"]);
+    ws.upstream_delete_branch("app", "old");
+    ws.git(&app, &["fetch", "-q", "--prune", "origin"]);
+    ws.assert_track(&app, "old", "[gone]");
+    let old = ws.dir("app-old");
+    ws.add_worktree(&app, &old, &["old"]);
+    ws.assert_clean(&old);
+    ws.declare_repo("app_old", "app", "dir = \"app-old\"");
+    ws.write_registry();
+
+    // the other entry isn't a target, and its dir still counts
+    for args in [&["status", "--json"][..], &["status", "--json", "app"]] {
+        let report = parse(&repos(&ws, &ws.root(), args));
+        let branches = report["entries"][0]["branches"].as_array().unwrap();
+        let old = branches.iter().find(|b| b["name"] == "old").unwrap();
+        assert_eq!(
+            old["verdict"],
+            serde_json::json!({
+                "kind": "cleanup",
+                "reason": "upstream_gone",
+                "removable_worktree": null,
+            }),
+            "{args:?}"
+        );
+    }
+}
+
+#[test]
 fn version_and_help_exit_zero() {
     let ws = workspace();
     let out = repos(&ws, &ws.root(), &["--version"]);

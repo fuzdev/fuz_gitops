@@ -26,6 +26,18 @@ const LABEL_WIDTH: usize = 13;
 const IF_MOVED: &str =
     "if it moved, move it back (or to the workspace root) and rerun repos status";
 
+/// Why a partial clone's probe may fail, and the fix; `{dir}` is the
+/// checkout. Only `checkout`: a `fetch` backfills a missing tree only as a
+/// side effect, and leaves a `--no-checkout` clone without an index, every
+/// file then a staged deletion; on a clone already checked out, `checkout`
+/// changes nothing.
+fn partial_hint(dir: &str) -> String {
+    format!(
+        "a partial clone may lack objects the probe needs, and repos never fetches them — \
+         git -C {dir} checkout fetches them from origin and fills the checkout"
+    )
+}
+
 /// What rendering needs from the environment: the home dir, shown as `~`,
 /// and the current time, which the report's timestamps become ages against.
 #[derive(Debug, Clone, Copy)]
@@ -78,6 +90,10 @@ pub fn render_summary(report: &StatusReport, view: View<'_>, verbose: bool) -> S
         }
     };
     line("failed", &g.failed, "  ");
+    if report.entries.iter().any(EntryStatus::probe_failed_partial) {
+        let hint = format!("hint: {} (each under --verbose)", partial_hint("<dir>"));
+        line("", &[hint], "");
+    }
     line("needs human", &g.needs_human, "  ");
     line("origin drift", &g.origin_drift, "  ");
     if !g.origin_drift.is_empty() {
@@ -401,8 +417,9 @@ fn footer(report: &StatusReport, view: View<'_>) -> String {
 }
 
 /// `--verbose`'s block for one entry, to check a classification against git
-/// by eye.
-pub fn render_entry(e: &EntryStatus, view: View<'_>) -> String {
+/// by eye; `workspace` is the report's root, which entry dirs resolve
+/// against.
+pub fn render_entry(e: &EntryStatus, workspace: &Path, view: View<'_>) -> String {
     let mut out = String::new();
     let mut tags = vec![
         match e.kind {
@@ -545,10 +562,10 @@ pub fn render_entry(e: &EntryStatus, view: View<'_>) -> String {
             b.upstream.as_deref().unwrap_or("-"),
         );
     }
-    let dir = e
-        .checkouts
-        .first()
-        .map_or_else(|| e.dir.clone(), |c| view.show(&c.path));
+    let dir = e.checkouts.first().map_or_else(
+        || view.show(&workspace.join(&e.dir).to_string_lossy()),
+        |c| view.show(&c.path),
+    );
     for reason in &e.needs_human {
         let detail = match reason {
             NeedsHuman::NotARepo { detail } => format!("not a repo: {detail}"),
@@ -562,6 +579,9 @@ pub fn render_entry(e: &EntryStatus, view: View<'_>) -> String {
     }
     if let Some(error) = &e.probe_error {
         let _ = writeln!(out, "  {:<10}probe: {error}", "error");
+        if e.probe_failed_partial() {
+            let _ = writeln!(out, "  {:<10}{}", "hint", partial_hint(&dir));
+        }
     }
     if let Some(error) = &e.fetch_error {
         let _ = writeln!(out, "  {:<10}fetch: {error}", "error");
@@ -1238,6 +1258,70 @@ clean 1 · on branches 0 · pinned 0      ~/dev/repos.toml · fetched 3h ago, 1 
     }
 
     #[test]
+    fn a_failed_probe_of_a_partial_clone_hints_how_to_fill_it() {
+        let failed = |key: &str, partial_filter: Option<&str>| {
+            let mut e = entry(key, main(), "main");
+            e.checkouts = vec![];
+            e.fetched_at = None;
+            e.layout = Some(Layout {
+                shallow: false,
+                sparse: false,
+                partial_filter: partial_filter.map(str::to_owned),
+            });
+            e.probe_error = Some("git status failed (128): error: bad tree object HEAD".into());
+            e
+        };
+        let r = report(vec![failed("app", Some("tree:0")), failed("full", None)]);
+        let out = render_summary(&r, VIEW, false);
+        assert!(
+            out.starts_with(
+                "\
+failed        app (probe: git status failed (128): error: bad tree object HEAD)  full (probe: git \
+                 status failed (128): error: bad tree object HEAD)
+              hint: a partial clone may lack objects the probe needs, and repos never fetches \
+                 them — git -C <dir> checkout fetches them from origin and fills the checkout \
+                 (each under --verbose)
+"
+            ),
+            "{out}"
+        );
+        let workspace = Path::new("/home/me/dev");
+        let app = render_entry(&r.entries[0], workspace, VIEW);
+        assert!(
+            app.ends_with(
+                "  error     probe: git status failed (128): error: bad tree object HEAD
+  hint      a partial clone may lack objects the probe needs, and repos never fetches them — \
+                 git -C ~/dev/app checkout fetches them from origin and fills the checkout
+"
+            ),
+            "{app}"
+        );
+        assert!(
+            app.contains("  state     never fetched · filter tree:0\n"),
+            "{app}"
+        );
+        let full = render_entry(&r.entries[1], workspace, VIEW);
+        assert!(!full.contains("hint"), "{full}");
+        // no partial clone failed: no hint
+        let r = report(vec![failed("full", None)]);
+        assert!(!render_summary(&r, VIEW, false).contains("hint"));
+    }
+
+    #[test]
+    fn an_am_in_progress_is_named() {
+        let mut app = entry("app", main(), "main");
+        app.needs_human = vec![NeedsHuman::OperationInProgress {
+            checkout: "/home/me/dev/app".into(),
+            op: InProgressOp::Am,
+        }];
+        let out = render_summary(&report(vec![app]), VIEW, false);
+        assert!(
+            out.starts_with("needs human   app (am in progress)\n"),
+            "{out}"
+        );
+    }
+
+    #[test]
     fn origin_drift_shallow_moves_and_not_a_repo() {
         let mut blog = entry("fuz_blog", main(), "main");
         blog.url = "https://github.com/fuzdev/fuz_blog".into();
@@ -1302,7 +1386,7 @@ held          push fuz_blog +2
 clean 0 · on branches 0 · pinned 0      ~/dev/repos.toml · fetched 3h ago
 "
         );
-        let blog_block = render_entry(&r.entries[0], VIEW);
+        let blog_block = render_entry(&r.entries[0], Path::new("/home/me/dev"), VIEW);
         assert!(
             blog_block.contains(
                 "  needs     origin is git@github.com:ryanatkn/fuz_blog — git -C ~/dev/fuz_blog \
@@ -1310,7 +1394,7 @@ clean 0 · on branches 0 · pinned 0      ~/dev/repos.toml · fetched 3h ago
             ),
             "{blog_block}"
         );
-        let goblins_block = render_entry(&r.entries[3], VIEW);
+        let goblins_block = render_entry(&r.entries[3], Path::new("/home/me/dev"), VIEW);
         assert!(
             goblins_block.contains("  needs     not a repo: empty directory\n"),
             "{goblins_block}"
@@ -1336,9 +1420,10 @@ clean 0 · on branches 0 · pinned 0      ~/dev/repos.toml · fetched 3h ago
         spec.kind = EntryKind::Reference;
         spec.fetched_at = Some(NOW - 90 * 86400);
         assert!(
-            render_entry(&gro, VIEW).contains("behind 1 · 2d → held ff (dirty)\n"),
+            render_entry(&gro, Path::new("/home/me/dev"), VIEW)
+                .contains("behind 1 · 2d → held ff (dirty)\n"),
             "{}",
-            render_entry(&gro, VIEW)
+            render_entry(&gro, Path::new("/home/me/dev"), VIEW)
         );
         assert_eq!(
             render_summary(&report(vec![gro, spec]), VIEW, false),
@@ -1367,7 +1452,7 @@ clean 1 · on branches 0 · pinned 0      ~/dev/repos.toml · fetched 3h ago
         e.checkouts[0].uncommitted.unstaged = 1;
         e.stashes = 1;
         assert_eq!(
-            render_entry(&e, VIEW),
+            render_entry(&e, Path::new("/home/me/dev"), VIEW),
             "\
 gro  repo · owned · public · ci · follow main
   url       https://github.com/me/gro
@@ -1611,7 +1696,7 @@ clean 0 · on branches 0 · pinned 0      ~/dev/repos.toml · fetched 3h ago
             },
         ];
         assert_eq!(
-            render_entry(&e, VIEW),
+            render_entry(&e, Path::new("/home/me/dev"), VIEW),
             "\
 app  repo · owned · public · ci · follow main
   url       https://github.com/me/app

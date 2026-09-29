@@ -38,7 +38,8 @@ use std::time::SystemTime;
 
 use fuz_repos::discover::{REGISTRY_FILE, find_registry};
 use fuz_repos::git::Git;
-use fuz_repos::registry::{Entry, Registry};
+use fuz_repos::probe::RegistryDirs;
+use fuz_repos::registry::{Entry, ValidRegistry};
 use fuz_repos::report::{EntryStatus, UnregisteredClone};
 use fuz_repos::scan::scan_unregistered;
 use fuz_repos::state::{BranchStatus, UnprobedWorktree};
@@ -398,7 +399,7 @@ impl FixtureWorkspace {
         self.write_registry();
         let loc = find_registry(&self.root(), None, None, &self.runner()).unwrap();
         assert_eq!(loc.root, self.root());
-        Registry::load(&loc.path).unwrap().entries()
+        ValidRegistry::load(&loc.path).unwrap().entries()
     }
 
     // --- running the tool ---
@@ -419,6 +420,7 @@ impl FixtureWorkspace {
         let entries = self.entries();
         let run = status(
             &entries,
+            &RegistryDirs::new(root, &entries),
             root,
             &self.runner(),
             StatusOptions { fetch, jobs: 4 },
@@ -430,8 +432,8 @@ impl FixtureWorkspace {
     /// entries and owners as the binary loads them.
     pub fn unregistered(&self) -> Vec<UnregisteredClone> {
         let entries = self.entries();
-        let registry = Registry::load(&self.root().join(REGISTRY_FILE)).unwrap();
-        scan_unregistered(&self.root(), &entries, &registry.owners, &self.runner())
+        let registry = ValidRegistry::load(&self.root().join(REGISTRY_FILE)).unwrap();
+        scan_unregistered(&self.root(), &entries, registry.owners(), &self.runner())
             .unwrap()
             .unregistered
     }

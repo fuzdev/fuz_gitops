@@ -239,7 +239,8 @@ struct CheckoutsOn<'a> {
     unprobed: bool,
     /// The one checkout it's on, when that's a worktree `git worktree
     /// remove` would take: linked (never the main worktree), no submodules,
-    /// not locked, no operation in progress, clean.
+    /// not locked, no operation in progress, clean — and not a registry
+    /// entry's dir, which is another entry's checkout to keep.
     removable: Option<&'a str>,
 }
 
@@ -277,6 +278,7 @@ fn checkouts_on<'a>(b: &BranchFacts, facts: &'a RepoFacts) -> CheckoutsOn<'a> {
         count += 1;
         folded.dirty |= !c.uncommitted.is_clean();
         let removable_here = c.linked
+            && !facts.registry_worktrees.contains(&c.path)
             && c.submodules == Some(false)
             && !c.locked
             && c.in_progress.is_none()
@@ -434,7 +436,7 @@ fn needs_human(entry: &Entry, facts: &RepoFacts) -> Vec<NeedsHuman> {
             }
             // a rebase or bisect detaches HEAD by design: the operation is
             // the reason, and reattaching mid-way would be the wrong fix; a
-            // merge, cherry-pick, revert, or sequencer keeps HEAD on its
+            // merge, cherry-pick, revert, sequencer, or am keeps HEAD on its
             // branch, so a detach beside one is still unexpected. Only the
             // primary's HEAD and operation count: a linked worktree detached
             // is normal, and its operation can't explain the primary's HEAD
@@ -494,6 +496,7 @@ fn normalize_remote(url: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashSet;
     use std::path::PathBuf;
 
     use super::*;
@@ -599,6 +602,7 @@ mod tests {
             primary_linked: false,
             primary_locked: false,
             worktrees: Vec::new(),
+            registry_worktrees: HashSet::new(),
             unprobed: Vec::new(),
             relative_gitdir: None,
             unreadable: Vec::new(),
@@ -1660,19 +1664,55 @@ mod tests {
                 }]
             );
         }
-        // a merge doesn't detach HEAD, so a detach beside one is its own reason
-        f.in_progress = Some(InProgressOp::Merge);
+        // the rest don't detach HEAD, so a detach beside one is its own reason
+        for op in [
+            InProgressOp::Merge,
+            InProgressOp::CherryPick,
+            InProgressOp::Revert,
+            InProgressOp::Sequencer,
+            InProgressOp::Am,
+        ] {
+            f.in_progress = Some(op);
+            assert_eq!(
+                classify(&owned(follow("main")), &f).needs_human,
+                [
+                    NeedsHuman::OperationInProgress {
+                        checkout: "/ws/app".into(),
+                        op
+                    },
+                    NeedsHuman::UnexpectedDetached {
+                        checkout: "/ws/app".into()
+                    },
+                ]
+            );
+        }
+    }
+
+    #[test]
+    fn a_worktree_that_is_a_registry_dir_is_never_removable() {
+        let mut f = facts(on("main"), &[b("old", O, true, Track::Gone).unique(0)]);
+        let mut wt = linked("/ws/app-old", on("old"));
+        wt.submodules = Some(false);
+        f.worktrees = vec![wt];
+        let verdict = |f: &RepoFacts| {
+            classify(&owned(follow("main")), f).branches[0]
+                .verdict
+                .clone()
+        };
         assert_eq!(
-            classify(&owned(follow("main")), &f).needs_human,
-            [
-                NeedsHuman::OperationInProgress {
-                    checkout: "/ws/app".into(),
-                    op: InProgressOp::Merge
-                },
-                NeedsHuman::UnexpectedDetached {
-                    checkout: "/ws/app".into()
-                },
-            ]
+            verdict(&f),
+            Verdict::Cleanup {
+                reason: CleanupReason::UpstreamGone,
+                removable_worktree: Some("/ws/app-old".into()),
+            }
+        );
+        f.registry_worktrees.insert("/ws/app-old".into());
+        assert_eq!(
+            verdict(&f),
+            Verdict::Cleanup {
+                reason: CleanupReason::UpstreamGone,
+                removable_worktree: None,
+            }
         );
     }
 

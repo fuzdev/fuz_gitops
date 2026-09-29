@@ -157,6 +157,8 @@ pub struct EntryStatus {
     pub ci: bool,
     pub checkout_mode: CheckoutMode,
     pub presence: Presence,
+    /// `None` when the repo isn't present, or its probe failed before the
+    /// config was read; with `probe_error` set it's what was read first.
     pub layout: Option<Layout>,
     /// The primary checkout first, then each of the repo's other worktrees
     /// probed.
@@ -167,7 +169,8 @@ pub struct EntryStatus {
     pub fetched_at: Option<u64>,
     pub needs_human: Vec<NeedsHuman>,
     /// A git call that failed after the repo was found; the facts above are
-    /// then incomplete.
+    /// then incomplete. On a partial clone the call may have needed an
+    /// object the clone lacks (`probe_failed_partial`).
     // TODO: settle at the pass 1 checkpoint — a plain message for now, not
     // yet in the spec's types
     pub probe_error: Option<String>,
@@ -179,6 +182,21 @@ pub struct EntryStatus {
     // ref is the upstream gone; auth, host-key, and connection errors are the
     // host unreachable), likely turning this into a `kind`-tagged enum
     pub fetch_error: Option<String>,
+}
+
+impl EntryStatus {
+    /// Whether the probe failed on a partial clone (its layout, read before
+    /// any call that needs objects, carries a filter): a call may have
+    /// needed an object the clone lacks, and the probe never fetches one on
+    /// demand. Keyed on the filter, never git's message — a `checkout` in
+    /// the clone fetches what's missing from origin and fills the checkout.
+    pub fn probe_failed_partial(&self) -> bool {
+        self.probe_error.is_some()
+            && self
+                .layout
+                .as_ref()
+                .is_some_and(|l| l.partial_filter.is_some())
+    }
 }
 
 /// What a repair of a moved worktree would also rewrite, so it isn't offered.

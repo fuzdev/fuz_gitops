@@ -1,11 +1,15 @@
-//! The `repos.toml` registry: its core schema, parsed strictly.
+//! The `repos.toml` registry: its core schema, parsed strictly, then
+//! validated.
 //!
 //! Core fields belong to this tool, and an unknown one is a parse error with
 //! its position. The `grimoire` namespace on a repo belongs to the grimoire
 //! and is accepted unread. A reference's `branch` and `pinned` fold into one
-//! `CheckoutMode`, so declaring both is a parse error.
+//! `CheckoutMode`, so declaring both is a parse error. The integrity rules
+//! the schema can't express — ownership, unique dirs and keys, checkout-list
+//! targets — are `Registry::validate`'s, and only its `ValidRegistry` yields
+//! entries.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 use std::path::Path;
 
@@ -266,14 +270,169 @@ impl Registry {
         is_owner(&self.owners, &url.account)
     }
 
+    /// Checks the integrity rules the schema can't express, returning the
+    /// registry as a `ValidRegistry` when every one holds, else every issue
+    /// found, in a fixed order: unowned repos; per reference, an unowned fork
+    /// and a key in both tables; dirs that aren't a plain name; dirs claimed
+    /// twice; keys that are another entry's dir; per repo, its `requires` and
+    /// `consults` targets.
+    ///
+    /// # Errors
+    ///
+    /// Every `RegistryIssue` found, at once.
+    pub fn validate(self) -> std::result::Result<ValidRegistry, Vec<RegistryIssue>> {
+        let mut issues = Vec::new();
+        for (key, repo) in &self.repos {
+            if !self.is_owned(&repo.url) {
+                issues.push(RegistryIssue::RepoNotOwned {
+                    key: key.clone(),
+                    account: repo.url.account.clone(),
+                });
+            }
+        }
+        for (key, reference) in &self.references {
+            if reference.upstream.is_some() && !self.is_owned(&reference.url) {
+                issues.push(RegistryIssue::ForkNotOwned { key: key.clone() });
+            }
+            if self.repos.contains_key(key) {
+                issues.push(RegistryIssue::KeyInBoth { key: key.clone() });
+            }
+        }
+        let named = self.named_dirs();
+        for (name, dir) in named.iter().filter(|(_, dir)| !is_plain_name(dir)) {
+            issues.push(RegistryIssue::DirNotAName {
+                entry: name.clone(),
+                dir: dir.clone(),
+            });
+        }
+        let mut claimed: BTreeMap<&str, &EntryName> = BTreeMap::new();
+        for (name, dir) in &named {
+            if let Some(first) = claimed.get(dir.as_str()) {
+                issues.push(RegistryIssue::DirClaimedTwice {
+                    dir: dir.clone(),
+                    first: (*first).clone(),
+                    second: name.clone(),
+                });
+            } else {
+                claimed.insert(dir, name);
+            }
+        }
+        // each key once (a key in both tables is `KeyInBoth`'s), and none
+        // that an entry under it has as its dir: another entry with that dir
+        // is then `DirClaimedTwice`'s — or, under the same key in the other
+        // table, `KeyInBoth`'s
+        let keys: BTreeSet<&str> = named.iter().map(|(n, _)| n.key.as_str()).collect();
+        let own_dir = |key: &str| named.iter().any(|(n, dir)| n.key == key && dir == key);
+        for key in keys.into_iter().filter(|k| !own_dir(k)) {
+            for (name, _) in named.iter().filter(|(_, dir)| dir == key) {
+                issues.push(RegistryIssue::KeyIsOtherDir {
+                    key: key.to_owned(),
+                    entry: name.clone(),
+                });
+            }
+        }
+        for (key, repo) in &self.repos {
+            for (field, targets) in [
+                (CheckoutList::Requires, &repo.requires),
+                (CheckoutList::Consults, &repo.consults),
+            ] {
+                for target in targets {
+                    if target == key {
+                        issues.push(RegistryIssue::SelfRef {
+                            key: key.clone(),
+                            field,
+                        });
+                    } else if !self.repos.contains_key(target)
+                        && !self.references.contains_key(target)
+                    {
+                        issues.push(RegistryIssue::UnknownCheckoutRef {
+                            key: key.clone(),
+                            field,
+                            target: target.clone(),
+                        });
+                    }
+                }
+            }
+            for target in repo.consults.iter().filter(|t| repo.requires.contains(t)) {
+                issues.push(RegistryIssue::RequiresAndConsults {
+                    key: key.clone(),
+                    target: target.clone(),
+                });
+            }
+        }
+        if issues.is_empty() {
+            Ok(ValidRegistry(self))
+        } else {
+            Err(issues)
+        }
+    }
+
+    /// Every entry's name and dir, repos then references, each by key.
+    fn named_dirs(&self) -> Vec<(EntryName, String)> {
+        let repos = self.repos.iter().map(|(key, r)| {
+            (
+                EntryName::new(EntryKind::Repo, key),
+                entry_dir(r.dir.as_ref(), &r.url),
+            )
+        });
+        let references = self.references.iter().map(|(key, r)| {
+            (
+                EntryName::new(EntryKind::Reference, key),
+                entry_dir(r.dir.as_ref(), &r.url),
+            )
+        });
+        repos.chain(references).collect()
+    }
+}
+
+/// Whether `dir` is one plain name — exactly one normal path component, so
+/// joined to the workspace root it names a child of the root: not empty, not
+/// `.` or `..`, no `/` or `\` (a separator on some platform), no NUL.
+fn is_plain_name(dir: &str) -> bool {
+    !matches!(dir, "" | "." | "..") && !dir.contains(['/', '\\', '\0'])
+}
+
+/// An entry's dir under the workspace root: `dir`, else the `url`'s name.
+fn entry_dir(dir: Option<&String>, url: &RepoUrl) -> String {
+    dir.cloned().unwrap_or_else(|| url.name.clone())
+}
+
+/// A registry every integrity rule holds for (`Registry::validate`): what
+/// the rest of the tool works from, so no code downstream of loading sees
+/// an unvalidated one.
+#[derive(Debug)]
+pub struct ValidRegistry(Registry);
+
+impl ValidRegistry {
+    /// Reads, parses, and validates the registry at `path`.
+    ///
+    /// # Errors
+    ///
+    /// `RegistryRead` and `RegistryParse` as `Registry::load` returns them;
+    /// `RegistryInvalid` with every issue `Registry::validate` finds.
+    pub fn load(path: &Path) -> Result<Self> {
+        Registry::load(path)?
+            .validate()
+            .map_err(|issues| Error::RegistryInvalid {
+                path: path.to_owned(),
+                issues,
+            })
+    }
+
+    /// The owner accounts, whose repos are writable.
+    pub fn owners(&self) -> &[String] {
+        &self.0.owners
+    }
+
     /// Every entry, repos then references, each sorted by key.
     pub fn entries(&self) -> Vec<Entry> {
-        let repos = self.repos.iter().map(|(key, r)| Entry {
+        let registry = &self.0;
+        let repos = registry.repos.iter().map(|(key, r)| Entry {
             key: key.clone(),
             kind: EntryKind::Repo,
-            dir: r.dir.clone().unwrap_or_else(|| r.url.name.clone()),
+            dir: entry_dir(r.dir.as_ref(), &r.url),
             url: r.url.clone(),
-            writable: self.is_owned(&r.url),
+            writable: registry.is_owned(&r.url),
             archived: r.archived,
             visibility: Some(r.visibility),
             ci: r.ci.unwrap_or(r.visibility == Visibility::Public),
@@ -284,18 +443,145 @@ impl Registry {
                     .unwrap_or_else(|| DEFAULT_BRANCH.to_owned()),
             },
         });
-        let references = self.references.iter().map(|(key, r)| Entry {
+        let references = registry.references.iter().map(|(key, r)| Entry {
             key: key.clone(),
             kind: EntryKind::Reference,
-            dir: r.dir.clone().unwrap_or_else(|| r.url.name.clone()),
+            dir: entry_dir(r.dir.as_ref(), &r.url),
             url: r.url.clone(),
-            writable: self.is_owned(&r.url),
+            writable: registry.is_owned(&r.url),
             archived: false,
             visibility: None,
             ci: false,
             checkout_mode: r.checkout.clone(),
         });
         repos.chain(references).collect()
+    }
+}
+
+/// An entry by table and key — a key alone is ambiguous when both tables
+/// hold it (`RegistryIssue::KeyInBoth`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct EntryName {
+    pub kind: EntryKind,
+    pub key: String,
+}
+
+impl EntryName {
+    fn new(kind: EntryKind, key: &str) -> Self {
+        Self {
+            kind,
+            key: key.to_owned(),
+        }
+    }
+}
+
+impl fmt::Display for EntryName {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let table = match self.kind {
+            EntryKind::Repo => "repo",
+            EntryKind::Reference => "reference",
+        };
+        write!(f, "{table} `{}`", self.key)
+    }
+}
+
+/// A repo's list of the sibling checkouts it uses.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CheckoutList {
+    /// What its gates and tooling need to run.
+    Requires,
+    /// What it's read against.
+    Consults,
+}
+
+impl fmt::Display for CheckoutList {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            Self::Requires => "requires",
+            Self::Consults => "consults",
+        })
+    }
+}
+
+/// A registry integrity rule broken — one the schema can't express.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum RegistryIssue {
+    /// A `[repos]` entry whose `url` account isn't an owner: repos are the
+    /// owned ones, and a third-party clone belongs in `[references]`.
+    RepoNotOwned { key: String, account: String },
+    /// A reference with an `upstream` whose `url` isn't owned: a fork is an
+    /// owned repo.
+    ForkNotOwned { key: String },
+    /// An entry whose dir — its `dir`, else its `url`'s last segment — isn't
+    /// one plain name: empty, `.`, `..`, or holding a `/`, `\`, or NUL. Its
+    /// checkout must be a child of the workspace root; anything else would
+    /// reach outside it, or nowhere.
+    DirNotAName { entry: EntryName, dir: String },
+    /// Two entries resolve to one dir; `first` is the earlier in registry
+    /// order (repos, then references, each by key).
+    DirClaimedTwice {
+        dir: String,
+        first: EntryName,
+        second: EntryName,
+    },
+    /// A key both tables hold.
+    KeyInBoth { key: String },
+    /// A key that is another entry's dir, so a target naming it would be
+    /// ambiguous — a target resolves as a key before a dir. Not reported
+    /// for an entry in the other table under the same key (`KeyInBoth`),
+    /// nor when the key's own entry has that dir too (`DirClaimedTwice`).
+    KeyIsOtherDir { key: String, entry: EntryName },
+    /// A `requires` or `consults` target that names no entry.
+    UnknownCheckoutRef {
+        key: String,
+        field: CheckoutList,
+        target: String,
+    },
+    /// A repo that `requires` or `consults` itself.
+    SelfRef { key: String, field: CheckoutList },
+    /// A target in both of a repo's lists: a checkout is needed or only read,
+    /// not both.
+    RequiresAndConsults { key: String, target: String },
+}
+
+impl fmt::Display for RegistryIssue {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::RepoNotOwned { key, account } => write!(
+                f,
+                "repo `{key}` sits under `{account}`, not an owner — a third-party clone \
+                 belongs in [references]"
+            ),
+            Self::ForkNotOwned { key } => write!(
+                f,
+                "reference `{key}` sets `upstream` but its url isn't owned — a fork is an \
+                 owned repo"
+            ),
+            Self::DirNotAName { entry, dir } => write!(
+                f,
+                "{entry} has dir `{dir}`, which isn't a plain name — an entry's dir is one \
+                 directory under the workspace root"
+            ),
+            Self::DirClaimedTwice { dir, first, second } => {
+                write!(f, "{second} claims dir `{dir}`, already claimed by {first}")
+            }
+            Self::KeyInBoth { key } => write!(f, "`{key}` is both a repo and a reference"),
+            Self::KeyIsOtherDir { key, entry } => write!(
+                f,
+                "key `{key}` is the dir of {entry} — a target naming it is ambiguous"
+            ),
+            Self::UnknownCheckoutRef { key, field, target } => write!(
+                f,
+                "repo `{key}` {field} `{target}`, which is neither a repo nor a reference"
+            ),
+            Self::SelfRef { key, field } => write!(f, "repo `{key}` {field} itself"),
+            Self::RequiresAndConsults { key, target } => write!(
+                f,
+                "repo `{key}` both requires and consults `{target}` — pick one"
+            ),
+        }
     }
 }
 
@@ -368,7 +654,7 @@ purpose = "leave HEAD"
 
     #[test]
     fn resolves_entries() {
-        let r = Registry::parse(MINIMAL).unwrap();
+        let r = Registry::parse(MINIMAL).unwrap().validate().unwrap();
         let entries = r.entries();
         let keys: Vec<_> = entries.iter().map(|e| e.key.as_str()).collect();
         assert_eq!(keys, ["app", "site", "loose", "oracle", "spec"]);
@@ -415,12 +701,14 @@ url = "https://github.com/them/y"
 purpose = "y"
 "#,
         )
+        .unwrap()
+        .validate()
         .unwrap();
         let entries = r.entries();
         assert!(entries[0].writable);
         assert!(!entries[1].writable);
-        assert!(is_owner(&r.owners, "me"));
-        assert!(!is_owner(&r.owners, "mee"));
+        assert!(is_owner(r.owners(), "me"));
+        assert!(!is_owner(r.owners(), "mee"));
     }
 
     #[test]
@@ -434,6 +722,8 @@ visibility = "private"
 purpose = "x"
 "#,
         )
+        .unwrap()
+        .validate()
         .unwrap();
         assert!(!r.entries()[0].ci);
     }
@@ -537,5 +827,428 @@ purpose = "x"
         ] {
             assert!(RepoUrl::try_from(bad.to_owned()).is_err(), "{bad}");
         }
+    }
+
+    /// The issues `src` validates to (none when valid).
+    fn issues(src: &str) -> Vec<RegistryIssue> {
+        Registry::parse(src)
+            .unwrap()
+            .validate()
+            .err()
+            .unwrap_or_default()
+    }
+
+    fn name(kind: EntryKind, key: &str) -> EntryName {
+        EntryName::new(kind, key)
+    }
+
+    #[test]
+    fn a_valid_registry_has_no_issues() {
+        assert_eq!(issues(MINIMAL), []);
+    }
+
+    #[test]
+    fn a_repo_is_owned() {
+        let got = issues(
+            r#"
+owners = ["me"]
+[repos.theirs]
+url = "https://github.com/them/theirs"
+visibility = "public"
+purpose = "x"
+[repos.mine]
+url = "https://github.com/ME/mine"
+visibility = "public"
+purpose = "x"
+"#,
+        );
+        // ownership ignores case, as write authority does
+        assert_eq!(
+            got,
+            [RegistryIssue::RepoNotOwned {
+                key: "theirs".into(),
+                account: "them".into()
+            }]
+        );
+        assert_eq!(
+            got[0].to_string(),
+            "repo `theirs` sits under `them`, not an owner — a third-party clone belongs in \
+             [references]"
+        );
+    }
+
+    #[test]
+    fn a_fork_is_owned() {
+        let got = issues(
+            r#"
+owners = ["me"]
+[references.theirs]
+url = "https://github.com/them/theirs"
+upstream = "https://github.com/origin/theirs"
+purpose = "x"
+[references.mine]
+url = "https://github.com/me/mine"
+upstream = "https://github.com/them/mine"
+purpose = "x"
+[references.plain]
+url = "https://github.com/them/plain"
+purpose = "a third-party clone, no fork"
+"#,
+        );
+        assert_eq!(
+            got,
+            [RegistryIssue::ForkNotOwned {
+                key: "theirs".into()
+            }]
+        );
+    }
+
+    #[test]
+    fn a_dir_is_one_plain_name() {
+        let bad = |dir: &str| {
+            let toml = format!(
+                "owners = [\"me\"]\n[references.r]\nurl = \"https://github.com/them/r\"\n\
+                 purpose = \"x\"\ndir = {}\n",
+                // a JSON string is a valid TOML basic string
+                serde_json::to_string(dir).unwrap()
+            );
+            issues(&toml)
+        };
+        for dir in [
+            "", ".", "..", "../x", "x/..", "a/b", "/abs", "a/", "./a", "a\\b", "..\\x", "a\0b",
+        ] {
+            assert_eq!(
+                bad(dir),
+                [RegistryIssue::DirNotAName {
+                    entry: name(EntryKind::Reference, "r"),
+                    dir: dir.to_owned(),
+                }],
+                "{dir:?}"
+            );
+        }
+        for dir in [
+            "r",
+            "private_site",
+            "tsv.fuz.dev",
+            ".hidden",
+            "..x",
+            "x..",
+            "sp ace",
+        ] {
+            assert_eq!(bad(dir), [], "{dir:?}");
+        }
+    }
+
+    #[test]
+    fn a_url_derived_dir_is_one_plain_name() {
+        let got = issues(
+            r#"
+owners = ["me"]
+[repos.up]
+url = "https://github.com/me/.."
+visibility = "public"
+purpose = "x"
+[references.here]
+url = "https://github.com/them/."
+purpose = "x"
+"#,
+        );
+        assert_eq!(
+            got,
+            [
+                RegistryIssue::DirNotAName {
+                    entry: name(EntryKind::Repo, "up"),
+                    dir: "..".into(),
+                },
+                RegistryIssue::DirNotAName {
+                    entry: name(EntryKind::Reference, "here"),
+                    dir: ".".into(),
+                },
+            ]
+        );
+        assert_eq!(
+            got[0].to_string(),
+            "repo `up` has dir `..`, which isn't a plain name — an entry's dir is one directory \
+             under the workspace root"
+        );
+    }
+
+    #[test]
+    fn a_dir_is_claimed_once() {
+        let got = issues(
+            r#"
+owners = ["me"]
+[repos.a]
+url = "https://github.com/me/shared"
+visibility = "public"
+purpose = "x"
+[repos.b]
+url = "https://github.com/me/b"
+dir = "shared"
+visibility = "public"
+purpose = "x"
+[references.c]
+url = "https://github.com/them/shared.git"
+purpose = "x"
+"#,
+        );
+        // each later claimant against the first, in registry order
+        // not also `KeyIsOtherDir`: no key is `shared`
+        assert_eq!(
+            got,
+            [
+                RegistryIssue::DirClaimedTwice {
+                    dir: "shared".into(),
+                    first: name(EntryKind::Repo, "a"),
+                    second: name(EntryKind::Repo, "b"),
+                },
+                RegistryIssue::DirClaimedTwice {
+                    dir: "shared".into(),
+                    first: name(EntryKind::Repo, "a"),
+                    second: name(EntryKind::Reference, "c"),
+                },
+            ]
+        );
+        assert_eq!(
+            got[1].to_string(),
+            "reference `c` claims dir `shared`, already claimed by repo `a`"
+        );
+    }
+
+    #[test]
+    fn a_key_is_in_one_table() {
+        let got = issues(
+            r#"
+owners = ["me"]
+[repos.x]
+url = "https://github.com/me/x"
+dir = "x-repo"
+visibility = "public"
+purpose = "x"
+[references.x]
+url = "https://github.com/them/x"
+dir = "x-ref"
+purpose = "x"
+"#,
+        );
+        assert_eq!(got, [RegistryIssue::KeyInBoth { key: "x".into() }]);
+    }
+
+    #[test]
+    fn a_key_is_no_other_entrys_dir() {
+        let got = issues(
+            r#"
+owners = ["me"]
+[repos.site]
+url = "https://github.com/me/private_site"
+visibility = "public"
+purpose = "x"
+[repos.old]
+url = "https://github.com/me/old"
+dir = "site"
+visibility = "public"
+purpose = "x"
+[references.self]
+url = "https://github.com/them/elsewhere"
+dir = "self"
+purpose = "a key naming its own dir is fine"
+"#,
+        );
+        assert_eq!(
+            got,
+            [RegistryIssue::KeyIsOtherDir {
+                key: "site".into(),
+                entry: name(EntryKind::Repo, "old"),
+            }]
+        );
+        assert_eq!(
+            got[0].to_string(),
+            "key `site` is the dir of repo `old` — a target naming it is ambiguous"
+        );
+    }
+
+    #[test]
+    fn a_dir_claimed_twice_under_a_claimants_key_is_said_once() {
+        let got = issues(
+            r#"
+owners = ["me"]
+[repos.app]
+url = "https://github.com/me/app"
+visibility = "public"
+purpose = "x"
+[repos.copy]
+url = "https://github.com/me/copy"
+dir = "app"
+visibility = "public"
+purpose = "x"
+"#,
+        );
+        assert_eq!(
+            got,
+            [RegistryIssue::DirClaimedTwice {
+                dir: "app".into(),
+                first: name(EntryKind::Repo, "app"),
+                second: name(EntryKind::Repo, "copy"),
+            }]
+        );
+    }
+
+    #[test]
+    fn a_key_in_both_tables_is_not_also_the_other_ones_dir() {
+        // the reference's dir is the repo's key, but under the same key:
+        // `KeyInBoth` says it once
+        let got = issues(
+            r#"
+owners = ["me"]
+[repos.x]
+url = "https://github.com/me/x-app"
+visibility = "public"
+purpose = "x"
+[references.x]
+url = "https://github.com/them/x"
+purpose = "x"
+"#,
+        );
+        assert_eq!(got, [RegistryIssue::KeyInBoth { key: "x".into() }]);
+    }
+
+    #[test]
+    fn checkout_lists_name_other_entries_once() {
+        let got = issues(
+            r#"
+owners = ["me"]
+[repos.app]
+url = "https://github.com/me/app"
+visibility = "public"
+purpose = "x"
+requires = ["app", "spec", "nowhere"]
+consults = ["spec", "app", "gone"]
+[references.spec]
+url = "https://github.com/them/spec"
+purpose = "x"
+"#,
+        );
+        assert_eq!(
+            got,
+            [
+                RegistryIssue::SelfRef {
+                    key: "app".into(),
+                    field: CheckoutList::Requires,
+                },
+                RegistryIssue::UnknownCheckoutRef {
+                    key: "app".into(),
+                    field: CheckoutList::Requires,
+                    target: "nowhere".into(),
+                },
+                RegistryIssue::SelfRef {
+                    key: "app".into(),
+                    field: CheckoutList::Consults,
+                },
+                RegistryIssue::UnknownCheckoutRef {
+                    key: "app".into(),
+                    field: CheckoutList::Consults,
+                    target: "gone".into(),
+                },
+                RegistryIssue::RequiresAndConsults {
+                    key: "app".into(),
+                    target: "spec".into(),
+                },
+                // itself in both lists: both rules say so, as the TS gate does
+                RegistryIssue::RequiresAndConsults {
+                    key: "app".into(),
+                    target: "app".into(),
+                },
+            ]
+        );
+        let lines: Vec<String> = got.iter().map(ToString::to_string).collect();
+        assert_eq!(
+            lines,
+            [
+                "repo `app` requires itself",
+                "repo `app` requires `nowhere`, which is neither a repo nor a reference",
+                "repo `app` consults itself",
+                "repo `app` consults `gone`, which is neither a repo nor a reference",
+                "repo `app` both requires and consults `spec` — pick one",
+                "repo `app` both requires and consults `app` — pick one",
+            ]
+        );
+    }
+
+    #[test]
+    fn every_issue_at_once_in_rule_order() {
+        let got = issues(
+            r#"
+owners = ["me"]
+[repos.b]
+url = "https://github.com/them/b"
+visibility = "public"
+purpose = "x"
+requires = ["zz"]
+[repos.a]
+url = "https://github.com/me/a"
+dir = "b"
+visibility = "public"
+purpose = "x"
+[references.a]
+url = "https://github.com/them/fork"
+upstream = "https://github.com/else/fork"
+purpose = "x"
+[references.z]
+url = "https://github.com/them/z"
+dir = "a"
+purpose = "x"
+[references.up]
+url = "https://github.com/them/up"
+dir = "../up"
+purpose = "x"
+"#,
+        );
+        let kinds: Vec<String> = got
+            .iter()
+            .map(|i| serde_json::to_value(i).unwrap()["kind"].to_string())
+            .collect();
+        assert_eq!(
+            kinds,
+            [
+                "\"repo_not_owned\"",
+                "\"fork_not_owned\"",
+                "\"key_in_both\"",
+                "\"dir_not_a_name\"",
+                "\"dir_claimed_twice\"",
+                "\"key_is_other_dir\"",
+                "\"unknown_checkout_ref\"",
+            ]
+        );
+    }
+
+    #[test]
+    fn issues_serialize_kind_tagged() {
+        let json = |i: &RegistryIssue| serde_json::to_value(i).unwrap();
+        assert_eq!(
+            json(&RegistryIssue::DirClaimedTwice {
+                dir: "d".into(),
+                first: name(EntryKind::Repo, "a"),
+                second: name(EntryKind::Reference, "b"),
+            }),
+            serde_json::json!({
+                "kind": "dir_claimed_twice",
+                "dir": "d",
+                "first": {"kind": "repo", "key": "a"},
+                "second": {"kind": "reference", "key": "b"},
+            })
+        );
+        assert_eq!(
+            json(&RegistryIssue::UnknownCheckoutRef {
+                key: "a".into(),
+                field: CheckoutList::Consults,
+                target: "z".into(),
+            }),
+            serde_json::json!({
+                "kind": "unknown_checkout_ref",
+                "key": "a",
+                "field": "consults",
+                "target": "z",
+            })
+        );
     }
 }

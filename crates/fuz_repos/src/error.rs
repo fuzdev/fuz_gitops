@@ -4,12 +4,14 @@
 //! never an `Error`: these are the failures that stop a whole run.
 
 use std::borrow::Cow;
+use std::fmt::Write as _;
 use std::path::PathBuf;
 
 use serde::Serialize;
 use thiserror::Error;
 
 use crate::git::GitVersion;
+use crate::registry::RegistryIssue;
 
 /// A failure that stops a run before it has a report.
 #[derive(Debug, Error)]
@@ -33,6 +35,13 @@ pub enum Error {
     /// The registry isn't valid TOML or doesn't match the core schema.
     #[error("invalid registry at {}:\n{message}", path.display())]
     RegistryParse { path: PathBuf, message: String },
+    /// The registry parses but breaks integrity rules; `issues` holds every
+    /// one found (never empty).
+    #[error("invalid registry at {}:{}", path.display(), issue_lines(issues))]
+    RegistryInvalid {
+        path: PathBuf,
+        issues: Vec<RegistryIssue>,
+    },
     /// `git` isn't on `PATH`.
     #[error("git not found on PATH")]
     GitNotFound,
@@ -66,6 +75,7 @@ impl Error {
             | Self::RegistryNotFound { .. }
             | Self::RegistryRead { .. }
             | Self::RegistryParse { .. }
+            | Self::RegistryInvalid { .. }
             | Self::GitNotFound
             | Self::GitTooOld { .. }
             | Self::UnknownEntry { .. } => 2,
@@ -96,6 +106,9 @@ impl Error {
             Self::UnknownEntry { .. } => {
                 "a target is a registry key, an entry's dir name, or a path inside a checkout"
             }
+            Self::RegistryInvalid { .. } => {
+                "fix each issue in the registry; nothing is probed until it validates"
+            }
             Self::RegistryRead { .. } | Self::RegistryParse { .. } | Self::Io { .. } => {
                 return None;
             }
@@ -124,6 +137,9 @@ impl Error {
             Self::RegistryNotFound { .. } => ErrorKind::RegistryNotFound,
             Self::RegistryRead { .. } => ErrorKind::RegistryRead,
             Self::RegistryParse { .. } => ErrorKind::RegistryParse,
+            Self::RegistryInvalid { issues, .. } => ErrorKind::RegistryInvalid {
+                issues: issues.clone(),
+            },
             Self::GitNotFound => ErrorKind::GitNotFound,
             Self::GitTooOld { found, required } => ErrorKind::GitTooOld {
                 found: found.clone(),
@@ -151,6 +167,10 @@ pub enum ErrorKind {
     RegistryNotFound,
     RegistryRead,
     RegistryParse,
+    /// Every integrity issue found, each tagged by its own `kind`.
+    RegistryInvalid {
+        issues: Vec<RegistryIssue>,
+    },
     GitNotFound,
     /// `found` as git reports it; `required` as `X.Y.Z`.
     GitTooOld {
@@ -163,6 +183,15 @@ pub enum ErrorKind {
         suggestions: Vec<String>,
     },
     Io,
+}
+
+/// Each issue on its own indented line, for `RegistryInvalid`'s message.
+fn issue_lines(issues: &[RegistryIssue]) -> String {
+    let mut out = String::new();
+    for issue in issues {
+        let _ = write!(out, "\n  {issue}");
+    }
+    out
 }
 
 /// Result alias for the crate.
@@ -185,6 +214,10 @@ mod tests {
             Error::RegistryParse {
                 path: PathBuf::from("/x/repos.toml"),
                 message: String::new(),
+            },
+            Error::RegistryInvalid {
+                path: PathBuf::from("/x/repos.toml"),
+                issues: vec![RegistryIssue::KeyInBoth { key: "k".into() }],
             },
             Error::GitNotFound,
             Error::GitTooOld {
@@ -219,6 +252,33 @@ mod tests {
             suggestions: vec![],
         };
         assert!(e.hint().is_some_and(|h| h.contains("registry key")));
+    }
+
+    #[test]
+    fn registry_invalid_lists_every_issue_and_carries_them() {
+        let e = Error::RegistryInvalid {
+            path: PathBuf::from("/x/repos.toml"),
+            issues: vec![
+                RegistryIssue::KeyInBoth { key: "k".into() },
+                RegistryIssue::ForkNotOwned { key: "f".into() },
+            ],
+        };
+        assert_eq!(
+            e.message(),
+            "invalid registry at /x/repos.toml:\n  `k` is both a repo and a reference\n  \
+             reference `f` sets `upstream` but its url isn't owned — a fork is an owned repo"
+        );
+        assert!(e.hint().is_some());
+        assert_eq!(
+            serde_json::to_value(e.kind()).unwrap(),
+            serde_json::json!({
+                "kind": "registry_invalid",
+                "issues": [
+                    {"kind": "key_in_both", "key": "k"},
+                    {"kind": "fork_not_owned", "key": "f"},
+                ],
+            })
+        );
     }
 
     #[test]

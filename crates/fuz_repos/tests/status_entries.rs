@@ -328,6 +328,101 @@ fn a_bisect_in_progress_owns_its_detached_head() {
     );
 }
 
+/// `a.txt` changed on `feat` and, differently, on `main`; returns `feat`'s
+/// commit as a patch file named `name`, outside the workspace, with `main`
+/// checked out.
+fn conflicting_patch(
+    ws: &FixtureWorkspace,
+    repo: &std::path::Path,
+    name: &str,
+) -> std::path::PathBuf {
+    ws.git(repo, &["checkout", "-q", "-b", "feat"]);
+    support::write(repo, "a.txt", "feat\n");
+    ws.git(repo, &["commit", "-q", "-am", "feat"]);
+    let patch = ws.git_raw(repo, &["format-patch", "-1", "--stdout", "feat"]);
+    let patches = ws.outside("patches");
+    support::write(&patches, name, &patch);
+    ws.git(repo, &["checkout", "-q", "main"]);
+    support::write(repo, "a.txt", "main\n");
+    ws.git(repo, &["commit", "-q", "-am", "main"]);
+    patches.join(name)
+}
+
+#[test]
+fn an_am_stopped_on_a_conflict_is_am_not_a_rebase() {
+    let mut ws = FixtureWorkspace::new();
+    let app = ws.owned_repo("app", &[("a.txt", "a\n")]);
+    // detached, the same stop: am applies onto HEAD wherever it is
+    let det = ws.owned_repo("det", &[("a.txt", "a\n")]);
+    for (repo, name) in [(&app, "app.patch"), (&det, "det.patch")] {
+        let patch = conflicting_patch(&ws, repo, name);
+        if repo == &det {
+            ws.git(repo, &["checkout", "-q", "--detach"]);
+        }
+        ws.git_fails(repo, &["am", "-q", patch.to_str().unwrap()]);
+        assert!(repo.join(".git/rebase-apply/applying").is_file());
+        assert!(!repo.join(".git/rebase-merge").exists());
+    }
+    ws.assert_head(&app, Some("main"));
+    ws.assert_head(&det, None);
+    ws.assert_track(&app, "main", "[ahead 1]");
+
+    let entries = ws.status();
+    let e = find_entry(&entries, "app");
+    assert_eq!(
+        e.needs_human,
+        [NeedsHuman::OperationInProgress {
+            checkout: app.to_str().unwrap().into(),
+            op: InProgressOp::Am,
+        }]
+    );
+    assert_eq!(e.checkouts[0].in_progress, Some(InProgressOp::Am));
+    assert_eq!(
+        branch(e, "main").verdict,
+        Verdict::Held {
+            action: SyncAction::Push { commits: 1 },
+            by: HeldBy::Entry
+        }
+    );
+    // am never detaches HEAD, so it doesn't explain a detached one
+    let e = find_entry(&entries, "det");
+    assert_eq!(
+        e.needs_human,
+        [
+            NeedsHuman::OperationInProgress {
+                checkout: det.to_str().unwrap().into(),
+                op: InProgressOp::Am,
+            },
+            NeedsHuman::UnexpectedDetached {
+                checkout: det.to_str().unwrap().into(),
+            },
+        ]
+    );
+}
+
+#[test]
+fn a_rebase_on_the_apply_backend_is_still_a_rebase() {
+    let mut ws = FixtureWorkspace::new();
+    let app = ws.owned_repo("app", &[("a.txt", "a\n")]);
+    conflicting_patch(&ws, &app, "feat.patch");
+    ws.git(&app, &["checkout", "-q", "feat"]);
+    ws.git_fails(&app, &["rebase", "-q", "--apply", "main"]);
+    // am's directory, without am's mark
+    assert!(app.join(".git/rebase-apply").is_dir());
+    assert!(!app.join(".git/rebase-apply/applying").exists());
+    ws.assert_head(&app, None);
+
+    let e = ws.entry("app");
+    // and it owns its detached HEAD, as any rebase does
+    assert_eq!(
+        e.needs_human,
+        [NeedsHuman::OperationInProgress {
+            checkout: app.to_str().unwrap().into(),
+            op: InProgressOp::Rebase,
+        }]
+    );
+}
+
 #[test]
 fn a_stale_rebase_head_alone_is_nothing() {
     let mut ws = FixtureWorkspace::new();

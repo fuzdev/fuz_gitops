@@ -22,8 +22,38 @@ use crate::state::{
 pub struct ProbeContext<'a> {
     pub git: &'a Git,
     pub root: &'a Path,
+    /// Every registry entry's dir, the whole registry's whatever the
+    /// targets: a worktree of the probed repo at one is that entry's
+    /// checkout.
+    pub registry_dirs: &'a RegistryDirs,
     /// Fetch owned, non-pinned entries from `origin` before probing.
     pub fetch: bool,
+}
+
+/// Every registry entry's dir under the workspace root, canonicalized.
+///
+/// Only those that exist. Two entries can share a repo, one a linked
+/// worktree of the other, and a worktree at another entry's dir is never
+/// advised away with a branch.
+#[derive(Debug, Clone, Default)]
+pub struct RegistryDirs(HashSet<PathBuf>);
+
+impl RegistryDirs {
+    /// `entries` must be the whole registry.
+    pub fn new(root: &Path, entries: &[Entry]) -> Self {
+        Self(
+            entries
+                .iter()
+                .filter_map(|e| canonical(&root.join(&e.dir)))
+                .collect(),
+        )
+    }
+
+    /// Whether `path`, canonicalized, is a registry entry's dir; `false` when
+    /// it can't be canonicalized.
+    pub fn contains(&self, path: &Path) -> bool {
+        canonical(path).is_some_and(|p| self.0.contains(&p))
+    }
 }
 
 /// One entry's probe, with its timings.
@@ -45,9 +75,13 @@ pub enum Probed {
         detail: String,
     },
     Present(Box<RepoFacts>),
-    /// The dir is a repo, but a later call failed.
+    /// The dir is a repo, but a later call failed. `layout` is recorded
+    /// once the config step (and the fetch, when asked) has run, before any
+    /// call that reads objects — a partial clone's filter says why a call
+    /// may have needed an object the probe never fetches.
     Failed {
         error: String,
+        layout: Option<Layout>,
     },
 }
 
@@ -70,6 +104,9 @@ pub struct RepoFacts {
     /// The repo's other worktrees probed — linked ones, and the main one
     /// when the primary is linked — in `git worktree list` order.
     pub worktrees: Vec<Checkout>,
+    /// The paths of `worktrees` that are registry entries' dirs: another
+    /// entry's checkout, never removable with a branch of this one.
+    pub registry_worktrees: HashSet<String>,
     /// The worktrees that couldn't be probed: listed but gone or failing,
     /// or unlisted.
     pub unprobed: Vec<UnprobedWorktree>,
@@ -117,29 +154,36 @@ pub fn fetches(entry: &Entry) -> bool {
 /// Probes one entry.
 pub fn probe(entry: &Entry, cx: ProbeContext<'_>) -> ProbeRun {
     let start = Instant::now();
-    let mut fetch = FetchRun::default();
-    let probed = probe_present(entry, &cx.root.join(&entry.dir), cx, &mut fetch)
-        .unwrap_or_else(|error| Probed::Failed { error });
+    let mut early = Recorded::default();
+    let probed =
+        probe_present(entry, &cx.root.join(&entry.dir), cx, &mut early).unwrap_or_else(|error| {
+            Probed::Failed {
+                error,
+                layout: early.layout.take(),
+            }
+        });
     ProbeRun {
         probed,
-        fetch: fetch.result,
-        fetch_time: fetch.time,
-        probe_time: start.elapsed().saturating_sub(fetch.time),
+        fetch: early.fetch,
+        fetch_time: early.fetch_time,
+        probe_time: start.elapsed().saturating_sub(early.fetch_time),
     }
 }
 
-/// The fetch step's outcome, recorded even when a later step fails.
+/// What the probe records as it goes, kept even when a later step fails:
+/// the fetch's outcome and time, and the layout once the config step ran.
 #[derive(Debug, Default)]
-struct FetchRun {
-    result: Option<Result<(), String>>,
-    time: Duration,
+struct Recorded {
+    fetch: Option<Result<(), String>>,
+    fetch_time: Duration,
+    layout: Option<Layout>,
 }
 
 fn probe_present(
     entry: &Entry,
     dir: &Path,
     cx: ProbeContext<'_>,
-    fetch: &mut FetchRun,
+    early: &mut Recorded,
 ) -> Result<Probed, String> {
     // 1. presence
     if !dir.exists() {
@@ -206,7 +250,7 @@ fn probe_present(
                 batch_ssh: !config.ssh_command && !cx.git.env_configures_ssh(),
             }),
         };
-        fetch.result = Some(
+        early.fetch = Some(
             cx.git
                 .output(dir, &args, net)
                 .map(drop)
@@ -215,14 +259,21 @@ fn probe_present(
                     e => e.to_string(),
                 }),
         );
-        fetch.time = start.elapsed();
+        early.fetch_time = start.elapsed();
     }
     // a fetch may have added shallow roots
-    let shallow_roots = if fetch.result.is_some() {
+    let shallow_roots = if early.fetch.is_some() {
         read_shallow_roots(&common_dir)
     } else {
         shallow_roots
     };
+    let layout = Layout {
+        shallow: !shallow_roots.is_empty(),
+        sparse: config.sparse,
+        partial_filter: config.partial_filter.clone(),
+    };
+    // before any step that reads objects: a partial clone may lack one
+    early.layout = Some(layout.clone());
 
     // 2. status of the primary checkout
     let status = cx
@@ -279,11 +330,12 @@ fn probe_present(
     let primary_linked = canonical(&git_dir) != canonical(&common_dir);
     let in_progress = markers(&git_dir, &mut worktrees.unreadable);
     let fetched_at = newest_fetch(&git_dir, &common_dir, &worktrees.admins);
-    let layout = Layout {
-        shallow: !shallow_roots.is_empty(),
-        sparse: config.sparse,
-        partial_filter: config.partial_filter.clone(),
-    };
+    let registry_worktrees = worktrees
+        .probed
+        .iter()
+        .filter(|c| cx.registry_dirs.contains(Path::new(&c.path)))
+        .map(|c| c.path.clone())
+        .collect();
 
     Ok(Probed::Present(Box::new(RepoFacts {
         path,
@@ -295,6 +347,7 @@ fn probe_present(
         primary_linked,
         primary_locked: worktrees.primary_locked,
         worktrees: worktrees.probed,
+        registry_worktrees,
         unprobed: worktrees.unprobed,
         unreadable: worktrees.unreadable,
         relative_gitdir: worktrees.relative_gitdir,
@@ -1022,6 +1075,9 @@ fn read_shallow_roots(common_dir: &Path) -> HashSet<String> {
 fn read_in_progress(git_dir: &Path) -> std::io::Result<Option<InProgressOp>> {
     for (marker, op) in [
         ("rebase-merge", InProgressOp::Rebase),
+        // `git am` and the apply backend of `git rebase` share
+        // `rebase-apply/`; am marks it `applying`, as git's own status reads
+        ("rebase-apply/applying", InProgressOp::Am),
         ("rebase-apply", InProgressOp::Rebase),
         ("MERGE_HEAD", InProgressOp::Merge),
         ("CHERRY_PICK_HEAD", InProgressOp::CherryPick),
@@ -1085,6 +1141,22 @@ mod tests {
         assert_eq!(
             read_in_progress(tmp.path()).unwrap(),
             Some(InProgressOp::Rebase)
+        );
+    }
+
+    #[test]
+    fn in_progress_tells_am_from_an_apply_rebase() {
+        let tmp = tempfile::tempdir().unwrap();
+        let apply = tmp.path().join("rebase-apply");
+        std::fs::create_dir(&apply).unwrap();
+        assert_eq!(
+            read_in_progress(tmp.path()).unwrap(),
+            Some(InProgressOp::Rebase)
+        );
+        std::fs::write(apply.join("applying"), "").unwrap();
+        assert_eq!(
+            read_in_progress(tmp.path()).unwrap(),
+            Some(InProgressOp::Am)
         );
     }
 
@@ -1296,15 +1368,19 @@ visibility = "public"
 purpose = "a .git git can't use"
 "#,
         )
+        .unwrap()
+        .validate()
         .unwrap();
         std::fs::create_dir(tmp.path().join("empty")).unwrap();
         std::fs::create_dir(tmp.path().join("plain")).unwrap();
         std::fs::write(tmp.path().join("plain/file"), "x").unwrap();
         std::fs::create_dir_all(tmp.path().join("stub/.git")).unwrap();
         let git = Git::new();
+        let registry_dirs = RegistryDirs::default();
         let cx = ProbeContext {
             git: &git,
             root: tmp.path(),
+            registry_dirs: &registry_dirs,
             fetch: false,
         };
         let details: Vec<String> = registry
