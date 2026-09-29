@@ -551,53 +551,16 @@ toolchain (rustup fetches it on first build), and git must be 2.44 or newer
 (`GIT_NO_LAZY_FETCH` keeps a local `status` on a partial clone off the
 network).
 
-Under `--fetch`, each failed fetch is classified from git's stderr — `ref_gone`
-(a narrowed refspec names a branch the remote deleted; its repair drops only
-that refspec, repoints origin when no other refspec in the repo's config would
-remain, or is `by_hand` when the refspec lives beyond the repo's own config
-file), `unreachable` with its cause (`dns`, `connection`, `host_key`,
-`auth`), `repo_not_found`, `timed_out`, else `failed` with git's line — and
-each `[repos]` entry declared private gets the visibility check: an anonymous
-`git ls-remote` of its HTTPS URL with no config file, credential helper,
-askpass, client certificate, or `.netrc` in reach. Readable means it leaked:
-printed first, as `visibility`. A refusal by the repo's own host (credentials
-asked for, or no such repo, in a line naming that host) is private as
-declared; anything else — a proxy's refusal included — is reported as failed.
-
-The fetch writes remote-tracking refs and nothing else, whatever the repo's
-config says: `--no-tags` (no tag auto-follow or `tagOpt`), `--no-prune-tags`
-(`pruneTags` would delete unpushed local tags), `--recurse-submodules=no`
-(submodules fetch from their own URLs), `--no-write-commit-graph`, `-c
-fetch.bundleURI=` (bundles land in `refs/bundles/`), and the runner's
-`maintenance.auto=false` (no `gc --auto`). A configured origin refspec that
-writes outside `refs/remotes/origin/` (a tag or mirror refspec, or another
-remote's tracking refs, which `--prune` would empty) isn't fetched at all:
-`fetch_error` reads `refspec_outside_origin`. Nor is an entry where another
-remote's refspec — in config, or a legacy `remotes/` file — may write under
-`refs/remotes/origin/`, read as git reads a destination (a `*` one is
-substituted as written, so any whose text before the `*` shares a prefix with
-`refs/remotes/origin/`, like `refs*` or `refs/remotes/*`; a plain one after
-git's DWIM, like a remote named `origin/<x>`), which pruning origin may delete:
-`origin_refs_shared`; a legacy remotes file that can't be read is refused too
-(`legacy_remotes_unreadable`).
-
-`origin` is read as git reads it — the first `remote.origin.url` across every
-config scope, after any empty value resetting the list — and an entry with no
-URL isn't fetched. Origin drift advises only a command that can make the fix:
-`remote add`, or `remote set-url` for a single URL in the repo's own config
-file; anything else — several URLs, one from beyond that file, an empty value
-resetting the list — is `by_hand`. A failed fetch empties `FETCH_HEAD`, so
-`fetched_at` then reads never — the remote view's age is unknown. The report's
-`fetched` records that the run was asked to fetch, whatever each fetch's
-outcome.
-
-Credentials: registry URLs are strict — a plain DNS host, no userinfo or port,
-and plain account and name segments — and a registry parse error redacts any
-userinfo it quotes; every origin URL the report or the text shows (drift, and
-unregistered clones) has its userinfo redacted as `***` (an SSH login name
-stays); the visibility check refuses a URL with userinfo. Other git output the
-report carries (a probe or fetch failure's message) is git's own text,
-unfiltered.
+Under `--fetch`, each failed fetch gets a kind (`ref_gone`, `unreachable`,
+`repo_not_found`, `timed_out`, …, else `failed` with git's line), and each
+`[repos]` entry declared private gets an anonymous `git ls-remote` of its HTTPS
+URL with no credential in reach — readable means it leaked, printed first as
+`visibility`. The fetch writes remote-tracking refs and nothing else, whatever
+the repo's config says; an entry whose refspecs could write outside
+`refs/remotes/origin/`, or another remote's into it, isn't fetched. Origin URLs
+are redacted wherever shown, and registry URLs are strict (a plain DNS host, no
+userinfo or port). The details live in the rustdoc of `remote.rs` and
+`probe.rs`.
 
 `cargo test --workspace` runs integration tests over hermetic fixture
 workspaces (`crates/fuz_repos/tests/support`): real repos in a tempdir, each
