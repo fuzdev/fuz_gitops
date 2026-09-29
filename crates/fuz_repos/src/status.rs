@@ -1,5 +1,6 @@
 //! `repos status`: probe entries over a bounded thread pool, scope the live
-//! sessions to their checkouts, and classify.
+//! sessions to their checkouts, and classify — the two phases `sync` runs
+//! before it acts (`probe_all`, `assess`).
 
 use std::path::Path;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -9,9 +10,11 @@ use std::time::{Duration, Instant};
 use crate::busy::{EntryCheckouts, EntrySessions, Sessions, scope_sessions};
 use crate::classify::{NeedsHuman, classify};
 use crate::git::Git;
-use crate::probe::{ProbeContext, ProbeRun, Probed, RegistryDirs, probe};
+use crate::probe::{ProbeContext, ProbeRun, Probed, RegistryDirs, RepoFacts, RepoFetches, probe};
 use crate::registry::Entry;
-use crate::remote::{VisibilityCheck, is_declared_private, read_anonymously, visibility_url};
+use crate::remote::{
+    RemoteFailure, VisibilityCheck, is_declared_private, read_anonymously, visibility_url,
+};
 use crate::report::EntryStatus;
 use crate::scan::Scan;
 use crate::sessions::LiveSessions;
@@ -60,7 +63,7 @@ pub struct StatusRun {
 /// A pool's unit of work.
 #[derive(Debug)]
 enum Done {
-    Entry(usize, Box<ProbeRun>, EntryTiming),
+    Entry(Box<ProbeRun>, EntryTiming),
     Visibility(usize, VisibilityCheck, Duration),
 }
 
@@ -79,47 +82,57 @@ pub fn status(
     opts: StatusOptions<'_>,
 ) -> StatusRun {
     let start = Instant::now();
-    let cx = ProbeContext {
-        git,
-        root,
-        registry_dirs,
-        fetch: opts.fetch,
-    };
-    // the entries the visibility check reads, by index
-    let checks: Vec<usize> = if opts.fetch {
-        (0..entries.len())
-            .filter(|&i| is_declared_private(&entries[i]))
-            .collect()
-    } else {
-        Vec::new()
-    };
-    let tasks = checks.len() + entries.len();
+    let fetches = RepoFetches::default();
+    let probes = probe_all(
+        entries,
+        ProbeContext {
+            git,
+            root,
+            registry_dirs,
+            fetch: opts.fetch,
+            fetches: &fetches,
+        },
+        opts.jobs,
+        opts.visibility_base,
+    );
+    let assessed = assess(entries, probes, opts.live);
+    StatusRun {
+        entries: assessed.entries,
+        sessions: assessed.sessions,
+        timings: assessed.timings,
+        elapsed: start.elapsed(),
+    }
+}
+
+/// Every entry's probe, and under a fetching `cx` the visibility checks of
+/// those declared private, in the order given.
+#[derive(Debug)]
+pub(crate) struct Probes {
+    runs: Vec<(ProbeRun, EntryTiming)>,
+    /// By entry index.
+    checks: Vec<(usize, VisibilityCheck, Duration)>,
+}
+
+/// Runs `f` on each of `tasks` indices over a pool of `jobs` threads (at
+/// least one, at most one per task), returning the results by index.
+pub(crate) fn run_pool<T: Send>(
+    tasks: usize,
+    jobs: usize,
+    f: impl Fn(usize) -> T + Sync,
+) -> Vec<T> {
     let next = AtomicUsize::new(0);
-    let jobs = opts.jobs.clamp(1, tasks.max(1));
-    let done: Vec<Done> = thread::scope(|s| {
+    let jobs = jobs.clamp(1, tasks.max(1));
+    let mut done: Vec<(usize, T)> = thread::scope(|s| {
         let workers: Vec<_> = (0..jobs)
             .map(|_| {
                 s.spawn(|| {
                     let mut out = Vec::new();
                     loop {
                         let task = next.fetch_add(1, Ordering::Relaxed);
-                        if let Some(&i) = checks.get(task) {
-                            let start = Instant::now();
-                            let url = visibility_url(&entries[i], opts.visibility_base);
-                            let check = read_anonymously(git, root, &url);
-                            out.push(Done::Visibility(i, check, start.elapsed()));
-                            continue;
+                        if task >= tasks {
+                            break;
                         }
-                        let i = task - checks.len();
-                        let Some(entry) = entries.get(i) else { break };
-                        let run = probe(entry, cx);
-                        let timing = EntryTiming {
-                            key: entry.key.clone(),
-                            fetch: run.fetch_time,
-                            probe: run.probe_time,
-                            visibility: Duration::ZERO,
-                        };
-                        out.push(Done::Entry(i, Box::new(run), timing));
+                        out.push((task, f(task)));
                     }
                     out
                 })
@@ -127,49 +140,113 @@ pub fn status(
             .collect();
         workers
             .into_iter()
-            // a worker only panics on a bug; surface it rather than drop entries
+            // a worker only panics on a bug; surface it rather than drop tasks
             .flat_map(|w| w.join().unwrap_or_else(|e| std::panic::resume_unwind(e)))
             .collect()
     });
-    let mut probed = Vec::with_capacity(entries.len());
-    let mut checked = Vec::with_capacity(checks.len());
+    done.sort_by_key(|(i, _)| *i);
+    done.into_iter().map(|(_, t)| t).collect()
+}
+
+/// Probes `entries` over a pool of `jobs` threads — fetching first when
+/// `cx.fetch` says so, with the visibility checks queued ahead of the
+/// entries, reading under `visibility_base` (`StatusOptions`).
+pub(crate) fn probe_all(
+    entries: &[Entry],
+    cx: ProbeContext<'_>,
+    jobs: usize,
+    visibility_base: Option<&str>,
+) -> Probes {
+    // the entries the visibility check reads, by index
+    let checks: Vec<usize> = if cx.fetch {
+        (0..entries.len())
+            .filter(|&i| is_declared_private(&entries[i]))
+            .collect()
+    } else {
+        Vec::new()
+    };
+    let done = run_pool(checks.len() + entries.len(), jobs, |task| {
+        let start = Instant::now();
+        if let Some(&i) = checks.get(task) {
+            let url = visibility_url(&entries[i], visibility_base);
+            let check = read_anonymously(cx.git, cx.root, &url);
+            return Done::Visibility(i, check, start.elapsed());
+        }
+        let entry = &entries[task - checks.len()];
+        let run = probe(entry, cx);
+        let timing = EntryTiming {
+            key: entry.key.clone(),
+            fetch: run.fetch_time,
+            probe: run.probe_time,
+            visibility: Duration::ZERO,
+        };
+        Done::Entry(Box::new(run), timing)
+    });
+    let mut probes = Probes {
+        runs: Vec::with_capacity(entries.len()),
+        checks: Vec::with_capacity(checks.len()),
+    };
+    // by task index: the checks, then the entries in order
     for d in done {
         match d {
-            Done::Entry(i, run, timing) => probed.push((i, run, timing)),
-            Done::Visibility(i, check, time) => checked.push((i, check, time)),
+            Done::Entry(run, timing) => probes.runs.push((*run, timing)),
+            Done::Visibility(i, check, time) => probes.checks.push((i, check, time)),
         }
     }
-    probed.sort_by_key(|(i, ..)| *i);
-    // every checkout probed, so a session lands in the deepest of them all
-    let checkouts: Vec<EntryCheckouts> = probed
+    probes
+}
+
+/// What `assess` makes of the probes.
+#[derive(Debug)]
+pub(crate) struct Assessed {
+    pub sessions: Sessions,
+    pub entries: Vec<EntryStatus>,
+    pub timings: Vec<EntryTiming>,
+    /// Each entry's facts, when its repo was probed whole.
+    pub facts: Vec<Option<RepoFacts>>,
+    /// Each entry's fetch: `None` when none was attempted.
+    pub fetches: Vec<Option<Result<(), RemoteFailure>>>,
+    /// Each entry's checkouts, which busy detection scopes sessions to.
+    pub checkouts: Vec<EntryCheckouts>,
+}
+
+/// Scopes `live` to the probed checkouts, so a session lands in the deepest
+/// of them all, and classifies each entry.
+pub(crate) fn assess(entries: &[Entry], probes: Probes, live: &LiveSessions) -> Assessed {
+    let checkouts: Vec<EntryCheckouts> = probes
+        .runs
         .iter()
-        .map(|(_, run, _)| entry_checkouts(&run.probed))
+        .map(|(run, _)| entry_checkouts(&run.probed))
         .collect();
-    let (sessions, per_entry) = scope_sessions(opts.live, &checkouts);
-    let mut statuses: Vec<(usize, EntryStatus, EntryTiming)> = probed
-        .into_iter()
-        .zip(&per_entry)
-        .map(|((i, run, timing), busy)| (i, entry_status(&entries[i], *run, busy), timing))
-        .collect();
-    for (i, check, time) in checked {
-        if let Some((_, status, timing)) = statuses.iter_mut().find(|(j, ..)| *j == i) {
-            status.visibility_check = Some(check);
-            timing.visibility = time;
-        }
-    }
-    let (entries, timings) = statuses.into_iter().map(|(_, e, t)| (e, t)).unzip();
-    StatusRun {
-        entries,
+    let (sessions, per_entry) = scope_sessions(live, &checkouts);
+    let mut assessed = Assessed {
         sessions,
-        timings,
-        elapsed: start.elapsed(),
+        entries: Vec::with_capacity(entries.len()),
+        timings: Vec::with_capacity(entries.len()),
+        facts: Vec::with_capacity(entries.len()),
+        fetches: Vec::with_capacity(entries.len()),
+        checkouts,
+    };
+    for ((entry, (run, timing)), busy) in entries.iter().zip(probes.runs).zip(&per_entry) {
+        assessed.facts.push(match &run.probed {
+            Probed::Present(facts) => Some((**facts).clone()),
+            _ => None,
+        });
+        assessed.fetches.push(run.fetch.clone());
+        assessed.entries.push(entry_status(entry, run, busy));
+        assessed.timings.push(timing);
     }
+    for (i, check, time) in probes.checks {
+        assessed.entries[i].visibility_check = Some(check);
+        assessed.timings[i].visibility = time;
+    }
+    assessed
 }
 
 /// A probed repo's checkouts: their paths as its facts spell them — the
 /// primary's, each probed worktree's, each unprobed one's — their own git
 /// dirs, and their locks. None when the probe found no repo or failed.
-fn entry_checkouts(probed: &Probed) -> EntryCheckouts {
+pub(crate) fn entry_checkouts(probed: &Probed) -> EntryCheckouts {
     let Probed::Present(facts) = probed else {
         return EntryCheckouts::default();
     };

@@ -11,8 +11,9 @@
 //! worktree git dir's `HEAD` and `gitdir` — are read as git reads them
 //! (`gitdir`).
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{Duration, Instant, UNIX_EPOCH};
 
 use crate::git::{CallOptions, Git, GitError, NetworkOptions};
@@ -38,6 +39,36 @@ pub struct ProbeContext<'a> {
     pub registry_dirs: &'a RegistryDirs,
     /// Fetch owned, non-pinned entries from `origin` before probing.
     pub fetch: bool,
+    /// The run's fetches so far, so entries sharing a repo fetch it once.
+    pub fetches: &'a RepoFetches,
+}
+
+/// Each repo's fetch in a run, by its common dir (canonicalized when it can
+/// be).
+///
+/// Entries sharing a repo — one a linked worktree of another — fetch it
+/// once and share the outcome: two fetches of one repo at once race on its
+/// ref locks, and one fails.
+#[derive(Debug, Default)]
+pub struct RepoFetches(Mutex<HashMap<PathBuf, Arc<Mutex<Option<FetchResult>>>>>);
+
+/// How a fetch went: `Err` says why it failed or was refused.
+type FetchResult = Result<(), RemoteFailure>;
+
+impl RepoFetches {
+    /// `fetch`'s outcome for `repo`: run by the first caller, while any
+    /// other caller for it waits, then shared.
+    fn once(&self, repo: PathBuf, fetch: impl FnOnce() -> FetchResult) -> FetchResult {
+        let slot = Arc::clone(
+            self.0
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .entry(repo)
+                .or_default(),
+        );
+        let mut slot = slot.lock().unwrap_or_else(PoisonError::into_inner);
+        slot.get_or_insert_with(fetch).clone()
+    }
 }
 
 /// Every registry entry's dir under the workspace root, canonicalized.
@@ -71,7 +102,8 @@ impl RegistryDirs {
 pub struct ProbeRun {
     pub probed: Probed,
     /// `None` when no fetch was attempted; `Some(Err)` says why it failed.
-    pub fetch: Option<Result<(), RemoteFailure>>,
+    /// Shared by entries sharing a repo (`RepoFetches`).
+    pub fetch: Option<FetchResult>,
     pub fetch_time: Duration,
     pub probe_time: Duration,
 }
@@ -152,6 +184,10 @@ pub struct RepoFacts {
     /// (`newest_fetch`): never fetched, or the last fetch failed or found an
     /// empty remote.
     pub fetched_at: Option<u64>,
+    /// This run's fetch failed or was refused, so its remote-tracking refs
+    /// weren't refreshed — and after a refusal (a refspec writing into them
+    /// from elsewhere) may not be origin's at all: no branch moves to them.
+    pub fetch_failed: bool,
 }
 
 /// A local branch's facts.
@@ -166,13 +202,17 @@ pub struct BranchFacts {
     pub on_fetched_tip: bool,
 }
 
-/// Whether a branch might hold commits on no remote: anything but a branch
-/// level with, or strictly behind, a resolved upstream.
+/// Whether a branch might hold commits on no remote.
+///
+/// Anything but a branch level with, or strictly behind, a resolved
+/// upstream — or a symbolic ref, an alias whose commits are its target's (a
+/// branch's, counted as itself).
 pub const fn could_carry_local_work(r: &RefFacts) -> bool {
-    !matches!(
-        (&r.upstream_ref, r.track),
-        (Some(_), Track::Even | Track::Behind(_))
-    )
+    r.symref.is_none()
+        && !matches!(
+            (&r.upstream_ref, r.track),
+            (Some(_), Track::Even | Track::Behind(_))
+        )
 }
 
 /// Whether `--fetch` fetches this entry: owned and not pinned — a pin is
@@ -226,6 +266,7 @@ fn probe_present(
     let local = CallOptions {
         ceiling: Some(cx.root),
         network: None,
+        ..CallOptions::default()
     };
     let dirs = match cx.git.output_string(
         dir,
@@ -292,6 +333,7 @@ fn probe_present(
             network: Some(NetworkOptions {
                 batch_ssh: !config.ssh_command && !cx.git.env_configures_ssh(),
             }),
+            ..CallOptions::default()
         };
         // a refspec writing outside `refs/remotes/origin/`, or another
         // remote's writing inside it, where no flag reaches: not fetched at
@@ -325,7 +367,8 @@ fn probe_present(
                 )
             })
         };
-        early.fetch = Some(refused.map_or_else(fetch, Err));
+        let repo = canonical(&common_dir).unwrap_or_else(|| common_dir.clone());
+        early.fetch = Some(cx.fetches.once(repo, || refused.map_or_else(fetch, Err)));
         early.fetch_time = start.elapsed();
     }
     // a fetch may have added shallow roots
@@ -433,10 +476,11 @@ fn probe_present(
         branches,
         layout,
         fetched_at,
+        fetch_failed: early.fetch.as_ref().is_some_and(Result::is_err),
     })))
 }
 
-/// `status --fetch`'s fetch, before `--depth 1` (a shallow clone) and
+/// `status --fetch`'s fetch (and `sync`'s), before `--depth 1` (a shallow clone) and
 /// `origin`: remote-tracking refs are all it may write, whatever the repo's
 /// config says. The runner's `maintenance.auto=false` already keeps the
 /// fetch from running `gc --auto` or maintenance.
@@ -598,7 +642,7 @@ fn refspec_destination(refspec: &str) -> Option<&str> {
 }
 
 /// The flags step 2's status runs with, in every checkout.
-const STATUS_ARGS: [&str; 8] = [
+pub(crate) const STATUS_ARGS: [&str; 8] = [
     "status",
     "--porcelain=v2",
     "--branch",
@@ -864,6 +908,7 @@ fn submodule_refusal(git: &Git, path: &Path, git_dir: &Path, candidate: bool) ->
     let opts = CallOptions {
         ceiling: path.parent(),
         network: None,
+        ..CallOptions::default()
     };
     let Ok(out) = git.output(path, &["ls-files", "--stage", "-z"], opts) else {
         return Some(true);
@@ -1005,6 +1050,7 @@ fn probe_worktree(git: &Git, path: &Path, git_dir: Option<&Path>) -> Result<Stat
     let opts = CallOptions {
         ceiling: path.parent(),
         network: None,
+        ..CallOptions::default()
     };
     let out = git
         .output(path, &STATUS_ARGS, opts)
@@ -1276,7 +1322,7 @@ fn count_unique(
 }
 
 /// The commits in `<commondir>/shallow`; empty for a full clone.
-fn read_shallow_roots(common_dir: &Path) -> HashSet<String> {
+pub(crate) fn read_shallow_roots(common_dir: &Path) -> HashSet<String> {
     read_regular(&common_dir.join("shallow"))
         .map(|s| {
             s.lines()
@@ -1501,6 +1547,7 @@ mod tests {
     fn r(upstream: Option<&str>, track: Track) -> RefFacts {
         RefFacts {
             name: "b".into(),
+            symref: None,
             upstream_ref: upstream.map(str::to_owned),
             track,
             worktree: None,
@@ -1523,6 +1570,18 @@ mod tests {
         )));
         assert!(could_carry_local_work(&r(up, Track::Gone)));
         assert!(could_carry_local_work(&r(None, Track::Even)));
+        // an alias carries nothing of its own
+        let alias = RefFacts {
+            symref: Some("refs/heads/main".into()),
+            ..r(
+                None,
+                Track::Diverged {
+                    ahead: 1,
+                    behind: 1,
+                },
+            )
+        };
+        assert!(!could_carry_local_work(&alias));
     }
 
     #[test]
@@ -1748,6 +1807,7 @@ purpose = "a .git git can't use"
             root: tmp.path(),
             registry_dirs: &registry_dirs,
             fetch: false,
+            fetches: &RepoFetches::default(),
         };
         let details: Vec<String> = registry
             .entries()

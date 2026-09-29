@@ -754,6 +754,7 @@ fn read_origin(git: &Git, dir: &Path) -> Option<String> {
     let opts = CallOptions {
         ceiling: parent.as_deref().or_else(|| dir.parent()),
         network: None,
+        ..CallOptions::default()
     };
     let out = git
         .output(

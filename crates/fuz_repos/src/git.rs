@@ -1,11 +1,30 @@
 //! The one way this crate runs git: hardened flags and env, a per-call
 //! timeout, and capped output capture.
 //!
-//! Git never runs repo-controlled code on the tool's behalf — hooks and
-//! fsmonitor are disabled and background maintenance is off. Optional locks
-//! are off too, so observing never rewrites another session's index, and lazy
-//! fetching is off, so a local call on a partial clone never touches the
-//! network.
+//! **What git may run on the tool's behalf.** The trust boundary is the
+//! user's own git config, not the repo's content or its remote:
+//!
+//! - Never run, whatever any config says, since the code they'd run can
+//!   arrive with what a fetch or a fast-forward brings in (a hooks dir
+//!   `core.hooksPath` points into the tracked tree) or be set up by a tool
+//!   rather than chosen: hooks (`core.hooksPath=/dev/null`), an fsmonitor
+//!   (`core.fsmonitor=false`), background maintenance
+//!   (`maintenance.auto=false`), and an alternate-refs command
+//!   (`core.alternateRefsCommand=true`: the shell's `true` in place of the
+//!   configured one, listing no refs, so git goes on without the
+//!   alternates' refs and says nothing on stderr).
+//! - Honored: programs the user's config names for git to run as part of
+//!   the operation itself — a filter driver's `smudge`, `clean`, or
+//!   `process` (Git LFS among them; a tracked `.gitattributes` can pick a
+//!   filter, but only a driver the config defines runs), the gpg program
+//!   `merge.verifySignatures` calls, SSH as configured. Only the user, or
+//!   something already running as them, writes that config, and dropping
+//!   them would check out pointer files or skip a verification the user
+//!   asked for.
+//!
+//! Optional locks are off too, so observing never rewrites another
+//! session's index, and lazy fetching is off, so a local call on a partial
+//! clone never touches the network.
 
 use std::ffi::OsString;
 use std::io::{self, Read};
@@ -171,6 +190,13 @@ pub struct CallOptions<'a> {
     /// A network call: the longer timeout, and batch-mode SSH unless the user
     /// configures SSH themselves.
     pub network: Option<NetworkOptions>,
+    /// The only transports git may use (`GIT_ALLOW_PROTOCOL`), whatever the
+    /// caller's environment allows: `file` keeps a fetch from the repo itself
+    /// local even when an `insteadOf` rewrites its path to a URL.
+    pub allow_protocol: Option<&'a str>,
+    /// A timeout in place of `LOCAL_TIMEOUT` or `NETWORK_TIMEOUT`, for a
+    /// call that may run long by nature — one rewriting a working tree.
+    pub timeout: Option<Duration>,
 }
 
 /// Options for a call that reaches a remote.
@@ -314,6 +340,9 @@ impl Git {
                 ceiling: None,
                 // the scheme is never SSH: nothing for batch mode to do
                 network: Some(NetworkOptions { batch_ssh: false }),
+                // set below, narrowed to the caller's list
+                allow_protocol: None,
+                timeout: None,
             },
         );
         let allowed = match self.env_var("GIT_ALLOW_PROTOCOL") {
@@ -338,6 +367,7 @@ impl Git {
         if let Some(env) = &self.env {
             cmd.env_clear().envs(env.iter().map(|(k, v)| (k, v)));
         }
+        // what never runs (the module doc says why, and what still does)
         cmd.args([
             "--no-optional-locks",
             "-c",
@@ -346,6 +376,8 @@ impl Git {
             "core.fsmonitor=false",
             "-c",
             "maintenance.auto=false",
+            "-c",
+            "core.alternateRefsCommand=true",
             "-C",
         ])
         .arg(dir)
@@ -363,9 +395,12 @@ impl Git {
         if let Some(ceiling) = opts.ceiling {
             cmd.env("GIT_CEILING_DIRECTORIES", ceiling);
         }
-        let mut timeout = LOCAL_TIMEOUT;
+        if let Some(allowed) = opts.allow_protocol {
+            cmd.env("GIT_ALLOW_PROTOCOL", allowed);
+        }
+        let mut timeout = opts.timeout.unwrap_or(LOCAL_TIMEOUT);
         if let Some(net) = opts.network {
-            timeout = NETWORK_TIMEOUT;
+            timeout = opts.timeout.unwrap_or(NETWORK_TIMEOUT);
             if net.batch_ssh {
                 cmd.env(
                     "GIT_SSH_COMMAND",
@@ -829,6 +864,31 @@ mod tests {
                 "HEAD".to_owned(),
             ]),
             "{args:?}"
+        );
+    }
+
+    #[test]
+    fn a_call_can_narrow_the_transports_git_may_use() {
+        // over a caller that allows every transport, as an inherited
+        // environment might
+        let git = Git::with_clean_env(vec![("GIT_ALLOW_PROTOCOL".into(), "file:https:ssh".into())]);
+        let allowed = |opts| {
+            let (cmd, _) = git.command(Path::new("/"), &["fetch"], opts);
+            cmd.get_envs()
+                .find(|(k, _)| *k == "GIT_ALLOW_PROTOCOL")
+                .and_then(|(_, v)| v.map(|v| v.to_string_lossy().into_owned()))
+        };
+        assert_eq!(
+            allowed(CallOptions {
+                allow_protocol: Some("file"),
+                ..CallOptions::default()
+            }),
+            Some("file".to_owned())
+        );
+        // not narrowed: the caller's stands
+        assert_eq!(
+            allowed(CallOptions::default()),
+            Some("file:https:ssh".to_owned())
         );
     }
 

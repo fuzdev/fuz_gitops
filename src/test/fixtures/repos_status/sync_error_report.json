@@ -1,0 +1,13 @@
+{
+	"version": 1,
+	"error": {
+		"kind": "unknown_entry",
+		"name": "fuz_ap",
+		"suggestions": [
+			"fuz_app",
+			"fuz_css"
+		],
+		"message": "unknown target `fuz_ap`",
+		"hint": "did you mean: fuz_app, fuz_css"
+	}
+}

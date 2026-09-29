@@ -283,14 +283,22 @@ pub fn classify(entry: &Entry, facts: &RepoFacts, sessions: &EntrySessions) -> C
             let holds = Holds {
                 pinned: entry.pinned,
                 entry: entry_held,
+                fetch_failed: facts.fetch_failed,
                 on: &on,
                 detection: sessions.detection,
             };
-            let verdict = verdict(entry, b, relation, upstream.is_some(), &holds);
+            // an alias never acts: git writes through it to its target,
+            // unchecked (`BranchStatus::symref` says why nothing is lost)
+            let verdict = if b.branch.symref.is_some() {
+                Verdict::Quiet
+            } else {
+                verdict(entry, b, relation, upstream.is_some(), &holds)
+            };
             Some(BranchStatus {
                 name: b.branch.name.clone(),
                 upstream,
                 worktree: b.branch.worktree.clone(),
+                symref: b.branch.symref.clone(),
                 unique_commits: b.unique_commits,
                 newest_commit_at: b.branch.committer_time,
                 relation,
@@ -358,6 +366,9 @@ struct CheckoutsOn<'a> {
     maybe_busy: bool,
     dirty: bool,
     unprobed: bool,
+    /// On HEAD in more than one checkout, counting unprobed ones and
+    /// unlisted git dirs that may be on it.
+    several: bool,
     /// The one checkout it's on, when that's a worktree `git worktree
     /// remove` would take: linked (never the main worktree), no submodules,
     /// not locked, no operation in progress, clean — and not a registry
@@ -375,6 +386,8 @@ struct Holds<'a, 'b> {
     pinned: bool,
     /// An entry-level `needs_human` reason.
     entry: bool,
+    /// The run's fetch of the entry failed or was refused.
+    fetch_failed: bool,
     on: &'b CheckoutsOn<'a>,
     detection: Detection,
 }
@@ -382,8 +395,9 @@ struct Holds<'a, 'b> {
 impl Holds<'_, '_> {
     /// What holds `action`, if anything: a pin (whose pushes never get
     /// here), an entry-level reason, or a live session holds every action;
-    /// a dirty checkout, or one that couldn't be probed, all but a push,
-    /// which only moves refs; and a checkout that may be busy — busy
+    /// a failed fetch, a dirty checkout, one that couldn't be probed, or a
+    /// branch on HEAD in several checkouts, all but a push, which only moves
+    /// refs and which the remote checks; and a checkout that may be busy — busy
     /// detection unavailable, which leaves every checkout in doubt, or one
     /// on the branch whose path can't be resolved or that the probe didn't
     /// find, or an unlisted git dir a session works through — holds every
@@ -395,12 +409,16 @@ impl Holds<'_, '_> {
             Some(HeldBy::Pinned)
         } else if self.entry {
             Some(HeldBy::Entry)
+        } else if !push && self.fetch_failed {
+            Some(HeldBy::FetchFailed)
         } else if self.on.busy {
             Some(HeldBy::Busy)
         } else if !push && self.on.dirty {
             Some(HeldBy::DirtyCheckout)
         } else if !push && self.on.unprobed {
             Some(HeldBy::UnprobedWorktree)
+        } else if !push && self.on.several {
+            Some(HeldBy::SeveralCheckouts)
         } else if self.on.maybe_busy || self.detection == Detection::Unavailable {
             Some(HeldBy::BusyUnknown)
         } else {
@@ -498,6 +516,7 @@ fn checkouts_on<'a>(
         folded.maybe_busy = true;
     }
     folded.checked_out = count > 0 || b.branch.worktree.is_some();
+    folded.several = count > 1;
     if count == 1 {
         folded.removable = removable;
     }
@@ -851,6 +870,7 @@ mod tests {
                 .map(|b| BranchFacts {
                     branch: RefFacts {
                         name: b.name.into(),
+                        symref: None,
                         upstream_ref: b.resolved.then(|| {
                             format!("refs/remotes/{}/{}", b.remote.unwrap_or("origin"), b.name)
                         }),
@@ -868,6 +888,7 @@ mod tests {
                 partial_filter: None,
             },
             fetched_at: None,
+            fetch_failed: false,
         }
     }
 
@@ -1875,9 +1896,11 @@ mod tests {
     #[test]
     fn every_checkout_on_a_branch_counts() {
         // git allows one branch on HEAD in several checkouts
-        // (`worktree add -f`); any dirty one holds it
-        let ff1 = Verdict::Act {
+        // (`worktree add -f`); any dirty one holds it, and clean ones hold
+        // its ff too: moving it in one would strand the others' HEAD
+        let ff1 = Verdict::Held {
             action: SyncAction::FastForward { commits: 1 },
+            by: HeldBy::SeveralCheckouts,
         };
         let mut f = facts(
             on("main"),
@@ -1937,6 +1960,43 @@ mod tests {
                 by: HeldBy::DirtyCheckout,
             }
         );
+        // on one checkout, clean: the ff acts
+        f.status.uncommitted.untracked = 0;
+        f.unprobed.clear();
+        f.worktrees.remove(0);
+        assert_eq!(
+            verdicts(&e, &f)[0].1,
+            Verdict::Act {
+                action: SyncAction::FastForward { commits: 1 },
+            }
+        );
+    }
+
+    #[test]
+    fn a_failed_fetch_holds_all_but_pushes() {
+        let ff = |commits| SyncAction::FastForward { commits };
+        let held = |action, by| Verdict::Held { action, by };
+        let mut f = facts(
+            on("main"),
+            &[
+                b("main", O, true, Track::Behind(2)),
+                b("ahead", O, true, Track::Ahead(1)),
+                b("idle", O, true, Track::Behind(1)),
+            ],
+        );
+        f.fetch_failed = true;
+        let e = owned(Mode::Follow("main"));
+        assert_eq!(
+            verdicts(&e, &f),
+            named(&[
+                ("main", held(ff(2), HeldBy::FetchFailed)),
+                ("ahead", act(SyncAction::Push { commits: 1 })),
+                ("idle", held(ff(1), HeldBy::FetchFailed)),
+            ])
+        );
+        // an entry-level reason outranks it
+        f.in_progress = Some(InProgressOp::Merge);
+        assert_eq!(verdicts(&e, &f)[0].1, held(ff(2), HeldBy::Entry));
     }
 
     #[test]

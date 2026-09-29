@@ -272,6 +272,13 @@ pub struct BranchStatus {
     pub upstream: Option<String>,
     /// The checkout it's checked out in.
     pub worktree: Option<String>,
+    /// The full ref it points at when it's a symbolic ref (`refs/heads/m` →
+    /// `refs/heads/main`): an alias, always `Quiet` with no commits counted.
+    /// What it points at holds the commits — a local branch, reported with
+    /// its own verdict; a remote-tracking ref, whose commits a remote has —
+    /// and a write through the alias would move that target past every
+    /// check made on the alias.
+    pub symref: Option<String>,
     /// Commits on no remote-tracking ref (`rev-list <b> --not --remotes`),
     /// minus shallow roots. Counted only where the relation leaves room for
     /// local work; zero otherwise.
@@ -327,6 +334,12 @@ pub enum HeldBy {
     Pinned,
     /// An entry-level `needs_human` reason stops sync on the whole entry.
     Entry,
+    /// The entry's fetch failed or was refused (its `fetch_error`), so its
+    /// remote-tracking refs weren't refreshed and may not be origin's: no
+    /// branch fast-forwards or moves to them. Pushes aren't held: the remote
+    /// checks those itself. Only a run that fetches (`sync`, `status
+    /// --fetch`) holds on it.
+    FetchFailed,
     /// The branch is checked out in a checkout with uncommitted changes, and
     /// sync never touches a dirty working tree. Pushes aren't held: they only
     /// move refs.
@@ -335,6 +348,10 @@ pub enum HeldBy {
     /// of the entry's `unprobed_worktrees`), so whether it's clean is
     /// unknown. Pushes aren't held.
     UnprobedWorktree,
+    /// The branch is checked out in more than one checkout (`worktree add
+    /// -f`): moving it in one would leave the others' HEAD on a commit their
+    /// files don't match. Pushes aren't held.
+    SeveralCheckouts,
     /// The branch is checked out in a checkout a live session works in
     /// (its `busy`): sync leaves another session's branch alone, pushes
     /// included.

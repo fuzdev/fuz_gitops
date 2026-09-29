@@ -79,15 +79,19 @@ pub fn parse_status(out: &[u8]) -> Result<StatusFacts, String> {
     })
 }
 
-/// The `for-each-ref` format `parse_refs` reads: name, resolved upstream,
-/// upstream track, worktree path, committer date — NUL-separated fields,
-/// newline-separated records.
-pub const REFS_FORMAT: &str = "%(refname:lstrip=2)%00%(upstream)%00%(upstream:track)%00%(worktreepath)%00%(committerdate:unix)";
+/// The `for-each-ref` format `parse_refs` reads: name, symref target,
+/// resolved upstream, upstream track, worktree path, committer date —
+/// NUL-separated fields, newline-separated records.
+pub const REFS_FORMAT: &str = "%(refname:lstrip=2)%00%(symref)%00%(upstream)%00%(upstream:track)%00%(worktreepath)%00%(committerdate:unix)";
 
 /// A local branch as `for-each-ref` reports it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RefFacts {
     pub name: String,
+    /// The full ref it points at when the branch is a symbolic ref
+    /// (`refs/heads/m` → `refs/heads/main`): an alias, whose upstream,
+    /// track, and date git reads through to the target.
+    pub symref: Option<String>,
     /// The resolved upstream ref (`refs/remotes/origin/main`), `None` when git
     /// resolves none — no upstream configured, or one outside the refspec.
     pub upstream_ref: Option<String>,
@@ -156,15 +160,16 @@ pub fn parse_refs(out: &[u8]) -> Result<Vec<RefFacts>, String> {
         .filter(|l| !l.is_empty())
         .map(|line| {
             let f: Vec<&str> = line.split('\0').collect();
-            let [name, upstream, track, worktree, date] = f[..] else {
+            let [name, symref, upstream, track, worktree, date] = f[..] else {
                 return Err(format!(
-                    "for-each-ref: expected 5 fields in `{}`",
+                    "for-each-ref: expected 6 fields in `{}`",
                     line.replace('\0', "|")
                 ));
             };
             let non_empty = |s: &str| (!s.is_empty()).then(|| s.to_owned());
             Ok(RefFacts {
                 name: name.to_owned(),
+                symref: non_empty(symref),
                 upstream_ref: non_empty(upstream),
                 track: parse_track(track)?,
                 worktree: non_empty(worktree),
@@ -728,20 +733,23 @@ mod tests {
     #[test]
     fn refs_records() {
         let out = [
-            "main\0refs/remotes/origin/main\0[ahead 1]\0/home/me/dev/gro\0",
+            "main\0\0refs/remotes/origin/main\0[ahead 1]\0/home/me/dev/gro\0",
             "1759000000\n",
-            "fork\0\0\0\0",
+            "fork\0\0\0\0\0",
             "1758000000\n",
-            "diff-rework\0refs/remotes/origin/diff-rework\0[gone]\0\0",
+            "diff-rework\0\0refs/remotes/origin/diff-rework\0[gone]\0\0",
             "1757000000\n",
+            "m\0refs/heads/main\0\0\0\0",
+            "1759000000\n",
         ]
         .concat();
         let refs = parse_refs(out.as_bytes()).unwrap();
-        assert_eq!(refs.len(), 3);
+        assert_eq!(refs.len(), 4);
         assert_eq!(
             refs[0],
             RefFacts {
                 name: "main".into(),
+                symref: None,
                 upstream_ref: Some("refs/remotes/origin/main".into()),
                 track: Track::Ahead(1),
                 worktree: Some("/home/me/dev/gro".into()),
@@ -751,6 +759,7 @@ mod tests {
         assert_eq!(refs[1].upstream_ref, None);
         assert_eq!(refs[1].track, Track::Even);
         assert_eq!(refs[2].track, Track::Gone);
+        assert_eq!(refs[3].symref.as_deref(), Some("refs/heads/main"));
         assert!(parse_refs(b"main\0only-two\n").is_err());
     }
 

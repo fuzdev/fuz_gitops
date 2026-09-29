@@ -1,15 +1,18 @@
-//! The `repos status` report — the `--json` document and what the text
-//! renderer reads.
+//! The `--json` documents — `repos status`'s report, `repos sync`'s, and a
+//! fatal error's — and what the text renderer reads.
 
 use serde::Serialize;
 
-use crate::STATUS_FORMAT_VERSION;
 use crate::busy::Sessions;
 use crate::classify::NeedsHuman;
 use crate::error::{Error, ErrorKind};
 use crate::registry::{EntryKind, Visibility};
 use crate::remote::{RemoteFailure, VisibilityCheck};
-use crate::state::{BranchStatus, Checkout, Layout, Presence, UnprobedWorktreeStatus};
+use crate::state::{
+    BranchNeedsHuman, BranchStatus, Checkout, HeldBy, Layout, Presence, SyncAction,
+    UnprobedWorktreeStatus,
+};
+use crate::{STATUS_FORMAT_VERSION, SYNC_FORMAT_VERSION};
 
 /// The whole report.
 #[derive(Debug, Clone, Serialize)]
@@ -62,12 +65,13 @@ impl StatusReport {
 /// the report.
 ///
 /// A consumer never parses empty stdout. The document carries the same
-/// `version` as the report; a consumer tells the two apart by `error`.
+/// `version` as the command's report (`STATUS_FORMAT_VERSION` or
+/// `SYNC_FORMAT_VERSION`); a consumer tells the two apart by `error`.
 /// Argument-parse errors precede knowing `--json` and stay plain text on
 /// stderr.
 #[derive(Debug, Clone, Serialize)]
 pub struct ErrorReport {
-    /// `STATUS_FORMAT_VERSION`.
+    /// The command's report version.
     pub version: u32,
     pub error: ErrorBody,
 }
@@ -84,9 +88,10 @@ pub struct ErrorBody {
 }
 
 impl ErrorReport {
-    pub fn new(e: &Error) -> Self {
+    /// `e` as the document of a command whose report is at `version`.
+    pub fn new(e: &Error, version: u32) -> Self {
         Self {
-            version: STATUS_FORMAT_VERSION,
+            version,
             error: ErrorBody {
                 kind: e.kind(),
                 message: e.message(),
@@ -278,4 +283,161 @@ pub enum RepairBlock {
     /// nothing to fix. Rewrite that `gitdir` by hand as this dir's `.git`
     /// path (what a repair would write), then rerun.
     NulInGitdir { git_dir: String },
+}
+
+/// The `repos sync --json` document: the state sync acted on, and what it
+/// did.
+#[derive(Debug, Clone, Serialize)]
+pub struct SyncReport {
+    /// `SYNC_FORMAT_VERSION`.
+    pub version: u32,
+    /// What sync acted on: a `status --fetch` report of the state its fetch
+    /// left (so `fetched` is true), each branch's verdict classified with
+    /// the live sessions read after the fetch. The unregistered scan
+    /// doesn't run (`unregistered` is `null`). Parsed with the status
+    /// report's own schema: its `version` is `STATUS_FORMAT_VERSION`.
+    pub status: StatusReport,
+    /// What sync did, one per `status` entry, in its order.
+    pub entries: Vec<EntrySync>,
+}
+
+impl SyncReport {
+    pub const fn new(status: StatusReport, entries: Vec<EntrySync>) -> Self {
+        Self {
+            version: SYNC_FORMAT_VERSION,
+            status,
+            entries,
+        }
+    }
+
+    /// Whether anything failed — a fetch (one git ran and failed, or one
+    /// the tool refused to run, its refspec unconfinable: either way the
+    /// entry wasn't synced and a person must act), a probe, or an action —
+    /// so the run exits `1`. A hold, a person's call, or busy detection that
+    /// couldn't vouch for every session is the report's to say, not a
+    /// failure.
+    pub fn failed(&self) -> bool {
+        self.entries.iter().any(|e| {
+            matches!(e.fetch, FetchOutcome::Failed { .. })
+                || e.branches
+                    .iter()
+                    .any(|b| matches!(b.outcome, BranchOutcome::Failed { .. }))
+        }) || self.status.entries.iter().any(|e| e.probe_error.is_some())
+    }
+}
+
+/// What sync did with one entry.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct EntrySync {
+    pub key: String,
+    pub fetch: FetchOutcome,
+    /// One per branch of the status entry, in its order. Empty when there
+    /// are none: the repo is missing, isn't one, or its probe failed — sync
+    /// refuses an entry it couldn't read whole, and that counts as failed
+    /// (the status entry's `probe_error`).
+    pub branches: Vec<BranchSync>,
+}
+
+/// How sync's fetch of an entry went.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum FetchOutcome {
+    Fetched,
+    /// Git failed, or the tool refused to run it (`status`'s
+    /// `fetch_error`, the same value).
+    Failed {
+        failure: RemoteFailure,
+    },
+    /// Not attempted: an entry sync doesn't fetch (a third-party reference,
+    /// a pin), a repo that's missing or isn't one, one whose `origin` has
+    /// no URL, or a probe that failed before its fetch.
+    NotFetched,
+}
+
+/// What sync did with one branch.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct BranchSync {
+    pub name: String,
+    /// Flattened: the outcome's `kind` tag and its payload sit beside
+    /// `name`.
+    #[serde(flatten)]
+    pub outcome: BranchOutcome,
+    /// The key of the entry sharing this one's repo whose outcome this is:
+    /// a branch acts once for the repo, so an entry after the first to act
+    /// on it reports that one's outcome, and one whose action another entry
+    /// stopped (by holding the branch, or leaving it to a person) reports
+    /// that entry's. `None` for the entry's own outcome. The text summary
+    /// counts each outcome once, under the entry it names.
+    pub repeats: Option<String>,
+}
+
+/// What sync did with a branch: its verdict, carried out.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum BranchOutcome {
+    /// Nothing for sync to do: the verdict was quiet, local-only work, or
+    /// cleanup (which sync never does) — or the branch was already where the
+    /// action would have put it when sync came to it.
+    Untouched,
+    /// The verdict left it to a person.
+    NeedsHuman { reason: BranchNeedsHuman },
+    /// Sync would take `action`, but `by` held it — the verdict's hold, or
+    /// one found when sync came to act.
+    Held { action: SyncAction, by: SyncHold },
+    /// Fast-forwarded from `from` to `to`, in place or in its clean
+    /// checkout.
+    FastForwarded { from: String, to: String },
+    /// A shallow branch with nothing local moved from `from` to the fetched
+    /// tip `to`.
+    Moved { from: String, to: String },
+    /// The action ran and git refused it (`message`, git's words), or it
+    /// couldn't run: the run exits `1`.
+    Failed { action: SyncAction, message: String },
+}
+
+/// What held a branch's action: the verdict's hold (`HeldBy`, the same
+/// names), or one found at the moment of acting, when sync re-checks what
+/// the action relies on.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SyncHold {
+    Pinned,
+    Entry,
+    FetchFailed,
+    /// The checkout the branch is on has uncommitted changes — as
+    /// classified, or found when sync came to act.
+    DirtyCheckout,
+    UnprobedWorktree,
+    SeveralCheckouts,
+    /// A live session works in the checkout the branch is on — as
+    /// classified, or found when sync re-read the sessions right before
+    /// acting.
+    Busy,
+    /// A live session may work there unseen — as classified, or found so
+    /// right before acting (busy detection unavailable, among them).
+    BusyUnknown,
+    /// Found at the moment of acting: the branch or its checkout isn't as
+    /// the probe read it — the checkout's HEAD left the branch, a shallow
+    /// branch gained commits on no remote, a branch to move in place is
+    /// checked out now, or a branch to update in place became a symbolic
+    /// ref. Rerun to reclassify.
+    Changed,
+    /// A push: sync never pushes, so a branch ahead stays ahead for a
+    /// person to push.
+    NotPushed,
+}
+
+impl From<HeldBy> for SyncHold {
+    fn from(by: HeldBy) -> Self {
+        match by {
+            HeldBy::Pinned => Self::Pinned,
+            HeldBy::Entry => Self::Entry,
+            HeldBy::FetchFailed => Self::FetchFailed,
+            HeldBy::DirtyCheckout => Self::DirtyCheckout,
+            HeldBy::UnprobedWorktree => Self::UnprobedWorktree,
+            HeldBy::SeveralCheckouts => Self::SeveralCheckouts,
+            HeldBy::Busy => Self::Busy,
+            HeldBy::BusyUnknown => Self::BusyUnknown,
+        }
+    }
 }

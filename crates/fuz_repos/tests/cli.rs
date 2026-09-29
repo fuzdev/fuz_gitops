@@ -11,7 +11,7 @@ mod support;
 use std::path::Path;
 use std::process::Output;
 
-use fuz_repos::STATUS_FORMAT_VERSION;
+use fuz_repos::{STATUS_FORMAT_VERSION, SYNC_FORMAT_VERSION};
 use serde_json::Value;
 use support::FixtureWorkspace;
 
@@ -1178,4 +1178,185 @@ fn version_and_help_exit_zero() {
     let out = repos(&ws, &ws.root(), &["--help"]);
     assert_eq!(out.status.code(), Some(0));
     assert!(stdout(&out).contains("status"));
+}
+
+/// `app` behind by one, `blog` ahead by one, `gone` missing.
+fn sync_workspace() -> FixtureWorkspace {
+    let mut ws = FixtureWorkspace::new();
+    let app = ws.owned_repo("app", &[]);
+    ws.upstream_commit("app", "main");
+    let blog = ws.owned_repo("blog", &[]);
+    ws.commit(&blog, "local");
+    ws.assert_track(&blog, "main", "[ahead 1]");
+    ws.declare_repo("gone", "gone", "");
+    ws.write_registry();
+    ws.assert_track(&app, "main", "");
+    ws
+}
+
+#[test]
+fn sync_json_is_the_versioned_outcome_report() {
+    let ws = sync_workspace();
+    let tip = ws.git(&ws.bare("app"), &["rev-parse", "main"]);
+    let report = parse(&repos(&ws, &ws.root(), &["sync", "--json"]));
+    assert_eq!(report["version"], SYNC_FORMAT_VERSION);
+    assert_eq!(report["status"]["version"], STATUS_FORMAT_VERSION);
+    assert_eq!(report["status"]["fetched"], true);
+    // no scan: sync is about the entries
+    assert_eq!(report["status"]["unregistered"], Value::Null);
+    let entries = report["entries"].as_array().unwrap();
+    let keys: Vec<&str> = entries.iter().map(|e| e["key"].as_str().unwrap()).collect();
+    assert_eq!(keys, ["app", "blog", "gone"]);
+    assert_eq!(entries[0]["fetch"], serde_json::json!({"kind": "fetched"}));
+    assert_eq!(entries[0]["branches"][0]["name"], "main");
+    assert_eq!(entries[0]["branches"][0]["kind"], "fast_forwarded");
+    assert_eq!(entries[0]["branches"][0]["to"], tip.as_str());
+    assert_eq!(
+        entries[1]["branches"][0],
+        serde_json::json!({
+            "name": "main",
+            "kind": "held",
+            "action": {"kind": "push", "commits": 1},
+            "by": "not_pushed",
+            "repeats": null,
+        })
+    );
+    assert_eq!(
+        entries[2],
+        serde_json::json!({"key": "gone", "fetch": {"kind": "not_fetched"}, "branches": []})
+    );
+    assert_eq!(ws.git(&ws.dir("app"), &["rev-parse", "main"]), tip);
+}
+
+#[test]
+fn sync_text_is_the_summary_with_what_it_did() {
+    let ws = sync_workspace();
+    let out = repos(&ws, &ws.root(), &["sync"]);
+    assert_eq!(out.status.code(), Some(0), "stderr: {}", stderr(&out));
+    let text = stdout(&out);
+    let lines: Vec<&str> = text.lines().collect();
+    assert_eq!(
+        lines[..lines.len() - 1],
+        [
+            "synced        ff app −1",
+            "held          push blog +1 · clone gone",
+            "              hint: sync never pushes — each push held is yours to make",
+            "              hint: sync never clones — each missing entry is yours to clone",
+        ],
+        "{text}"
+    );
+    assert!(
+        lines[lines.len() - 1].starts_with("clean 0 · on branches 0 · pinned 0"),
+        "{text}"
+    );
+
+    // again: nothing left to fast-forward
+    let text = stdout(&repos(&ws, &ws.root(), &["sync"]));
+    assert!(
+        text.starts_with("held          push blog +1 · clone gone\n"),
+        "{text}"
+    );
+    // status agrees
+    let text = stdout(&repos(&ws, &ws.root(), &["status"]));
+    assert!(
+        text.starts_with("sync would    push blog +1 · clone gone\n"),
+        "{text}"
+    );
+}
+
+#[test]
+fn sync_text_says_an_action_once_for_entries_sharing_a_repo() {
+    // `app_wt` is a linked worktree of app's, on `wt`: both entries list
+    // both branches, each acted on once, for the repo
+    let mut ws = FixtureWorkspace::new();
+    let app = ws.owned_repo("app", &[]);
+    ws.git(&app, &["branch", "-q", "--track", "wt", "origin/main"]);
+    ws.add_worktree(&app, &ws.dir("app-wt"), &["wt"]);
+    ws.declare_repo("app_wt", "app", "dir = \"app-wt\"");
+    ws.upstream_commit("app", "main");
+    ws.write_registry();
+
+    let report = parse(&repos(&ws, &ws.root(), &["sync", "--json"]));
+    let repeats = |e: usize| -> Vec<Value> {
+        report["entries"][e]["branches"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|b| b["repeats"].clone())
+            .collect()
+    };
+    // per entry in the report: app's own, app_wt's app's
+    assert_eq!(repeats(0), [Value::Null, Value::Null]);
+    assert_eq!(repeats(1), ["app", "app"]);
+    for e in 0..2 {
+        for b in 0..2 {
+            assert_eq!(
+                report["entries"][e]["branches"][b]["kind"],
+                "fast_forwarded"
+            );
+        }
+    }
+
+    // the summary says each once
+    ws.upstream_commit("app", "main");
+    let out = repos(&ws, &ws.root(), &["sync"]);
+    assert_eq!(out.status.code(), Some(0), "stderr: {}", stderr(&out));
+    let text = stdout(&out);
+    assert!(
+        text.starts_with("synced        ff app −1, app:wt −1\n"),
+        "{text}"
+    );
+}
+
+#[test]
+fn sync_exits_one_when_git_refuses_an_action() {
+    let mut ws = FixtureWorkspace::new();
+    ws.remote("app", &[(".gitignore", "secret.env\n")]);
+    ws.declare_repo("app", "app", "");
+    let app = ws.clone_owned("app", "app", &[]);
+    let up = ws.upstream("app");
+    support::write(&up, "secret.env", "tracked\n");
+    ws.git(&up, &["add", "-f", "secret.env"]);
+    ws.git(&up, &["commit", "-q", "-m", "track it"]);
+    ws.git(&up, &["push", "-q", "origin", "main"]);
+    support::write(&app, "secret.env", "mine\n");
+    ws.assert_clean(&app);
+    ws.write_registry();
+    let head = ws.git(&app, &["rev-parse", "HEAD"]);
+
+    let out = repos(&ws, &ws.root(), &["sync"]);
+    assert_eq!(out.status.code(), Some(1), "stderr: {}", stderr(&out));
+    assert!(
+        stdout(&out).starts_with(
+            "failed        app (ff: error: The following untracked working tree files would \
+             be overwritten by merge:)\n"
+        ),
+        "{}",
+        stdout(&out)
+    );
+    // `--json` prints the report, failure and all
+    let out = repos(&ws, &ws.root(), &["sync", "--json"]);
+    assert_eq!(out.status.code(), Some(1), "stderr: {}", stderr(&out));
+    let report: Value = serde_json::from_str(&stdout(&out)).unwrap();
+    assert_eq!(report["entries"][0]["branches"][0]["kind"], "failed");
+    assert_eq!(ws.git(&app, &["rev-parse", "HEAD"]), head);
+    assert_eq!(
+        std::fs::read_to_string(app.join("secret.env")).unwrap(),
+        "mine\n"
+    );
+}
+
+#[test]
+fn sync_caller_errors_exit_two_with_a_sync_document() {
+    let ws = sync_workspace();
+    let out = repos(&ws, &ws.root(), &["sync", "--json", "nope"]);
+    assert_eq!(out.status.code(), Some(2), "stderr: {}", stderr(&out));
+    let doc: Value = serde_json::from_str(&stdout(&out)).unwrap();
+    assert_eq!(doc["version"], SYNC_FORMAT_VERSION);
+    assert_eq!(doc["error"]["kind"], "unknown_entry");
+    // nothing was fetched: the target failed before anything ran
+    assert_eq!(
+        ws.git(&ws.dir("app"), &["rev-parse", "origin/main"]),
+        ws.git(&ws.dir("app"), &["rev-parse", "main"])
+    );
 }

@@ -1,5 +1,5 @@
 {
-	"version": 7,
+	"version": 8,
 	"workspace": "/home/me/dev",
 	"registry": "/home/me/dev/repos.toml",
 	"fetched": true,
@@ -147,6 +147,7 @@
 					"name": "main",
 					"upstream": "origin/main",
 					"worktree": "/home/me/dev/app",
+					"symref": null,
 					"unique_commits": 2,
 					"newest_commit_at": 1799827200,
 					"relation": {
@@ -165,6 +166,7 @@
 					"name": "feat",
 					"upstream": "origin/feat",
 					"worktree": "/home/me/dev/app-feat",
+					"symref": null,
 					"unique_commits": 0,
 					"newest_commit_at": 1799827200,
 					"relation": {
@@ -184,6 +186,7 @@
 					"name": "agent",
 					"upstream": "origin/agent",
 					"worktree": "/home/me/dev/app/.claude/worktrees/agent",
+					"symref": null,
 					"unique_commits": 1,
 					"newest_commit_at": 1799827200,
 					"relation": {
@@ -203,6 +206,7 @@
 					"name": "usb",
 					"upstream": "origin/usb",
 					"worktree": null,
+					"symref": null,
 					"unique_commits": 0,
 					"newest_commit_at": 1799827200,
 					"relation": {
@@ -222,6 +226,7 @@
 					"name": "arc",
 					"upstream": "origin/arc",
 					"worktree": null,
+					"symref": null,
 					"unique_commits": 2,
 					"newest_commit_at": 1799827200,
 					"relation": {
@@ -238,6 +243,7 @@
 					"name": "fork",
 					"upstream": "origin/fork",
 					"worktree": null,
+					"symref": null,
 					"unique_commits": 3,
 					"newest_commit_at": 1799827200,
 					"relation": {
@@ -252,6 +258,7 @@
 					"name": "wip",
 					"upstream": null,
 					"worktree": null,
+					"symref": null,
 					"unique_commits": 1,
 					"newest_commit_at": 1796544000,
 					"relation": {
@@ -265,6 +272,7 @@
 					"name": "old",
 					"upstream": "origin/old",
 					"worktree": "/home/me/wt/app-old",
+					"symref": null,
 					"unique_commits": 0,
 					"newest_commit_at": 1799827200,
 					"relation": {
@@ -280,6 +288,7 @@
 					"name": "done",
 					"upstream": null,
 					"worktree": null,
+					"symref": null,
 					"unique_commits": 0,
 					"newest_commit_at": 1799827200,
 					"relation": {
@@ -295,6 +304,7 @@
 					"name": "synced",
 					"upstream": "origin/synced",
 					"worktree": null,
+					"symref": null,
 					"unique_commits": 0,
 					"newest_commit_at": 1799827200,
 					"relation": {
@@ -308,6 +318,21 @@
 					"name": "theirs",
 					"upstream": "upstream/main",
 					"worktree": null,
+					"symref": null,
+					"unique_commits": 0,
+					"newest_commit_at": 1799827200,
+					"relation": {
+						"kind": "untracked"
+					},
+					"verdict": {
+						"kind": "quiet"
+					}
+				},
+				{
+					"name": "m",
+					"upstream": null,
+					"worktree": null,
+					"symref": "refs/heads/main",
 					"unique_commits": 0,
 					"newest_commit_at": 1799827200,
 					"relation": {
@@ -546,6 +571,7 @@
 					"name": "main",
 					"upstream": "origin/main",
 					"worktree": "/home/me/dev/fuz_blog",
+					"symref": null,
 					"unique_commits": 2,
 					"newest_commit_at": 1799827200,
 					"relation": {
@@ -645,6 +671,7 @@
 					"name": "main",
 					"upstream": "origin/main",
 					"worktree": "/home/me/dev/old",
+					"symref": null,
 					"unique_commits": 1,
 					"newest_commit_at": 1799827200,
 					"relation": {
@@ -723,6 +750,7 @@
 					"name": "main",
 					"upstream": "origin/main",
 					"worktree": null,
+					"symref": null,
 					"unique_commits": 0,
 					"newest_commit_at": 1799827200,
 					"relation": {
@@ -739,6 +767,7 @@
 					"name": "work",
 					"upstream": "origin/work",
 					"worktree": null,
+					"symref": null,
 					"unique_commits": 2,
 					"newest_commit_at": 1799827200,
 					"relation": {
@@ -753,6 +782,7 @@
 					"name": "audit",
 					"upstream": null,
 					"worktree": null,
+					"symref": null,
 					"unique_commits": 4,
 					"newest_commit_at": 1799827200,
 					"relation": {
@@ -833,6 +863,7 @@
 					"name": "draft",
 					"upstream": "origin/draft",
 					"worktree": null,
+					"symref": null,
 					"unique_commits": 0,
 					"newest_commit_at": 1799827200,
 					"relation": {
@@ -919,6 +950,7 @@
 					"name": "main",
 					"upstream": null,
 					"worktree": null,
+					"symref": null,
 					"unique_commits": 0,
 					"newest_commit_at": 1799827200,
 					"relation": {
@@ -1086,7 +1118,28 @@
 					"busy": []
 				}
 			],
-			"branches": [],
+			"branches": [
+				{
+					"name": "main",
+					"upstream": "origin/main",
+					"worktree": "/home/me/dev/fuz_forge",
+					"symref": null,
+					"unique_commits": 0,
+					"newest_commit_at": 1799827200,
+					"relation": {
+						"kind": "behind",
+						"commits": 2
+					},
+					"verdict": {
+						"kind": "held",
+						"action": {
+							"kind": "fast_forward",
+							"commits": 2
+						},
+						"by": "fetch_failed"
+					}
+				}
+			],
 			"stashes": 0,
 			"fetched_at": 1799913600,
 			"needs_human": [],
@@ -1100,6 +1153,95 @@
 			"visibility_check": {
 				"kind": "private"
 			}
+		},
+		{
+			"key": "gro",
+			"kind": "repo",
+			"dir": "gro",
+			"url": "https://github.com/me/gro",
+			"writable": true,
+			"archived": false,
+			"visibility": "public",
+			"ci": true,
+			"branch": "main",
+			"pinned": false,
+			"presence": {
+				"kind": "present"
+			},
+			"layout": {
+				"shallow": false,
+				"sparse": false,
+				"partial_filter": null
+			},
+			"checkouts": [
+				{
+					"path": "/home/me/dev/gro",
+					"primary": true,
+					"head": {
+						"kind": "branch",
+						"name": "main"
+					},
+					"uncommitted": {
+						"staged": 0,
+						"unstaged": 0,
+						"untracked": 0,
+						"conflicted": 0
+					},
+					"in_progress": null,
+					"locked": false,
+					"linked": false,
+					"submodules": null,
+					"busy": []
+				},
+				{
+					"path": "/home/me/dev/gro-twin",
+					"primary": false,
+					"head": {
+						"kind": "branch",
+						"name": "main"
+					},
+					"uncommitted": {
+						"staged": 0,
+						"unstaged": 0,
+						"untracked": 0,
+						"conflicted": 0
+					},
+					"in_progress": null,
+					"locked": false,
+					"linked": true,
+					"submodules": null,
+					"busy": []
+				}
+			],
+			"branches": [
+				{
+					"name": "main",
+					"upstream": "origin/main",
+					"worktree": "/home/me/dev/gro",
+					"symref": null,
+					"unique_commits": 0,
+					"newest_commit_at": 1799827200,
+					"relation": {
+						"kind": "behind",
+						"commits": 3
+					},
+					"verdict": {
+						"kind": "held",
+						"action": {
+							"kind": "fast_forward",
+							"commits": 3
+						},
+						"by": "several_checkouts"
+					}
+				}
+			],
+			"stashes": 0,
+			"fetched_at": 1799913600,
+			"needs_human": [],
+			"probe_error": null,
+			"unprobed_worktrees": [],
+			"fetch_error": null,
+			"visibility_check": null
 		},
 		{
 			"key": "zap",

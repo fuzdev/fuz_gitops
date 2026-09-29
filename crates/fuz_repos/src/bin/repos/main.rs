@@ -1,13 +1,16 @@
 //! `repos` — git state over the repos a `repos.toml` registry declares.
 //!
 //! Exit codes: `0` when the command ran (what the report says is data, not
-//! failure); `1` for a runtime failure; `2` when the caller must change
-//! something — usage, a missing or invalid registry, git missing or too old,
-//! an unknown target.
+//! failure); `1` for a runtime failure, and under `sync` for anything that
+//! failed — a fetch (git's failure, or the tool's refusal to run one whose
+//! refspec it can't confine: the entry went unsynced and a person must
+//! act), a probe, or an action git refused; `2` when the caller must change
+//! something — usage, a missing or invalid registry, git missing or too
+//! old, an unknown target.
 //!
-//! A fatal error prints `error: …` and `hint: …` on stderr; under `status
-//! --json` it also prints one `ErrorReport` document on stdout, in place of
-//! the report. An argument the parser rejects is reported before `--json` is
+//! A fatal error prints `error: …` and `hint: …` on stderr; under `--json`
+//! it also prints one `ErrorReport` document on stdout, in place of the
+//! report. An argument the parser rejects is reported before `--json` is
 //! known, so it stays argh's text on stderr (exit 2) under `--json` too; so
 //! does a non-UTF-8 argument.
 //!
@@ -28,18 +31,21 @@ use std::process::ExitCode;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use argh::{EarlyExit, FromArgs};
-use fuz_repos::discover::{find_registry, resolve_targets};
+use fuz_repos::discover::{RegistryLocation, find_registry, resolve_targets};
 use fuz_repos::error::{Error, Result};
 use fuz_repos::git::Git;
 use fuz_repos::probe::RegistryDirs;
-use fuz_repos::registry::ValidRegistry;
-use fuz_repos::report::{ErrorReport, StatusReport};
+use fuz_repos::registry::{Entry, ValidRegistry};
+use fuz_repos::report::{ErrorReport, StatusReport, SyncReport};
 use fuz_repos::scan::scan_unregistered;
 use fuz_repos::sessions::{SessionsSource, read_live_sessions};
 use fuz_repos::status::{EntryTiming, StatusOptions, mark_moved_worktrees, status};
+use fuz_repos::sync::{SyncOptions, sync};
+use fuz_repos::{STATUS_FORMAT_VERSION, SYNC_FORMAT_VERSION};
 
 use crate::render::{
-    View, render_entry, render_summary, render_unregistered, summary_width, use_color,
+    View, render_entry, render_summary, render_sync_summary, render_unregistered, summary_width,
+    use_color,
 };
 
 /// The build's identity: the crate version, and the commit the binary was
@@ -68,6 +74,7 @@ struct Cli {
 #[argh(subcommand)]
 enum Command {
     Status(StatusArgs),
+    Sync(SyncArgs),
 }
 
 /// Report every entry's git state from local refs, grouped by what to do next.
@@ -101,6 +108,31 @@ struct StatusArgs {
     timings: bool,
 }
 
+/// Fetch, then fast-forward each branch behind and move each stale shallow
+/// one, where safe; report what was done and what was held. Never pushes,
+/// merges, rebases, deletes, or clones.
+#[derive(FromArgs, Debug)]
+#[argh(subcommand, name = "sync")]
+struct SyncArgs {
+    /// registry keys, dir names, or paths inside checkouts (default: every
+    /// entry)
+    #[argh(positional)]
+    targets: Vec<String>,
+    /// print the report as JSON
+    #[argh(switch)]
+    json: bool,
+    /// add a block per entry: the state sync acted on
+    #[argh(switch)]
+    verbose: bool,
+    /// entries fetched, and repos acted on, at once
+    #[argh(option, default = "16")]
+    jobs: usize,
+    /// print wall time per phase, git spawns, and the slowest entries to
+    /// stderr
+    #[argh(switch)]
+    timings: bool,
+}
+
 fn main() -> ExitCode {
     let args = match utf8_args(std::env::args_os().skip(1)) {
         Ok(args) => args,
@@ -123,7 +155,12 @@ fn main() -> ExitCode {
             };
         }
     };
-    let json = matches!(&cli.command, Some(Command::Status(args)) if args.json);
+    // the version of the document `--json` prints, when it's given
+    let json = match &cli.command {
+        Some(Command::Status(args)) => args.json.then_some(STATUS_FORMAT_VERSION),
+        Some(Command::Sync(args)) => args.json.then_some(SYNC_FORMAT_VERSION),
+        None => None,
+    };
     let printed = match run(cli) {
         Ok(printed) => printed,
         Err(e) => {
@@ -133,11 +170,15 @@ fn main() -> ExitCode {
     };
     // stdout's own failure gets no JSON document: stdout is what failed
     if let Err(e) = write_stdout(&printed.stdout) {
-        print_error(&e, false);
+        print_error(&e, None);
         return ExitCode::from(e.exit_code());
     }
     eprint!("{}", printed.stderr);
-    ExitCode::SUCCESS
+    if printed.failed {
+        ExitCode::FAILURE
+    } else {
+        ExitCode::SUCCESS
+    }
 }
 
 /// The arguments as UTF-8, or the usage error naming the first that isn't —
@@ -157,34 +198,36 @@ fn utf8_args(
     .collect()
 }
 
-/// Prints a fatal error on stderr and, under `--json`, its document on
-/// stdout.
-fn print_error(e: &Error, json: bool) {
+/// Prints a fatal error on stderr and, under `--json` (`json` is the
+/// command's document version), its document on stdout.
+fn print_error(e: &Error, json: Option<u32>) {
     eprintln!("error: {}", e.message());
     if let Some(hint) = e.hint() {
         eprintln!("hint: {hint}");
     }
-    if json {
+    if let Some(version) = json {
         // an `ErrorReport` is strings all the way down: it always serializes
-        if let Ok(mut doc) = serde_json::to_string_pretty(&ErrorReport::new(e)) {
+        if let Ok(mut doc) = serde_json::to_string_pretty(&ErrorReport::new(e, version)) {
             doc.push('\n');
             let _ = io::stdout().lock().write_all(doc.as_bytes());
         }
     }
 }
 
-/// What a successful run prints: stdout, then stderr.
+/// What a run that produced a report prints: stdout, then stderr; and
+/// whether it exits `1` for something the report says failed.
 #[derive(Debug, Default)]
 struct Printed {
     stdout: String,
     stderr: String,
+    failed: bool,
 }
 
 fn run(cli: Cli) -> Result<Printed> {
     if cli.version {
         return Ok(Printed {
             stdout: format!("repos {VERSION}\n"),
-            stderr: String::new(),
+            ..Printed::default()
         });
     }
     let locate = Locate {
@@ -193,6 +236,7 @@ fn run(cli: Cli) -> Result<Printed> {
     };
     match cli.command {
         Some(Command::Status(args)) => run_status(locate, &args),
+        Some(Command::Sync(args)) => run_sync(locate, &args),
         None => Err(Error::MissingCommand),
     }
 }
@@ -204,8 +248,16 @@ struct Locate<'a> {
     root: Option<&'a Path>,
 }
 
-fn run_status(locate: Locate<'_>, args: &StatusArgs) -> Result<Printed> {
-    let start = Instant::now();
+/// The registry found and validated, and the entries the targets name.
+struct Loaded {
+    git: Git,
+    loc: RegistryLocation,
+    registry: ValidRegistry,
+    all: Vec<Entry>,
+    entries: Vec<Entry>,
+}
+
+fn load(locate: Locate<'_>, targets: &[String]) -> Result<Loaded> {
     let cwd = std::env::current_dir().map_err(|source| Error::Io {
         context: "failed to read the current directory".into(),
         source,
@@ -217,7 +269,126 @@ fn run_status(locate: Locate<'_>, args: &StatusArgs) -> Result<Printed> {
     // validated before targets resolve and anything is probed
     let registry = ValidRegistry::load(&loc.path)?;
     let all = registry.entries();
-    let entries = resolve_targets(&all, &loc.root, &cwd, &args.targets, &git)?;
+    let entries = resolve_targets(&all, &loc.root, &cwd, targets, &git)?;
+    Ok(Loaded {
+        git,
+        loc,
+        registry,
+        all,
+        entries,
+    })
+}
+
+/// How rendering sees the environment, for a run printing JSON or not.
+fn view(home: Option<&str>, json: bool) -> View<'_> {
+    let columns = std::env::var("COLUMNS").ok();
+    View {
+        home,
+        now: SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs(),
+        width: summary_width(columns.as_deref()),
+        // never under `--json`, which renders nothing
+        color: !json
+            && use_color(
+                io::stdout().is_terminal(),
+                std::env::var_os("NO_COLOR").as_deref(),
+            ),
+    }
+}
+
+/// A report as `--json` prints it.
+fn to_json(report: &impl serde::Serialize) -> Result<String> {
+    let mut json = serde_json::to_string_pretty(report).map_err(|e| Error::Io {
+        context: "failed to serialize the report".into(),
+        source: io::Error::other(e),
+    })?;
+    json.push('\n');
+    Ok(json)
+}
+
+fn run_sync(locate: Locate<'_>, args: &SyncArgs) -> Result<Printed> {
+    let start = Instant::now();
+    let Loaded {
+        git,
+        loc,
+        all,
+        entries,
+        ..
+    } = load(locate, &args.targets)?;
+    let load_time = start.elapsed();
+
+    let source = SessionsSource::from_env();
+    let read_live = || read_live_sessions(&source);
+    let run = sync(
+        &entries,
+        &RegistryDirs::new(&loc.root, &all),
+        &loc.root,
+        &git,
+        SyncOptions {
+            jobs: args.jobs,
+            visibility_base: None,
+            read_live: &read_live,
+        },
+    );
+    let status = StatusReport::new(
+        loc.root.to_string_lossy().into_owned(),
+        loc.path.to_string_lossy().into_owned(),
+        true,
+        run.sessions,
+        run.entries,
+    );
+    let report = SyncReport::new(status, run.outcomes);
+
+    let render_start = Instant::now();
+    let home = std::env::var("HOME").ok();
+    let view = view(home.as_deref(), args.json);
+    let stdout = if args.json {
+        to_json(&report)?
+    } else {
+        let mut out = String::new();
+        if args.verbose {
+            for e in &report.status.entries {
+                out.push_str(&render_entry(e, &loc.root, view));
+                out.push('\n');
+            }
+        }
+        out.push_str(&render_sync_summary(&report, view, args.verbose));
+        out
+    };
+    let render_time = render_start.elapsed();
+
+    let mut printed = Printed {
+        stdout,
+        stderr: String::new(),
+        failed: report.failed(),
+    };
+    if args.timings {
+        printed.stderr = render_timings(&Timings {
+            load: load_time,
+            probe: run.probe_elapsed,
+            act: Some(run.act_elapsed),
+            scan: None,
+            render: render_time,
+            total: start.elapsed(),
+            jobs: args.jobs,
+            spawns: git.spawns(),
+            entries: &run.timings,
+        });
+    }
+    Ok(printed)
+}
+
+fn run_status(locate: Locate<'_>, args: &StatusArgs) -> Result<Printed> {
+    let start = Instant::now();
+    let Loaded {
+        git,
+        loc,
+        registry,
+        all,
+        entries,
+    } = load(locate, &args.targets)?;
     let load_time = start.elapsed();
 
     let live = read_live_sessions(&SessionsSource::from_env());
@@ -261,28 +432,9 @@ fn run_status(locate: Locate<'_>, args: &StatusArgs) -> Result<Printed> {
 
     let render_start = Instant::now();
     let home = std::env::var("HOME").ok();
-    let columns = std::env::var("COLUMNS").ok();
-    let view = View {
-        home: home.as_deref(),
-        now: SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs(),
-        width: summary_width(columns.as_deref()),
-        // never under `--json`, which renders nothing
-        color: !args.json
-            && use_color(
-                io::stdout().is_terminal(),
-                std::env::var_os("NO_COLOR").as_deref(),
-            ),
-    };
+    let view = view(home.as_deref(), args.json);
     let out = if args.json {
-        let mut json = serde_json::to_string_pretty(&report).map_err(|e| Error::Io {
-            context: "failed to serialize the report".into(),
-            source: io::Error::other(e),
-        })?;
-        json.push('\n');
-        json
+        to_json(&report)?
     } else {
         let mut out = String::new();
         if args.verbose {
@@ -302,12 +454,13 @@ fn run_status(locate: Locate<'_>, args: &StatusArgs) -> Result<Printed> {
 
     let mut printed = Printed {
         stdout: out,
-        stderr: String::new(),
+        ..Printed::default()
     };
     if args.timings {
         printed.stderr = render_timings(&Timings {
             load: load_time,
             probe: run.elapsed,
+            act: None,
             scan: scan_time,
             render: render_time,
             total: start.elapsed(),
@@ -334,6 +487,8 @@ fn write_stdout(s: &str) -> Result<()> {
 struct Timings<'a> {
     load: Duration,
     probe: Duration,
+    /// Sync's acting; `None` for `status`.
+    act: Option<Duration>,
     /// `None` when the unregistered scan didn't run.
     scan: Option<Duration>,
     render: Duration,
@@ -354,8 +509,12 @@ fn render_timings(t: &Timings<'_>) -> String {
         .scan
         .map(|d| format!(" · scan {}", ms(d)))
         .unwrap_or_default();
+    let act = t
+        .act
+        .map(|d| format!(" · act {}", ms(d)))
+        .unwrap_or_default();
     let mut out = format!(
-        "timings   load {} · {phase} {} (jobs {}){scan} · render {} · total {}\n",
+        "timings   load {} · {phase} {} (jobs {}){act}{scan} · render {} · total {}\n",
         ms(t.load),
         ms(t.probe),
         t.jobs,

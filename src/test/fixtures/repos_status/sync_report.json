@@ -1,0 +1,891 @@
+{
+	"version": 1,
+	"status": {
+		"version": 8,
+		"workspace": "/home/me/dev",
+		"registry": "/home/me/dev/repos.toml",
+		"fetched": true,
+		"sessions": {
+			"kind": "available",
+			"unscoped": []
+		},
+		"entries": [
+			{
+				"key": "app",
+				"kind": "repo",
+				"dir": "app",
+				"url": "https://github.com/me/app",
+				"writable": true,
+				"archived": false,
+				"visibility": "public",
+				"ci": true,
+				"branch": "main",
+				"pinned": false,
+				"presence": {
+					"kind": "present"
+				},
+				"layout": {
+					"shallow": false,
+					"sparse": false,
+					"partial_filter": null
+				},
+				"checkouts": [
+					{
+						"path": "/home/me/dev/app",
+						"primary": true,
+						"head": {
+							"kind": "branch",
+							"name": "main"
+						},
+						"uncommitted": {
+							"staged": 0,
+							"unstaged": 0,
+							"untracked": 0,
+							"conflicted": 0
+						},
+						"in_progress": null,
+						"locked": false,
+						"linked": false,
+						"submodules": null,
+						"busy": []
+					}
+				],
+				"branches": [
+					{
+						"name": "main",
+						"upstream": "origin/main",
+						"worktree": null,
+						"symref": null,
+						"unique_commits": 0,
+						"newest_commit_at": 1799827200,
+						"relation": {
+							"kind": "behind",
+							"commits": 2
+						},
+						"verdict": {
+							"kind": "act",
+							"action": {
+								"kind": "fast_forward",
+								"commits": 2
+							}
+						}
+					},
+					{
+						"name": "docs",
+						"upstream": "origin/docs",
+						"worktree": null,
+						"symref": null,
+						"unique_commits": 0,
+						"newest_commit_at": 1799827200,
+						"relation": {
+							"kind": "shallow"
+						},
+						"verdict": {
+							"kind": "act",
+							"action": {
+								"kind": "move"
+							}
+						}
+					},
+					{
+						"name": "feat",
+						"upstream": "origin/feat",
+						"worktree": null,
+						"symref": null,
+						"unique_commits": 0,
+						"newest_commit_at": 1799827200,
+						"relation": {
+							"kind": "behind",
+							"commits": 1
+						},
+						"verdict": {
+							"kind": "act",
+							"action": {
+								"kind": "fast_forward",
+								"commits": 1
+							}
+						}
+					},
+					{
+						"name": "late",
+						"upstream": "origin/late",
+						"worktree": null,
+						"symref": null,
+						"unique_commits": 0,
+						"newest_commit_at": 1799827200,
+						"relation": {
+							"kind": "behind",
+							"commits": 1
+						},
+						"verdict": {
+							"kind": "act",
+							"action": {
+								"kind": "fast_forward",
+								"commits": 1
+							}
+						}
+					},
+					{
+						"name": "ahead",
+						"upstream": "origin/ahead",
+						"worktree": null,
+						"symref": null,
+						"unique_commits": 0,
+						"newest_commit_at": 1799827200,
+						"relation": {
+							"kind": "ahead",
+							"commits": 3
+						},
+						"verdict": {
+							"kind": "act",
+							"action": {
+								"kind": "push",
+								"commits": 3
+							}
+						}
+					},
+					{
+						"name": "dirty",
+						"upstream": "origin/dirty",
+						"worktree": null,
+						"symref": null,
+						"unique_commits": 0,
+						"newest_commit_at": 1799827200,
+						"relation": {
+							"kind": "behind",
+							"commits": 1
+						},
+						"verdict": {
+							"kind": "held",
+							"action": {
+								"kind": "fast_forward",
+								"commits": 1
+							},
+							"by": "dirty_checkout"
+						}
+					},
+					{
+						"name": "busy",
+						"upstream": "origin/busy",
+						"worktree": null,
+						"symref": null,
+						"unique_commits": 0,
+						"newest_commit_at": 1799827200,
+						"relation": {
+							"kind": "behind",
+							"commits": 1
+						},
+						"verdict": {
+							"kind": "held",
+							"action": {
+								"kind": "fast_forward",
+								"commits": 1
+							},
+							"by": "busy"
+						}
+					},
+					{
+						"name": "unseen",
+						"upstream": "origin/unseen",
+						"worktree": null,
+						"symref": null,
+						"unique_commits": 0,
+						"newest_commit_at": 1799827200,
+						"relation": {
+							"kind": "behind",
+							"commits": 1
+						},
+						"verdict": {
+							"kind": "act",
+							"action": {
+								"kind": "fast_forward",
+								"commits": 1
+							}
+						}
+					},
+					{
+						"name": "usb",
+						"upstream": "origin/usb",
+						"worktree": null,
+						"symref": null,
+						"unique_commits": 0,
+						"newest_commit_at": 1799827200,
+						"relation": {
+							"kind": "behind",
+							"commits": 4
+						},
+						"verdict": {
+							"kind": "held",
+							"action": {
+								"kind": "fast_forward",
+								"commits": 4
+							},
+							"by": "unprobed_worktree"
+						}
+					},
+					{
+						"name": "twin",
+						"upstream": "origin/twin",
+						"worktree": null,
+						"symref": null,
+						"unique_commits": 0,
+						"newest_commit_at": 1799827200,
+						"relation": {
+							"kind": "behind",
+							"commits": 1
+						},
+						"verdict": {
+							"kind": "held",
+							"action": {
+								"kind": "fast_forward",
+								"commits": 1
+							},
+							"by": "several_checkouts"
+						}
+					},
+					{
+						"name": "arc",
+						"upstream": "origin/arc",
+						"worktree": null,
+						"symref": null,
+						"unique_commits": 0,
+						"newest_commit_at": 1799827200,
+						"relation": {
+							"kind": "diverged",
+							"ahead": 1,
+							"behind": 1
+						},
+						"verdict": {
+							"kind": "needs_human",
+							"reason": "diverged"
+						}
+					},
+					{
+						"name": "done",
+						"upstream": "origin/done",
+						"worktree": null,
+						"symref": null,
+						"unique_commits": 0,
+						"newest_commit_at": 1799827200,
+						"relation": {
+							"kind": "in_sync"
+						},
+						"verdict": {
+							"kind": "quiet"
+						}
+					}
+				],
+				"stashes": 0,
+				"fetched_at": 1799913600,
+				"needs_human": [],
+				"probe_error": null,
+				"unprobed_worktrees": [],
+				"fetch_error": null,
+				"visibility_check": null
+			},
+			{
+				"key": "app_wt",
+				"kind": "repo",
+				"dir": "app-wt",
+				"url": "https://github.com/me/app",
+				"writable": true,
+				"archived": false,
+				"visibility": "public",
+				"ci": true,
+				"branch": "main",
+				"pinned": false,
+				"presence": {
+					"kind": "present"
+				},
+				"layout": {
+					"shallow": false,
+					"sparse": false,
+					"partial_filter": null
+				},
+				"checkouts": [
+					{
+						"path": "/home/me/dev/app-wt",
+						"primary": true,
+						"head": {
+							"kind": "branch",
+							"name": "wt"
+						},
+						"uncommitted": {
+							"staged": 0,
+							"unstaged": 0,
+							"untracked": 0,
+							"conflicted": 0
+						},
+						"in_progress": null,
+						"locked": false,
+						"linked": false,
+						"submodules": null,
+						"busy": []
+					}
+				],
+				"branches": [
+					{
+						"name": "main",
+						"upstream": "origin/main",
+						"worktree": null,
+						"symref": null,
+						"unique_commits": 0,
+						"newest_commit_at": 1799827200,
+						"relation": {
+							"kind": "behind",
+							"commits": 2
+						},
+						"verdict": {
+							"kind": "act",
+							"action": {
+								"kind": "fast_forward",
+								"commits": 2
+							}
+						}
+					}
+				],
+				"stashes": 0,
+				"fetched_at": 1799913600,
+				"needs_human": [],
+				"probe_error": null,
+				"unprobed_worktrees": [],
+				"fetch_error": null,
+				"visibility_check": null
+			},
+			{
+				"key": "blog",
+				"kind": "repo",
+				"dir": "blog",
+				"url": "https://github.com/me/blog",
+				"writable": true,
+				"archived": false,
+				"visibility": "public",
+				"ci": true,
+				"branch": "main",
+				"pinned": false,
+				"presence": {
+					"kind": "present"
+				},
+				"layout": {
+					"shallow": false,
+					"sparse": false,
+					"partial_filter": null
+				},
+				"checkouts": [
+					{
+						"path": "/home/me/dev/blog",
+						"primary": true,
+						"head": {
+							"kind": "branch",
+							"name": "main"
+						},
+						"uncommitted": {
+							"staged": 0,
+							"unstaged": 0,
+							"untracked": 0,
+							"conflicted": 0
+						},
+						"in_progress": null,
+						"locked": false,
+						"linked": false,
+						"submodules": null,
+						"busy": []
+					}
+				],
+				"branches": [
+					{
+						"name": "main",
+						"upstream": "origin/main",
+						"worktree": null,
+						"symref": null,
+						"unique_commits": 0,
+						"newest_commit_at": 1799827200,
+						"relation": {
+							"kind": "behind",
+							"commits": 1
+						},
+						"verdict": {
+							"kind": "held",
+							"action": {
+								"kind": "fast_forward",
+								"commits": 1
+							},
+							"by": "entry"
+						}
+					}
+				],
+				"stashes": 0,
+				"fetched_at": 1799913600,
+				"needs_human": [
+					{
+						"kind": "operation_in_progress",
+						"checkout": "/home/me/dev/blog",
+						"op": "rebase"
+					}
+				],
+				"probe_error": null,
+				"unprobed_worktrees": [],
+				"fetch_error": null,
+				"visibility_check": null
+			},
+			{
+				"key": "fuz_forge",
+				"kind": "repo",
+				"dir": "fuz_forge",
+				"url": "https://github.com/me/fuz_forge",
+				"writable": true,
+				"archived": false,
+				"visibility": "public",
+				"ci": true,
+				"branch": "main",
+				"pinned": false,
+				"presence": {
+					"kind": "present"
+				},
+				"layout": {
+					"shallow": false,
+					"sparse": false,
+					"partial_filter": null
+				},
+				"checkouts": [
+					{
+						"path": "/home/me/dev/fuz_forge",
+						"primary": true,
+						"head": {
+							"kind": "branch",
+							"name": "main"
+						},
+						"uncommitted": {
+							"staged": 0,
+							"unstaged": 0,
+							"untracked": 0,
+							"conflicted": 0
+						},
+						"in_progress": null,
+						"locked": false,
+						"linked": false,
+						"submodules": null,
+						"busy": []
+					}
+				],
+				"branches": [
+					{
+						"name": "main",
+						"upstream": "origin/main",
+						"worktree": null,
+						"symref": null,
+						"unique_commits": 0,
+						"newest_commit_at": 1799827200,
+						"relation": {
+							"kind": "behind",
+							"commits": 2
+						},
+						"verdict": {
+							"kind": "held",
+							"action": {
+								"kind": "fast_forward",
+								"commits": 2
+							},
+							"by": "fetch_failed"
+						}
+					}
+				],
+				"stashes": 0,
+				"fetched_at": 1799913600,
+				"needs_human": [],
+				"probe_error": null,
+				"unprobed_worktrees": [],
+				"fetch_error": {
+					"kind": "unreachable",
+					"cause": "auth",
+					"message": "git@github.com: Permission denied (publickey)."
+				},
+				"visibility_check": null
+			},
+			{
+				"key": "spec",
+				"kind": "reference",
+				"dir": "spec",
+				"url": "https://github.com/me/spec",
+				"writable": true,
+				"archived": false,
+				"visibility": "public",
+				"ci": true,
+				"branch": null,
+				"pinned": true,
+				"presence": {
+					"kind": "present"
+				},
+				"layout": {
+					"shallow": false,
+					"sparse": false,
+					"partial_filter": null
+				},
+				"checkouts": [
+					{
+						"path": "/home/me/dev/spec",
+						"primary": true,
+						"head": {
+							"kind": "branch",
+							"name": "main"
+						},
+						"uncommitted": {
+							"staged": 0,
+							"unstaged": 0,
+							"untracked": 0,
+							"conflicted": 0
+						},
+						"in_progress": null,
+						"locked": false,
+						"linked": false,
+						"submodules": null,
+						"busy": []
+					}
+				],
+				"branches": [
+					{
+						"name": "main",
+						"upstream": "origin/main",
+						"worktree": null,
+						"symref": null,
+						"unique_commits": 0,
+						"newest_commit_at": 1799827200,
+						"relation": {
+							"kind": "behind",
+							"commits": 1
+						},
+						"verdict": {
+							"kind": "held",
+							"action": {
+								"kind": "fast_forward",
+								"commits": 1
+							},
+							"by": "pinned"
+						}
+					}
+				],
+				"stashes": 0,
+				"fetched_at": 1799913600,
+				"needs_human": [],
+				"probe_error": null,
+				"unprobed_worktrees": [],
+				"fetch_error": null,
+				"visibility_check": null
+			},
+			{
+				"key": "lib",
+				"kind": "reference",
+				"dir": "lib",
+				"url": "https://github.com/them/lib",
+				"writable": false,
+				"archived": false,
+				"visibility": null,
+				"ci": false,
+				"branch": null,
+				"pinned": false,
+				"presence": {
+					"kind": "present"
+				},
+				"layout": {
+					"shallow": false,
+					"sparse": false,
+					"partial_filter": null
+				},
+				"checkouts": [
+					{
+						"path": "/home/me/dev/lib",
+						"primary": true,
+						"head": {
+							"kind": "branch",
+							"name": "main"
+						},
+						"uncommitted": {
+							"staged": 0,
+							"unstaged": 0,
+							"untracked": 0,
+							"conflicted": 0
+						},
+						"in_progress": null,
+						"locked": false,
+						"linked": false,
+						"submodules": null,
+						"busy": []
+					}
+				],
+				"branches": [],
+				"stashes": 0,
+				"fetched_at": 1799913600,
+				"needs_human": [],
+				"probe_error": null,
+				"unprobed_worktrees": [],
+				"fetch_error": null,
+				"visibility_check": null
+			},
+			{
+				"key": "blake3",
+				"kind": "repo",
+				"dir": "blake3",
+				"url": "https://github.com/me/blake3",
+				"writable": true,
+				"archived": false,
+				"visibility": "public",
+				"ci": true,
+				"branch": "main",
+				"pinned": false,
+				"presence": {
+					"kind": "missing"
+				},
+				"layout": null,
+				"checkouts": [],
+				"branches": [],
+				"stashes": 0,
+				"fetched_at": null,
+				"needs_human": [],
+				"probe_error": null,
+				"unprobed_worktrees": [],
+				"fetch_error": null,
+				"visibility_check": null
+			},
+			{
+				"key": "broken",
+				"kind": "repo",
+				"dir": "broken",
+				"url": "https://github.com/me/broken",
+				"writable": true,
+				"archived": false,
+				"visibility": "public",
+				"ci": true,
+				"branch": "main",
+				"pinned": false,
+				"presence": {
+					"kind": "present"
+				},
+				"layout": {
+					"shallow": false,
+					"sparse": false,
+					"partial_filter": null
+				},
+				"checkouts": [],
+				"branches": [],
+				"stashes": 0,
+				"fetched_at": 1799913600,
+				"needs_human": [],
+				"probe_error": "git status failed (128): error: bad tree object HEAD",
+				"unprobed_worktrees": [],
+				"fetch_error": null,
+				"visibility_check": null
+			}
+		],
+		"unregistered": null
+	},
+	"entries": [
+		{
+			"key": "app",
+			"fetch": {
+				"kind": "fetched"
+			},
+			"branches": [
+				{
+					"name": "main",
+					"kind": "fast_forwarded",
+					"from": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+					"to": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+					"repeats": null
+				},
+				{
+					"name": "docs",
+					"kind": "moved",
+					"from": "cccccccccccccccccccccccccccccccccccccccc",
+					"to": "dddddddddddddddddddddddddddddddddddddddd",
+					"repeats": null
+				},
+				{
+					"name": "feat",
+					"kind": "failed",
+					"action": {
+						"kind": "fast_forward",
+						"commits": 1
+					},
+					"message": "git rejected moving refs/heads/feat: not a fast-forward",
+					"repeats": null
+				},
+				{
+					"name": "late",
+					"kind": "held",
+					"action": {
+						"kind": "fast_forward",
+						"commits": 1
+					},
+					"by": "changed",
+					"repeats": null
+				},
+				{
+					"name": "ahead",
+					"kind": "held",
+					"action": {
+						"kind": "push",
+						"commits": 3
+					},
+					"by": "not_pushed",
+					"repeats": null
+				},
+				{
+					"name": "dirty",
+					"kind": "held",
+					"action": {
+						"kind": "fast_forward",
+						"commits": 1
+					},
+					"by": "dirty_checkout",
+					"repeats": null
+				},
+				{
+					"name": "busy",
+					"kind": "held",
+					"action": {
+						"kind": "fast_forward",
+						"commits": 1
+					},
+					"by": "busy",
+					"repeats": null
+				},
+				{
+					"name": "unseen",
+					"kind": "held",
+					"action": {
+						"kind": "fast_forward",
+						"commits": 1
+					},
+					"by": "busy_unknown",
+					"repeats": null
+				},
+				{
+					"name": "usb",
+					"kind": "held",
+					"action": {
+						"kind": "fast_forward",
+						"commits": 4
+					},
+					"by": "unprobed_worktree",
+					"repeats": null
+				},
+				{
+					"name": "twin",
+					"kind": "held",
+					"action": {
+						"kind": "fast_forward",
+						"commits": 1
+					},
+					"by": "several_checkouts",
+					"repeats": null
+				},
+				{
+					"name": "arc",
+					"kind": "needs_human",
+					"reason": "diverged",
+					"repeats": null
+				},
+				{
+					"name": "done",
+					"kind": "untouched",
+					"repeats": null
+				}
+			]
+		},
+		{
+			"key": "app_wt",
+			"fetch": {
+				"kind": "fetched"
+			},
+			"branches": [
+				{
+					"name": "main",
+					"kind": "fast_forwarded",
+					"from": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+					"to": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+					"repeats": "app"
+				}
+			]
+		},
+		{
+			"key": "blog",
+			"fetch": {
+				"kind": "fetched"
+			},
+			"branches": [
+				{
+					"name": "main",
+					"kind": "held",
+					"action": {
+						"kind": "fast_forward",
+						"commits": 1
+					},
+					"by": "entry",
+					"repeats": null
+				}
+			]
+		},
+		{
+			"key": "fuz_forge",
+			"fetch": {
+				"kind": "failed",
+				"failure": {
+					"kind": "unreachable",
+					"cause": "auth",
+					"message": "git@github.com: Permission denied (publickey)."
+				}
+			},
+			"branches": [
+				{
+					"name": "main",
+					"kind": "held",
+					"action": {
+						"kind": "fast_forward",
+						"commits": 2
+					},
+					"by": "fetch_failed",
+					"repeats": null
+				}
+			]
+		},
+		{
+			"key": "spec",
+			"fetch": {
+				"kind": "not_fetched"
+			},
+			"branches": [
+				{
+					"name": "main",
+					"kind": "held",
+					"action": {
+						"kind": "fast_forward",
+						"commits": 1
+					},
+					"by": "pinned",
+					"repeats": null
+				}
+			]
+		},
+		{
+			"key": "lib",
+			"fetch": {
+				"kind": "not_fetched"
+			},
+			"branches": []
+		},
+		{
+			"key": "blake3",
+			"fetch": {
+				"kind": "not_fetched"
+			},
+			"branches": []
+		},
+		{
+			"key": "broken",
+			"fetch": {
+				"kind": "fetched"
+			},
+			"branches": []
+		}
+	]
+}

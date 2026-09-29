@@ -52,6 +52,7 @@ use fuz_repos::scan::scan_unregistered;
 use fuz_repos::sessions::{LiveSessions, stat_starttime};
 use fuz_repos::state::{BranchStatus, UnprobedWorktree};
 use fuz_repos::status::{StatusOptions, StatusRun, status};
+use fuz_repos::sync::{SyncOptions, SyncRun, sync};
 use tempfile::TempDir;
 
 /// The registry's owner account: its repos are writable.
@@ -487,6 +488,87 @@ impl FixtureWorkspace {
                 live,
             },
         )
+    }
+
+    /// `sync` over every entry with `jobs` in flight, `read_live` reading
+    /// the live sessions each time sync asks.
+    pub fn sync_with(&self, jobs: usize, read_live: &(dyn Fn() -> LiveSessions + Sync)) -> SyncRun {
+        let entries = self.entries();
+        let root = self.root();
+        sync(
+            &entries,
+            &RegistryDirs::new(&root, &entries),
+            &root,
+            &self.runner(),
+            SyncOptions {
+                jobs,
+                visibility_base: Some(&self.visibility_base()),
+                read_live: &read_live,
+            },
+        )
+    }
+
+    /// `sync` over every entry, no live session anywhere.
+    pub fn sync(&self) -> SyncRun {
+        self.sync_with(4, &|| LiveSessions::Known(vec![]))
+    }
+
+    /// Every ref of `repo` (`refs/…` by name, with its object), and `HEAD`:
+    /// the ref it names, or its commit when detached.
+    pub fn refs(&self, repo: &Path) -> BTreeMap<String, String> {
+        let mut refs: BTreeMap<String, String> = self
+            .git_raw(repo, &["for-each-ref", "--format=%(refname) %(objectname)"])
+            .lines()
+            .map(|l| {
+                let (name, oid) = l.split_once(' ').unwrap();
+                (name.to_owned(), oid.to_owned())
+            })
+            .collect();
+        let head = self.git_output(repo, &["symbolic-ref", "-q", "HEAD"]);
+        let head = if head.status.success() {
+            String::from_utf8(head.stdout).unwrap().trim().to_owned()
+        } else {
+            self.git(repo, &["rev-parse", "HEAD"])
+        };
+        refs.insert("HEAD".into(), head);
+        refs
+    }
+
+    /// `refs` as they should read after a fetch of `name`'s bare remote:
+    /// `before`, each `refs/remotes/origin/<b>` at the remote's `<b>` (its
+    /// `HEAD` symref at the remote's HEAD branch), then `changes`.
+    pub fn refs_after_fetch(
+        &self,
+        name: &str,
+        before: &BTreeMap<String, String>,
+        changes: &[(&str, &str)],
+    ) -> BTreeMap<String, String> {
+        let bare = self.bare(name);
+        let mut refs = before.clone();
+        refs.retain(|r, _| !r.starts_with("refs/remotes/origin/") || r.ends_with("/HEAD"));
+        for l in self
+            .git_raw(
+                &bare,
+                &[
+                    "for-each-ref",
+                    "--format=%(refname) %(objectname)",
+                    "refs/heads",
+                ],
+            )
+            .lines()
+        {
+            let (name, oid) = l.split_once(' ').unwrap();
+            let branch = name.strip_prefix("refs/heads/").unwrap();
+            refs.insert(format!("refs/remotes/origin/{branch}"), oid.to_owned());
+        }
+        if refs.contains_key("refs/remotes/origin/HEAD") {
+            let head = self.git(&bare, &["rev-parse", "HEAD"]);
+            refs.insert("refs/remotes/origin/HEAD".into(), head);
+        }
+        for (r, oid) in changes {
+            refs.insert((*r).to_owned(), (*oid).to_owned());
+        }
+        refs
     }
 
     /// Where the visibility check reads repos by default: a `file://` dir

@@ -52,7 +52,7 @@ Publishing is the flagship vertical of the TS side, not the identity.
 ### Capability tiers
 
 Multi-repo work doesn't carry uniform risk. Four tiers, ordered by blast
-radius (the `repos` commands are planned):
+radius (`repos status` and `repos sync` are built; `repos push` is planned):
 
 | Tier | Writes | Commands |
 | --- | --- | --- |
@@ -101,7 +101,8 @@ by hand).
 
 It's **being built** as the Rust `repos` tool, not by growing `GitOperations`:
 a read-only `repos status` works today, linked worktrees and the scan for
-unregistered clones included; `sync` and `push` are still to come. Its
+unregistered clones included, and `repos sync` fetches and fast-forwards;
+pushing and cloning are still to come. Its
 invariants are settled: never `pull` across a set of repos (fetch, classify,
 then fast-forward or report); never rebase, merge, or auto-resolve conflicts —
 anything history-changing stops and reports, so host repo rules never need
@@ -123,11 +124,12 @@ origin, uncommitted work in each checkout (linked worktrees too), what needs
 a human, which checkouts another live Claude Code session is working in, and
 the clones at the workspace root the registry doesn't name,
 grouped by what to do next, from local refs (`--fetch` refreshes them
-first and checks that repos declared private aren't anonymously readable).
-Sync and push aren't built. TS keeps everything else:
-the dashboard, its data step (GitHub metadata and svelte-docinfo library
-analysis), and the publish cascade. Once `repos sync` ships, the TS tasks stop
-cloning and pulling and read repo state from `repos status --json`, and a
+first and checks that repos declared private aren't anonymously readable),
+and `repos sync`, which fetches and carries out the fast-forwards and shallow
+moves `status` previews. Pushing and cloning aren't built. TS keeps everything
+else: the dashboard, its data step (GitHub metadata and svelte-docinfo library
+analysis), and the publish cascade. Once `repos sync` clones too, the TS tasks
+stop cloning and pulling and read repo state from `repos status --json`, and a
 project's `gitops.config.ts` shrinks to a list of registry keys. Nothing is
 deprecated until its Rust replacement ships.
 
@@ -158,8 +160,8 @@ gitops.config.ts -> local repos -> GitHub API -> repos.ts -> UI components
 - `src/lib/fetch_repo_data.ts` - fetches remote repo metadata
 - `src/routes/repos.ts` - generated data file with all repo info
 - `crates/fuz_repos/` - the Rust `repos` tool: registry, git runner, probe,
-  unregistered scan, busy detection, classification (library) and the `repos`
-  binary
+  unregistered scan, busy detection, classification, sync (library) and the
+  `repos` binary
 - `crates/fuz_repos/tests/` - its integration tests over fixture workspaces
   (`tests/support`)
 
@@ -532,6 +534,8 @@ repos status --json          # the versioned report
 COLUMNS=80 repos status      # text wraps at COLUMNS (else 100); color only on a terminal without NO_COLOR
 repos status --fetch         # fetch owned entries from origin first (writes remote-tracking refs), and check private repos
 repos status --jobs 4 --timings # parallelism (default 16), and per-phase timings on stderr
+repos sync                   # fetch as status --fetch does, then fast-forward and move what's safe; report outcomes
+repos sync gro --json        # narrowed to targets; --json prints the versioned outcome report
 repos --version              # the crate version and the commit the binary was built from
 repos --registry <file> --root <dir> status # a registry kept outside the workspace
 
@@ -600,6 +604,25 @@ git dir no worktree list names that shares the repo's refs (a hand-made
 is checked out in a worktree the probe didn't find. Sessions in no checkout
 show only under `--verbose` and in the JSON. The details live in the rustdoc
 of `sessions.rs` (the reader) and `busy.rs` (the scoping).
+
+`repos sync` is `status --fetch` followed by acting on each branch's verdict:
+a branch behind is fast-forwarded — in place when no checkout has it (a
+confined `git fetch .` of the exact upstream commit, so git refuses a non-ff
+and a branch checked out anywhere), in its checkout with `merge --ff-only
+--no-overwrite-ignore` only when that checkout is still on it and clean — and
+a shallow branch with no local commits moves to the fetched tip (`update-ref`
+compare-and-swap in place, `switch -C --no-overwrite-ignore` in a clean
+checkout). The live sessions are read after the fetch and again right before
+each action, and each action re-checks what it relies on (and checks after
+the fact what git can't refuse); git refusing is `failed`, exit `1` (as is a
+failed probe, or a fetch that failed or that the tool refused to run). A
+branch that's a symbolic ref never acts. It never pushes (a branch
+ahead reads `held`), clones, rebases, merges anything but a fast-forward,
+deletes a branch, or prunes a worktree (the fetch prunes only remote-tracking
+refs gone upstream), and never touches third-party references or pins. A failed
+fetch holds that entry's moves (its remote-tracking refs weren't refreshed),
+and a branch on HEAD in several checkouts is held. The rustdoc of `sync.rs`
+has the details.
 
 `cargo test --workspace` runs integration tests over hermetic fixture
 workspaces (`crates/fuz_repos/tests/support`): real repos in a tempdir, each
@@ -826,10 +849,11 @@ Test repos are isolated from real workspace repos and can run in CI without
 cloning.
 
 `src/test/fixtures/repos_status/*.json` are the Rust `repos status --json`
-golden documents (report, narrowed report, busy-detection states, error
-document), written by `crates/fuz_repos/tests/golden.rs` as the contract TS
-consumers parse against — regenerate them with
-`UPDATE_GOLDEN=1 cargo test --test golden`, never by hand.
+and `repos sync --json` golden documents (report, narrowed report,
+busy-detection states, sync report, error documents), written by
+`crates/fuz_repos/tests/golden.rs` as the contract TS consumers parse
+against — regenerate them with `UPDATE_GOLDEN=1 cargo test --test golden`,
+never by hand.
 
 ## Generated Files & Caches
 

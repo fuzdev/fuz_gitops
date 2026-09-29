@@ -1,5 +1,5 @@
 {
-	"version": 7,
+	"version": 8,
 	"workspace": "/home/me/dev",
 	"registry": "/home/me/dev/repos.toml",
 	"fetched": false,
@@ -118,6 +118,7 @@
 					"name": "main",
 					"upstream": "origin/main",
 					"worktree": "/home/me/dev/fuz_util",
+					"symref": null,
 					"unique_commits": 1,
 					"newest_commit_at": 1799827200,
 					"relation": {

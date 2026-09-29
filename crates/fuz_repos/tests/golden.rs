@@ -5,7 +5,9 @@
 //! Compared as parsed JSON, so a formatter's reflow of a checked-in file
 //! can't fail the test. Never hand-edit the files: regenerate them with
 //! `UPDATE_GOLDEN=1 cargo test --test golden`, and bump
-//! `STATUS_FORMAT_VERSION` when the change breaks the shape.
+//! `STATUS_FORMAT_VERSION` (and with it `SYNC_FORMAT_VERSION`, whose document
+//! embeds the status report) when the change breaks the shape; a change to
+//! the sync document alone bumps `SYNC_FORMAT_VERSION`.
 //!
 //! Between them the documents cover every variant of the report's enums
 //! (`sessions.json` lists every state of busy detection, which a report
@@ -19,14 +21,14 @@
 
 use std::path::{Path, PathBuf};
 
-use fuz_repos::STATUS_FORMAT_VERSION;
 use fuz_repos::busy::Sessions;
 use fuz_repos::classify::{NeedsHuman, OriginByHand, OriginFix, OriginRemote};
 use fuz_repos::error::Error;
 use fuz_repos::registry::{CheckoutList, EntryKind, EntryName, RegistryIssue, Visibility};
 use fuz_repos::remote::{RefGoneFix, RemoteFailure, UnreachableCause, VisibilityCheck};
 use fuz_repos::report::{
-    EntryStatus, ErrorReport, RepairBlock, StatusReport, UnregisteredClone, UnregisteredKind,
+    BranchOutcome, BranchSync, EntryStatus, EntrySync, ErrorReport, FetchOutcome, RepairBlock,
+    StatusReport, SyncHold, SyncReport, UnregisteredClone, UnregisteredKind,
 };
 use fuz_repos::sessions::{Session, SessionSource, Unavailable};
 use fuz_repos::state::{
@@ -34,6 +36,7 @@ use fuz_repos::state::{
     InProgressOp, Layout, Presence, Prune, PruneLoss, Relation, SyncAction, Uncommitted,
     UnprobedHead, UnprobedWhy, UnprobedWorktree, UnprobedWorktreeStatus, Verdict,
 };
+use fuz_repos::{STATUS_FORMAT_VERSION, SYNC_FORMAT_VERSION};
 use serde::Serialize;
 use serde_json::Value;
 
@@ -78,7 +81,7 @@ fn assert_golden(name: &str, doc: &impl Serialize) {
     if let Some(at) = first_difference(&golden, &actual, String::new()) {
         panic!(
             "{} drifted from the serialized document at `{at}`: if the change is intended, \
-             regenerate with `UPDATE_GOLDEN=1 cargo test --test golden`, and bump STATUS_FORMAT_VERSION if it breaks the shape",
+             regenerate with `UPDATE_GOLDEN=1 cargo test --test golden`, and bump STATUS_FORMAT_VERSION or SYNC_FORMAT_VERSION if it breaks the shape",
             path.display()
         );
     }
@@ -133,10 +136,103 @@ fn sessions_states() {
 }
 
 #[test]
+fn sync_report() {
+    let doc = sync_report_doc();
+    assert_eq!(doc.version, SYNC_FORMAT_VERSION);
+    assert_eq!(doc.status.version, STATUS_FORMAT_VERSION);
+    assert!(doc.status.fetched);
+    // one outcome per status entry and branch, in order
+    assert_eq!(doc.entries.len(), doc.status.entries.len());
+    for (e, s) in doc.status.entries.iter().zip(&doc.entries) {
+        assert_eq!(e.key, s.key);
+        let names = |b: &[BranchStatus]| b.iter().map(|b| b.name.clone()).collect::<Vec<_>>();
+        assert_eq!(
+            names(&e.branches),
+            s.branches
+                .iter()
+                .map(|b| b.name.clone())
+                .collect::<Vec<_>>()
+        );
+    }
+    // a failed action, fetch, and probe: exit 1
+    assert!(doc.failed());
+    assert_sync_coverage(&doc);
+    assert_golden("sync_report.json", &doc);
+}
+
+/// The sync document's every-variant floor: each outcome, fetch outcome,
+/// and hold appears at least once. The matches are exhaustive, so a new
+/// variant fails to compile here until the document covers it.
+fn assert_sync_coverage(doc: &SyncReport) {
+    let outcome = |o: &BranchOutcome| match o {
+        BranchOutcome::Untouched => 0,
+        BranchOutcome::NeedsHuman { .. } => 1,
+        BranchOutcome::Held { .. } => 2,
+        BranchOutcome::FastForwarded { .. } => 3,
+        BranchOutcome::Moved { .. } => 4,
+        BranchOutcome::Failed { .. } => 5,
+    };
+    let fetch = |f: &FetchOutcome| match f {
+        FetchOutcome::Fetched => 0,
+        FetchOutcome::Failed { .. } => 1,
+        FetchOutcome::NotFetched => 2,
+    };
+    let hold = |h: SyncHold| match h {
+        SyncHold::Pinned => 0,
+        SyncHold::Entry => 1,
+        SyncHold::FetchFailed => 2,
+        SyncHold::DirtyCheckout => 3,
+        SyncHold::UnprobedWorktree => 4,
+        SyncHold::SeveralCheckouts => 5,
+        SyncHold::Busy => 6,
+        SyncHold::BusyUnknown => 7,
+        SyncHold::Changed => 8,
+        SyncHold::NotPushed => 9,
+    };
+    let branches = || doc.entries.iter().flat_map(|e| &e.branches);
+    let seen = |ids: Vec<usize>| ids.into_iter().collect::<std::collections::BTreeSet<_>>();
+    assert_eq!(
+        seen(branches().map(|b| outcome(&b.outcome)).collect()),
+        (0..6).collect()
+    );
+    assert_eq!(
+        seen(doc.entries.iter().map(|e| fetch(&e.fetch)).collect()),
+        (0..3).collect()
+    );
+    assert_eq!(
+        seen(
+            branches()
+                .filter_map(|b| match b.outcome {
+                    BranchOutcome::Held { by, .. } => Some(hold(by)),
+                    _ => None,
+                })
+                .collect()
+        ),
+        (0..10).collect()
+    );
+}
+
+#[test]
 fn error_report() {
     let doc = error_doc();
     assert_eq!(doc.version, STATUS_FORMAT_VERSION);
     assert_golden("error_report.json", &doc);
+}
+
+/// A fatal error under `sync --json`: the same document, at the sync
+/// report's version, which is how a consumer knows which command it came
+/// from.
+#[test]
+fn sync_error_report() {
+    let doc = ErrorReport::new(
+        &Error::UnknownEntry {
+            name: "fuz_ap".into(),
+            suggestions: vec!["fuz_app".into(), "fuz_css".into()],
+        },
+        SYNC_FORMAT_VERSION,
+    );
+    assert_eq!(doc.version, SYNC_FORMAT_VERSION);
+    assert_golden("sync_error_report.json", &doc);
 }
 
 #[test]
@@ -183,6 +279,7 @@ fn status_report_doc() -> StatusReport {
             not_a_repo(),
             partial(),
             forge(),
+            gro(),
             zap(),
             site(),
             mdz(),
@@ -292,12 +389,266 @@ fn unscoped_sessions() -> Vec<Session> {
     ]
 }
 
+/// A sync run: every outcome, fetch outcome, and hold, each branch's
+/// verdict the one the outcome carries out.
+fn sync_report_doc() -> SyncReport {
+    let ff = |commits| SyncAction::FastForward { commits };
+    let act = |action| Verdict::Act { action };
+    let held_by = |action, by| Verdict::Held { action, by };
+    let behind = |commits| Relation::Behind { commits };
+    let up = |name: &str| format!("origin/{name}");
+    let oid = |c: char| c.to_string().repeat(40);
+    // (name, relation, verdict, outcome)
+    let app_branches: Vec<(&str, Relation, Verdict, BranchOutcome)> = vec![
+        (
+            "main",
+            behind(2),
+            act(ff(2)),
+            BranchOutcome::FastForwarded {
+                from: oid('a'),
+                to: oid('b'),
+            },
+        ),
+        (
+            "docs",
+            Relation::Shallow,
+            act(SyncAction::Move),
+            BranchOutcome::Moved {
+                from: oid('c'),
+                to: oid('d'),
+            },
+        ),
+        (
+            "feat",
+            behind(1),
+            act(ff(1)),
+            BranchOutcome::Failed {
+                action: ff(1),
+                message: "git rejected moving refs/heads/feat: not a fast-forward".into(),
+            },
+        ),
+        (
+            "late",
+            behind(1),
+            act(ff(1)),
+            BranchOutcome::Held {
+                action: ff(1),
+                by: SyncHold::Changed,
+            },
+        ),
+        (
+            "ahead",
+            Relation::Ahead { commits: 3 },
+            act(SyncAction::Push { commits: 3 }),
+            BranchOutcome::Held {
+                action: SyncAction::Push { commits: 3 },
+                by: SyncHold::NotPushed,
+            },
+        ),
+        (
+            "dirty",
+            behind(1),
+            held_by(ff(1), HeldBy::DirtyCheckout),
+            BranchOutcome::Held {
+                action: ff(1),
+                by: SyncHold::DirtyCheckout,
+            },
+        ),
+        (
+            "busy",
+            behind(1),
+            held_by(ff(1), HeldBy::Busy),
+            BranchOutcome::Held {
+                action: ff(1),
+                by: SyncHold::Busy,
+            },
+        ),
+        (
+            "unseen",
+            behind(1),
+            act(ff(1)),
+            BranchOutcome::Held {
+                action: ff(1),
+                by: SyncHold::BusyUnknown,
+            },
+        ),
+        (
+            "usb",
+            behind(4),
+            held_by(ff(4), HeldBy::UnprobedWorktree),
+            BranchOutcome::Held {
+                action: ff(4),
+                by: SyncHold::UnprobedWorktree,
+            },
+        ),
+        (
+            "twin",
+            behind(1),
+            held_by(ff(1), HeldBy::SeveralCheckouts),
+            BranchOutcome::Held {
+                action: ff(1),
+                by: SyncHold::SeveralCheckouts,
+            },
+        ),
+        (
+            "arc",
+            Relation::Diverged {
+                ahead: 1,
+                behind: 1,
+            },
+            Verdict::NeedsHuman {
+                reason: BranchNeedsHuman::Diverged,
+            },
+            BranchOutcome::NeedsHuman {
+                reason: BranchNeedsHuman::Diverged,
+            },
+        ),
+        (
+            "done",
+            Relation::InSync,
+            Verdict::Quiet,
+            BranchOutcome::Untouched,
+        ),
+    ];
+    let mut app = entry("app", Some("main"));
+    let mut app_sync = Vec::new();
+    for (name, relation, verdict, outcome) in app_branches {
+        app.branches
+            .push(branch(name, Some(&up(name)), relation, verdict));
+        app_sync.push(BranchSync {
+            name: name.into(),
+            outcome,
+            repeats: None,
+        });
+    }
+    // a linked worktree of app's, its own entry: app acted on `main` for
+    // the repo
+    let app_wt = EntryStatus {
+        dir: "app-wt".into(),
+        url: "https://github.com/me/app".into(),
+        checkouts: vec![primary("app-wt", on("wt"))],
+        branches: vec![branch("main", Some("origin/main"), behind(2), act(ff(2)))],
+        ..entry("app_wt", Some("main"))
+    };
+    let app_wt_sync = vec![BranchSync {
+        name: "main".into(),
+        outcome: BranchOutcome::FastForwarded {
+            from: oid('a'),
+            to: oid('b'),
+        },
+        repeats: Some("app".into()),
+    }];
+    let one = |e: &EntryStatus, relation, verdict, outcome| {
+        let mut e = e.clone();
+        e.branches = vec![branch("main", Some("origin/main"), relation, verdict)];
+        let sync = vec![BranchSync {
+            name: "main".into(),
+            outcome,
+            repeats: None,
+        }];
+        (e, sync)
+    };
+    let (blog, blog_sync) = one(
+        &EntryStatus {
+            needs_human: vec![NeedsHuman::OperationInProgress {
+                checkout: path("blog"),
+                op: InProgressOp::Rebase,
+            }],
+            ..entry("blog", Some("main"))
+        },
+        behind(1),
+        held_by(ff(1), HeldBy::Entry),
+        BranchOutcome::Held {
+            action: ff(1),
+            by: SyncHold::Entry,
+        },
+    );
+    let forge_failure = RemoteFailure::Unreachable {
+        cause: UnreachableCause::Auth,
+        message: "git@github.com: Permission denied (publickey).".into(),
+    };
+    let (forge, forge_sync) = one(
+        &EntryStatus {
+            fetch_error: Some(forge_failure.clone()),
+            ..entry("fuz_forge", Some("main"))
+        },
+        behind(2),
+        held_by(ff(2), HeldBy::FetchFailed),
+        BranchOutcome::Held {
+            action: ff(2),
+            by: SyncHold::FetchFailed,
+        },
+    );
+    let (spec, spec_sync) = one(
+        &EntryStatus {
+            kind: EntryKind::Reference,
+            branch: None,
+            pinned: true,
+            ..entry("spec", None)
+        },
+        behind(1),
+        held_by(ff(1), HeldBy::Pinned),
+        BranchOutcome::Held {
+            action: ff(1),
+            by: SyncHold::Pinned,
+        },
+    );
+    let lib = EntryStatus {
+        kind: EntryKind::Reference,
+        url: "https://github.com/them/lib".into(),
+        writable: false,
+        visibility: None,
+        ci: false,
+        branch: None,
+        ..entry("lib", None)
+    };
+    let broken = EntryStatus {
+        probe_error: Some("git status failed (128): error: bad tree object HEAD".into()),
+        checkouts: vec![],
+        ..entry("broken", Some("main"))
+    };
+    let status = StatusReport::new(
+        WORKSPACE.into(),
+        format!("{WORKSPACE}/repos.toml"),
+        true,
+        Sessions::Available { unscoped: vec![] },
+        vec![app, app_wt, blog, forge, spec, lib, missing(), broken],
+    );
+    let sync = |key: &str, fetch, branches| EntrySync {
+        key: key.into(),
+        fetch,
+        branches,
+    };
+    SyncReport::new(
+        status,
+        vec![
+            sync("app", FetchOutcome::Fetched, app_sync),
+            sync("app_wt", FetchOutcome::Fetched, app_wt_sync),
+            sync("blog", FetchOutcome::Fetched, blog_sync),
+            sync(
+                "fuz_forge",
+                FetchOutcome::Failed {
+                    failure: forge_failure,
+                },
+                forge_sync,
+            ),
+            sync("spec", FetchOutcome::NotFetched, spec_sync),
+            sync("lib", FetchOutcome::NotFetched, vec![]),
+            sync("blake3", FetchOutcome::NotFetched, vec![]),
+            sync("broken", FetchOutcome::Fetched, vec![]),
+        ],
+    )
+}
+
 /// A fatal error under `--json`, the kind with the richest payload.
 fn error_doc() -> ErrorReport {
-    ErrorReport::new(&Error::RegistryInvalid {
-        path: PathBuf::from(format!("{WORKSPACE}/repos.toml")),
-        issues: registry_issues(),
-    })
+    ErrorReport::new(
+        &Error::RegistryInvalid {
+            path: PathBuf::from(format!("{WORKSPACE}/repos.toml")),
+            issues: registry_issues(),
+        },
+        STATUS_FORMAT_VERSION,
+    )
 }
 
 // --- entries ---
@@ -370,6 +721,7 @@ fn branch(
         name: name.into(),
         upstream: upstream.map(str::to_owned),
         worktree: None,
+        symref: None,
         unique_commits: 0,
         newest_commit_at: NOW - 2 * DAY,
         relation,
@@ -379,7 +731,8 @@ fn branch(
 
 /// The busiest repo: every relation but `Shallow` (`test262()`), every
 /// verdict kind, every `HeldBy` but `Entry` (`blog()`), `Pinned` (`spec()`),
-/// and `BusyUnknown` (the targeted document), linked worktrees — one a live
+/// `FetchFailed` (`forge()`), `SeveralCheckouts` (`gro()`), and
+/// `BusyUnknown` (the targeted document), linked worktrees — one a live
 /// session works in — and every way a worktree goes unprobed, one busy too.
 fn app() -> EntryStatus {
     let mut e = entry("app", Some("main"));
@@ -563,6 +916,11 @@ fn app() -> EntryStatus {
             Relation::Untracked,
             Verdict::Quiet,
         ),
+        // an alias of `main`: never acted on
+        BranchStatus {
+            symref: Some("refs/heads/main".into()),
+            ..branch("m", None, Relation::Untracked, Verdict::Quiet)
+        },
     ];
     e.needs_human = vec![
         NeedsHuman::OperationInProgress {
@@ -959,6 +1317,8 @@ fn partial() -> EntryStatus {
 }
 
 /// Private as declared; its key refused.
+/// A fetch refused by the host: its branch behind stays put
+/// (`HeldBy::FetchFailed`).
 fn forge() -> EntryStatus {
     EntryStatus {
         visibility: Some(Visibility::Private),
@@ -968,8 +1328,50 @@ fn forge() -> EntryStatus {
             message: "git@github.com: Permission denied (publickey).".into(),
         }),
         visibility_check: Some(VisibilityCheck::Private),
+        branches: vec![BranchStatus {
+            worktree: Some(path("fuz_forge")),
+            ..branch(
+                "main",
+                Some("origin/main"),
+                Relation::Behind { commits: 2 },
+                Verdict::Held {
+                    action: SyncAction::FastForward { commits: 2 },
+                    by: HeldBy::FetchFailed,
+                },
+            )
+        }],
         ..entry("fuz_forge", Some("main"))
     }
+}
+
+/// A branch on HEAD in two clean checkouts (`worktree add -f`): its
+/// fast-forward held (`HeldBy::SeveralCheckouts`).
+fn gro() -> EntryStatus {
+    let mut e = entry("gro", Some("main"));
+    e.checkouts.push(Checkout {
+        path: path("gro-twin"),
+        primary: false,
+        head: on("main"),
+        uncommitted: Uncommitted::default(),
+        in_progress: None,
+        locked: false,
+        linked: true,
+        submodules: None,
+        busy: vec![],
+    });
+    e.branches = vec![BranchStatus {
+        worktree: Some(path("gro")),
+        ..branch(
+            "main",
+            Some("origin/main"),
+            Relation::Behind { commits: 3 },
+            Verdict::Held {
+                action: SyncAction::FastForward { commits: 3 },
+                by: HeldBy::SeveralCheckouts,
+            },
+        )
+    }];
+    e
 }
 
 /// Private, with the network down: its host not found, the check timed out.

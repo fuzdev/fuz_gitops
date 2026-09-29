@@ -1,5 +1,6 @@
-//! Text rendering of a `StatusReport`: the grouped summary and `--verbose`'s
-//! per-entry blocks.
+//! Text rendering of a `StatusReport` — the grouped summary and
+//! `--verbose`'s per-entry blocks — and of a `SyncReport`, whose summary is
+//! the same with what sync did in place of what it would do.
 
 use std::borrow::Cow;
 use std::ffi::OsStr;
@@ -11,7 +12,8 @@ use fuz_repos::classify::{NeedsHuman, OriginByHand, OriginFix, OriginRemote};
 use fuz_repos::registry::{EntryKind, Visibility};
 use fuz_repos::remote::{RefGoneFix, RemoteFailure, UnreachableCause, VisibilityCheck};
 use fuz_repos::report::{
-    EntryStatus, RepairBlock, StatusReport, UnregisteredClone, UnregisteredKind,
+    BranchOutcome, EntryStatus, EntrySync, RepairBlock, StatusReport, SyncHold, SyncReport,
+    UnregisteredClone, UnregisteredKind,
 };
 use fuz_repos::sessions::{Session, SessionSource, Unavailable};
 use fuz_repos::state::{
@@ -212,11 +214,33 @@ impl View<'_> {
 /// The grouped summary: what to act on, the quiet entries as counts, and the
 /// footer. A workspace with nothing to act on prints just the last line.
 pub fn render_summary(report: &StatusReport, view: View<'_>, verbose: bool) -> String {
-    let mut g = Groups::default();
+    summary(report, None, view, verbose)
+}
+
+/// `repos sync`'s summary: the status summary of what it acted on, with
+/// what it did in place of `sync would` — `synced`, and on `held` and
+/// `failed` what it didn't.
+pub fn render_sync_summary(report: &SyncReport, view: View<'_>, verbose: bool) -> String {
+    summary(&report.status, Some(&report.entries), view, verbose)
+}
+
+/// The summary of `report`, and with `synced` (one per entry, in order) of
+/// what sync did.
+fn summary(
+    report: &StatusReport,
+    synced: Option<&[EntrySync]>,
+    view: View<'_>,
+    verbose: bool,
+) -> String {
+    let mut g = Groups {
+        synced: synced.is_some(),
+        ..Groups::default()
+    };
     let mut quiet = Counts::default();
     let workspace = Path::new(&report.workspace);
-    for e in &report.entries {
-        if g.add(e, workspace, view, verbose) {
+    for (i, e) in report.entries.iter().enumerate() {
+        let sync = synced.and_then(|s| s.get(i));
+        if g.add(e, sync, workspace, view, verbose) {
             continue;
         }
         match (e.pinned, &e.branch, e.checkouts.first().map(|c| &c.head)) {
@@ -308,10 +332,29 @@ pub fn render_summary(report: &StatusReport, view: View<'_>, verbose: bool) -> S
         let hint = format!("hint: {} (each under --verbose)", fixes.join(", or "));
         line("", Tone::Plain, Items::Singles(vec![hint]));
     }
-    let mut sync = g.act.verbs();
-    sync.extend(prefixed("clone ", g.clone));
-    line("sync would", Tone::Green, Items::Runs(sync, " · "));
-    line("held", Tone::Yellow, Items::Runs(g.held.verbs(), " · "));
+    if synced.is_some() {
+        let unpushed = !g.held.push.is_empty();
+        let uncloned = !g.clone.is_empty();
+        line("synced", Tone::Green, Items::Runs(g.act.verbs(), " · "));
+        let mut held = g.held.verbs();
+        held.extend(prefixed("clone ", g.clone));
+        line("held", Tone::Yellow, Items::Runs(held, " · "));
+        let mut hints = Vec::new();
+        if unpushed {
+            hints.push("hint: sync never pushes — each push held is yours to make".to_owned());
+        }
+        if uncloned {
+            hints.push("hint: sync never clones — each missing entry is yours to clone".to_owned());
+        }
+        for hint in hints {
+            line("", Tone::Plain, Items::Singles(vec![hint]));
+        }
+    } else {
+        let mut sync = g.act.verbs();
+        sync.extend(prefixed("clone ", g.clone));
+        line("sync would", Tone::Green, Items::Runs(sync, " · "));
+        line("held", Tone::Yellow, Items::Runs(g.held.verbs(), " · "));
+    }
     line("local-only", Tone::Plain, Items::Singles(g.local_only));
     line("uncommitted", Tone::Plain, Items::Singles(g.uncommitted));
     line("cleanup", Tone::Plain, Items::Singles(g.cleanup));
@@ -472,6 +515,8 @@ impl Actions {
 
 #[derive(Debug, Default)]
 struct Groups {
+    /// A sync report's: `act` is what sync did.
+    synced: bool,
     visibility: Vec<String>,
     failed: Vec<String>,
     needs_human: Vec<String>,
@@ -486,8 +531,18 @@ struct Groups {
 }
 
 impl Groups {
-    /// Adds an entry's lines; returns whether it had anything to say.
-    fn add(&mut self, e: &EntryStatus, workspace: &Path, view: View<'_>, verbose: bool) -> bool {
+    /// Adds an entry's lines; returns whether it had anything to say. In a
+    /// sync report, `sync` holds the entry's outcomes, and a branch's action
+    /// reads as what sync did — `act` what it did, `held` and `failed` what
+    /// it didn't.
+    fn add(
+        &mut self,
+        e: &EntryStatus,
+        sync: Option<&EntrySync>,
+        workspace: &Path,
+        view: View<'_>,
+        verbose: bool,
+    ) -> bool {
         let before = self.len();
         let key = &e.key;
         let label = |b: &BranchStatus| {
@@ -536,7 +591,16 @@ impl Groups {
         if e.presence == Presence::Missing {
             self.clone.push(key.clone());
         }
-        for b in &e.branches {
+        for (bi, b) in e.branches.iter().enumerate() {
+            if self.synced && matches!(b.verdict, Verdict::Act { .. } | Verdict::Held { .. }) {
+                let synced = sync.and_then(|s| s.branches.get(bi));
+                // another entry sharing the repo says it, once
+                if synced.is_some_and(|s| s.repeats.is_some()) {
+                    continue;
+                }
+                self.add_outcome(b, synced.map(|s| &s.outcome), &label(b));
+                continue;
+            }
             match &b.verdict {
                 // a pin is the consumer's standing choice, not a hold to
                 // clear: the entry counts as pinned, and `--verbose` shows
@@ -550,21 +614,11 @@ impl Groups {
                     self.held.add(*action, &label(b), held_note(*by));
                 }
                 Verdict::NeedsHuman { reason } => {
-                    let why = match (*reason, b.relation) {
-                        (BranchNeedsHuman::Diverged, Relation::Diverged { ahead, behind }) => {
-                            format!("diverged +{ahead} −{behind}")
-                        }
-                        (BranchNeedsHuman::Diverged, _) => "diverged".into(),
-                        (BranchNeedsHuman::Unmapped, _) => "outside refspec".into(),
-                        (BranchNeedsHuman::ArchivedAhead, Relation::Ahead { commits }) => {
-                            format!("archived, +{commits}")
-                        }
-                        (BranchNeedsHuman::ArchivedAhead, _) => "archived, ahead".into(),
-                        (BranchNeedsHuman::ShallowLocalWork, _) => {
-                            format!("shallow, tips differ, +{} local", b.unique_commits)
-                        }
-                    };
-                    self.needs_human.push(format!("{} ({why})", label(b)));
+                    self.needs_human.push(format!(
+                        "{} ({})",
+                        label(b),
+                        branch_needs_human_label(*reason, b)
+                    ));
                 }
                 Verdict::LocalOnly => {
                     let read_only = if e.writable { "" } else { ", read-only" };
@@ -665,6 +719,44 @@ impl Groups {
         said
     }
 
+    /// A branch sync would act on, as what it did: `outcome` is `None`
+    /// when the report carries none for it.
+    fn add_outcome(&mut self, b: &BranchStatus, outcome: Option<&BranchOutcome>, label: &str) {
+        let action = match (&b.verdict, outcome) {
+            (Verdict::Act { action } | Verdict::Held { action, .. }, _) => *action,
+            _ => return,
+        };
+        match outcome {
+            Some(BranchOutcome::FastForwarded { .. } | BranchOutcome::Moved { .. }) => {
+                self.act.add(action, label, "");
+            }
+            // a pin is a standing choice: counted, not held
+            Some(
+                BranchOutcome::Held {
+                    by: SyncHold::Pinned,
+                    ..
+                }
+                | BranchOutcome::Untouched,
+            ) => {}
+            Some(BranchOutcome::Held { action, by }) => {
+                self.held.add(*action, label, hold_note(*by));
+            }
+            Some(BranchOutcome::Failed { action, message }) => {
+                self.failed
+                    .push(format!("{label} ({}: {message})", action_verb(*action)));
+            }
+            Some(BranchOutcome::NeedsHuman { reason }) => {
+                self.needs_human.push(format!(
+                    "{label} ({})",
+                    branch_needs_human_label(*reason, b)
+                ));
+            }
+            None => self
+                .failed
+                .push(format!("{label} ({}: no outcome)", action_verb(action))),
+        }
+    }
+
     const fn len(&self) -> usize {
         self.visibility.len()
             + self.failed.len()
@@ -676,6 +768,24 @@ impl Groups {
             + self.local_only.len()
             + self.uncommitted.len()
             + self.cleanup.len()
+    }
+}
+
+/// Why a branch needs a person, with its relation's counts.
+fn branch_needs_human_label(reason: BranchNeedsHuman, b: &BranchStatus) -> String {
+    match (reason, b.relation) {
+        (BranchNeedsHuman::Diverged, Relation::Diverged { ahead, behind }) => {
+            format!("diverged +{ahead} −{behind}")
+        }
+        (BranchNeedsHuman::Diverged, _) => "diverged".into(),
+        (BranchNeedsHuman::Unmapped, _) => "outside refspec".into(),
+        (BranchNeedsHuman::ArchivedAhead, Relation::Ahead { commits }) => {
+            format!("archived, +{commits}")
+        }
+        (BranchNeedsHuman::ArchivedAhead, _) => "archived, ahead".into(),
+        (BranchNeedsHuman::ShallowLocalWork, _) => {
+            format!("shallow, tips differ, +{} local", b.unique_commits)
+        }
     }
 }
 
@@ -914,6 +1024,10 @@ pub fn render_entry(e: &EntryStatus, workspace: &Path, view: View<'_>) -> String
         .unwrap_or(0);
     for b in &e.branches {
         let mut detail = relation_label(b.relation);
+        if let Some(target) = &b.symref {
+            let target = target.strip_prefix("refs/heads/").unwrap_or(target);
+            let _ = write!(detail, " · alias of {target}");
+        }
         if b.unique_commits > 0 {
             let _ = write!(detail, " · {} unique", b.unique_commits);
         }
@@ -1394,11 +1508,7 @@ fn relation_label(r: Relation) -> String {
 
 /// The verdict for `--verbose`'s branch lines; `None` when quiet.
 fn verdict_label(v: &Verdict) -> Option<String> {
-    let verb = |a| match a {
-        SyncAction::Push { .. } => "push",
-        SyncAction::FastForward { .. } => "ff",
-        SyncAction::Move => "move",
-    };
+    let verb = action_verb;
     Some(match v {
         Verdict::Quiet => return None,
         Verdict::Act { action } => verb(*action).to_owned(),
@@ -1413,16 +1523,34 @@ fn verdict_label(v: &Verdict) -> Option<String> {
     })
 }
 
+/// An action's verb, as the summary's runs name it.
+const fn action_verb(action: SyncAction) -> &'static str {
+    match action {
+        SyncAction::Push { .. } => "push",
+        SyncAction::FastForward { .. } => "ff",
+        SyncAction::Move => "move",
+    }
+}
+
 /// What a held action's label carries after it; an entry-level hold has its
 /// reason printed on the entry instead.
-const fn held_note(by: HeldBy) -> &'static str {
+fn held_note(by: HeldBy) -> &'static str {
+    hold_note(by.into())
+}
+
+/// `held_note` for a hold sync found, the verdict's or its own; a push sync
+/// never makes carries none (a hint says it once).
+const fn hold_note(by: SyncHold) -> &'static str {
     match by {
-        HeldBy::Pinned => " (pinned)",
-        HeldBy::Entry => "",
-        HeldBy::DirtyCheckout => " (dirty)",
-        HeldBy::UnprobedWorktree => " (unprobed worktree)",
-        HeldBy::Busy => " (busy)",
-        HeldBy::BusyUnknown => " (busy unknown)",
+        SyncHold::Pinned => " (pinned)",
+        SyncHold::Entry | SyncHold::NotPushed => "",
+        SyncHold::FetchFailed => " (fetch failed)",
+        SyncHold::DirtyCheckout => " (dirty)",
+        SyncHold::UnprobedWorktree => " (unprobed worktree)",
+        SyncHold::SeveralCheckouts => " (several checkouts)",
+        SyncHold::Busy => " (busy)",
+        SyncHold::BusyUnknown => " (busy unknown)",
+        SyncHold::Changed => " (changed since read, rerun)",
     }
 }
 
@@ -1667,6 +1795,7 @@ mod tests {
             name: name.into(),
             upstream: upstream.map(str::to_owned),
             worktree: None,
+            symref: None,
             unique_commits: unique,
             newest_commit_at: NOW - 2 * 86400,
             relation,
