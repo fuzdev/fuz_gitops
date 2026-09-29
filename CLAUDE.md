@@ -526,6 +526,7 @@ repos status                 # git state of every repos.toml entry, local refs o
 repos status gro .           # narrow to targets: a key, a dir name, or a path (no unregistered scan)
 repos status --verbose       # plus stash counts and a block per entry and unregistered dir
 repos status --json          # the versioned report
+COLUMNS=80 repos status      # text wraps at COLUMNS (else 100); color only on a terminal without NO_COLOR
 repos status --fetch         # fetch owned entries from origin first (writes remote-tracking refs)
 repos status --jobs 4 --timings # parallelism (default 16), and per-phase timings on stderr
 repos --version              # the crate version and the commit the binary was built from
@@ -533,6 +534,7 @@ repos --registry <file> --root <dir> status # a registry kept outside the worksp
 
 cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
+UPDATE_GOLDEN=1 cargo test --test golden # regenerate the --json golden fixtures in src/test/fixtures/repos_status/ (never hand-edit)
 ```
 
 `repos` finds its registry by walking up from the cwd to the first
@@ -764,6 +766,11 @@ Each fixture runs in isolation with its own config, validating:
 
 Test repos are isolated from real workspace repos and can run in CI without
 cloning.
+
+`src/test/fixtures/repos_status/*.json` are the Rust `repos status --json`
+golden documents (report, narrowed report, error document), written by
+`crates/fuz_repos/tests/golden.rs` as the contract TS consumers parse against — regenerate them
+with `UPDATE_GOLDEN=1 cargo test --test golden`, never by hand.
 
 ## Generated Files & Caches
 

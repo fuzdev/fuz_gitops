@@ -1,6 +1,8 @@
 //! Text rendering of a `StatusReport`: the grouped summary and `--verbose`'s
 //! per-entry blocks.
 
+use std::borrow::Cow;
+use std::ffi::OsStr;
 use std::fmt::Write as _;
 use std::path::Path;
 
@@ -17,6 +19,79 @@ use fuz_repos::state::{
 /// The label column's width.
 const LABEL_WIDTH: usize = 13;
 
+/// The column a group's items start at, and continuation lines hang from.
+const ITEM_COLUMN: usize = LABEL_WIDTH + 1;
+
+/// The summary's width when `COLUMNS` doesn't give a usable one.
+pub const DEFAULT_WIDTH: usize = 100;
+
+/// The narrowest `COLUMNS` taken as given; below it the default applies.
+const MIN_WIDTH: usize = 40;
+
+/// The summary's wrap width from `COLUMNS`: its value when it parses to at
+/// least `MIN_WIDTH`, else `DEFAULT_WIDTH`. No terminal-size query — the
+/// same environment wraps the same way, piped or not.
+pub fn summary_width(columns: Option<&str>) -> usize {
+    columns
+        .and_then(|c| c.trim().parse::<usize>().ok())
+        .filter(|w| *w >= MIN_WIDTH)
+        .unwrap_or(DEFAULT_WIDTH)
+}
+
+/// Whether to color the summary's labels: only on a terminal, and never
+/// when `NO_COLOR` is set to anything but the empty string (no-color.org).
+pub fn use_color(is_terminal: bool, no_color: Option<&OsStr>) -> bool {
+    is_terminal && no_color.is_none_or(OsStr::is_empty)
+}
+
+/// A group label's color; items are never colored.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Tone {
+    /// What failed or waits on a person.
+    Red,
+    /// What sync would do but won't yet, or stops on with a known fix.
+    Yellow,
+    /// What sync would do.
+    Green,
+    Plain,
+}
+
+impl Tone {
+    /// The ANSI SGR sequence that starts it; `None` for plain.
+    const fn sgr(self) -> Option<&'static str> {
+        match self {
+            Self::Red => Some("\x1b[31m"),
+            Self::Yellow => Some("\x1b[33m"),
+            Self::Green => Some("\x1b[32m"),
+            Self::Plain => None,
+        }
+    }
+}
+
+/// A word that POSIX sh and fish both read back as `s`, for the commands the
+/// summary and blocks print for a person to run: as is when every char is
+/// plainly safe, else single-quoted. Each `'` is written `'\''` and each `\`
+/// `'\\'` — closed out of the quotes, since fish honors `\\` and `\'` inside
+/// them. Not safe bare: `%` (fish expands `%self`) and `~` (both expand a
+/// leading one).
+pub fn shell_quote(s: &str) -> Cow<'_, str> {
+    let safe = |c: char| c.is_ascii_alphanumeric() || "_-./:@+=,".contains(c);
+    if !s.is_empty() && s.chars().all(safe) {
+        return Cow::Borrowed(s);
+    }
+    let mut quoted = String::with_capacity(s.len() + 2);
+    quoted.push('\'');
+    for c in s.chars() {
+        match c {
+            '\'' => quoted.push_str(r"'\''"),
+            '\\' => quoted.push_str(r"'\\'"),
+            c => quoted.push(c),
+        }
+    }
+    quoted.push('\'');
+    Cow::Owned(quoted)
+}
+
 /// A prunable worktree's advice for when it was moved by hand: back where
 /// git expects it, or to the workspace root, where the scan reports it with
 /// a repair only when that's safe. The hedge exists because the report
@@ -26,11 +101,11 @@ const LABEL_WIDTH: usize = 13;
 const IF_MOVED: &str =
     "if it moved, move it back (or to the workspace root) and rerun repos status";
 
-/// Why a partial clone's probe may fail, and the fix; `{dir}` is the
-/// checkout. Only `checkout`: a `fetch` backfills a missing tree only as a
-/// side effect, and leaves a `--no-checkout` clone without an index, every
-/// file then a staged deletion; on a clone already checked out, `checkout`
-/// changes nothing.
+/// Why a partial clone's probe may fail, and the fix; `dir` is the checkout
+/// as a shell word (`View::show_arg`), or a placeholder. Only `checkout`: a
+/// `fetch` backfills a missing tree only as a side effect, and leaves a
+/// `--no-checkout` clone without an index, every file then a staged
+/// deletion; on a clone already checked out, `checkout` changes nothing.
 fn partial_hint(dir: &str) -> String {
     format!(
         "a partial clone may lack objects the probe needs, and repos never fetches them — \
@@ -38,13 +113,18 @@ fn partial_hint(dir: &str) -> String {
     )
 }
 
-/// What rendering needs from the environment: the home dir, shown as `~`,
-/// and the current time, which the report's timestamps become ages against.
+/// What rendering needs from the environment: the home dir, shown as `~`;
+/// the current time, which the report's timestamps become ages against; the
+/// summary's wrap width; and whether its labels are colored.
 #[derive(Debug, Clone, Copy)]
 pub struct View<'a> {
     pub home: Option<&'a str>,
     /// Unix seconds.
     pub now: u64,
+    /// The summary's wrap width, in chars (`summary_width`).
+    pub width: usize,
+    /// Color the summary's group labels (`use_color`).
+    pub color: bool,
 }
 
 impl View<'_> {
@@ -53,13 +133,31 @@ impl View<'_> {
         format_age(self.now.saturating_sub(at))
     }
 
+    /// What follows the home dir in `path` — empty, or starting with `/` —
+    /// when it's under it.
+    fn under_home<'p>(&self, path: &'p str) -> Option<&'p str> {
+        let home = self.home.filter(|h| !h.is_empty())?;
+        path.strip_prefix(home)
+            .filter(|rest| rest.is_empty() || rest.starts_with('/'))
+    }
+
+    /// A path for reading, the home dir shown as `~`.
     pub fn show(&self, path: &str) -> String {
-        match self.home {
-            Some(home) if !home.is_empty() => match path.strip_prefix(home) {
-                Some(rest) if rest.is_empty() || rest.starts_with('/') => format!("~{rest}"),
-                _ => path.to_owned(),
-            },
-            _ => path.to_owned(),
+        self.under_home(path)
+            .map_or_else(|| path.to_owned(), |rest| format!("~{rest}"))
+    }
+
+    /// A path as a word in a command to run: shown as `show` does, and
+    /// shell-quoted, with the leading `~/` left outside the quotes so the
+    /// shell still expands it.
+    pub fn show_arg(&self, path: &str) -> String {
+        match self
+            .under_home(path)
+            .map(|rest| rest.strip_prefix('/').unwrap_or(rest))
+        {
+            Some("") => "~".to_owned(),
+            Some(rest) => format!("~/{}", shell_quote(rest)),
+            None => shell_quote(path).into_owned(),
         }
     }
 }
@@ -84,33 +182,34 @@ pub fn render_summary(report: &StatusReport, view: View<'_>, verbose: bool) -> S
     }
 
     let mut out = String::new();
-    let mut line = |label: &str, items: &[String], sep: &str| {
-        if !items.is_empty() {
-            let _ = writeln!(out, "{label:<LABEL_WIDTH$} {}", items.join(sep));
-        }
+    let mut line = |label: &str, tone: Tone, items: Items| {
+        out.push_str(&render_group(label, tone, &items, view));
     };
-    line("failed", &g.failed, "  ");
+    line("failed", Tone::Red, Items::Singles(g.failed));
     if report.entries.iter().any(EntryStatus::probe_failed_partial) {
         let hint = format!("hint: {} (each under --verbose)", partial_hint("<dir>"));
-        line("", &[hint], "");
+        line("", Tone::Plain, Items::Singles(vec![hint]));
     }
-    line("needs human", &g.needs_human, "  ");
-    line("origin drift", &g.origin_drift, "  ");
-    if !g.origin_drift.is_empty() {
+    line("needs human", Tone::Red, Items::Singles(g.needs_human));
+    let drift = !g.origin_drift.is_empty();
+    line("origin drift", Tone::Yellow, Items::Singles(g.origin_drift));
+    if drift {
         let hint = "hint: git -C <dir> remote set-url origin <url> (each under --verbose)";
-        line("", &[hint.to_owned()], "");
+        line("", Tone::Plain, Items::Singles(vec![hint.to_owned()]));
     }
     let mut sync = g.act.verbs();
-    if !g.clone.is_empty() {
-        sync.push(format!("clone {}", g.clone.join(", ")));
-    }
-    line("sync would", &sync, " · ");
-    line("held", &g.held.verbs(), " · ");
-    line("local-only", &g.local_only, "  ");
-    line("uncommitted", &g.uncommitted, "  ");
-    line("cleanup", &g.cleanup, "  ");
-    line("unregistered", &unregistered_groups(report, view), "  ");
-    line("stashes", &g.stashes, "  ");
+    sync.extend(prefixed("clone ", g.clone));
+    line("sync would", Tone::Green, Items::Runs(sync, " · "));
+    line("held", Tone::Yellow, Items::Runs(g.held.verbs(), " · "));
+    line("local-only", Tone::Plain, Items::Singles(g.local_only));
+    line("uncommitted", Tone::Plain, Items::Singles(g.uncommitted));
+    line("cleanup", Tone::Plain, Items::Singles(g.cleanup));
+    line(
+        "unregistered",
+        Tone::Plain,
+        Items::Runs(unregistered_groups(report, view), "  "),
+    );
+    line("stashes", Tone::Plain, Items::Singles(g.stashes));
 
     let counts = format!(
         "clean {} · on branches {} · pinned {}",
@@ -125,6 +224,100 @@ struct Counts {
     clean: u32,
     on_branches: u32,
     pinned: u32,
+}
+
+/// A summary group's items.
+#[derive(Debug)]
+enum Items {
+    /// Items that stand apart, two spaces between them.
+    Singles(Vec<String>),
+    /// Runs of items — a verb's branches, an ownership's strays — each run's
+    /// items joined by `, `, the runs by the separator.
+    Runs(Vec<Vec<String>>, &'static str),
+}
+
+/// Items as one run, the first carrying `prefix` (`push `, `owned: `); no
+/// run when there are none.
+fn prefixed(prefix: &str, mut items: Vec<String>) -> Option<Vec<String>> {
+    let first = items.first_mut()?;
+    first.insert_str(0, prefix);
+    Some(items)
+}
+
+/// One summary group: its label, then its items from `ITEM_COLUMN`,
+/// wrapped at `view.width` with a hanging indent; nothing when there are no
+/// items.
+///
+/// A line breaks only between items, never inside one: an item too long for
+/// the width stands alone on its line. Singles flow, as many to a line as
+/// fit. Runs that fit on one line share it; otherwise each run starts its
+/// own line (the separator dropped, the run's prefix leading it) and its
+/// items flow from there, a break inside a run leaving the `,` at the line's
+/// end.
+fn render_group(label: &str, tone: Tone, items: &Items, view: View<'_>) -> String {
+    // each word with what joins it to the one before on the same line, and
+    // whether it opens a run
+    let mut words: Vec<(&str, Cow<'_, str>, bool)> = Vec::new();
+    match items {
+        Items::Singles(items) => {
+            words.extend(
+                items
+                    .iter()
+                    .map(|item| ("  ", Cow::Borrowed(item.as_str()), false)),
+            );
+        }
+        Items::Runs(runs, sep) => {
+            for run in runs {
+                for (i, item) in run.iter().enumerate() {
+                    let word = if i + 1 < run.len() {
+                        Cow::Owned(format!("{item},"))
+                    } else {
+                        Cow::Borrowed(item.as_str())
+                    };
+                    words.push(if i == 0 {
+                        (sep, word, true)
+                    } else {
+                        (" ", word, false)
+                    });
+                }
+            }
+        }
+    }
+    if words.is_empty() {
+        return String::new();
+    }
+    let chars = |s: &str| s.chars().count();
+    let one_line = ITEM_COLUMN
+        + words
+            .iter()
+            .enumerate()
+            .map(|(i, (join, word, _))| if i == 0 { 0 } else { chars(join) } + chars(word))
+            .sum::<usize>();
+    let run_per_line = one_line > view.width;
+
+    let mut out = tone
+        .sgr()
+        .filter(|_| view.color)
+        .map_or_else(|| label.to_owned(), |sgr| format!("{sgr}{label}\x1b[0m"));
+    let pad = ITEM_COLUMN.saturating_sub(chars(label)).max(1);
+    out.extend(std::iter::repeat_n(' ', pad));
+    let mut column = ITEM_COLUMN;
+    for (i, (join, word, opens_run)) in words.iter().enumerate() {
+        if i > 0 {
+            if (run_per_line && *opens_run) || column + chars(join) + chars(word) > view.width {
+                out.push('\n');
+                out.extend(std::iter::repeat_n(' ', ITEM_COLUMN));
+                column = ITEM_COLUMN;
+            } else {
+                out.push_str(join);
+                column += chars(join);
+            }
+        }
+        out.push_str(word);
+        column += chars(word);
+    }
+    out.push('\n');
+    out
 }
 
 /// Sync actions by verb, each item a labeled branch.
@@ -147,16 +340,16 @@ impl Actions {
         }
     }
 
-    /// `push a +1, b +2`, `ff …`, `move …`, omitting empty verbs.
-    fn verbs(&self) -> Vec<String> {
+    /// A run per verb — `push a +1, b +2`, `ff …`, `move …` — omitting empty
+    /// verbs.
+    fn verbs(&self) -> Vec<Vec<String>> {
         [
-            ("push", &self.push),
-            ("ff", &self.ff),
-            ("move", &self.moves),
+            ("push ", &self.push),
+            ("ff ", &self.ff),
+            ("move ", &self.moves),
         ]
         .into_iter()
-        .filter(|(_, items)| !items.is_empty())
-        .map(|(verb, items)| format!("{verb} {}", items.join(", ")))
+        .filter_map(|(verb, items)| prefixed(verb, items.clone()))
         .collect()
     }
 
@@ -283,8 +476,9 @@ impl Groups {
                 // command is `remove`, this one's alone, and only the scan
                 // offers a repair, vetted, for a moved worktree at the root
                 (UnprobedWhy::Prunable, Some(Prune::Safe)) => self.cleanup.push(format!(
-                    "{key} (worktree {at} gone — {IF_MOVED}, else git -C {} worktree remove {at})",
-                    view.show(&workspace.join(&e.dir).to_string_lossy())
+                    "{key} (worktree {at} gone — {IF_MOVED}, else git -C {} worktree remove {})",
+                    view.show_arg(&workspace.join(&e.dir).to_string_lossy()),
+                    view.show_arg(&u.worktree.path)
                 )),
                 // the scan found it moved: those strays' lines say what to
                 // do, whatever they are, and removing it would orphan them
@@ -562,16 +756,18 @@ pub fn render_entry(e: &EntryStatus, workspace: &Path, view: View<'_>) -> String
             b.upstream.as_deref().unwrap_or("-"),
         );
     }
+    // the checkout as a word in the commands below
     let dir = e.checkouts.first().map_or_else(
-        || view.show(&workspace.join(&e.dir).to_string_lossy()),
-        |c| view.show(&c.path),
+        || view.show_arg(&workspace.join(&e.dir).to_string_lossy()),
+        |c| view.show_arg(&c.path),
     );
     for reason in &e.needs_human {
         let detail = match reason {
             NeedsHuman::NotARepo { detail } => format!("not a repo: {detail}"),
             NeedsHuman::OriginMismatch { expected, .. } => format!(
-                "{} — git -C {dir} remote set-url origin {expected}",
-                needs_human_label(reason, e, view)
+                "{} — git -C {dir} remote set-url origin {}",
+                needs_human_label(reason, e, view),
+                shell_quote(expected)
             ),
             reason => needs_human_label(reason, e, view),
         };
@@ -599,10 +795,10 @@ pub fn render_entry(e: &EntryStatus, workspace: &Path, view: View<'_>) -> String
     out
 }
 
-/// The summary's `unregistered` groups — `owned: …`, `third-party: …`,
+/// The summary's `unregistered` runs — `owned: …`, `third-party: …`,
 /// `no origin: …` — each stray by dir name, a worktree marked with what it is
 /// and, when moved, its fix. Nothing when the scan didn't run or found none.
-fn unregistered_groups(report: &StatusReport, view: View<'_>) -> Vec<String> {
+fn unregistered_groups(report: &StatusReport, view: View<'_>) -> Vec<Vec<String>> {
     let mut owned = Vec::new();
     let mut third_party = Vec::new();
     let mut no_origin = Vec::new();
@@ -646,13 +842,12 @@ fn unregistered_groups(report: &StatusReport, view: View<'_>) -> Vec<String> {
         }
     }
     [
-        ("owned", owned),
-        ("third-party", third_party),
-        ("no origin", no_origin),
+        ("owned: ", owned),
+        ("third-party: ", third_party),
+        ("no origin: ", no_origin),
     ]
     .into_iter()
-    .filter(|(_, items)| !items.is_empty())
-    .map(|(group, items)| format!("{group}: {}", items.join(", ")))
+    .filter_map(|(group, items)| prefixed(group, items))
     .collect()
 }
 
@@ -700,14 +895,17 @@ fn repair_block_summary(block: &RepairBlock, view: View<'_>) -> String {
 /// and the fix when there's a mechanical one.
 pub fn render_unregistered(u: &UnregisteredClone, report: &StatusReport, view: View<'_>) -> String {
     let workspace = Path::new(&report.workspace);
-    let at = view.show(&workspace.join(&u.dir).to_string_lossy());
+    let path = workspace.join(&u.dir);
+    let path = path.to_string_lossy();
+    let at = view.show(&path);
+    // an entry's dir as a word in a command
     let entry_dir = |key: &str| {
         let dir = report
             .entries
             .iter()
             .find(|e| e.key == key)
             .map_or(key, |e| e.dir.as_str());
-        view.show(&workspace.join(dir).to_string_lossy())
+        view.show_arg(&workspace.join(dir).to_string_lossy())
     };
     let owner = match (u.owned, &u.origin) {
         (true, _) => "owned",
@@ -733,7 +931,11 @@ pub fn render_unregistered(u: &UnregisteredClone, report: &StatusReport, view: V
         } => {
             let mut detail = vec![(
                 "fix",
-                format!("git -C {} worktree repair {at}", entry_dir(entry)),
+                format!(
+                    "git -C {} worktree repair {}",
+                    entry_dir(entry),
+                    view.show_arg(&path)
+                ),
             )];
             if let Some(path) = exit_noise {
                 detail.push((
@@ -1101,6 +1303,8 @@ mod tests {
     const VIEW: View<'static> = View {
         home: Some("/home/me"),
         now: NOW,
+        width: DEFAULT_WIDTH,
+        color: false,
     };
 
     #[test]
@@ -1240,7 +1444,8 @@ mod tests {
         let out = render_summary(&r, VIEW, false);
         let want = "\
 failed        wpt (fetch: fatal: couldn't find remote ref fork)
-needs human   uz:arc (diverged +2 −5)  old (archived, +1)  wpt (rebase in progress)  wpt (outside refspec)
+needs human   uz:arc (diverged +2 −5)  old (archived, +1)  wpt (rebase in progress)
+              wpt (outside refspec)
 sync would    push uz +13 · ff zzz −3 · clone blake3
 local-only    uz:wip (+1, 2d)  svelte:audit (+4, 2d, read-only)
 uncommitted   uz (1)
@@ -1276,8 +1481,8 @@ clean 1 · on branches 0 · pinned 0      ~/dev/repos.toml · fetched 3h ago, 1 
         assert!(
             out.starts_with(
                 "\
-failed        app (probe: git status failed (128): error: bad tree object HEAD)  full (probe: git \
-                 status failed (128): error: bad tree object HEAD)
+failed        app (probe: git status failed (128): error: bad tree object HEAD)
+              full (probe: git status failed (128): error: bad tree object HEAD)
               hint: a partial clone may lack objects the probe needs, and repos never fetches \
                  them — git -C <dir> checkout fetches them from origin and fills the checkout \
                  (each under --verbose)
@@ -1601,7 +1806,17 @@ gro  repo · owned · public · ci · follow main
 failed        app (worktree ~/dev/app-broken: git status failed (128): fatal: not a git repository)
 held          ff app:feat −1 (dirty), app:usb −4 (unprobed worktree)
 uncommitted   app (worktree ~/dev/app-feat, 3)  app (worktree ~/wt/app-feat, 1)
-cleanup       app:old (upstream gone, worktree ~/wt/app-old removable)  app (worktree ~/dev/app-gone gone — if it moved, move it back (or to the workspace root) and rerun repos status, else git -C ~/dev/app worktree remove ~/dev/app-gone)  app (worktree ~/dev/app-spike gone — if it moved, move it back (or to the workspace root) and rerun repos status; removing discards its detached HEAD)  app (worktree ~/moved-fix gone — if it moved, move it back (or to the workspace root) and rerun repos status; removing discards its rebase in progress and its detached HEAD)  app (worktree ~/dev/app-deleted gone — if it moved, move it back (or to the workspace root) and rerun repos status; removing discards its HEAD (branch feat is gone))  app (worktree ~/dev/app-garbled gone — if it moved, move it back (or to the workspace root) and rerun repos status; removing discards its HEAD)  app (worktree ~/dev/app-rel gone — if it moved, move it back (or to the workspace root) and rerun repos status; removing discards its index and HEAD if it isn't gone after all (git dir k names its worktree relatively, which git versions resolve differently))  app (worktree ~/dev/app-held gone — if it moved, move it back (or to the workspace root) and rerun repos status; removing discards its submodules' repos and its worktree refs and its staged changes)  app (worktree ~/dev/app-lost gone — if it moved, move it back (or to the workspace root) and rerun repos status; removing discards whatever its git dir holds (it can't be matched))  app (worktree ~/dev/app-b gone — moved to b-moved; see its line)  app (worktree ~/dev/app-c gone — moved to c-copy, c-moved; see their lines)
+cleanup       app:old (upstream gone, worktree ~/wt/app-old removable)
+              app (worktree ~/dev/app-gone gone — if it moved, move it back (or to the workspace root) and rerun repos status, else git -C ~/dev/app worktree remove ~/dev/app-gone)
+              app (worktree ~/dev/app-spike gone — if it moved, move it back (or to the workspace root) and rerun repos status; removing discards its detached HEAD)
+              app (worktree ~/moved-fix gone — if it moved, move it back (or to the workspace root) and rerun repos status; removing discards its rebase in progress and its detached HEAD)
+              app (worktree ~/dev/app-deleted gone — if it moved, move it back (or to the workspace root) and rerun repos status; removing discards its HEAD (branch feat is gone))
+              app (worktree ~/dev/app-garbled gone — if it moved, move it back (or to the workspace root) and rerun repos status; removing discards its HEAD)
+              app (worktree ~/dev/app-rel gone — if it moved, move it back (or to the workspace root) and rerun repos status; removing discards its index and HEAD if it isn't gone after all (git dir k names its worktree relatively, which git versions resolve differently))
+              app (worktree ~/dev/app-held gone — if it moved, move it back (or to the workspace root) and rerun repos status; removing discards its submodules' repos and its worktree refs and its staged changes)
+              app (worktree ~/dev/app-lost gone — if it moved, move it back (or to the workspace root) and rerun repos status; removing discards whatever its git dir holds (it can't be matched))
+              app (worktree ~/dev/app-b gone — moved to b-moved; see its line)
+              app (worktree ~/dev/app-c gone — moved to c-copy, c-moved; see their lines)
 clean 0 · on branches 0 · pinned 0      ~/dev/repos.toml · fetched 3h ago
 "
         );
@@ -1793,9 +2008,10 @@ app  repo · owned · public · ci · follow main
         assert_eq!(
             render_summary(&r, VIEW, false),
             "\
-unregistered  owned: app-copy (shares app's git dir with ~/wt/app-feat — don't repair), app-old \
-(moved worktree of app — git worktree repair), mine  third-party: lib, lib-feat (worktree)  no \
-origin: site-orphan (orphaned worktree of site — its git dir is lost)
+unregistered  owned: app-copy (shares app's git dir with ~/wt/app-feat — don't repair),
+              app-old (moved worktree of app — git worktree repair), mine
+              third-party: lib, lib-feat (worktree)
+              no origin: site-orphan (orphaned worktree of site — its git dir is lost)
 clean 1 · on branches 0 · pinned 0      ~/dev/repos.toml · fetched 3h ago
 "
         );
@@ -1880,10 +2096,9 @@ clean 1 · on branches 0 · pinned 0      ~/dev/repos.toml · fetched 3h ago
         assert_eq!(
             render_summary(&r, VIEW, false),
             "\
-unregistered  owned: app-feat (moved worktree of app — another moved worktree claims this dir; \
-repair that one first once its repair is offered, then rerun), s-moved (moved worktree of app — \
-a repair would also rewrite ~/dev/q; fix that first), t-moved (moved worktree of app — a relative \
-gitdir in this repo, which git versions resolve differently; fix by hand)
+unregistered  owned: app-feat (moved worktree of app — another moved worktree claims this dir; repair that one first once its repair is offered, then rerun),
+              s-moved (moved worktree of app — a repair would also rewrite ~/dev/q; fix that first),
+              t-moved (moved worktree of app — a relative gitdir in this repo, which git versions resolve differently; fix by hand)
 clean 1 · on branches 0 · pinned 0      ~/dev/repos.toml · fetched 3h ago
 "
         );
@@ -1940,8 +2155,8 @@ t-moved  unregistered · owned · moved worktree of app
         assert_eq!(
             render_summary(&r, VIEW, false),
             "\
-unregistered  owned: s-moved (moved worktree of app — git worktree repair), wa (moved worktree of \
-app — swapped with wb; move the dirs back)
+unregistered  owned: s-moved (moved worktree of app — git worktree repair),
+              wa (moved worktree of app — swapped with wb; move the dirs back)
 clean 1 · on branches 0 · pinned 0      ~/dev/repos.toml · fetched 3h ago
 "
         );
@@ -2001,6 +2216,378 @@ site-orphan  unregistered · no origin · orphaned worktree of site
         );
     }
 
+    /// What `sh` reads `word` back as, under `HOME=/home/me`.
+    fn sh_reads(word: &str) -> String {
+        shell_reads("sh", &["-c"], word).unwrap()
+    }
+
+    /// What fish reads `word` back as, under `HOME=/home/me`; `None` when
+    /// fish isn't on `PATH`.
+    fn fish_reads(word: &str) -> Option<String> {
+        shell_reads("fish", &["--no-config", "-c"], word)
+    }
+
+    /// What `shell` (run with `args`) prints for `printf '%s' <word>`, under
+    /// `HOME=/home/me`; `None` when it isn't installed.
+    fn shell_reads(shell: &str, args: &[&str], word: &str) -> Option<String> {
+        let out = match std::process::Command::new(shell)
+            .args(args)
+            .arg(format!("printf '%s' {word}"))
+            .env_clear()
+            .env("HOME", "/home/me")
+            .output()
+        {
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return None,
+            out => out.unwrap(),
+        };
+        assert!(
+            out.status.success(),
+            "{shell} failed on {word}: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        Some(String::from_utf8(out.stdout).unwrap())
+    }
+
+    #[test]
+    fn shell_words() {
+        let cases = [
+            ("/home/x/dev/app", "/home/x/dev/app"),
+            ("git@github.com:me/app", "git@github.com:me/app"),
+            ("https://github.com/me/app", "https://github.com/me/app"),
+            ("a-b_c.d+e=f,g", "a-b_c.d+e=f,g"),
+            // fish expands a bare `%self` to its PID
+            ("%self", "'%self'"),
+            ("/srv/a%b", "'/srv/a%b'"),
+            // fish honors `\\` and `\'` inside single quotes: a `\` goes
+            // outside them
+            ("/srv/a\\b", r"'/srv/a'\\'b'"),
+            ("/srv/a\\\\b", r"'/srv/a'\\''\\'b'"),
+            ("/srv/end\\", r"'/srv/end'\\''"),
+            ("/srv/it's\\", r"'/srv/it'\''s'\\''"),
+            ("/srv/x\\'y", r"'/srv/x'\\''\''y'"),
+            ("", "''"),
+            ("/srv/my app", "'/srv/my app'"),
+            ("/srv/it's", r"'/srv/it'\''s'"),
+            ("/srv/$HOME", "'/srv/$HOME'"),
+            ("/srv/a*b", "'/srv/a*b'"),
+            ("/srv/`x`;y", "'/srv/`x`;y'"),
+            ("~/x", "'~/x'"),
+            ("/srv/é", "'/srv/é'"),
+        ];
+        for (raw, quoted) in cases {
+            assert_eq!(shell_quote(raw), quoted);
+            // and each shell reads it back as it was
+            assert_eq!(sh_reads(quoted), raw, "sh: {quoted}");
+            if let Some(read) = fish_reads(quoted) {
+                assert_eq!(read, raw, "fish: {quoted}");
+            }
+        }
+    }
+
+    #[test]
+    fn paths_as_command_words_keep_the_tilde_outside_the_quotes() {
+        let cases = [
+            ("/home/me/dev/app", "~/dev/app"),
+            ("/home/me/my dev/it's", r"~/'my dev/it'\''s'"),
+            ("/home/me", "~"),
+            ("/home/me/", "~"),
+            ("/home/meadow/x y", "'/home/meadow/x y'"),
+            ("/srv/x y", "'/srv/x y'"),
+        ];
+        for (path, word) in cases {
+            assert_eq!(VIEW.show_arg(path), word);
+            // each shell expands the `~` against the same home
+            let back = sh_reads(word);
+            assert_eq!(
+                back.trim_end_matches('/'),
+                path.trim_end_matches('/'),
+                "sh: {word}"
+            );
+            if let Some(back) = fish_reads(word) {
+                assert_eq!(
+                    back.trim_end_matches('/'),
+                    path.trim_end_matches('/'),
+                    "fish: {word}"
+                );
+            }
+        }
+        let homeless = View { home: None, ..VIEW };
+        assert_eq!(homeless.show_arg("/home/me/x y"), "'/home/me/x y'");
+    }
+
+    #[test]
+    fn printed_commands_are_shell_quoted() {
+        let mut app = entry("app", main(), "main");
+        app.dir = "my app".into();
+        app.checkouts[0].path = "/home/me/dev/my app".into();
+        app.layout = Some(Layout {
+            shallow: false,
+            sparse: false,
+            partial_filter: Some("tree:0".into()),
+        });
+        app.probe_error = Some("bad tree object HEAD".into());
+        app.needs_human = vec![NeedsHuman::OriginMismatch {
+            origin: None,
+            expected: "file:///srv/it's/app".into(),
+        }];
+        app.unprobed_worktrees = vec![status(
+            unprobed("/srv/it's gone", Some("gone"), UnprobedWhy::Prunable),
+            Some(Prune::Safe),
+        )];
+        let stray = unregistered(
+            "new $dir",
+            Some("git@github.com:me/app"),
+            true,
+            UnregisteredKind::MovedWorktree {
+                entry: "app".into(),
+                blocked_by: None,
+                exit_noise: None,
+            },
+        );
+        let mut r = report(vec![app]);
+        r.unregistered = Some(vec![stray.clone()]);
+
+        let summary = render_summary(&r, VIEW, false);
+        // the path read as prose stays as is; the command's words are quoted
+        assert!(
+            summary.contains(
+                r"app (worktree /srv/it's gone gone — if it moved, move it back (or to the workspace root) and rerun repos status, else git -C ~/'dev/my app' worktree remove '/srv/it'\''s gone')"
+            ),
+            "{summary}"
+        );
+        let block = render_entry(&r.entries[0], Path::new("/home/me/dev"), VIEW);
+        assert!(
+            block.contains(
+                r"no origin — git -C ~/'dev/my app' remote set-url origin 'file:///srv/it'\''s/app'"
+            ),
+            "{block}"
+        );
+        assert!(
+            block.contains("git -C ~/'dev/my app' checkout fetches them"),
+            "{block}"
+        );
+        assert!(
+            render_unregistered(&stray, &r, VIEW)
+                .contains("  fix       git -C ~/'dev/my app' worktree repair ~/'dev/new $dir'\n"),
+            "{}",
+            render_unregistered(&stray, &r, VIEW)
+        );
+    }
+
+    #[test]
+    fn widths_from_columns() {
+        assert_eq!(summary_width(None), DEFAULT_WIDTH);
+        assert_eq!(summary_width(Some("80")), 80);
+        assert_eq!(summary_width(Some(" 120\n")), 120);
+        assert_eq!(summary_width(Some("40")), 40);
+        for unusable in ["39", "0", "", "wide", "-80", "80.5"] {
+            assert_eq!(summary_width(Some(unusable)), DEFAULT_WIDTH, "{unusable}");
+        }
+    }
+
+    #[test]
+    fn color_only_on_a_terminal_without_no_color() {
+        assert!(use_color(true, None));
+        // no-color.org: an empty value is as good as unset
+        assert!(use_color(true, Some(OsStr::new(""))));
+        assert!(!use_color(true, Some(OsStr::new("1"))));
+        assert!(!use_color(true, Some(OsStr::new("0"))));
+        assert!(!use_color(false, None));
+        assert!(!use_color(false, Some(OsStr::new(""))));
+    }
+
+    #[test]
+    fn color_marks_group_labels_only() {
+        let mut app = entry("app", main(), "main");
+        app.branches = vec![branch(
+            "main",
+            Some("origin/main"),
+            Relation::Ahead { commits: 1 },
+            1,
+            act(SyncAction::Push { commits: 1 }),
+        )];
+        app.needs_human = vec![NeedsHuman::DefaultBranchNoUpstream {
+            branch: "main".into(),
+        }];
+        app.checkouts[0].uncommitted.untracked = 1;
+        let mut gro = entry("gro", main(), "main");
+        gro.branches = vec![branch(
+            "main",
+            Some("origin/main"),
+            Relation::Behind { commits: 2 },
+            0,
+            Verdict::Held {
+                action: SyncAction::FastForward { commits: 2 },
+                by: HeldBy::Entry,
+            },
+        )];
+        gro.needs_human = vec![NeedsHuman::OriginMismatch {
+            origin: None,
+            expected: "git@github.com:me/gro".into(),
+        }];
+        gro.fetch_error = Some("fatal: unreachable".into());
+        let r = report(vec![app, gro]);
+        let colored = render_summary(
+            &r,
+            View {
+                color: true,
+                ..VIEW
+            },
+            false,
+        );
+        assert_eq!(
+            colored,
+            "\
+\x1b[31mfailed\x1b[0m        gro (fetch: fatal: unreachable)
+\x1b[31mneeds human\x1b[0m   app (main has no origin upstream)
+\x1b[33morigin drift\x1b[0m  gro (no origin)
+              hint: git -C <dir> remote set-url origin <url> (each under --verbose)
+\x1b[32msync would\x1b[0m    push app +1
+\x1b[33mheld\x1b[0m          ff gro −2
+uncommitted   app (1)
+clean 0 · on branches 0 · pinned 0      ~/dev/repos.toml · fetched 3h ago
+"
+        );
+        // stripped of its escapes, it's the plain summary
+        assert_eq!(
+            colored
+                .replace("\x1b[31m", "")
+                .replace("\x1b[32m", "")
+                .replace("\x1b[33m", "")
+                .replace("\x1b[0m", ""),
+            render_summary(&r, VIEW, false)
+        );
+        assert!(!render_summary(&r, VIEW, false).contains('\x1b'));
+    }
+
+    #[test]
+    fn singles_wrap_between_items_with_a_hanging_indent() {
+        let items = |items: &[&str]| Items::Singles(items.iter().map(|&i| i.to_owned()).collect());
+        let narrow = View { width: 40, ..VIEW };
+        let long = "an item far too long to share any line with others";
+        assert_eq!(
+            render_group(
+                "needs human",
+                Tone::Red,
+                &items(&["aaaa (one)", "bbbb (two)", "cccc (three)", long, "dd"]),
+                narrow,
+            ),
+            "\
+needs human   aaaa (one)  bbbb (two)
+              cccc (three)
+              an item far too long to share any line with others
+              dd
+"
+        );
+        // an item ending exactly at the width fits
+        assert_eq!(
+            render_group(
+                "x",
+                Tone::Plain,
+                &items(&["aaaa (one)", "bbbb (two)"]),
+                View { width: 36, ..VIEW },
+            ),
+            "x             aaaa (one)  bbbb (two)\n"
+        );
+        assert_eq!(
+            render_group(
+                "x",
+                Tone::Plain,
+                &items(&["aaaa (one)", "bbbb (two)"]),
+                View { width: 35, ..VIEW },
+            ),
+            "x             aaaa (one)\n              bbbb (two)\n"
+        );
+        // widths count chars, not bytes: `−` and `—` are one column each
+        assert_eq!(
+            render_group(
+                "x",
+                Tone::Plain,
+                &items(&["a −1 —", "b −2 —"]),
+                View { width: 28, ..VIEW }
+            ),
+            "x             a −1 —  b −2 —\n"
+        );
+        assert_eq!(render_group("x", Tone::Red, &items(&[]), narrow), "");
+    }
+
+    #[test]
+    fn runs_wrap_one_to_a_line() {
+        let run = |items: &[&str]| items.iter().map(|&i| i.to_owned()).collect::<Vec<_>>();
+        let runs = Items::Runs(
+            vec![
+                run(&["push a +1", "bb +2", "ccc +3", "dddd +4"]),
+                run(&["ff e −1"]),
+                run(&["move f"]),
+                run(&["clone g", "h"]),
+            ],
+            " · ",
+        );
+        // one line when it fits
+        assert_eq!(
+            render_group("sync would", Tone::Green, &runs, VIEW),
+            "sync would    push a +1, bb +2, ccc +3, dddd +4 · ff e −1 · move f · clone g, h\n"
+        );
+        // else each run starts a line, its items flowing with the `,` kept
+        // at the break, the ` · ` dropped
+        assert_eq!(
+            render_group("sync would", Tone::Green, &runs, View { width: 40, ..VIEW }),
+            "\
+sync would    push a +1, bb +2, ccc +3,
+              dddd +4
+              ff e −1
+              move f
+              clone g, h
+"
+        );
+    }
+
+    #[test]
+    fn a_wrapped_sync_line_in_the_summary() {
+        let mut entries = Vec::new();
+        for (key, commits) in [("grimoire", 13), ("setup", 2), ("fuz_util", 1)] {
+            let mut e = entry(key, main(), "main");
+            e.branches = vec![branch(
+                "main",
+                Some("origin/main"),
+                Relation::Ahead { commits },
+                commits,
+                act(SyncAction::Push { commits }),
+            )];
+            entries.push(e);
+        }
+        let mut zzz = entry("zzz", main(), "main");
+        zzz.branches = vec![branch(
+            "main",
+            Some("origin/main"),
+            Relation::Behind { commits: 3 },
+            0,
+            act(SyncAction::FastForward { commits: 3 }),
+        )];
+        entries.push(zzz);
+        for key in ["blake3", "corpora"] {
+            let mut e = entry(key, main(), "main");
+            e.presence = Presence::Missing;
+            e.checkouts.clear();
+            entries.push(e);
+        }
+        let r = report(entries);
+        assert!(render_summary(&r, VIEW, false).starts_with(
+            "sync would    push grimoire +13, setup +2, fuz_util +1 · ff zzz −3 · clone blake3, \
+                 corpora\n"
+        ));
+        assert!(
+            render_summary(&r, View { width: 50, ..VIEW }, false).starts_with(
+                "\
+sync would    push grimoire +13, setup +2,
+              fuz_util +1
+              ff zzz −3
+              clone blake3, corpora
+"
+            )
+        );
+    }
+
     #[test]
     fn ages() {
         assert_eq!(format_age(5), "5s");
@@ -2016,6 +2603,7 @@ site-orphan  unregistered · no origin · orphaned worktree of site
         assert_eq!(VIEW.show("/home/me/dev"), "~/dev");
         assert_eq!(VIEW.show("/home/me"), "~");
         assert_eq!(VIEW.show("/home/meadow/x"), "/home/meadow/x");
-        assert_eq!(View { home: None, now: 0 }.show("/x"), "/x");
+        let homeless = View { home: None, ..VIEW };
+        assert_eq!(homeless.show("/x"), "/x");
     }
 }

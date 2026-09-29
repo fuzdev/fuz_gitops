@@ -188,8 +188,9 @@ fn status_from_a_linked_worktree_outside_the_workspace() {
     );
     assert!(
         text.contains(&format!(
-            // main's local commit is on it too, on no remote
-            "cleanup       app:feature (upstream gone, +1, worktree {} removable)  \
+            // main's local commit is on it too, on no remote; the second item
+            // is too long to share a line, so it hangs below the first
+            "cleanup       app:feature (upstream gone, +1, worktree {} removable)\n              \
              app (worktree {gone} gone — if it moved, move it back (or to the workspace root) \
              and rerun repos status, else git -C {app} worktree remove {gone})\n",
             feature.display(),
@@ -496,6 +497,56 @@ fn status_text_exits_zero_whatever_it_reports() {
         assert!(text.contains("app"), "{text}");
         assert!(text.contains("gone"), "{text}");
     }
+}
+
+#[test]
+fn piped_output_is_never_colored() {
+    let ws = workspace();
+    // `NO_COLOR` unset (the environment is cleared): only the pipe keeps
+    // color off
+    for args in [
+        &["status"][..],
+        &["status", "--verbose"],
+        &["status", "--json"],
+    ] {
+        let out = repos(&ws, &ws.root(), args);
+        assert_eq!(out.status.code(), Some(0), "stderr: {}", stderr(&out));
+        let text = stdout(&out);
+        assert!(
+            text.contains("sync would") || text.contains("\"version\""),
+            "{text}"
+        );
+        assert!(!text.contains('\x1b'), "{text:?}");
+        assert!(!stderr(&out).contains('\x1b'));
+    }
+}
+
+#[test]
+fn the_summary_wraps_at_columns() {
+    let mut ws = workspace();
+    ws.declare_repo("other", "other", "");
+    ws.write_registry();
+    let status = |columns: Option<&str>| {
+        let mut cmd = ws.command(REPOS, &ws.root());
+        cmd.arg("status");
+        if let Some(columns) = columns {
+            cmd.env("COLUMNS", columns);
+        }
+        let out = cmd.output().unwrap();
+        assert_eq!(out.status.code(), Some(0), "stderr: {}", stderr(&out));
+        stdout(&out)
+    };
+    let one_line = "sync would    push app +1 · clone gone, other\n";
+    // unset, unusable, or too narrow: 100
+    for columns in [None, Some("wide"), Some("39")] {
+        let text = status(columns);
+        assert!(text.starts_with(one_line), "{columns:?}: {text}");
+    }
+    let text = status(Some("40"));
+    assert!(
+        text.starts_with("sync would    push app +1\n              clone gone, other\n"),
+        "{text}"
+    );
 }
 
 #[test]

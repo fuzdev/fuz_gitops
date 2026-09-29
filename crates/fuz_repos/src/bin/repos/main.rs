@@ -10,11 +10,15 @@
 //! the report. An argument the parser rejects is reported before `--json` is
 //! known, so it stays argh's text on stderr (exit 2) under `--json` too; so
 //! does a non-UTF-8 argument.
+//!
+//! The text summary wraps at `COLUMNS` (100 when unset or under 40), piped
+//! or not, and colors its group labels only when stdout is a terminal and
+//! `NO_COLOR` is unset or empty.
 
 mod render;
 
 use std::fmt::Write as _;
-use std::io::{self, Write as _};
+use std::io::{self, IsTerminal as _, Write as _};
 use std::path::Path;
 use std::process::ExitCode;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -29,7 +33,9 @@ use fuz_repos::report::{ErrorReport, StatusReport};
 use fuz_repos::scan::scan_unregistered;
 use fuz_repos::status::{EntryTiming, StatusOptions, mark_moved_worktrees, status};
 
-use crate::render::{View, render_entry, render_summary, render_unregistered};
+use crate::render::{
+    View, render_entry, render_summary, render_unregistered, summary_width, use_color,
+};
 
 /// The build's identity: the crate version, and the commit the binary was
 /// built from (stamped by `build.rs`).
@@ -244,12 +250,20 @@ fn run_status(locate: Locate<'_>, args: &StatusArgs) -> Result<Printed> {
 
     let render_start = Instant::now();
     let home = std::env::var("HOME").ok();
+    let columns = std::env::var("COLUMNS").ok();
     let view = View {
         home: home.as_deref(),
         now: SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap_or_default()
             .as_secs(),
+        width: summary_width(columns.as_deref()),
+        // never under `--json`, which renders nothing
+        color: !args.json
+            && use_color(
+                io::stdout().is_terminal(),
+                std::env::var_os("NO_COLOR").as_deref(),
+            ),
     };
     let out = if args.json {
         let mut json = serde_json::to_string_pretty(&report).map_err(|e| Error::Io {

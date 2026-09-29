@@ -1,0 +1,63 @@
+{
+	"version": 3,
+	"workspace": "/home/me/dev",
+	"registry": "/home/me/dev/repos.toml",
+	"entries": [
+		{
+			"key": "gro",
+			"kind": "repo",
+			"dir": "gro",
+			"url": "https://github.com/me/gro",
+			"writable": true,
+			"archived": false,
+			"visibility": "public",
+			"ci": true,
+			"checkout_mode": {
+				"kind": "follow",
+				"branch": "main"
+			},
+			"presence": {
+				"kind": "present"
+			},
+			"layout": {
+				"shallow": false,
+				"sparse": false,
+				"partial_filter": null
+			},
+			"checkouts": [
+				{
+					"path": "/home/me/dev/gro",
+					"primary": true,
+					"head": {
+						"kind": "branch",
+						"name": "main"
+					},
+					"uncommitted": {
+						"staged": 0,
+						"unstaged": 0,
+						"untracked": 0,
+						"conflicted": 0
+					},
+					"in_progress": null,
+					"locked": false,
+					"linked": false,
+					"submodules": null
+				}
+			],
+			"branches": [],
+			"stashes": 0,
+			"fetched_at": 1799913600,
+			"needs_human": [
+				{
+					"kind": "origin_mismatch",
+					"origin": null,
+					"expected": "git@github.com:me/gro"
+				}
+			],
+			"probe_error": null,
+			"unprobed_worktrees": [],
+			"fetch_error": null
+		}
+	],
+	"unregistered": null
+}

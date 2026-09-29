@@ -1,0 +1,982 @@
+{
+	"version": 3,
+	"workspace": "/home/me/dev",
+	"registry": "/home/me/dev/repos.toml",
+	"entries": [
+		{
+			"key": "app",
+			"kind": "repo",
+			"dir": "app",
+			"url": "https://github.com/me/app",
+			"writable": true,
+			"archived": false,
+			"visibility": "public",
+			"ci": true,
+			"checkout_mode": {
+				"kind": "follow",
+				"branch": "main"
+			},
+			"presence": {
+				"kind": "present"
+			},
+			"layout": {
+				"shallow": false,
+				"sparse": false,
+				"partial_filter": null
+			},
+			"checkouts": [
+				{
+					"path": "/home/me/dev/app",
+					"primary": true,
+					"head": {
+						"kind": "branch",
+						"name": "main"
+					},
+					"uncommitted": {
+						"staged": 1,
+						"unstaged": 2,
+						"untracked": 3,
+						"conflicted": 0
+					},
+					"in_progress": null,
+					"locked": false,
+					"linked": false,
+					"submodules": null
+				},
+				{
+					"path": "/home/me/dev/app-feat",
+					"primary": false,
+					"head": {
+						"kind": "branch",
+						"name": "feat"
+					},
+					"uncommitted": {
+						"staged": 0,
+						"unstaged": 1,
+						"untracked": 0,
+						"conflicted": 0
+					},
+					"in_progress": null,
+					"locked": false,
+					"linked": true,
+					"submodules": null
+				},
+				{
+					"path": "/home/me/wt/app-old",
+					"primary": false,
+					"head": {
+						"kind": "branch",
+						"name": "old"
+					},
+					"uncommitted": {
+						"staged": 0,
+						"unstaged": 0,
+						"untracked": 0,
+						"conflicted": 0
+					},
+					"in_progress": null,
+					"locked": false,
+					"linked": true,
+					"submodules": false
+				},
+				{
+					"path": "/home/me/dev/app-fix",
+					"primary": false,
+					"head": {
+						"kind": "detached",
+						"commit": "0123456789abcdef0123456789abcdef01234567"
+					},
+					"uncommitted": {
+						"staged": 0,
+						"unstaged": 0,
+						"untracked": 0,
+						"conflicted": 1
+					},
+					"in_progress": "cherry_pick",
+					"locked": true,
+					"linked": true,
+					"submodules": true
+				}
+			],
+			"branches": [
+				{
+					"name": "main",
+					"upstream": "origin/main",
+					"worktree": "/home/me/dev/app",
+					"unique_commits": 2,
+					"newest_commit_at": 1799827200,
+					"relation": {
+						"kind": "ahead",
+						"commits": 2
+					},
+					"verdict": {
+						"kind": "act",
+						"action": {
+							"kind": "push",
+							"commits": 2
+						}
+					}
+				},
+				{
+					"name": "feat",
+					"upstream": "origin/feat",
+					"worktree": "/home/me/dev/app-feat",
+					"unique_commits": 0,
+					"newest_commit_at": 1799827200,
+					"relation": {
+						"kind": "behind",
+						"commits": 1
+					},
+					"verdict": {
+						"kind": "held",
+						"action": {
+							"kind": "fast_forward",
+							"commits": 1
+						},
+						"by": "dirty_checkout"
+					}
+				},
+				{
+					"name": "usb",
+					"upstream": "origin/usb",
+					"worktree": null,
+					"unique_commits": 0,
+					"newest_commit_at": 1799827200,
+					"relation": {
+						"kind": "behind",
+						"commits": 4
+					},
+					"verdict": {
+						"kind": "held",
+						"action": {
+							"kind": "fast_forward",
+							"commits": 4
+						},
+						"by": "unprobed_worktree"
+					}
+				},
+				{
+					"name": "arc",
+					"upstream": "origin/arc",
+					"worktree": null,
+					"unique_commits": 2,
+					"newest_commit_at": 1799827200,
+					"relation": {
+						"kind": "diverged",
+						"ahead": 2,
+						"behind": 5
+					},
+					"verdict": {
+						"kind": "needs_human",
+						"reason": "diverged"
+					}
+				},
+				{
+					"name": "fork",
+					"upstream": "origin/fork",
+					"worktree": null,
+					"unique_commits": 3,
+					"newest_commit_at": 1799827200,
+					"relation": {
+						"kind": "unmapped"
+					},
+					"verdict": {
+						"kind": "needs_human",
+						"reason": "unmapped"
+					}
+				},
+				{
+					"name": "wip",
+					"upstream": null,
+					"worktree": null,
+					"unique_commits": 1,
+					"newest_commit_at": 1796544000,
+					"relation": {
+						"kind": "untracked"
+					},
+					"verdict": {
+						"kind": "local_only"
+					}
+				},
+				{
+					"name": "old",
+					"upstream": "origin/old",
+					"worktree": "/home/me/wt/app-old",
+					"unique_commits": 0,
+					"newest_commit_at": 1799827200,
+					"relation": {
+						"kind": "gone"
+					},
+					"verdict": {
+						"kind": "cleanup",
+						"reason": "upstream_gone",
+						"removable_worktree": "/home/me/wt/app-old"
+					}
+				},
+				{
+					"name": "done",
+					"upstream": null,
+					"worktree": null,
+					"unique_commits": 0,
+					"newest_commit_at": 1799827200,
+					"relation": {
+						"kind": "untracked"
+					},
+					"verdict": {
+						"kind": "cleanup",
+						"reason": "merged",
+						"removable_worktree": null
+					}
+				},
+				{
+					"name": "synced",
+					"upstream": "origin/synced",
+					"worktree": null,
+					"unique_commits": 0,
+					"newest_commit_at": 1799827200,
+					"relation": {
+						"kind": "in_sync"
+					},
+					"verdict": {
+						"kind": "quiet"
+					}
+				},
+				{
+					"name": "theirs",
+					"upstream": "upstream/main",
+					"worktree": null,
+					"unique_commits": 0,
+					"newest_commit_at": 1799827200,
+					"relation": {
+						"kind": "untracked"
+					},
+					"verdict": {
+						"kind": "quiet"
+					}
+				}
+			],
+			"stashes": 2,
+			"fetched_at": 1799913600,
+			"needs_human": [
+				{
+					"kind": "operation_in_progress",
+					"checkout": "/home/me/dev/app-fix",
+					"op": "cherry_pick"
+				},
+				{
+					"kind": "operation_in_progress",
+					"checkout": "/media/usb/app",
+					"op": "bisect"
+				},
+				{
+					"kind": "worktree_unreadable",
+					"path": "/home/me/dev/app/.git/worktrees/x"
+				}
+			],
+			"probe_error": null,
+			"unprobed_worktrees": [
+				{
+					"path": "/home/me/dev/app-gone",
+					"git_dir": "/home/me/dev/app/.git/worktrees/app-gone",
+					"head": {
+						"kind": "branch",
+						"name": "gone"
+					},
+					"locked": false,
+					"in_progress": null,
+					"why": {
+						"kind": "prunable"
+					},
+					"holds": {
+						"submodules": false,
+						"worktree_refs": false,
+						"staged": false
+					},
+					"prune": {
+						"kind": "safe"
+					}
+				},
+				{
+					"path": "/home/me/dev/app-spike",
+					"git_dir": "/home/me/dev/app/.git/worktrees/app-spike",
+					"head": {
+						"kind": "detached",
+						"commit": "89abcdef0123456789abcdef0123456789abcdef"
+					},
+					"locked": false,
+					"in_progress": "revert",
+					"why": {
+						"kind": "prunable"
+					},
+					"holds": {
+						"submodules": true,
+						"worktree_refs": true,
+						"staged": null
+					},
+					"prune": {
+						"kind": "loses",
+						"losses": [
+							{
+								"kind": "operation",
+								"op": "revert"
+							},
+							{
+								"kind": "detached_head"
+							},
+							{
+								"kind": "unknown_head"
+							},
+							{
+								"kind": "missing_branch",
+								"name": "spike"
+							},
+							{
+								"kind": "submodules"
+							},
+							{
+								"kind": "worktree_refs"
+							},
+							{
+								"kind": "staged_changes"
+							},
+							{
+								"kind": "unmatched_git_dir"
+							},
+							{
+								"kind": "relative_gitdir",
+								"git_dir": "/home/me/dev/app/.git/worktrees/k"
+							}
+						]
+					}
+				},
+				{
+					"path": "/home/me/dev/app-b",
+					"git_dir": "/home/me/dev/app/.git/worktrees/app-b",
+					"head": {
+						"kind": "branch",
+						"name": "b"
+					},
+					"locked": false,
+					"in_progress": null,
+					"why": {
+						"kind": "prunable"
+					},
+					"holds": {
+						"submodules": false,
+						"worktree_refs": false,
+						"staged": false
+					},
+					"prune": {
+						"kind": "moved",
+						"to": [
+							"b-copy",
+							"b-moved"
+						]
+					}
+				},
+				{
+					"path": "/media/usb/app",
+					"git_dir": "/home/me/dev/app/.git/worktrees/usb",
+					"head": {
+						"kind": "branch",
+						"name": "usb"
+					},
+					"locked": true,
+					"in_progress": "bisect",
+					"why": {
+						"kind": "missing"
+					},
+					"holds": null,
+					"prune": null
+				},
+				{
+					"path": "/home/me/dev/app/.git/worktrees/x",
+					"git_dir": null,
+					"head": {
+						"kind": "unknown"
+					},
+					"locked": false,
+					"in_progress": null,
+					"why": {
+						"kind": "failed",
+						"error": "not listed by git: reading HEAD: Permission denied"
+					},
+					"holds": null,
+					"prune": null
+				}
+			],
+			"fetch_error": null
+		},
+		{
+			"key": "fuz_blog",
+			"kind": "repo",
+			"dir": "fuz_blog",
+			"url": "https://github.com/fuzdev/fuz_blog",
+			"writable": true,
+			"archived": false,
+			"visibility": "public",
+			"ci": true,
+			"checkout_mode": {
+				"kind": "follow",
+				"branch": "main"
+			},
+			"presence": {
+				"kind": "present"
+			},
+			"layout": {
+				"shallow": false,
+				"sparse": false,
+				"partial_filter": null
+			},
+			"checkouts": [
+				{
+					"path": "/home/me/dev/fuz_blog",
+					"primary": true,
+					"head": {
+						"kind": "branch",
+						"name": "main"
+					},
+					"uncommitted": {
+						"staged": 0,
+						"unstaged": 0,
+						"untracked": 0,
+						"conflicted": 0
+					},
+					"in_progress": "merge",
+					"locked": false,
+					"linked": false,
+					"submodules": null
+				}
+			],
+			"branches": [
+				{
+					"name": "main",
+					"upstream": "origin/main",
+					"worktree": "/home/me/dev/fuz_blog",
+					"unique_commits": 2,
+					"newest_commit_at": 1799827200,
+					"relation": {
+						"kind": "ahead",
+						"commits": 2
+					},
+					"verdict": {
+						"kind": "held",
+						"action": {
+							"kind": "push",
+							"commits": 2
+						},
+						"by": "entry"
+					}
+				}
+			],
+			"stashes": 0,
+			"fetched_at": 1799913600,
+			"needs_human": [
+				{
+					"kind": "origin_mismatch",
+					"origin": "git@github.com:ryanatkn/fuz_blog",
+					"expected": "git@github.com:fuzdev/fuz_blog"
+				},
+				{
+					"kind": "operation_in_progress",
+					"checkout": "/home/me/dev/fuz_blog",
+					"op": "merge"
+				}
+			],
+			"probe_error": null,
+			"unprobed_worktrees": [],
+			"fetch_error": "fatal: couldn't find remote ref main\n"
+		},
+		{
+			"key": "old",
+			"kind": "repo",
+			"dir": "old",
+			"url": "https://github.com/me/old",
+			"writable": true,
+			"archived": true,
+			"visibility": "private",
+			"ci": false,
+			"checkout_mode": {
+				"kind": "follow",
+				"branch": "main"
+			},
+			"presence": {
+				"kind": "present"
+			},
+			"layout": {
+				"shallow": false,
+				"sparse": false,
+				"partial_filter": null
+			},
+			"checkouts": [
+				{
+					"path": "/home/me/dev/old",
+					"primary": true,
+					"head": {
+						"kind": "branch",
+						"name": "main"
+					},
+					"uncommitted": {
+						"staged": 0,
+						"unstaged": 0,
+						"untracked": 0,
+						"conflicted": 0
+					},
+					"in_progress": null,
+					"locked": false,
+					"linked": false,
+					"submodules": null
+				}
+			],
+			"branches": [
+				{
+					"name": "main",
+					"upstream": "origin/main",
+					"worktree": "/home/me/dev/old",
+					"unique_commits": 1,
+					"newest_commit_at": 1799827200,
+					"relation": {
+						"kind": "ahead",
+						"commits": 1
+					},
+					"verdict": {
+						"kind": "needs_human",
+						"reason": "archived_ahead"
+					}
+				}
+			],
+			"stashes": 0,
+			"fetched_at": 1774080000,
+			"needs_human": [],
+			"probe_error": null,
+			"unprobed_worktrees": [],
+			"fetch_error": null
+		},
+		{
+			"key": "test262",
+			"kind": "reference",
+			"dir": "test262",
+			"url": "https://github.com/tc39/test262",
+			"writable": false,
+			"archived": false,
+			"visibility": null,
+			"ci": false,
+			"checkout_mode": {
+				"kind": "head"
+			},
+			"presence": {
+				"kind": "present"
+			},
+			"layout": {
+				"shallow": true,
+				"sparse": true,
+				"partial_filter": null
+			},
+			"checkouts": [
+				{
+					"path": "/home/me/dev/test262",
+					"primary": true,
+					"head": {
+						"kind": "detached",
+						"commit": "fedcba9876543210fedcba9876543210fedcba98"
+					},
+					"uncommitted": {
+						"staged": 0,
+						"unstaged": 0,
+						"untracked": 0,
+						"conflicted": 0
+					},
+					"in_progress": "rebase",
+					"locked": false,
+					"linked": false,
+					"submodules": null
+				}
+			],
+			"branches": [
+				{
+					"name": "main",
+					"upstream": "origin/main",
+					"worktree": null,
+					"unique_commits": 0,
+					"newest_commit_at": 1799827200,
+					"relation": {
+						"kind": "shallow"
+					},
+					"verdict": {
+						"kind": "act",
+						"action": {
+							"kind": "move"
+						}
+					}
+				},
+				{
+					"name": "work",
+					"upstream": "origin/work",
+					"worktree": null,
+					"unique_commits": 2,
+					"newest_commit_at": 1799827200,
+					"relation": {
+						"kind": "shallow"
+					},
+					"verdict": {
+						"kind": "needs_human",
+						"reason": "shallow_local_work"
+					}
+				},
+				{
+					"name": "audit",
+					"upstream": null,
+					"worktree": null,
+					"unique_commits": 4,
+					"newest_commit_at": 1799827200,
+					"relation": {
+						"kind": "untracked"
+					},
+					"verdict": {
+						"kind": "local_only"
+					}
+				}
+			],
+			"stashes": 0,
+			"fetched_at": null,
+			"needs_human": [
+				{
+					"kind": "operation_in_progress",
+					"checkout": "/home/me/dev/test262",
+					"op": "rebase"
+				}
+			],
+			"probe_error": null,
+			"unprobed_worktrees": [],
+			"fetch_error": null
+		},
+		{
+			"key": "ecma262",
+			"kind": "reference",
+			"dir": "ecma262",
+			"url": "https://github.com/me/ecma262",
+			"writable": true,
+			"archived": false,
+			"visibility": null,
+			"ci": true,
+			"checkout_mode": {
+				"kind": "pinned"
+			},
+			"presence": {
+				"kind": "present"
+			},
+			"layout": {
+				"shallow": false,
+				"sparse": false,
+				"partial_filter": null
+			},
+			"checkouts": [
+				{
+					"path": "/home/me/dev/ecma262",
+					"primary": true,
+					"head": {
+						"kind": "branch",
+						"name": "draft"
+					},
+					"uncommitted": {
+						"staged": 0,
+						"unstaged": 0,
+						"untracked": 0,
+						"conflicted": 0
+					},
+					"in_progress": "am",
+					"locked": false,
+					"linked": false,
+					"submodules": null
+				}
+			],
+			"branches": [],
+			"stashes": 0,
+			"fetched_at": 1799913600,
+			"needs_human": [
+				{
+					"kind": "pinned_on_branch",
+					"branch": "draft"
+				},
+				{
+					"kind": "operation_in_progress",
+					"checkout": "/home/me/dev/ecma262",
+					"op": "am"
+				}
+			],
+			"probe_error": null,
+			"unprobed_worktrees": [],
+			"fetch_error": null
+		},
+		{
+			"key": "zzz",
+			"kind": "repo",
+			"dir": "zzz",
+			"url": "https://github.com/me/zzz",
+			"writable": true,
+			"archived": false,
+			"visibility": "public",
+			"ci": true,
+			"checkout_mode": {
+				"kind": "follow",
+				"branch": "dev"
+			},
+			"presence": {
+				"kind": "present"
+			},
+			"layout": {
+				"shallow": false,
+				"sparse": false,
+				"partial_filter": null
+			},
+			"checkouts": [
+				{
+					"path": "/home/me/dev/zzz",
+					"primary": true,
+					"head": {
+						"kind": "detached",
+						"commit": "00112233445566778899aabbccddeeff00112233"
+					},
+					"uncommitted": {
+						"staged": 0,
+						"unstaged": 0,
+						"untracked": 0,
+						"conflicted": 0
+					},
+					"in_progress": "sequencer",
+					"locked": false,
+					"linked": false,
+					"submodules": null
+				}
+			],
+			"branches": [
+				{
+					"name": "main",
+					"upstream": null,
+					"worktree": null,
+					"unique_commits": 0,
+					"newest_commit_at": 1799827200,
+					"relation": {
+						"kind": "untracked"
+					},
+					"verdict": {
+						"kind": "quiet"
+					}
+				}
+			],
+			"stashes": 0,
+			"fetched_at": 1799913600,
+			"needs_human": [
+				{
+					"kind": "default_branch_missing",
+					"branch": "dev"
+				},
+				{
+					"kind": "default_branch_no_upstream",
+					"branch": "main"
+				},
+				{
+					"kind": "unexpected_detached",
+					"checkout": "/home/me/dev/zzz"
+				},
+				{
+					"kind": "operation_in_progress",
+					"checkout": "/home/me/dev/zzz",
+					"op": "sequencer"
+				}
+			],
+			"probe_error": null,
+			"unprobed_worktrees": [],
+			"fetch_error": null
+		},
+		{
+			"key": "blake3",
+			"kind": "repo",
+			"dir": "blake3",
+			"url": "https://github.com/me/blake3",
+			"writable": true,
+			"archived": false,
+			"visibility": "public",
+			"ci": true,
+			"checkout_mode": {
+				"kind": "follow",
+				"branch": "main"
+			},
+			"presence": {
+				"kind": "missing"
+			},
+			"layout": null,
+			"checkouts": [],
+			"branches": [],
+			"stashes": 0,
+			"fetched_at": null,
+			"needs_human": [],
+			"probe_error": null,
+			"unprobed_worktrees": [],
+			"fetch_error": null
+		},
+		{
+			"key": "goblins",
+			"kind": "repo",
+			"dir": "goblins",
+			"url": "https://github.com/me/goblins",
+			"writable": true,
+			"archived": false,
+			"visibility": "public",
+			"ci": true,
+			"checkout_mode": {
+				"kind": "follow",
+				"branch": "main"
+			},
+			"presence": {
+				"kind": "not_a_repo"
+			},
+			"layout": null,
+			"checkouts": [],
+			"branches": [],
+			"stashes": 0,
+			"fetched_at": null,
+			"needs_human": [
+				{
+					"kind": "not_a_repo",
+					"detail": "empty directory"
+				}
+			],
+			"probe_error": null,
+			"unprobed_worktrees": [],
+			"fetch_error": null
+		},
+		{
+			"key": "wpt",
+			"kind": "repo",
+			"dir": "wpt",
+			"url": "https://github.com/me/wpt",
+			"writable": true,
+			"archived": false,
+			"visibility": "public",
+			"ci": true,
+			"checkout_mode": {
+				"kind": "follow",
+				"branch": "main"
+			},
+			"presence": {
+				"kind": "present"
+			},
+			"layout": {
+				"shallow": false,
+				"sparse": false,
+				"partial_filter": "tree:0"
+			},
+			"checkouts": [],
+			"branches": [],
+			"stashes": 0,
+			"fetched_at": null,
+			"needs_human": [],
+			"probe_error": "git status failed (128): error: bad tree object HEAD",
+			"unprobed_worktrees": [],
+			"fetch_error": null
+		}
+	],
+	"unregistered": [
+		{
+			"dir": "b-copy",
+			"origin": "git@github.com:me/app",
+			"owned": true,
+			"kind": "shared_git_dir",
+			"entry": "app",
+			"with": "/home/me/dev/b-moved"
+		},
+		{
+			"dir": "b-moved",
+			"origin": "git@github.com:me/app",
+			"owned": true,
+			"kind": "moved_worktree",
+			"entry": "app",
+			"blocked_by": null,
+			"exit_noise": "/home/me/y"
+		},
+		{
+			"dir": "c-copy",
+			"origin": "git@github.com:me/app",
+			"owned": true,
+			"kind": "shared_git_dir",
+			"entry": "app",
+			"with": null
+		},
+		{
+			"dir": "claimed",
+			"origin": "git@github.com:me/app",
+			"owned": true,
+			"kind": "moved_worktree",
+			"entry": "app",
+			"blocked_by": {
+				"kind": "claimed_dir",
+				"git_dir": "/home/me/dev/app/.git/worktrees/claimed"
+			},
+			"exit_noise": null
+		},
+		{
+			"dir": "lib",
+			"origin": "https://github.com/them/lib",
+			"owned": false,
+			"kind": "clone"
+		},
+		{
+			"dir": "lib-feat",
+			"origin": "https://github.com/them/lib",
+			"owned": false,
+			"kind": "worktree"
+		},
+		{
+			"dir": "mine",
+			"origin": "git@github.com:me/mine",
+			"owned": true,
+			"kind": "clone"
+		},
+		{
+			"dir": "rel",
+			"origin": "git@github.com:me/app",
+			"owned": true,
+			"kind": "moved_worktree",
+			"entry": "app",
+			"blocked_by": {
+				"kind": "relative_gitdir",
+				"git_dir": "/home/me/dev/app/.git/worktrees/k"
+			},
+			"exit_noise": null
+		},
+		{
+			"dir": "rewrites",
+			"origin": "git@github.com:me/app",
+			"owned": true,
+			"kind": "moved_worktree",
+			"entry": "app",
+			"blocked_by": {
+				"kind": "rewrites",
+				"path": "/home/me/dev/q",
+				"git_dir": "/home/me/dev/app/.git/worktrees/q"
+			},
+			"exit_noise": null
+		},
+		{
+			"dir": "scratch",
+			"origin": null,
+			"owned": false,
+			"kind": "orphaned_worktree",
+			"entry": "app"
+		},
+		{
+			"dir": "wa",
+			"origin": "git@github.com:me/app",
+			"owned": true,
+			"kind": "moved_worktree",
+			"entry": "app",
+			"blocked_by": {
+				"kind": "swapped",
+				"git_dir": "/home/me/dev/app/.git/worktrees/wa",
+				"with": "wb"
+			},
+			"exit_noise": null
+		}
+	]
+}
