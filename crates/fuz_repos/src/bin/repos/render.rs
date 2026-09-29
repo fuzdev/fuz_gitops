@@ -6,8 +6,9 @@ use std::ffi::OsStr;
 use std::fmt::Write as _;
 use std::path::Path;
 
-use fuz_repos::classify::NeedsHuman;
+use fuz_repos::classify::{NeedsHuman, OriginByHand, OriginFix, OriginRemote};
 use fuz_repos::registry::{CheckoutMode, EntryKind, Visibility};
+use fuz_repos::remote::{RefGoneFix, RemoteFailure, UnreachableCause, VisibilityCheck};
 use fuz_repos::report::{
     EntryStatus, RepairBlock, StatusReport, UnregisteredClone, UnregisteredKind,
 };
@@ -113,6 +114,50 @@ fn partial_hint(dir: &str) -> String {
     )
 }
 
+/// Why a fetch named a ref the remote no longer has fetched nothing.
+const REF_GONE: &str = "a fetch refspec names a branch deleted or renamed on the remote, so \
+     nothing was fetched";
+
+/// The summary's `ref_gone` hint: each entry's repair differs.
+const REF_GONE_HINT: &str = "a fetch refspec names a branch deleted or renamed on the remote, \
+     so nothing was fetched — each entry's repair under --verbose";
+
+/// A `ref_gone` entry's hint: the repair the library decided (`RefGoneFix`),
+/// worded, `dir` as in `partial_hint`.
+fn ref_gone_hint(fix: &RefGoneFix, dir: &str) -> String {
+    match fix {
+        RefGoneFix::UnsetRefspec { pattern } => format!(
+            "{REF_GONE} — git -C {dir} config --unset-all remote.origin.fetch {} drops just \
+             that refspec",
+            shell_quote(pattern)
+        ),
+        RefGoneFix::SetBranches { branch } => format!(
+            "{REF_GONE}, and no other refspec in the repo's config would remain — git -C {dir} \
+             remote set-branches origin {} points it at a branch the remote has",
+            branch
+                .as_deref()
+                .map_or(Cow::Borrowed("<branch>"), shell_quote)
+        ),
+        RefGoneFix::ByHand => format!(
+            "{REF_GONE}; the refspec naming it is outside the repo's own config (an include, \
+             worktree or global config), or none names it as git does — remove it by hand"
+        ),
+    }
+}
+
+/// A host whose SSH key or HTTPS certificate isn't trusted, on fetch.
+const HOST_KEY_HINT: &str = "repos never asks to trust a host — check its key (or \
+     certificate), then connect once by hand to record it";
+
+/// An HTTPS certificate the visibility check couldn't verify.
+const CERTIFICATE_HINT: &str = "the host's HTTPS certificate didn't verify — check it, and the \
+     system's CA certificates, then rerun repos status --fetch";
+
+/// A host that refused this machine's credentials, over either transport.
+const AUTH_HINT: &str = "the host refused this machine's credentials — over SSH, check the host \
+     knows the key and a key with a passphrase is loaded in ssh-agent; over HTTPS, check the \
+     credential helper holds a valid token";
+
 /// What rendering needs from the environment: the home dir, shown as `~`;
 /// the current time, which the report's timestamps become ages against; the
 /// summary's wrap width; and whether its labels are colored.
@@ -185,17 +230,66 @@ pub fn render_summary(report: &StatusReport, view: View<'_>, verbose: bool) -> S
     let mut line = |label: &str, tone: Tone, items: Items| {
         out.push_str(&render_group(label, tone, &items, view));
     };
+    line("visibility", Tone::Red, Items::Singles(g.visibility));
     line("failed", Tone::Red, Items::Singles(g.failed));
+    let mut hints = Vec::new();
     if report.entries.iter().any(EntryStatus::probe_failed_partial) {
-        let hint = format!("hint: {} (each under --verbose)", partial_hint("<dir>"));
-        line("", Tone::Plain, Items::Singles(vec![hint]));
+        hints.push(format!("{} (each under --verbose)", partial_hint("<dir>")));
+    }
+    let fetch_failed = |pick: fn(&RemoteFailure) -> bool| {
+        report
+            .entries
+            .iter()
+            .any(|e| e.fetch_error.as_ref().is_some_and(pick))
+    };
+    if fetch_failed(|f| matches!(f, RemoteFailure::RefGone { .. })) {
+        hints.push(REF_GONE_HINT.to_owned());
+    }
+    if fetch_failed(|f| unreachable_cause(f) == Some(UnreachableCause::HostKey)) {
+        hints.push(HOST_KEY_HINT.to_owned());
+    }
+    if fetch_failed(|f| unreachable_cause(f) == Some(UnreachableCause::Auth)) {
+        hints.push(AUTH_HINT.to_owned());
+    }
+    if report
+        .entries
+        .iter()
+        .any(|e| visibility_cause(e) == Some(UnreachableCause::HostKey))
+    {
+        hints.push(CERTIFICATE_HINT.to_owned());
+    }
+    for hint in hints {
+        line(
+            "",
+            Tone::Plain,
+            Items::Singles(vec![format!("hint: {hint}")]),
+        );
     }
     line("needs human", Tone::Red, Items::Singles(g.needs_human));
-    let drift = !g.origin_drift.is_empty();
     line("origin drift", Tone::Yellow, Items::Singles(g.origin_drift));
-    if drift {
-        let hint = "hint: git -C <dir> remote set-url origin <url> (each under --verbose)";
-        line("", Tone::Plain, Items::Singles(vec![hint.to_owned()]));
+    // the fixes the drifts call for, each worded once
+    let mut fixes: Vec<&str> = Vec::new();
+    for fix in report
+        .entries
+        .iter()
+        .flat_map(|e| &e.needs_human)
+        .filter_map(|r| match r {
+            NeedsHuman::OriginMismatch { fix, .. } => Some(fix),
+            _ => None,
+        })
+    {
+        let words = match fix {
+            OriginFix::SetUrl => "git -C <dir> remote set-url origin <url>",
+            OriginFix::Add => "git -C <dir> remote add origin <url>",
+            OriginFix::ByHand { .. } => "remote.origin.url by hand",
+        };
+        if !fixes.contains(&words) {
+            fixes.push(words);
+        }
+    }
+    if !fixes.is_empty() {
+        let hint = format!("hint: {} (each under --verbose)", fixes.join(", or "));
+        line("", Tone::Plain, Items::Singles(vec![hint]));
     }
     let mut sync = g.act.verbs();
     sync.extend(prefixed("clone ", g.clone));
@@ -360,6 +454,7 @@ impl Actions {
 
 #[derive(Debug, Default)]
 struct Groups {
+    visibility: Vec<String>,
     failed: Vec<String>,
     needs_human: Vec<String>,
     origin_drift: Vec<String>,
@@ -393,16 +488,30 @@ impl Groups {
             self.failed
                 .push(format!("{key} (probe: {})", first_line(error)));
         }
-        if let Some(error) = &e.fetch_error {
-            self.failed
-                .push(format!("{key} (fetch: {})", first_line(error)));
+        if let Some(failure) = &e.fetch_error {
+            self.failed.push(format!(
+                "{key} (fetch: {})",
+                remote_failure_label(failure, false)
+            ));
+        }
+        match &e.visibility_check {
+            Some(VisibilityCheck::Leak) => self
+                .visibility
+                .push(format!("{key} (declared private, anonymously readable)")),
+            Some(VisibilityCheck::Unknown { failure }) => self.failed.push(format!(
+                "{key} (visibility check: {})",
+                remote_failure_label(failure, false)
+            )),
+            Some(VisibilityCheck::Private) | None => {}
         }
         for reason in &e.needs_human {
             match reason {
                 NeedsHuman::OriginMismatch { origin, .. } => {
-                    let was = origin
-                        .as_deref()
-                        .map_or_else(|| "no origin".to_owned(), |o| compact_remote(o, &e.url));
+                    let was = match origin {
+                        OriginRemote::Url { url } => compact_remote(url, &e.url),
+                        OriginRemote::NoUrl => "origin has no URL".to_owned(),
+                        OriginRemote::Missing => "no origin".to_owned(),
+                    };
                     self.origin_drift.push(format!("{key} ({was})"));
                 }
                 reason => self
@@ -535,7 +644,8 @@ impl Groups {
     }
 
     const fn len(&self) -> usize {
-        self.failed.len()
+        self.visibility.len()
+            + self.failed.len()
             + self.needs_human.len()
             + self.origin_drift.len()
             + self.act.len()
@@ -564,11 +674,11 @@ fn needs_human_label(reason: &NeedsHuman, e: &EntryStatus, view: View<'_>) -> St
                 )
             }
         }
-        NeedsHuman::OriginMismatch {
-            origin: Some(origin),
-            ..
-        } => format!("origin is {origin}"),
-        NeedsHuman::OriginMismatch { origin: None, .. } => "no origin".into(),
+        NeedsHuman::OriginMismatch { origin, .. } => match origin {
+            OriginRemote::Url { url } => format!("origin is {url}"),
+            OriginRemote::NoUrl => "origin has no URL".into(),
+            OriginRemote::Missing => "no origin".into(),
+        },
         NeedsHuman::WorktreeUnreadable { path } => {
             format!("worktree git dir unreadable: {}", view.show(path))
         }
@@ -764,11 +874,33 @@ pub fn render_entry(e: &EntryStatus, workspace: &Path, view: View<'_>) -> String
     for reason in &e.needs_human {
         let detail = match reason {
             NeedsHuman::NotARepo { detail } => format!("not a repo: {detail}"),
-            NeedsHuman::OriginMismatch { expected, .. } => format!(
-                "{} — git -C {dir} remote set-url origin {}",
-                needs_human_label(reason, e, view),
-                shell_quote(expected)
-            ),
+            NeedsHuman::OriginMismatch { expected, fix, .. } => {
+                let expected = shell_quote(expected);
+                let command = match fix {
+                    OriginFix::Add => format!("git -C {dir} remote add origin {expected}"),
+                    OriginFix::SetUrl => format!("git -C {dir} remote set-url origin {expected}"),
+                    OriginFix::ByHand { reason } => format!(
+                        "set remote.origin.url to {expected} by hand: {}",
+                        match reason {
+                            OriginByHand::OutsideRepoFile => {
+                                "a URL comes from beyond the repo's own config file (global, \
+                                 system, included, or worktree config)"
+                            }
+                            OriginByHand::EmptyValue => {
+                                "an empty url among several resets the list, and git remote \
+                                 set-url can't choose among several"
+                            }
+                            OriginByHand::ValuelessUrl => {
+                                "a url with no value breaks every git remote command"
+                            }
+                            OriginByHand::SeveralUrls => {
+                                "it has several URLs, which git remote set-url can't choose among"
+                            }
+                        }
+                    ),
+                };
+                format!("{} — {command}", needs_human_label(reason, e, view))
+            }
             reason => needs_human_label(reason, e, view),
         };
         let _ = writeln!(out, "  {:<10}{detail}", "needs");
@@ -779,8 +911,52 @@ pub fn render_entry(e: &EntryStatus, workspace: &Path, view: View<'_>) -> String
             let _ = writeln!(out, "  {:<10}{}", "hint", partial_hint(&dir));
         }
     }
-    if let Some(error) = &e.fetch_error {
-        let _ = writeln!(out, "  {:<10}fetch: {error}", "error");
+    if let Some(failure) = &e.fetch_error {
+        let _ = writeln!(
+            out,
+            "  {:<10}fetch: {}",
+            "error",
+            remote_failure_label(failure, true)
+        );
+        let hint = match failure {
+            RemoteFailure::RefGone { fix, .. } => Some(ref_gone_hint(fix, &dir)),
+            f => match unreachable_cause(f) {
+                Some(UnreachableCause::HostKey) => Some(HOST_KEY_HINT.to_owned()),
+                Some(UnreachableCause::Auth) => Some(AUTH_HINT.to_owned()),
+                _ => None,
+            },
+        };
+        if let Some(hint) = hint {
+            let _ = writeln!(out, "  {:<10}{hint}", "hint");
+        }
+    }
+    match &e.visibility_check {
+        Some(VisibilityCheck::Leak) => {
+            let _ = writeln!(
+                out,
+                "  {:<10}anonymously readable, though declared private",
+                "access"
+            );
+        }
+        Some(VisibilityCheck::Private) => {
+            let _ = writeln!(
+                out,
+                "  {:<10}private as declared (anonymous read refused)",
+                "access"
+            );
+        }
+        Some(VisibilityCheck::Unknown { failure }) => {
+            let _ = writeln!(
+                out,
+                "  {:<10}visibility check: {}",
+                "error",
+                remote_failure_label(failure, true)
+            );
+            if unreachable_cause(failure) == Some(UnreachableCause::HostKey) {
+                let _ = writeln!(out, "  {:<10}{CERTIFICATE_HINT}", "hint");
+            }
+        }
+        None => {}
     }
     for u in e.unprobed_worktrees.iter().map(|u| &u.worktree) {
         if let UnprobedWhy::Failed { error } = &u.why {
@@ -1147,6 +1323,60 @@ fn uncommitted_detail(u: &Uncommitted) -> String {
     .join(", ")
 }
 
+/// A remote failure in words: the kind, and under `detail` the line git
+/// printed that decided it.
+fn remote_failure_label(f: &RemoteFailure, detail: bool) -> String {
+    let with = |words: &str, message: &str| {
+        if detail {
+            format!("{words} — {message}")
+        } else {
+            words.to_owned()
+        }
+    };
+    match f {
+        RemoteFailure::RefGone { refname, .. } => format!("origin has no {refname}"),
+        RemoteFailure::Unreachable { cause, message } => with(
+            match cause {
+                UnreachableCause::Dns => "host not found",
+                UnreachableCause::Connection => "no connection",
+                UnreachableCause::HostKey => "host not trusted",
+                UnreachableCause::Auth => "access denied",
+            },
+            message,
+        ),
+        RemoteFailure::RepoNotFound { message } => with("repo not found", message),
+        RemoteFailure::TimedOut { after_secs } => format!("timed out after {after_secs}s"),
+        RemoteFailure::Failed { message } => first_line(message).to_owned(),
+        RemoteFailure::RefspecOutsideOrigin { refspec } => {
+            format!("not run — refspec {refspec} writes outside refs/remotes/origin/")
+        }
+        RemoteFailure::LegacyRemotesUnreadable { path } => format!(
+            "not run — the legacy remote {path} couldn't be read, and may share origin's refs"
+        ),
+        RemoteFailure::OriginRefsShared { remote, refspec } => format!(
+            "not run — remote {remote}'s refspec {refspec} can write under \
+             refs/remotes/origin/, which pruning origin may empty"
+        ),
+    }
+}
+
+/// Why an entry's visibility check couldn't reach its host; `None` when it
+/// did, or didn't run.
+const fn visibility_cause(e: &EntryStatus) -> Option<UnreachableCause> {
+    match &e.visibility_check {
+        Some(VisibilityCheck::Unknown { failure }) => unreachable_cause(failure),
+        _ => None,
+    }
+}
+
+/// An unreachable host's cause; `None` for any other failure.
+const fn unreachable_cause(f: &RemoteFailure) -> Option<UnreachableCause> {
+    match f {
+        RemoteFailure::Unreachable { cause, .. } => Some(*cause),
+        _ => None,
+    }
+}
+
 fn first_line(s: &str) -> &str {
     s.lines().find(|l| !l.trim().is_empty()).unwrap_or(s).trim()
 }
@@ -1209,6 +1439,7 @@ mod tests {
             probe_error: None,
             unprobed_worktrees: vec![],
             fetch_error: None,
+            visibility_check: None,
         }
     }
 
@@ -1294,6 +1525,7 @@ mod tests {
         StatusReport::new(
             "/home/me/dev".into(),
             "/home/me/dev/repos.toml".into(),
+            false,
             entries,
         )
     }
@@ -1430,7 +1662,10 @@ mod tests {
             checkout: "/home/me/dev/wpt".into(),
             op: InProgressOp::Rebase,
         }];
-        wpt.fetch_error = Some("fatal: couldn't find remote ref fork\n".into());
+        wpt.fetch_error = Some(RemoteFailure::RefGone {
+            refname: "fork".into(),
+            fix: RefGoneFix::ByHand,
+        });
 
         let r = report(vec![
             uz,
@@ -1443,7 +1678,9 @@ mod tests {
         ]);
         let out = render_summary(&r, VIEW, false);
         let want = "\
-failed        wpt (fetch: fatal: couldn't find remote ref fork)
+failed        wpt (fetch: origin has no fork)
+              hint: a fetch refspec names a branch deleted or renamed on the remote, so nothing was \
+                 fetched — each entry's repair under --verbose
 needs human   uz:arc (diverged +2 −5)  old (archived, +1)  wpt (rebase in progress)
               wpt (outside refspec)
 sync would    push uz +13 · ff zzz −3 · clone blake3
@@ -1460,6 +1697,242 @@ clean 1 · on branches 0 · pinned 0      ~/dev/repos.toml · fetched 3h ago, 1 
             "{verbose}"
         );
         assert!(verbose.contains("stashes       uz (2)\n"), "{verbose}");
+    }
+
+    #[test]
+    fn remote_failures_and_the_visibility_check() {
+        let unreachable = |cause, message: &str| RemoteFailure::Unreachable {
+            cause,
+            message: message.into(),
+        };
+        let with = |key: &str, fetch: Option<RemoteFailure>, check: Option<VisibilityCheck>| {
+            let mut e = entry(key, main(), "main");
+            e.fetch_error = fetch;
+            e.visibility_check = check;
+            e
+        };
+        let private = |key: &str, check| {
+            let mut e = with(key, None, Some(check));
+            e.visibility = Some(Visibility::Private);
+            e
+        };
+        let r = report(vec![
+            with(
+                "spec",
+                Some(RemoteFailure::RefGone {
+                    refname: "refs/heads/feat".into(),
+                    fix: RefGoneFix::UnsetRefspec {
+                        pattern: r"^\+?refs/heads/feat(:|$)".into(),
+                    },
+                }),
+                None,
+            ),
+            with(
+                "dns",
+                Some(unreachable(
+                    UnreachableCause::Dns,
+                    "ssh: Could not resolve hostname github.com: Name or service not known",
+                )),
+                None,
+            ),
+            with(
+                "conn",
+                Some(unreachable(
+                    UnreachableCause::Connection,
+                    "ssh: connect to host github.com port 22: Connection refused",
+                )),
+                None,
+            ),
+            with(
+                "key",
+                Some(unreachable(
+                    UnreachableCause::HostKey,
+                    "Host key verification failed.",
+                )),
+                None,
+            ),
+            with(
+                "auth",
+                Some(unreachable(
+                    UnreachableCause::Auth,
+                    "git@github.com: Permission denied (publickey).",
+                )),
+                None,
+            ),
+            with(
+                "gone",
+                Some(RemoteFailure::RepoNotFound {
+                    message: "ERROR: Repository not found.".into(),
+                }),
+                None,
+            ),
+            with(
+                "slow",
+                Some(RemoteFailure::TimedOut { after_secs: 120 }),
+                None,
+            ),
+            with(
+                "tagged",
+                Some(RemoteFailure::RefspecOutsideOrigin {
+                    refspec: "+refs/tags/*:refs/tags/*".into(),
+                }),
+                None,
+            ),
+            with(
+                "odd",
+                Some(RemoteFailure::Failed {
+                    message: "fatal: the remote end hung up unexpectedly".into(),
+                }),
+                None,
+            ),
+            private("leaky", VisibilityCheck::Leak),
+            private("sealed", VisibilityCheck::Private),
+            private(
+                "unsure",
+                VisibilityCheck::Unknown {
+                    failure: RemoteFailure::TimedOut { after_secs: 120 },
+                },
+            ),
+            private(
+                "tls",
+                VisibilityCheck::Unknown {
+                    failure: unreachable(
+                        UnreachableCause::HostKey,
+                        "fatal: unable to access 'https://github.com/me/tls/': server \
+                         verification failed: certificate signer not trusted.",
+                    ),
+                },
+            ),
+        ]);
+        let out = render_summary(&r, VIEW, false);
+        let want = "\
+visibility    leaky (declared private, anonymously readable)
+failed        spec (fetch: origin has no refs/heads/feat)  dns (fetch: host not found)
+              conn (fetch: no connection)  key (fetch: host not trusted)
+              auth (fetch: access denied)  gone (fetch: repo not found)
+              slow (fetch: timed out after 120s)
+              tagged (fetch: not run — refspec +refs/tags/*:refs/tags/* writes outside \
+                 refs/remotes/origin/)
+              odd (fetch: fatal: the remote end hung up unexpectedly)
+              unsure (visibility check: timed out after 120s)
+              tls (visibility check: host not trusted)
+              hint: a fetch refspec names a branch deleted or renamed on the remote, so nothing was \
+                 fetched — each entry's repair under --verbose
+              hint: repos never asks to trust a host — check its key (or certificate), then connect \
+                 once by hand to record it
+              hint: the host refused this machine's credentials — over SSH, check the host knows the \
+                 key and a key with a passphrase is loaded in ssh-agent; over HTTPS, check the \
+                 credential helper holds a valid token
+              hint: the host's HTTPS certificate didn't verify — check it, and the system's CA \
+                 certificates, then rerun repos status --fetch
+clean 1 · on branches 0 · pinned 0      ~/dev/repos.toml · fetched 3h ago
+";
+        assert_eq!(out, want);
+
+        let block = |key: &str| {
+            let e = r.entries.iter().find(|e| e.key == key).unwrap();
+            render_entry(e, Path::new("/home/me/dev"), VIEW)
+        };
+        let spec = block("spec");
+        assert!(
+            spec.contains(
+                "  error     fetch: origin has no refs/heads/feat\n  hint      a fetch refspec \
+                 names a branch deleted or renamed on the remote, so nothing was fetched — git -C \
+                 ~/dev/spec config --unset-all remote.origin.fetch '^'\\\\'+?refs/heads/feat(:|$)' \
+                 drops just that refspec\n"
+            ),
+            "{spec}"
+        );
+        assert_eq!(
+            ref_gone_hint(&RefGoneFix::SetBranches { branch: None }, "~/dev/spec"),
+            "a fetch refspec names a branch deleted or renamed on the remote, so nothing was \
+             fetched, and no other refspec in the repo's config would remain — git -C ~/dev/spec \
+             remote set-branches origin <branch> points it at a branch the remote has"
+        );
+        assert!(
+            ref_gone_hint(
+                &RefGoneFix::SetBranches {
+                    branch: Some("main".into())
+                },
+                "x"
+            )
+            .contains("git -C x remote set-branches origin main points it")
+        );
+        assert_eq!(
+            ref_gone_hint(&RefGoneFix::ByHand, "x"),
+            "a fetch refspec names a branch deleted or renamed on the remote, so nothing was \
+             fetched; the refspec naming it is outside the repo's own config (an include, \
+             worktree or global config), or none names it as git does — remove it by hand"
+        );
+        let tls = block("tls");
+        assert!(
+            tls.contains(&format!("  hint      {CERTIFICATE_HINT}\n")),
+            "{tls}"
+        );
+        assert!(!block("unsure").contains("hint"));
+        assert_eq!(
+            remote_failure_label(
+                &RemoteFailure::OriginRefsShared {
+                    remote: "origin/fork".into(),
+                    refspec: "+refs/heads/*:refs/remotes/origin/fork/*".into(),
+                },
+                false
+            ),
+            "not run — remote origin/fork's refspec +refs/heads/*:refs/remotes/origin/fork/* \
+             can write under refs/remotes/origin/, which pruning origin may empty"
+        );
+        assert_eq!(
+            remote_failure_label(
+                &RemoteFailure::LegacyRemotesUnreadable {
+                    path: "/home/me/dev/app/.git/remotes/old".into(),
+                },
+                false
+            ),
+            "not run — the legacy remote /home/me/dev/app/.git/remotes/old couldn't be read, \
+             and may share origin's refs"
+        );
+        let dns = block("dns");
+        assert!(
+            dns.contains(
+                "  error     fetch: host not found — ssh: Could not resolve hostname github.com: \
+                 Name or service not known\n"
+            ),
+            "{dns}"
+        );
+        assert!(!dns.contains("hint"), "{dns}");
+        assert!(block("key").contains(&format!("  hint      {HOST_KEY_HINT}\n")));
+        assert!(block("auth").contains(&format!("  hint      {AUTH_HINT}\n")));
+        assert!(
+            block("gone")
+                .contains("  error     fetch: repo not found — ERROR: Repository not found.\n")
+        );
+        assert!(
+            block("leaky").contains("  access    anonymously readable, though declared private\n")
+        );
+        assert!(
+            block("sealed").contains("  access    private as declared (anonymous read refused)\n")
+        );
+        assert!(block("unsure").contains("  error     visibility check: timed out after 120s\n"));
+
+        // loudest: first, and red
+        let colored = render_summary(
+            &r,
+            View {
+                color: true,
+                ..VIEW
+            },
+            false,
+        );
+        assert!(
+            colored.starts_with("\x1b[31mvisibility\x1b[0m    leaky"),
+            "{colored}"
+        );
+        // a check that found the repo private says nothing
+        let quiet = report(vec![private("sealed", VisibilityCheck::Private)]);
+        assert_eq!(
+            render_summary(&quiet, VIEW, false),
+            "clean 1 · on branches 0 · pinned 0      ~/dev/repos.toml · fetched 3h ago\n"
+        );
     }
 
     #[test]
@@ -1541,15 +2014,21 @@ failed        app (probe: git status failed (128): error: bad tree object HEAD)
             },
         )];
         blog.needs_human = vec![NeedsHuman::OriginMismatch {
-            origin: Some("git@github.com:ryanatkn/fuz_blog".into()),
+            origin: OriginRemote::Url {
+                url: "git@github.com:ryanatkn/fuz_blog".into(),
+            },
             expected: "git@github.com:fuzdev/fuz_blog".into(),
+            fix: OriginFix::SetUrl,
         }];
         let mut kit = entry("kit", CheckoutMode::Head, "main");
         kit.writable = false;
         kit.url = "https://github.com/sveltejs/kit".into();
         kit.needs_human = vec![NeedsHuman::OriginMismatch {
-            origin: Some("https://codeberg.org/someone/kit".into()),
+            origin: OriginRemote::Url {
+                url: "https://codeberg.org/someone/kit".into(),
+            },
             expected: "https://github.com/sveltejs/kit".into(),
+            fix: OriginFix::SetUrl,
         }];
         let mut test262 = entry("test262", CheckoutMode::Head, "x");
         test262.checkouts[0].head = Head::Detached {
@@ -1598,6 +2077,75 @@ clean 0 · on branches 0 · pinned 0      ~/dev/repos.toml · fetched 3h ago
                  remote set-url origin git@github.com:fuzdev/fuz_blog\n"
             ),
             "{blog_block}"
+        );
+        let kit_block = render_entry(&r.entries[1], Path::new("/home/me/dev"), VIEW);
+        assert!(
+            kit_block.contains(
+                "  needs     origin is https://codeberg.org/someone/kit — git -C ~/dev/kit remote \
+                 set-url origin https://github.com/sveltejs/kit\n"
+            ),
+            "{kit_block}"
+        );
+        let mut by_hand = r.entries[0].clone();
+        by_hand.needs_human = vec![NeedsHuman::OriginMismatch {
+            origin: OriginRemote::Url {
+                url: "https://***@github.com/old/fuz_blog".into(),
+            },
+            expected: "git@github.com:fuzdev/fuz_blog".into(),
+            fix: OriginFix::ByHand {
+                reason: OriginByHand::OutsideRepoFile,
+            },
+        }];
+        let block = render_entry(&by_hand, Path::new("/home/me/dev"), VIEW);
+        assert!(
+            block.contains(
+                "  needs     origin is https://***@github.com/old/fuz_blog — set remote.origin.url \
+                 to git@github.com:fuzdev/fuz_blog by hand: a URL comes from beyond the repo's own \
+                 config file (global, system, included, or worktree config)\n"
+            ),
+            "{block}"
+        );
+        // each reason reads true for its own case
+        for (origin, reason, why) in [
+            (
+                OriginRemote::NoUrl,
+                OriginByHand::EmptyValue,
+                "origin has no URL — set remote.origin.url to git@github.com:fuzdev/fuz_blog by \
+                 hand: an empty url among several resets the list, and git remote set-url can't \
+                 choose among several\n",
+            ),
+            (
+                OriginRemote::NoUrl,
+                OriginByHand::ValuelessUrl,
+                "origin has no URL — set remote.origin.url to git@github.com:fuzdev/fuz_blog by \
+                 hand: a url with no value breaks every git remote command\n",
+            ),
+            (
+                OriginRemote::Url {
+                    url: "git@github.com:old/fuz_blog".into(),
+                },
+                OriginByHand::SeveralUrls,
+                "origin is git@github.com:old/fuz_blog — set remote.origin.url to \
+                 git@github.com:fuzdev/fuz_blog by hand: it has several URLs, which git remote \
+                 set-url can't choose among\n",
+            ),
+        ] {
+            let mut e = by_hand.clone();
+            e.needs_human = vec![NeedsHuman::OriginMismatch {
+                origin,
+                expected: "git@github.com:fuzdev/fuz_blog".into(),
+                fix: OriginFix::ByHand { reason },
+            }];
+            let block = render_entry(&e, Path::new("/home/me/dev"), VIEW);
+            assert!(block.contains(why), "{block}");
+        }
+        let summary = render_summary(&report(vec![by_hand, r.entries[1].clone()]), VIEW, false);
+        assert!(
+            summary.contains(
+                "hint: remote.origin.url by hand, or git -C <dir> remote set-url origin <url> \
+                 (each under --verbose)"
+            ),
+            "{summary}"
         );
         let goblins_block = render_entry(&r.entries[3], Path::new("/home/me/dev"), VIEW);
         assert!(
@@ -2327,8 +2875,9 @@ site-orphan  unregistered · no origin · orphaned worktree of site
         });
         app.probe_error = Some("bad tree object HEAD".into());
         app.needs_human = vec![NeedsHuman::OriginMismatch {
-            origin: None,
+            origin: OriginRemote::Missing,
             expected: "file:///srv/it's/app".into(),
+            fix: OriginFix::Add,
         }];
         app.unprobed_worktrees = vec![status(
             unprobed("/srv/it's gone", Some("gone"), UnprobedWhy::Prunable),
@@ -2358,7 +2907,7 @@ site-orphan  unregistered · no origin · orphaned worktree of site
         let block = render_entry(&r.entries[0], Path::new("/home/me/dev"), VIEW);
         assert!(
             block.contains(
-                r"no origin — git -C ~/'dev/my app' remote set-url origin 'file:///srv/it'\''s/app'"
+                r"no origin — git -C ~/'dev/my app' remote add origin 'file:///srv/it'\''s/app'"
             ),
             "{block}"
         );
@@ -2422,10 +2971,13 @@ site-orphan  unregistered · no origin · orphaned worktree of site
             },
         )];
         gro.needs_human = vec![NeedsHuman::OriginMismatch {
-            origin: None,
+            origin: OriginRemote::Missing,
             expected: "git@github.com:me/gro".into(),
+            fix: OriginFix::Add,
         }];
-        gro.fetch_error = Some("fatal: unreachable".into());
+        gro.fetch_error = Some(RemoteFailure::Failed {
+            message: "fatal: unreachable".into(),
+        });
         let r = report(vec![app, gro]);
         let colored = render_summary(
             &r,
@@ -2441,7 +2993,7 @@ site-orphan  unregistered · no origin · orphaned worktree of site
 \x1b[31mfailed\x1b[0m        gro (fetch: fatal: unreachable)
 \x1b[31mneeds human\x1b[0m   app (main has no origin upstream)
 \x1b[33morigin drift\x1b[0m  gro (no origin)
-              hint: git -C <dir> remote set-url origin <url> (each under --verbose)
+              hint: git -C <dir> remote add origin <url> (each under --verbose)
 \x1b[32msync would\x1b[0m    push app +1
 \x1b[33mheld\x1b[0m          ff gro −2
 uncommitted   app (1)

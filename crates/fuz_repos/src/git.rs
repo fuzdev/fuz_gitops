@@ -18,6 +18,8 @@ use std::time::Duration;
 
 use thiserror::Error;
 
+use crate::url::{has_userinfo, url_scheme, without_userinfo};
+
 /// Stdout beyond this is an error: no parser here wants a partial record.
 const STDOUT_CAP: usize = 64 * 1024 * 1024;
 /// Stderr is kept for messages only.
@@ -43,6 +45,35 @@ const SCRUBBED_ENV: &[&str] = &[
     "GIT_COMMON_DIR",
     "GIT_NAMESPACE",
     "GIT_CEILING_DIRECTORIES",
+];
+
+/// Inherited variables an anonymous read drops: config from the
+/// environment, which could name a credential helper or an auth header; an
+/// HTTPS client certificate (git's `GIT_SSL_CERT` family), a credential of
+/// its own; `GIT_SSL_NO_VERIFY`, so the host that answers is the one named;
+/// and what else could hand git a credential or another transport.
+///
+/// Kept, deliberately: the CA roots (`GIT_SSL_CAINFO`, `GIT_SSL_CAPATH`),
+/// which carry no credential and which a machine behind an intercepting
+/// proxy needs to verify anything; and proxies (`http_proxy`,
+/// `https_proxy`, `all_proxy`, `GIT_HTTP_PROXY_AUTHMETHOD`, `GIT_PROXY_SSL_*`)
+/// — the check has to leave the machine the way its other traffic does, and
+/// a proxy's credentials, userinfo in a proxy URL included, authenticate
+/// to the proxy, never to the repo's host.
+const ANONYMOUS_SCRUBBED_ENV: &[&str] = &[
+    "GIT_CONFIG_PARAMETERS",
+    "GIT_CONFIG_COUNT",
+    "GIT_CONFIG",
+    "XDG_CONFIG_HOME",
+    "SSH_ASKPASS",
+    "GIT_SSH_COMMAND",
+    "GIT_SSH",
+    "GIT_SSL_CERT",
+    "GIT_SSL_CERT_TYPE",
+    "GIT_SSL_KEY",
+    "GIT_SSL_KEY_TYPE",
+    "GIT_SSL_CERT_PASSWORD_PROTECTED",
+    "GIT_SSL_NO_VERIFY",
 ];
 
 /// The oldest git the runner supports: `GIT_NO_LAZY_FETCH`, which keeps a
@@ -126,6 +157,9 @@ pub enum GitError {
     },
     #[error("git {args} printed non-UTF-8 output")]
     NonUtf8 { args: String },
+    /// `url` is shown without its userinfo (`without_userinfo`).
+    #[error("`{url}` is not a `<scheme>://` URL without credentials")]
+    UnsupportedUrl { url: String },
 }
 
 /// Per-call options.
@@ -189,13 +223,24 @@ impl Git {
         self.spawns.load(Ordering::Relaxed)
     }
 
+    /// The value of `name` in the environment git sees.
+    fn env_var(&self, name: &str) -> Option<OsString> {
+        self.env.as_ref().map_or_else(
+            || std::env::var_os(name),
+            |env| {
+                env.iter()
+                    .rev()
+                    .find(|(k, _)| k == name)
+                    .map(|(_, v)| v.clone())
+            },
+        )
+    }
+
     /// Whether the environment git sees already configures its SSH.
     pub fn env_configures_ssh(&self) -> bool {
-        const VARS: [&str; 2] = ["GIT_SSH_COMMAND", "GIT_SSH"];
-        self.env.as_ref().map_or_else(
-            || VARS.iter().any(|v| std::env::var_os(v).is_some()),
-            |env| env.iter().any(|(k, _)| VARS.iter().any(|v| k == v)),
-        )
+        ["GIT_SSH_COMMAND", "GIT_SSH"]
+            .iter()
+            .any(|v| self.env_var(v).is_some())
     }
 
     /// Runs `git -C <dir> <args>` and returns its output whatever the exit
@@ -210,6 +255,84 @@ impl Git {
         args: &[&str],
         opts: CallOptions<'_>,
     ) -> Result<GitOutput, GitError> {
+        let (cmd, timeout) = self.command(dir, args, opts);
+        self.spawn_wait(cmd, timeout, || args.join(" "))
+    }
+
+    /// Reads `url`'s `HEAD` with `git ls-remote`, anonymously: success means
+    /// anyone can read the repo.
+    ///
+    /// Nothing that could authenticate the read reaches git: no config file
+    /// is read (`GIT_CONFIG_GLOBAL=/dev/null`, `GIT_CONFIG_NOSYSTEM`, and
+    /// `--git-dir=/dev/null`, so no repo is discovered from `dir` and no
+    /// repo's config applies — its credential helpers, `insteadOf` rewrites,
+    /// or `http.extraHeader`), config from the environment is dropped
+    /// (`GIT_CONFIG_PARAMETERS`, `GIT_CONFIG_COUNT`), the helper list is
+    /// emptied besides (`-c credential.helper=`, which also resets
+    /// URL-scoped helpers), `HOME` is `/dev/null` so curl finds no
+    /// `.netrc`, and a prompt for credentials fails at once
+    /// (`GIT_ASKPASS=/bin/false`, which outranks `core.askPass` and
+    /// `SSH_ASKPASS`; `SSH_ASKPASS` is dropped too; and
+    /// `GIT_TERMINAL_PROMPT=0`). `GIT_ALLOW_PROTOCOL` allows only `url`'s
+    /// scheme — so no rewrite or redirect can reach SSH, where a key would
+    /// be offered — unless the caller's own allowlist leaves that scheme
+    /// out, in which case it stands and git refuses the read.
+    ///
+    /// # Errors
+    ///
+    /// `UnsupportedUrl` when `url` has no `<scheme>://`, or carries
+    /// userinfo; otherwise as
+    /// `output`, including `Failed` with git's stderr when the read is
+    /// refused.
+    pub fn ls_remote_anonymous(&self, dir: &Path, url: &str) -> Result<(), GitError> {
+        let args = anonymous_args(url);
+        let (cmd, timeout) = self.anonymous_command(dir, url)?;
+        let out = self.spawn_wait(cmd, timeout, || args.join(" "))?;
+        if out.status.success() {
+            Ok(())
+        } else {
+            Err(GitError::Failed {
+                args: args.join(" "),
+                code: out.status.code(),
+                stderr: out.stderr.trim().to_owned(),
+            })
+        }
+    }
+
+    /// `ls_remote_anonymous`'s command and timeout, not yet spawned.
+    fn anonymous_command(&self, dir: &Path, url: &str) -> Result<(Command, Duration), GitError> {
+        // anonymous means no credential in the URL either
+        let scheme = url_scheme(url)
+            .filter(|_| !has_userinfo(url))
+            .ok_or_else(|| GitError::UnsupportedUrl {
+                url: without_userinfo(url).into_owned(),
+            })?;
+        let (mut cmd, timeout) = self.command(
+            dir,
+            &anonymous_args(url),
+            CallOptions {
+                ceiling: None,
+                // the scheme is never SSH: nothing for batch mode to do
+                network: Some(NetworkOptions { batch_ssh: false }),
+            },
+        );
+        let allowed = match self.env_var("GIT_ALLOW_PROTOCOL") {
+            Some(list) if !list.to_string_lossy().split(':').any(|p| p == scheme) => list,
+            _ => scheme.into(),
+        };
+        cmd.env("GIT_ALLOW_PROTOCOL", allowed)
+            .env("GIT_ASKPASS", "/bin/false")
+            .env("GIT_CONFIG_GLOBAL", "/dev/null")
+            .env("GIT_CONFIG_NOSYSTEM", "1")
+            .env("HOME", "/dev/null");
+        for var in ANONYMOUS_SCRUBBED_ENV {
+            cmd.env_remove(var);
+        }
+        Ok((cmd, timeout))
+    }
+
+    /// The hardened `git -C <dir> <args>` and its timeout.
+    fn command(&self, dir: &Path, args: &[&str], opts: CallOptions<'_>) -> (Command, Duration) {
         let mut cmd = Command::new("git");
         // first, so the hardening below wins over anything the caller sets
         if let Some(env) = &self.env {
@@ -250,7 +373,16 @@ impl Git {
                 );
             }
         }
+        (cmd, timeout)
+    }
 
+    /// Spawns `cmd` and waits for it under `timeout`, counting the spawn.
+    fn spawn_wait(
+        &self,
+        mut cmd: Command,
+        timeout: Duration,
+        args: impl Fn() -> String,
+    ) -> Result<GitOutput, GitError> {
         let child = cmd.spawn().map_err(|e| {
             if e.kind() == io::ErrorKind::NotFound {
                 GitError::NotFound
@@ -259,7 +391,7 @@ impl Git {
             }
         })?;
         self.spawns.fetch_add(1, Ordering::Relaxed);
-        wait_capped(child, timeout, || args.join(" "))
+        wait_capped(child, timeout, args)
     }
 
     /// Checks that git is on `PATH` and at least `MIN_GIT_VERSION`, with one
@@ -339,6 +471,18 @@ impl Git {
             args: args.join(" "),
         })
     }
+}
+
+/// The anonymous read's arguments after the runner's own.
+const fn anonymous_args(url: &str) -> [&str; 6] {
+    [
+        "--git-dir=/dev/null",
+        "-c",
+        "credential.helper=",
+        "ls-remote",
+        url,
+        "HEAD",
+    ]
 }
 
 /// `GitTooOld`'s `found` for a git that rejects `--no-optional-locks`, the
@@ -608,6 +752,97 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let v = Git::new().check_version(tmp.path()).unwrap();
         assert!(v >= MIN_GIT_VERSION, "{v}");
+    }
+
+    #[test]
+    fn the_anonymous_command_drops_credentials_from_the_environment() {
+        let dropped = [
+            "GIT_CONFIG_PARAMETERS",
+            "GIT_CONFIG_COUNT",
+            "GIT_CONFIG",
+            "XDG_CONFIG_HOME",
+            "SSH_ASKPASS",
+            "GIT_SSH_COMMAND",
+            "GIT_SSH",
+            "GIT_SSL_CERT",
+            "GIT_SSL_KEY",
+            "GIT_SSL_CERT_TYPE",
+            "GIT_SSL_KEY_TYPE",
+            "GIT_SSL_CERT_PASSWORD_PROTECTED",
+            "GIT_SSL_NO_VERIFY",
+        ];
+        // each set by the caller, as an inherited environment would
+        let mut env: Vec<(OsString, OsString)> = dropped
+            .iter()
+            .map(|var| ((*var).into(), "planted".into()))
+            .collect();
+        env.extend([
+            ("GIT_ALLOW_PROTOCOL".into(), "file:https".into()),
+            ("GIT_SSL_CAINFO".into(), "/etc/ssl/ca.pem".into()),
+            ("https_proxy".into(), "http://proxy:3128".into()),
+            ("GIT_ASKPASS".into(), "/usr/bin/planted".into()),
+            ("HOME".into(), "/home/planted".into()),
+        ]);
+        let git = Git::with_clean_env(env);
+        let (cmd, _) = git
+            .anonymous_command(Path::new("/"), "https://github.com/me/app")
+            .unwrap();
+        let envs: Vec<(String, Option<String>)> = cmd
+            .get_envs()
+            .map(|(k, v)| {
+                (
+                    k.to_string_lossy().into_owned(),
+                    v.map(|v| v.to_string_lossy().into_owned()),
+                )
+            })
+            .collect();
+        let get = |name: &str| envs.iter().find(|(k, _)| k == name).map(|(_, v)| v.clone());
+        // over a cleared environment, a dropped variable is simply absent
+        for var in dropped {
+            assert!(!matches!(get(var), Some(Some(_))), "{var} is dropped");
+        }
+        for (var, value) in [
+            ("GIT_ASKPASS", "/bin/false"),
+            ("HOME", "/dev/null"),
+            ("GIT_CONFIG_GLOBAL", "/dev/null"),
+            ("GIT_CONFIG_NOSYSTEM", "1"),
+            ("GIT_TERMINAL_PROMPT", "0"),
+            // the caller's list allows https: narrowed to it
+            ("GIT_ALLOW_PROTOCOL", "https"),
+        ] {
+            assert_eq!(get(var), Some(Some(value.to_owned())), "{var}");
+        }
+        // kept: trust roots and proxies
+        assert_eq!(get("GIT_SSL_CAINFO"), Some(Some("/etc/ssl/ca.pem".into())));
+        assert_eq!(get("https_proxy"), Some(Some("http://proxy:3128".into())));
+        let args: Vec<_> = cmd
+            .get_args()
+            .map(|a| a.to_string_lossy().into_owned())
+            .collect();
+        assert!(
+            args.ends_with(&[
+                "--git-dir=/dev/null".to_owned(),
+                "-c".to_owned(),
+                "credential.helper=".to_owned(),
+                "ls-remote".to_owned(),
+                "https://github.com/me/app".to_owned(),
+                "HEAD".to_owned(),
+            ]),
+            "{args:?}"
+        );
+    }
+
+    #[test]
+    fn an_anonymous_read_refuses_credentials_in_its_url() {
+        let tmp = tempfile::tempdir().unwrap();
+        let git = Git::new();
+        for url in ["https://user:sekrit@127.0.0.1:1/a/b", "no-scheme/a/b"] {
+            let e = git.ls_remote_anonymous(tmp.path(), url).unwrap_err();
+            assert!(matches!(e, GitError::UnsupportedUrl { .. }), "{e}");
+            assert!(!e.to_string().contains("sekrit"), "{e}");
+        }
+        // refused before anything ran
+        assert_eq!(git.spawns(), 0);
     }
 
     #[test]

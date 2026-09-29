@@ -35,6 +35,7 @@ use crate::probe::{
 };
 use crate::registry::{Entry, is_owner};
 use crate::report::{RepairBlock, UnregisteredClone, UnregisteredKind};
+use crate::url::without_userinfo;
 
 /// What the unregistered scan found.
 #[derive(Debug)]
@@ -689,10 +690,11 @@ fn uses_git_dir(path: &Path, git_dir: &Path) -> bool {
     }
 }
 
-/// `remote.origin.url` as git reads it in `dir` — the first value, the one a
-/// fetch uses; `None` when unset, empty, or git fails. Discovery stops at
-/// `dir`'s parent, so a `.git` git can't use never resolves to an enclosing
-/// repo.
+/// `remote.origin.url` as git reads it in `dir` — the first value after the
+/// last empty one (which resets the list), the one a fetch uses, with a
+/// credential in its userinfo redacted as `***`; `None` when unset, reset,
+/// or git fails. Discovery stops at `dir`'s parent, so a `.git` git can't
+/// use never resolves to an enclosing repo.
 fn read_origin(git: &Git, dir: &Path) -> Option<String> {
     let parent = canonical(dir).and_then(|d| d.parent().map(Path::to_owned));
     let opts = CallOptions {
@@ -706,7 +708,12 @@ fn read_origin(git: &Git, dir: &Path) -> Option<String> {
             opts,
         )
         .ok()?;
-    let first = out.split(|b| *b == 0).next()?;
-    let origin = std::str::from_utf8(first).ok()?;
-    (!origin.is_empty()).then(|| origin.to_owned())
+    let out = std::str::from_utf8(&out).ok()?;
+    let values: Vec<&str> = out.strip_suffix('\0').unwrap_or(out).split('\0').collect();
+    let start = values
+        .iter()
+        .rposition(|v| v.is_empty())
+        .map_or(0, |i| i + 1);
+    let origin = values.get(start)?;
+    Some(without_userinfo(origin).into_owned())
 }

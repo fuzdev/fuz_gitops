@@ -671,6 +671,7 @@ fn worktrees_are_listed_only_when_the_repo_has_some() {
             StatusOptions {
                 fetch: false,
                 jobs: 1,
+                visibility_base: None,
             },
         );
         assert_eq!(run.entries[0].probe_error, None);
@@ -1731,6 +1732,7 @@ fn the_index_is_read_only_for_a_worktree_on_a_gone_branch() {
         StatusOptions {
             fetch: false,
             jobs: 1,
+            visibility_base: None,
         },
     );
     let e = &run.entries[0];

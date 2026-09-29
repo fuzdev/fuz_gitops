@@ -368,10 +368,119 @@ impl BranchConfig {
     }
 }
 
-/// What the probe needs from a repo's config.
+/// A config value, and whether the repo's own config file holds it.
+///
+/// That file, `<commondir>/config`, is the one `git remote add`, `git remote
+/// set-url`, and `git config --unset-all` edit. A value from any other scope
+/// (system, global, worktree, the command line) or from a file the repo's
+/// config includes is out of their reach.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ConfigValue {
+    pub value: String,
+    pub in_repo_file: bool,
+}
+
+#[cfg(test)]
+impl ConfigValue {
+    /// A value in the repo's own config file.
+    pub fn repo(value: &str) -> Self {
+        Self {
+            value: value.to_owned(),
+            in_repo_file: true,
+        }
+    }
+
+    /// A value from anywhere else.
+    pub fn elsewhere(value: &str) -> Self {
+        Self {
+            value: value.to_owned(),
+            in_repo_file: false,
+        }
+    }
+}
+
+/// One `remote.origin.url` value, and whether the repo's own config file
+/// holds it (as `ConfigValue`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OriginUrl {
+    /// `None` for a valueless `url` (no `=`), which every git remote command
+    /// refuses (`missing value for 'remote.origin.url'`, then `bad config
+    /// variable`); `Some("")` for an empty one, which resets the list.
+    pub value: Option<String>,
+    pub in_repo_file: bool,
+}
+
+impl OriginUrl {
+    /// Whether it ends the list before it: empty, or valueless (no URL is
+    /// usable either way).
+    pub fn resets(&self) -> bool {
+        self.value.as_deref().is_none_or(str::is_empty)
+    }
+}
+
+#[cfg(test)]
+impl OriginUrl {
+    /// A URL in the repo's own config file.
+    pub fn repo(value: &str) -> Self {
+        Self {
+            value: Some(value.to_owned()),
+            in_repo_file: true,
+        }
+    }
+
+    /// A URL from anywhere else.
+    pub fn elsewhere(value: &str) -> Self {
+        Self {
+            value: Some(value.to_owned()),
+            in_repo_file: false,
+        }
+    }
+
+    /// A valueless `url` in the repo's own config file.
+    pub const fn valueless() -> Self {
+        Self {
+            value: None,
+            in_repo_file: true,
+        }
+    }
+}
+
+/// Another remote's fetch refspec.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RemoteRefspec {
+    pub remote: String,
+    pub refspec: String,
+}
+
+/// Where a repo's `remote.origin.*` keys are set.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord)]
+pub enum OriginKeys {
+    /// Nowhere: git knows no remote `origin`.
+    #[default]
+    None,
+    /// Only beyond the repo's scope (global or system config): git knows
+    /// `origin`, but `git remote add origin` accepts and `git remote set-url
+    /// origin` refuses (`No such remote`).
+    Elsewhere,
+    /// In the repo's scope — its config file, a file that includes, or its
+    /// worktree config: `git remote add origin` refuses (`remote origin
+    /// already exists`) and `git remote set-url origin` accepts.
+    InRepo,
+}
+
+/// What the probe needs from a repo's config, read from every scope as git
+/// reads it.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ConfigFacts {
-    pub origin_url: Option<String>,
+    /// Every `remote.origin.url` value in the order git reads them, empty
+    /// ones included (an empty value resets the list: `origin_url_list`).
+    pub origin_urls: Vec<OriginUrl>,
+    /// Where `remote.origin.*` keys are set, if anywhere.
+    pub origin_keys: OriginKeys,
+    /// Every `remote.origin.fetch` refspec, in the order git reads them.
+    pub origin_fetch: Vec<ConfigValue>,
+    /// Every other remote's fetch refspecs, in the order git reads them.
+    pub other_fetch: Vec<RemoteRefspec>,
     pub partial_filter: Option<String>,
     pub sparse: bool,
     /// Whether `core.sshCommand` is set anywhere, so fetch leaves SSH alone.
@@ -380,19 +489,59 @@ pub struct ConfigFacts {
 }
 
 impl ConfigFacts {
-    /// Parses `git config -z --get-regexp <CONFIG_PATTERN>`: `key\nvalue` per
-    /// NUL-terminated entry, or a bare `key` for a valueless boolean.
+    /// Parses `git config -z --show-scope --show-origin --get-regexp
+    /// <CONFIG_PATTERN>`: per entry, `scope`, `origin`, then `key\nvalue` (or
+    /// a bare `key` for a valueless boolean), each NUL-terminated.
+    /// `is_repo_file` says whether a `file:` origin's path, as git prints it
+    /// (relative to the dir git ran in, for the repo's own file), is the
+    /// repo's own config file.
+    ///
+    /// An origin is a path from anywhere on the machine (a global config's,
+    /// an include's), so it may not be UTF-8: such an origin is never the
+    /// repo's own file — the repo's paths are UTF-8 or it isn't probed — and
+    /// its entry parses on, its advice falling to by-hand.
     ///
     /// # Errors
     ///
-    /// Returns a message on non-UTF-8 output.
-    pub fn parse(out: &[u8]) -> Result<Self, String> {
-        let out = std::str::from_utf8(out).map_err(|_| "config: non-UTF-8 output".to_owned())?;
+    /// Returns a message on a non-UTF-8 scope, key, or value, or on output
+    /// that isn't whole entries.
+    pub fn parse(out: &[u8], is_repo_file: impl Fn(&str) -> bool) -> Result<Self, String> {
+        if out.is_empty() {
+            return Ok(Self::default());
+        }
+        let fields: Vec<&[u8]> = out
+            .strip_suffix(b"\0")
+            .unwrap_or(out)
+            .split(|b| *b == 0)
+            .collect();
+        let entries = fields.chunks_exact(3);
+        if !entries.remainder().is_empty() {
+            return Err("config: expected scope, origin, and key per entry".to_owned());
+        }
+        let utf8 = |b: &[u8]| {
+            std::str::from_utf8(b)
+                .map(str::to_owned)
+                .map_err(|_| "config: non-UTF-8 output".to_owned())
+        };
         let mut facts = Self::default();
-        for entry in out.split('\0').filter(|e| !e.is_empty()) {
+        for entry in entries {
+            let [scope, origin, entry] = [entry[0], entry[1], entry[2]];
+            let (scope, entry) = (utf8(scope)?, utf8(entry)?);
+            let (scope, entry) = (scope.as_str(), entry.as_str());
+            // `None`: not UTF-8, so not the repo's own file
+            let origin = std::str::from_utf8(origin).ok();
             let (key, value) = entry
                 .split_once('\n')
                 .map_or((entry, None), |(k, v)| (k, Some(v)));
+            let in_repo_scope = matches!(scope, "local" | "worktree");
+            let in_repo_file = scope == "local"
+                && origin
+                    .and_then(|o| o.strip_prefix("file:"))
+                    .is_some_and(&is_repo_file);
+            let config_value = |v: &str| ConfigValue {
+                value: v.to_owned(),
+                in_repo_file,
+            };
             if key == "core.sparsecheckout" {
                 facts.sparse = value.is_none_or(git_bool);
             } else if key == "core.sshcommand" {
@@ -407,17 +556,65 @@ impl ConfigFacts {
                     _ => continue,
                 };
                 *slot = value.map(str::to_owned);
-            } else if let Some(rest) = key.strip_prefix("remote.origin.") {
-                match rest {
-                    "url" if facts.origin_url.is_none() => {
-                        facts.origin_url = value.map(str::to_owned);
+            } else if let Some((remote, var)) =
+                key.strip_prefix("remote.").and_then(|r| r.rsplit_once('.'))
+            {
+                // a remote's name may hold dots and slashes (`origin.old`,
+                // `origin/fork`): only exactly `origin` is origin
+                if remote != "origin" {
+                    if var == "fetch"
+                        && let Some(refspec) = value
+                    {
+                        facts.other_fetch.push(RemoteRefspec {
+                            remote: remote.to_owned(),
+                            refspec: refspec.to_owned(),
+                        });
                     }
+                    continue;
+                }
+                facts.origin_keys = if in_repo_scope {
+                    OriginKeys::InRepo
+                } else {
+                    facts.origin_keys.max(OriginKeys::Elsewhere)
+                };
+                match var {
+                    "url" => facts.origin_urls.push(OriginUrl {
+                        value: value.map(str::to_owned),
+                        in_repo_file,
+                    }),
                     "partialclonefilter" => facts.partial_filter = value.map(str::to_owned),
+                    "fetch" => facts.origin_fetch.extend(value.map(config_value)),
                     _ => {}
                 }
             }
         }
         Ok(facts)
+    }
+
+    /// The `remote.origin.url` list git uses: the values after the last
+    /// empty one, which resets the list (a valueless one ends it too — no
+    /// URL is usable either way).
+    ///
+    /// The reset is git 2.46's; the floor is 2.44, and on 2.44 and 2.45 an
+    /// empty value is just an empty URL, so `[A, ""]` still fetches from `A`
+    /// there while this reads no URL (and `status --fetch` skips it). Such a
+    /// config is broken either way — it names no usable remote on newer
+    /// gits — so this doesn't gate on the version.
+    pub fn origin_url_list(&self) -> &[OriginUrl] {
+        let start = self
+            .origin_urls
+            .iter()
+            .rposition(OriginUrl::resets)
+            .map_or(0, |i| i + 1);
+        &self.origin_urls[start..]
+    }
+
+    /// The URL git fetches `origin` from: the first of `origin_url_list`;
+    /// `None` when that's empty.
+    pub fn origin_url(&self) -> Option<&str> {
+        self.origin_url_list()
+            .first()
+            .and_then(|v| v.value.as_deref())
     }
 }
 
@@ -729,7 +926,7 @@ mod tests {
 
     #[test]
     fn config_entries() {
-        let out = z(&[
+        let out = local(&[
             "remote.origin.url\ngit@github.com:ryanatkn/wpt",
             "remote.origin.fetch\n+refs/heads/master:refs/remotes/origin/master",
             "remote.origin.promisor\ntrue",
@@ -744,8 +941,15 @@ mod tests {
             "branch.main.vscode-merge-base\norigin/main",
             "core.sparsecheckout\ntrue",
         ]);
-        let c = ConfigFacts::parse(&out).unwrap();
-        assert_eq!(c.origin_url.as_deref(), Some("git@github.com:ryanatkn/wpt"));
+        let c = parse(&out);
+        assert_eq!(c.origin_url(), Some("git@github.com:ryanatkn/wpt"));
+        assert_eq!(c.origin_keys, OriginKeys::InRepo);
+        assert_eq!(
+            c.origin_fetch,
+            [ConfigValue::repo(
+                "+refs/heads/master:refs/remotes/origin/master"
+            )]
+        );
         assert_eq!(c.partial_filter.as_deref(), Some("blob:none"));
         assert!(c.sparse && !c.ssh_command);
         assert!(c.branches["fork"].is_origin());
@@ -760,10 +964,161 @@ mod tests {
 
     #[test]
     fn config_valueless_boolean_and_ssh() {
-        let c = ConfigFacts::parse(&z(&["core.sparsecheckout", "core.sshcommand\nssh -i key"]))
-            .unwrap();
+        let c = parse(&local(&[
+            "core.sparsecheckout",
+            "core.sshcommand\nssh -i key",
+        ]));
         assert!(c.sparse && c.ssh_command);
-        let c = ConfigFacts::parse(&z(&["core.sparsecheckout\nfalse"])).unwrap();
+        let c = parse(&local(&["core.sparsecheckout\nfalse"]));
         assert!(!c.sparse);
+        assert_eq!(parse(b""), ConfigFacts::default());
+    }
+
+    /// Entries as `--show-scope --show-origin -z` prints them.
+    fn scoped(entries: &[(&str, &str, &str)]) -> Vec<u8> {
+        let mut out = Vec::new();
+        for (scope, origin, entry) in entries {
+            for field in [scope, origin, entry] {
+                out.extend_from_slice(field.as_bytes());
+                out.push(0);
+            }
+        }
+        out
+    }
+
+    /// Entries from the repo's own config file.
+    fn local(entries: &[&str]) -> Vec<u8> {
+        let entries: Vec<_> = entries
+            .iter()
+            .map(|e| ("local", "file:.git/config", *e))
+            .collect();
+        scoped(&entries)
+    }
+
+    fn parse(out: &[u8]) -> ConfigFacts {
+        ConfigFacts::parse(out, |path| path == ".git/config").unwrap()
+    }
+
+    #[test]
+    fn config_scopes_and_the_url_list() {
+        // bytes as git 2.47 printed them, the include's path absolute
+        let c = parse(&scoped(&[
+            (
+                "global",
+                "file:/home/me/.gitconfig",
+                "remote.origin.fetch\n+refs/pull/*/head:refs/remotes/origin/pr/*",
+            ),
+            (
+                "local",
+                "file:.git/config",
+                "remote.origin.url\nhttps://me:tok@github.com/old/a",
+            ),
+            (
+                "local",
+                "file:.git/config",
+                "remote.origin.url\ngit@github.com:me/mirror",
+            ),
+            (
+                "local",
+                "file:/srv/inc.cfg",
+                "remote.origin.url\nfile:///inc",
+            ),
+            (
+                "local",
+                "file:.git/config",
+                "remote.origin.fetch\n+refs/heads/main:refs/remotes/origin/main",
+            ),
+        ]));
+        // the first URL wins, never the last
+        assert_eq!(c.origin_url(), Some("https://me:tok@github.com/old/a"));
+        assert_eq!(
+            c.origin_urls,
+            [
+                OriginUrl::repo("https://me:tok@github.com/old/a"),
+                OriginUrl::repo("git@github.com:me/mirror"),
+                OriginUrl::elsewhere("file:///inc"),
+            ]
+        );
+        assert_eq!(
+            c.origin_fetch,
+            [
+                ConfigValue::elsewhere("+refs/pull/*/head:refs/remotes/origin/pr/*"),
+                ConfigValue::repo("+refs/heads/main:refs/remotes/origin/main"),
+            ]
+        );
+        // a valueless `url` is flagged, and reads as empty
+        let c = parse(&local(&["remote.origin.url"]));
+        assert_eq!(c.origin_urls, [OriginUrl::valueless()]);
+        assert_eq!(c.origin_url(), None);
+        let c = parse(&local(&["remote.origin.url\n"]));
+        assert_eq!(c.origin_urls, [OriginUrl::repo("")]);
+        // an empty value resets the list; a later one starts it again
+        let c = parse(&local(&["remote.origin.url\nx", "remote.origin.url\n"]));
+        assert_eq!(c.origin_url(), None);
+        assert!(c.origin_url_list().is_empty() && c.origin_urls.len() == 2);
+        let c = parse(&local(&["remote.origin.url\n", "remote.origin.url\ny"]));
+        assert_eq!(c.origin_url(), Some("y"));
+        // global and system keys aren't the repo's; worktree keys are, but
+        // not its file
+        let c = parse(&scoped(&[("global", "file:/g", "remote.origin.url\nx")]));
+        assert_eq!(c.origin_keys, OriginKeys::Elsewhere);
+        let c = parse(&scoped(&[(
+            "worktree",
+            "file:.git/config.worktree",
+            "remote.origin.url\nx",
+        )]));
+        assert_eq!(c.origin_keys, OriginKeys::InRepo);
+        assert_eq!(c.origin_urls, [OriginUrl::elsewhere("x")]);
+        // an in-repo key stays in-repo whatever scope comes after it
+        let c = parse(&scoped(&[
+            ("local", "file:.git/config", "remote.origin.fetch\nx"),
+            ("command", "command line:", "remote.origin.url\ny"),
+        ]));
+        assert_eq!(c.origin_keys, OriginKeys::InRepo);
+        // only exactly `origin` is origin: a remote named `origin/fork` or
+        // `origin.old` is another remote, its refspecs collected
+        let c = parse(&local(&[
+            "remote.origin/fork.url\nfile:///fork",
+            "remote.origin/fork.fetch\n+refs/heads/*:refs/remotes/origin/fork/*",
+            "remote.origin.old.fetch\n+refs/heads/*:refs/remotes/old/*",
+        ]));
+        assert_eq!(c.origin_keys, OriginKeys::None);
+        assert!(c.origin_urls.is_empty() && c.origin_fetch.is_empty());
+        assert_eq!(
+            c.other_fetch,
+            [
+                RemoteRefspec {
+                    remote: "origin/fork".into(),
+                    refspec: "+refs/heads/*:refs/remotes/origin/fork/*".into(),
+                },
+                RemoteRefspec {
+                    remote: "origin.old".into(),
+                    refspec: "+refs/heads/*:refs/remotes/old/*".into(),
+                },
+            ]
+        );
+        // a torn entry fails loud
+        assert!(ConfigFacts::parse(b"local\0file:.git/config\0", |_| true).is_err());
+        // an origin path that isn't UTF-8 parses on, and is never the repo's
+        // own file — even to a predicate that would match anything
+        let c = ConfigFacts::parse(
+            b"global\0file:/home/me/g\xff.gitconfig\0branch.main.remote\norigin\0\
+              local\0file:/home/me/\xfe/inc\0remote.origin.url\ngit@github.com:old/app\0",
+            |_| true,
+        )
+        .unwrap();
+        assert_eq!(c.branches["main"].remote.as_deref(), Some("origin"));
+        assert_eq!(
+            c.origin_urls,
+            [OriginUrl::elsewhere("git@github.com:old/app")]
+        );
+        // a key or value that isn't UTF-8 still fails loud
+        assert!(
+            ConfigFacts::parse(
+                b"local\0file:.git/config\0remote.origin.url\n\xff\0",
+                |_| true
+            )
+            .is_err()
+        );
     }
 }

@@ -18,11 +18,12 @@
 use std::path::{Path, PathBuf};
 
 use fuz_repos::STATUS_FORMAT_VERSION;
-use fuz_repos::classify::NeedsHuman;
+use fuz_repos::classify::{NeedsHuman, OriginByHand, OriginFix, OriginRemote};
 use fuz_repos::error::Error;
 use fuz_repos::registry::{
     CheckoutList, CheckoutMode, EntryKind, EntryName, RegistryIssue, Visibility,
 };
+use fuz_repos::remote::{RefGoneFix, RemoteFailure, UnreachableCause, VisibilityCheck};
 use fuz_repos::report::{
     EntryStatus, ErrorReport, RepairBlock, StatusReport, UnregisteredClone, UnregisteredKind,
 };
@@ -104,6 +105,7 @@ fn first_difference(a: &Value, b: &Value, at: String) -> Option<String> {
 fn status_report() {
     let doc = status_report_doc();
     assert_eq!(doc.version, STATUS_FORMAT_VERSION);
+    assert!(doc.fetched);
     assert_golden("status_report.json", &doc);
 }
 
@@ -113,6 +115,13 @@ fn status_report_targeted() {
     // targets narrowed the run: no scan, `null` — never `[]`, which reads as
     // "none found"
     assert!(doc.unregistered.is_none());
+    // no `--fetch`: no entry was fetched or checked
+    assert!(!doc.fetched);
+    assert!(
+        doc.entries
+            .iter()
+            .all(|e| e.fetch_error.is_none() && e.visibility_check.is_none())
+    );
     assert_golden("status_report_targeted.json", &doc);
 }
 
@@ -146,11 +155,13 @@ fn a_drifted_golden_names_where() {
 
 // --- the documents ---
 
-/// A whole-workspace run: every entry shape, and the unregistered scan.
+/// A whole-workspace run under `--fetch`: every entry shape, every fetch
+/// failure and visibility check, and the unregistered scan.
 fn status_report_doc() -> StatusReport {
     let mut report = StatusReport::new(
         WORKSPACE.into(),
         format!("{WORKSPACE}/repos.toml"),
+        true,
         vec![
             app(),
             blog(),
@@ -161,21 +172,33 @@ fn status_report_doc() -> StatusReport {
             missing(),
             not_a_repo(),
             partial(),
+            forge(),
+            zap(),
+            site(),
+            mdz(),
+            tsv(),
+            tsv_fuz_dev(),
+            fuz_css(),
+            fuz_ui(),
+            uz(),
         ],
     );
     report.unregistered = Some(unregistered());
     report
 }
 
-/// A run narrowed by targets: the scan didn't run.
+/// A run narrowed by targets, local refs only: the scan, the fetch, and
+/// the visibility check didn't run.
 fn targeted_doc() -> StatusReport {
     StatusReport::new(
         WORKSPACE.into(),
         format!("{WORKSPACE}/repos.toml"),
+        false,
         vec![EntryStatus {
             needs_human: vec![NeedsHuman::OriginMismatch {
-                origin: None,
+                origin: OriginRemote::Missing,
                 expected: "git@github.com:me/gro".into(),
+                fix: OriginFix::Add,
             }],
             ..entry("gro", follow("main"))
         }],
@@ -250,6 +273,7 @@ fn entry(key: &str, mode: CheckoutMode) -> EntryStatus {
         probe_error: None,
         unprobed_worktrees: vec![],
         fetch_error: None,
+        visibility_check: None,
     }
 }
 
@@ -275,6 +299,9 @@ fn branch(
 /// way a worktree goes unprobed.
 fn app() -> EntryStatus {
     let mut e = entry("app", follow("main"));
+    e.fetch_error = Some(RemoteFailure::Failed {
+        message: "fatal: protocol error: bad line length character: Welc".into(),
+    });
     e.stashes = 2;
     e.checkouts[0].uncommitted = Uncommitted {
         staged: 1,
@@ -571,23 +598,38 @@ fn blog() -> EntryStatus {
     }];
     e.needs_human = vec![
         NeedsHuman::OriginMismatch {
-            origin: Some("git@github.com:ryanatkn/fuz_blog".into()),
+            origin: OriginRemote::Url {
+                url: "git@github.com:ryanatkn/fuz_blog".into(),
+            },
             expected: "git@github.com:fuzdev/fuz_blog".into(),
+            fix: OriginFix::SetUrl,
         },
         NeedsHuman::OperationInProgress {
             checkout: path("fuz_blog"),
             op: InProgressOp::Merge,
         },
     ];
-    e.fetch_error = Some("fatal: couldn't find remote ref main\n".into());
+    e.fetch_error = Some(RemoteFailure::RefGone {
+        refname: "refs/heads/dev".into(),
+        fix: RefGoneFix::SetBranches {
+            branch: Some("main".into()),
+        },
+    });
     e
 }
 
-/// Archived and private, no CI, with a commit ahead its host refuses.
+/// Archived and private, no CI, with a commit ahead its host refuses, and
+/// no `origin` — and anyone can read it.
 fn archived() -> EntryStatus {
     let mut e = entry("old", follow("main"));
+    e.needs_human = vec![NeedsHuman::OriginMismatch {
+        origin: OriginRemote::Missing,
+        expected: "git@github.com:me/old".into(),
+        fix: OriginFix::Add,
+    }];
     e.archived = true;
     e.visibility = Some(Visibility::Private);
+    e.visibility_check = Some(VisibilityCheck::Leak);
     e.ci = false;
     e.fetched_at = Some(NOW - 300 * DAY);
     e.branches = vec![BranchStatus {
@@ -648,16 +690,26 @@ fn test262() -> EntryStatus {
             ..branch("audit", None, Relation::Untracked, Verdict::LocalOnly)
         },
     ];
-    e.needs_human = vec![NeedsHuman::OperationInProgress {
-        checkout: path("test262"),
-        op: InProgressOp::Rebase,
-    }];
+    e.needs_human = vec![
+        NeedsHuman::OperationInProgress {
+            checkout: path("test262"),
+            op: InProgressOp::Rebase,
+        },
+        // its URL list reset by an empty value
+        NeedsHuman::OriginMismatch {
+            origin: OriginRemote::NoUrl,
+            expected: "https://github.com/tc39/test262".into(),
+            fix: OriginFix::ByHand {
+                reason: OriginByHand::EmptyValue,
+            },
+        },
+    ];
     e.fetched_at = None;
     e
 }
 
 /// An owned fork kept as a reference, pinned but found on a branch, with a
-/// `git am` stopped mid-way.
+/// `git am` stopped mid-way and a valueless `origin` URL.
 fn spec() -> EntryStatus {
     let mut e = entry("ecma262", CheckoutMode::Pinned);
     e.kind = EntryKind::Reference;
@@ -665,6 +717,13 @@ fn spec() -> EntryStatus {
     e.checkouts[0].head = on("draft");
     e.checkouts[0].in_progress = Some(InProgressOp::Am);
     e.needs_human = vec![
+        NeedsHuman::OriginMismatch {
+            origin: OriginRemote::NoUrl,
+            expected: "git@github.com:me/ecma262".into(),
+            fix: OriginFix::ByHand {
+                reason: OriginByHand::ValuelessUrl,
+            },
+        },
         NeedsHuman::PinnedOnBranch {
             branch: "draft".into(),
         },
@@ -680,6 +739,10 @@ fn spec() -> EntryStatus {
 /// sequencer stopped in it; `main` has no upstream.
 fn zzz() -> EntryStatus {
     let mut e = entry("zzz", follow("dev"));
+    e.fetch_error = Some(RemoteFailure::Unreachable {
+        cause: UnreachableCause::Connection,
+        message: "ssh: connect to host github.com port 22: Connection refused".into(),
+    });
     e.checkouts[0].head = Head::Detached {
         commit: "00112233445566778899aabbccddeeff00112233".into(),
     };
@@ -739,7 +802,142 @@ fn partial() -> EntryStatus {
         checkouts: vec![],
         fetched_at: None,
         probe_error: Some("git status failed (128): error: bad tree object HEAD".into()),
+        fetch_error: Some(RemoteFailure::RepoNotFound {
+            message: "ERROR: Repository not found.".into(),
+        }),
         ..entry("wpt", follow("main"))
+    }
+}
+
+/// Private as declared; its key refused.
+fn forge() -> EntryStatus {
+    EntryStatus {
+        visibility: Some(Visibility::Private),
+        ci: false,
+        fetch_error: Some(RemoteFailure::Unreachable {
+            cause: UnreachableCause::Auth,
+            message: "git@github.com: Permission denied (publickey).".into(),
+        }),
+        visibility_check: Some(VisibilityCheck::Private),
+        ..entry("fuz_forge", follow("main"))
+    }
+}
+
+/// Private, with the network down: its host not found, the check timed out.
+fn zap() -> EntryStatus {
+    EntryStatus {
+        visibility: Some(Visibility::Private),
+        ci: false,
+        fetch_error: Some(RemoteFailure::Unreachable {
+            cause: UnreachableCause::Dns,
+            message: "ssh: Could not resolve hostname github.com: Temporary failure in name \
+                      resolution"
+                .into(),
+        }),
+        visibility_check: Some(VisibilityCheck::Unknown {
+            failure: RemoteFailure::TimedOut { after_secs: 120 },
+        }),
+        ..entry("zap", follow("main"))
+    }
+}
+
+/// A branch deleted on the remote, named by one of several fetch refspecs;
+/// an old `origin` URL beside a mirror.
+fn mdz() -> EntryStatus {
+    EntryStatus {
+        needs_human: vec![NeedsHuman::OriginMismatch {
+            origin: OriginRemote::Url {
+                url: "git@github.com:old/mdz".into(),
+            },
+            expected: "git@github.com:me/mdz".into(),
+            fix: OriginFix::ByHand {
+                reason: OriginByHand::SeveralUrls,
+            },
+        }],
+        fetch_error: Some(RemoteFailure::RefGone {
+            refname: "refs/heads/attrs".into(),
+            fix: RefGoneFix::UnsetRefspec {
+                pattern: r"^\+?refs/heads/attrs(:|$)".into(),
+            },
+        }),
+        ..entry("mdz", follow("main"))
+    }
+}
+
+/// A single-branch clone whose own branch, the registry's, is gone: no
+/// branch to name.
+fn tsv() -> EntryStatus {
+    EntryStatus {
+        fetch_error: Some(RemoteFailure::RefGone {
+            refname: "refs/heads/main".into(),
+            fix: RefGoneFix::SetBranches { branch: None },
+        }),
+        ..entry("tsv", follow("main"))
+    }
+}
+
+/// A remote named `origin/fork`, its refs under origin's: `status --fetch`
+/// doesn't fetch.
+fn fuz_css() -> EntryStatus {
+    EntryStatus {
+        fetch_error: Some(RemoteFailure::OriginRefsShared {
+            remote: "origin/fork".into(),
+            refspec: "+refs/heads/*:refs/remotes/origin/fork/*".into(),
+        }),
+        ..entry("fuz_css", follow("main"))
+    }
+}
+
+/// A legacy remotes file that can't be read: `status --fetch` doesn't
+/// fetch.
+fn fuz_ui() -> EntryStatus {
+    EntryStatus {
+        fetch_error: Some(RemoteFailure::LegacyRemotesUnreadable {
+            path: path("fuz_ui/.git/remotes/old"),
+        }),
+        ..entry("fuz_ui", follow("main"))
+    }
+}
+
+/// A refspec writing tags: `status --fetch` doesn't fetch it.
+fn tsv_fuz_dev() -> EntryStatus {
+    EntryStatus {
+        fetch_error: Some(RemoteFailure::RefspecOutsideOrigin {
+            refspec: "+refs/tags/*:refs/tags/*".into(),
+        }),
+        ..entry("tsv.fuz.dev", follow("main"))
+    }
+}
+
+/// A missing ref no refspec in the repo's config names.
+fn uz() -> EntryStatus {
+    EntryStatus {
+        fetch_error: Some(RemoteFailure::RefGone {
+            refname: "typecheck-arc".into(),
+            fix: RefGoneFix::ByHand,
+        }),
+        ..entry("uz", follow("main"))
+    }
+}
+
+/// A host key ssh doesn't trust; an old origin, with a token in it
+/// (redacted), set in global config.
+fn site() -> EntryStatus {
+    EntryStatus {
+        needs_human: vec![NeedsHuman::OriginMismatch {
+            origin: OriginRemote::Url {
+                url: "https://***@github.com/old/site".into(),
+            },
+            expected: "git@github.com:me/site".into(),
+            fix: OriginFix::ByHand {
+                reason: OriginByHand::OutsideRepoFile,
+            },
+        }],
+        fetch_error: Some(RemoteFailure::Unreachable {
+            cause: UnreachableCause::HostKey,
+            message: "Host key verification failed.".into(),
+        }),
+        ..entry("site", follow("main"))
     }
 }
 

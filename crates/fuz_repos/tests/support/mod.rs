@@ -15,6 +15,8 @@
 //! entries, HTTPS for third-party ones) — the probe reads it raw from config
 //! — and a repo-local `url.<file URL>.insteadOf` sends fetches to the local
 //! bare remote; `GIT_ALLOW_PROTOCOL=file` makes any other transport an error.
+//! The visibility check reads under `visibility_base`, a `file://` dir, so it
+//! stays local too.
 //!
 //! Setups assert the git state they build (`assert_track` and kin) before the
 //! tool reads it: a setup that silently builds the wrong state tests nothing.
@@ -359,12 +361,25 @@ impl FixtureWorkspace {
 
     // --- the registry ---
 
-    /// Declares an owned repo at `https://github.com/me/<name>`; `extra` is
-    /// more TOML for its table (`dir`, `branch`, `archived`).
+    /// Declares an owned public repo at `https://github.com/me/<name>`;
+    /// `extra` is more TOML for its table (`dir`, `branch`, `archived`).
     pub fn declare_repo(&mut self, key: &str, name: &str, extra: &str) {
+        self.declare_repo_as(key, name, "public", extra);
+    }
+
+    /// Declares a repo at `url` as written, with a `visibility`.
+    pub fn declare_repo_url(&mut self, key: &str, url: &str, visibility: &str) {
+        self.tables.push(format!(
+            "[repos.{key}]\nurl = \"{url}\"\nvisibility = \"{visibility}\"\n\
+             purpose = \"fixture\"\n"
+        ));
+    }
+
+    /// Declares an owned repo with a `visibility` (`public`, `private`).
+    pub fn declare_repo_as(&mut self, key: &str, name: &str, visibility: &str, extra: &str) {
         self.tables.push(format!(
             "[repos.{key}]\nurl = \"https://github.com/{OWNER}/{name}\"\n\
-             visibility = \"public\"\npurpose = \"fixture\"\n{extra}\n"
+             visibility = \"{visibility}\"\npurpose = \"fixture\"\n{extra}\n"
         ));
     }
 
@@ -417,15 +432,58 @@ impl FixtureWorkspace {
     /// `status` over every entry with `root` as the workspace root — another
     /// path to the same dir, such as a symlink to it.
     pub fn status_at(&self, root: &Path, fetch: bool) -> Vec<EntryStatus> {
+        self.status_with(root, fetch, &self.runner(), &self.visibility_base())
+    }
+
+    /// `status` over every entry with `root` as the workspace root, run by
+    /// `git`, the visibility check reading repos under `visibility_base`.
+    pub fn status_with(
+        &self,
+        root: &Path,
+        fetch: bool,
+        git: &Git,
+        visibility_base: &str,
+    ) -> Vec<EntryStatus> {
         let entries = self.entries();
         let run = status(
             &entries,
             &RegistryDirs::new(root, &entries),
             root,
-            &self.runner(),
-            StatusOptions { fetch, jobs: 4 },
+            git,
+            StatusOptions {
+                fetch,
+                jobs: 4,
+                visibility_base: Some(visibility_base),
+            },
         );
         run.entries
+    }
+
+    /// Where the visibility check reads repos by default: a `file://` dir
+    /// under the tempdir, `anon/<account>/<name>`, which holds nothing until
+    /// a test puts a repo there (`publish_anonymously`) — so no check ever
+    /// leaves the machine.
+    pub fn visibility_base(&self) -> String {
+        format!("file://{}/", self.anonymous_dir().display())
+    }
+
+    /// The dir `visibility_base` names.
+    pub fn anonymous_dir(&self) -> PathBuf {
+        self.base.as_path().join("anon")
+    }
+
+    /// Makes `name`'s bare remote readable where the visibility check looks,
+    /// as `anon/<OWNER>/<name>`: a repo anyone can read.
+    pub fn publish_anonymously(&self, name: &str) {
+        let dir = self.anonymous_dir().join(OWNER);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::os::unix::fs::symlink(self.bare(name), dir.join(name)).unwrap();
+        // what the check will read: the bare remote's HEAD
+        let url = format!("{}{OWNER}/{name}", self.visibility_base());
+        assert!(
+            self.git(self.base(), &["ls-remote", &url, "HEAD"])
+                .ends_with("\tHEAD")
+        );
     }
 
     /// The unregistered scan over the workspace root, with the registry's

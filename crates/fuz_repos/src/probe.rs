@@ -2,7 +2,10 @@
 //!
 //! Nothing here writes a working tree, an index, or a
 //! local branch; only the optional fetch touches the network, and it writes
-//! remote-tracking refs alone.
+//! remote-tracking refs alone, whatever the repo's config asks (`FETCH_ARGS`;
+//! a refspec no flag can confine — origin's writing outside
+//! `refs/remotes/origin/`, or another remote's writing inside it — isn't
+//! fetched).
 
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
@@ -13,6 +16,7 @@ use crate::porcelain::{
     self, ConfigFacts, RefFacts, StatusFacts, Track, WorktreeHead, WorktreeRecord,
 };
 use crate::registry::{CheckoutMode, Entry};
+use crate::remote::{RefspecContext, RemoteFailure};
 use crate::state::{
     Checkout, GitDirHolds, Head, InProgressOp, Layout, UnprobedHead, UnprobedWhy, UnprobedWorktree,
 };
@@ -60,8 +64,8 @@ impl RegistryDirs {
 #[derive(Debug)]
 pub struct ProbeRun {
     pub probed: Probed,
-    /// `None` when no fetch was attempted; `Some(Err)` carries git's message.
-    pub fetch: Option<Result<(), String>>,
+    /// `None` when no fetch was attempted; `Some(Err)` says why it failed.
+    pub fetch: Option<Result<(), RemoteFailure>>,
     pub fetch_time: Duration,
     pub probe_time: Duration,
 }
@@ -121,7 +125,9 @@ pub struct RepoFacts {
     pub branches: Vec<BranchFacts>,
     pub layout: Layout,
     /// The newest `FETCH_HEAD` mtime across the repo's worktrees (each keeps
-    /// its own), in unix seconds; `None` when none was ever fetched.
+    /// its own), in unix seconds; `None` when none holds a fetch's record
+    /// (`newest_fetch`): never fetched, or the last fetch failed or found an
+    /// empty remote.
     pub fetched_at: Option<u64>,
 }
 
@@ -174,7 +180,7 @@ pub fn probe(entry: &Entry, cx: ProbeContext<'_>) -> ProbeRun {
 /// the fetch's outcome and time, and the layout once the config step ran.
 #[derive(Debug, Default)]
 struct Recorded {
-    fetch: Option<Result<(), String>>,
+    fetch: Option<Result<(), RemoteFailure>>,
     fetch_time: Duration,
     layout: Option<Layout>,
 }
@@ -223,23 +229,36 @@ fn probe_present(
     let common_dir = PathBuf::from(common_dir);
 
     // 4. config, first: fetch needs to know whether SSH is configured
+    // the repo's own config file, which the advised `git remote` and `git
+    // config` commands edit; git prints its path relative to `dir` from the
+    // main checkout, absolute from a linked worktree
+    let repo_file = canonical(&common_dir.join("config"));
+    let is_repo_file = |path: &str| repo_file.is_some() && canonical(&dir.join(path)) == repo_file;
     let config = match cx.git.run(
         dir,
-        &["config", "-z", "--get-regexp", porcelain::CONFIG_PATTERN],
+        &[
+            "config",
+            "-z",
+            "--show-scope",
+            "--show-origin",
+            "--get-regexp",
+            porcelain::CONFIG_PATTERN,
+        ],
         local,
     ) {
         // exit 1 is "no matching keys"
         Ok(out) if out.status.success() || out.status.code() == Some(1) => {
-            ConfigFacts::parse(&out.stdout)?
+            ConfigFacts::parse(&out.stdout, is_repo_file)?
         }
         Ok(out) => return Err(format!("config failed: {}", out.stderr.trim())),
         Err(e) => return Err(e.to_string()),
     };
     let shallow_roots = read_shallow_roots(&common_dir);
 
-    if cx.fetch && fetches(entry) {
+    // no `origin` URL, nothing to fetch from — origin drift reports it
+    if cx.fetch && fetches(entry) && config.origin_url().is_some() {
         let start = Instant::now();
-        let mut args = vec!["fetch", "--prune", "--quiet"];
+        let mut args = FETCH_ARGS.to_vec();
         if !shallow_roots.is_empty() {
             args.extend(["--depth", "1"]);
         }
@@ -250,15 +269,42 @@ fn probe_present(
                 batch_ssh: !config.ssh_command && !cx.git.env_configures_ssh(),
             }),
         };
-        early.fetch = Some(
-            cx.git
-                .output(dir, &args, net)
-                .map(drop)
-                .map_err(|e| match e {
-                    GitError::Failed { stderr, .. } => stderr,
-                    e => e.to_string(),
-                }),
-        );
+        // a refspec writing outside `refs/remotes/origin/`, or another
+        // remote's writing inside it, where no flag reaches: not fetched at
+        // all
+        let refused = config
+            .origin_fetch
+            .iter()
+            .find(|v| refspec_writes_outside_origin(&v.value))
+            .map(|v| RemoteFailure::RefspecOutsideOrigin {
+                refspec: v.value.clone(),
+            })
+            .or_else(|| {
+                config
+                    .other_fetch
+                    .iter()
+                    .find(|r| refspec_writes_into_origin(&r.refspec))
+                    .map(|r| RemoteFailure::OriginRefsShared {
+                        remote: r.remote.clone(),
+                        refspec: r.refspec.clone(),
+                    })
+            })
+            .or_else(|| legacy_remote_refusal(&common_dir));
+        let fetch = || {
+            cx.git.output(dir, &args, net).map(drop).map_err(|e| {
+                RemoteFailure::from_git_error(
+                    e,
+                    RefspecContext {
+                        refspecs: &config.origin_fetch,
+                        branch: match &entry.checkout_mode {
+                            CheckoutMode::Follow { branch } => Some(branch),
+                            CheckoutMode::Pinned | CheckoutMode::Head => None,
+                        },
+                    },
+                )
+            })
+        };
+        early.fetch = Some(refused.map_or_else(fetch, Err));
         early.fetch_time = start.elapsed();
     }
     // a fetch may have added shallow roots
@@ -355,6 +401,167 @@ fn probe_present(
         layout,
         fetched_at,
     })))
+}
+
+/// `status --fetch`'s fetch, before `--depth 1` (a shallow clone) and
+/// `origin`: remote-tracking refs are all it may write, whatever the repo's
+/// config says. The runner's `maintenance.auto=false` already keeps the
+/// fetch from running `gc --auto` or maintenance.
+const FETCH_ARGS: [&str; 9] = [
+    // a configured bundle URI downloads bundles into `refs/bundles/*`
+    "-c",
+    "fetch.bundleURI=",
+    "fetch",
+    // a branch deleted upstream reads gone
+    "--prune",
+    "--quiet",
+    // tag auto-follow, or `remote.<r>.tagOpt=--tags`, writes `refs/tags/*`;
+    // a refspec naming `refs/tags/*` outright is refused before the fetch
+    // (`refspec_writes_outside_origin`)
+    "--no-tags",
+    // `fetch.pruneTags` / `remote.<r>.pruneTags` delete every local tag
+    // origin lacks, unpushed ones included
+    "--no-prune-tags",
+    // `fetch.recurseSubmodules` (default on-demand) and `submodule.recurse`
+    // fetch populated submodules from their own URLs into `.git/modules/*`,
+    // and fail the entry's fetch for a submodule's
+    "--recurse-submodules=no",
+    // `fetch.writeCommitGraph` writes `objects/info/commit-graph(s)`
+    "--no-write-commit-graph",
+];
+
+/// Whether a fetch refspec writes a ref outside `refs/remotes/origin/`.
+///
+/// A local branch, a tag (`+refs/tags/*:refs/tags/*`, a mirror's
+/// `+refs/*:refs/*`), another remote's tracking refs (`refs/remotes/*`,
+/// `refs/remotes/upstream/*`, which `--prune` would then empty): anything a
+/// flag can't switch off. A destination is taken as written, so a shorthand
+/// one (`remotes/origin/*`) is refused too. A refspec with no destination
+/// writes `FETCH_HEAD` alone, and a negative one writes nothing.
+fn refspec_writes_outside_origin(refspec: &str) -> bool {
+    refspec_destination(refspec).is_some_and(|dst| !dst.starts_with("refs/remotes/origin/"))
+}
+
+/// Whether another remote's fetch refspec may write under origin's
+/// namespace, where origin's `--prune` would delete what it writes.
+fn refspec_writes_into_origin(refspec: &str) -> bool {
+    refspec_destination(refspec).is_some_and(destination_overlaps_origin)
+}
+
+/// Whether a destination may name a ref under `refs/remotes/origin/`, by
+/// git's own reading of a fetch refspec's destination.
+///
+/// - **With a `*`** (git allows one; a second, or a leading `/`, is an
+///   invalid refspec): git substitutes the matched text and uses the result
+///   as written, no DWIM — a result not starting with `refs/` is ignored as a
+///   funny ref. The match can be any text, a `/` included, so it overlaps
+///   when the text before the `*` and `refs/remotes/origin/` share a prefix
+///   either way round: `*`, `r*`, `ref*`, `refs*` (a remote's own
+///   `refs/remotes/origin/z` lands as ours), `refs/remotes/*` (a branch named
+///   `origin/y`), `refs/remotes/origin*`, `refs/remotes/o*/x` (a branch
+///   `rigin`). The same text read under `refs/` counts too — git never does,
+///   so that only refuses more (`remotes/origin/*`, which git ignores).
+/// - **Without one**: git's DWIM — `refs/…` as written, `heads/`, `tags/`,
+///   and `remotes/` under `refs/`, anything else under `refs/heads/` — then
+///   by prefix: a remote named `origin/<x>` keeps its refs at
+///   `refs/remotes/origin/<x>/*`.
+///
+/// Compared case-folded: on a case-insensitive file system
+/// `refs/remotes/ORIGIN/x` is stored where origin's `x` is, so folding only
+/// refuses more.
+fn destination_overlaps_origin(dst: &str) -> bool {
+    const ORIGIN: &str = "refs/remotes/origin/";
+    let overlaps = |prefix: &str| prefix.starts_with(ORIGIN) || ORIGIN.starts_with(prefix);
+    let dst = dst.to_ascii_lowercase();
+    if let Some((prefix, _)) = dst.split_once('*') {
+        return overlaps(prefix) || overlaps(&format!("refs/{prefix}"));
+    }
+    let full = if dst.starts_with("refs/") {
+        dst
+    } else if ["heads/", "tags/", "remotes/"]
+        .iter()
+        .any(|p| dst.starts_with(p))
+    {
+        format!("refs/{dst}")
+    } else {
+        format!("refs/heads/{dst}")
+    };
+    full.starts_with(ORIGIN)
+}
+
+/// The first legacy remote — a file under `<commondir>/remotes/`, which git
+/// still honors — whose `Pull:` refspec may write under origin's namespace.
+///
+/// Fails closed: a `remotes/` dir, or a regular file in it, that can't be
+/// read is refused too, since refs it once wrote may sit under origin.
+/// Anything but a regular file (a dir, a FIFO) is skipped: git can't read a
+/// remote from it. So is a file named `origin`: git reads it only when
+/// config gives origin no URL, and then there's no fetch. `branches/` files
+/// write `refs/heads/<name>`, never origin's.
+fn legacy_remote_refusal(common_dir: &Path) -> Option<RemoteFailure> {
+    let remotes = common_dir.join("remotes");
+    let unreadable = |path: &Path| {
+        Some(RemoteFailure::LegacyRemotesUnreadable {
+            path: path.to_string_lossy().into_owned(),
+        })
+    };
+    let entries = match std::fs::read_dir(&remotes) {
+        Ok(entries) => entries,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return None,
+        Err(_) => return unreadable(&remotes),
+    };
+    let mut names = Vec::new();
+    for entry in entries {
+        let Ok(entry) = entry else {
+            return unreadable(&remotes);
+        };
+        names.push(entry.file_name());
+    }
+    // deterministic: the first by name
+    names.sort();
+    for name in names {
+        // git reads a legacy file only for a remote config gives no URL, and
+        // origin is fetched only when config gives it one
+        if name == "origin" {
+            continue;
+        }
+        let path = remotes.join(&name);
+        if !std::fs::metadata(&path).is_ok_and(|m| m.is_file()) {
+            continue;
+        }
+        // read as bytes (checked a regular file above, so no FIFO blocks):
+        // a non-UTF-8 byte can't change which side of `refs/remotes/origin/`
+        // a destination falls on
+        let Ok(bytes) = std::fs::read(&path) else {
+            return unreadable(&path);
+        };
+        let text = String::from_utf8_lossy(&bytes);
+        let pull = text.lines().find_map(|line| {
+            line.strip_prefix("Pull:")
+                .map(str::trim)
+                .filter(|refspec| refspec_writes_into_origin(refspec))
+        });
+        if let Some(refspec) = pull {
+            return Some(RemoteFailure::OriginRefsShared {
+                remote: name.to_string_lossy().into_owned(),
+                refspec: refspec.to_owned(),
+            });
+        }
+    }
+    None
+}
+
+/// A positive refspec's destination, as written; `None` for a negative one
+/// or one with no destination (`FETCH_HEAD` alone).
+fn refspec_destination(refspec: &str) -> Option<&str> {
+    if refspec.starts_with('^') {
+        return None;
+    }
+    let refspec = refspec.strip_prefix('+').unwrap_or(refspec);
+    refspec
+        .split_once(':')
+        .map(|(_, dst)| dst)
+        .filter(|dst| !dst.is_empty())
 }
 
 /// The flags step 2's status runs with, in every checkout.
@@ -970,15 +1177,23 @@ fn realpath_forgiving(path: &Path) -> PathBuf {
 /// The newest `FETCH_HEAD` mtime across the repo: each worktree fetches into
 /// its own git dir — the primary's, the common dir (the main worktree's),
 /// and every linked one's.
+///
+/// An empty `FETCH_HEAD` doesn't count. A fetch that fails (a missing ref, a
+/// missing repo, no connection) still truncates it, freshening its mtime
+/// over stale refs, while a successful fetch writes a line per ref it
+/// fetched, changed or not. So a git dir whose last fetch failed reads as
+/// never fetched — how old its remote-tracking refs are is unknown — and so
+/// does one fetched only from an empty remote.
 fn newest_fetch(git_dir: &Path, common_dir: &Path, admins: &[PathBuf]) -> Option<u64> {
     [git_dir.to_owned(), common_dir.to_owned()]
         .into_iter()
         .chain(admins.iter().cloned())
         .filter_map(|d| {
-            std::fs::metadata(d.join("FETCH_HEAD"))
-                .ok()?
-                .modified()
-                .ok()
+            let meta = std::fs::metadata(d.join("FETCH_HEAD")).ok()?;
+            if meta.len() == 0 {
+                return None;
+            }
+            meta.modified().ok()
         })
         .map(|t| t.duration_since(UNIX_EPOCH).unwrap_or_default().as_secs())
         .max()
@@ -1104,6 +1319,178 @@ fn markers(git_dir: &Path, unreadable: &mut Vec<String>) -> Option<InProgressOp>
 mod tests {
     use super::*;
     use crate::registry::Registry;
+
+    #[test]
+    fn refspecs_writing_outside_remote_tracking_refs() {
+        for refspec in [
+            "+refs/tags/*:refs/tags/*",
+            "+refs/*:refs/*",
+            "+refs/heads/*:refs/heads/*",
+            "refs/heads/main:refs/heads/main",
+            "main:local",
+            "+refs/heads/x:refs/bundles/x",
+            // another remote's namespace, or all of them
+            "+refs/heads/*:refs/remotes/*",
+            "+refs/heads/*:refs/remotes/upstream/*",
+            "+refs/heads/*:refs/remotes/origin2/*",
+            // a shorthand destination: refused as written
+            "+refs/heads/*:remotes/origin/*",
+        ] {
+            assert!(refspec_writes_outside_origin(refspec), "{refspec}");
+        }
+        for refspec in [
+            "+refs/heads/*:refs/remotes/origin/*",
+            "refs/heads/main:refs/remotes/origin/main",
+            // a narrowed single-branch clone's
+            "+refs/heads/feat:refs/remotes/origin/feat",
+            "+refs/pull/*/head:refs/remotes/origin/pr/*",
+            // `FETCH_HEAD` alone
+            "feat",
+            "refs/heads/feat",
+            "refs/heads/feat:",
+            // negative: writes nothing
+            "^refs/heads/wip",
+        ] {
+            assert!(!refspec_writes_outside_origin(refspec), "{refspec}");
+        }
+    }
+
+    #[test]
+    fn other_remotes_writing_into_origins_namespace() {
+        for refspec in [
+            "+refs/heads/*:refs/remotes/origin/fork/*",
+            "refs/heads/main:refs/remotes/origin/main",
+            "+refs/heads/*:remotes/origin/fork/*",
+            // a `*` that can expand across the `/`
+            "+refs/heads*:refs/remotes/origin*",
+            "+refs/heads/*:refs/remotes/*",
+            "+refs/heads/*:refs/remotes/orig*",
+            "+refs/*:refs/*",
+            "+refs/remotes/*:refs/remotes/*",
+            "+refs/heads/*:remotes/*",
+            // full-name globs: substituted as written, no DWIM
+            "+ref*:ref*",
+            "+refs*:refs*",
+            "+*:*",
+            "+r*:r*",
+            "+refs/heads/*:*",
+            // a `*` mid-path: a branch `rigin` lands at `origin/x`
+            "+refs/heads/*:refs/remotes/o*/x",
+            // git ignores these (funny refs); refused anyway
+            "+refs/heads/*:remotes/origin/*",
+            // a non-`*` shorthand git DWIMs under `refs/`
+            "refs/heads/fx:remotes/origin/fx",
+            // case-folded, for case-insensitive file systems
+            "+refs/heads/*:refs/remotes/ORIGIN/*",
+            "refs/heads/fx:Refs/Remotes/Origin/fx",
+        ] {
+            assert!(refspec_writes_into_origin(refspec), "{refspec}");
+        }
+        // what a legacy `Pull:` line carries is the same refspec syntax
+        for refspec in ["+ref*:ref*", "+refs*:refs*"] {
+            assert!(refspec_writes_into_origin(refspec), "{refspec}");
+        }
+        for refspec in [
+            // what an `upstream` remote carries in the real workspace
+            "+refs/heads/*:refs/remotes/upstream/*",
+            "+refs/heads/*:refs/remotes/origin2/*",
+            "+refs/heads/*:refs/remotes/originals/*",
+            "+refs/heads/*:refs/remotes/up*",
+            "refs/heads/main:refs/remotes/origin",
+            "+refs/tags/*:refs/tags/*",
+            "+refs/heads/*:tags*",
+            "+refs/heads/*:refs/remotes/x*",
+            // git DWIMs a bare name under `refs/heads/`
+            "refs/heads/fx:origin/fx",
+            "refs/heads/fx:heads/fx2",
+            "feat",
+            "^refs/remotes/origin/x",
+        ] {
+            assert!(!refspec_writes_into_origin(refspec), "{refspec}");
+        }
+    }
+
+    #[test]
+    fn origins_own_globs_stay_in_its_namespace() {
+        assert!(!refspec_writes_outside_origin(
+            "+refs/heads/*:refs/remotes/origin/*"
+        ));
+        for refspec in [
+            "+refs/heads/*:refs/remotes/origin*",
+            "+refs/heads/*:refs/remotes/*",
+            "+refs/*:refs/*",
+        ] {
+            assert!(refspec_writes_outside_origin(refspec), "{refspec}");
+        }
+    }
+
+    #[test]
+    fn legacy_remotes_writing_into_origin_are_refused() {
+        use std::os::unix::fs::PermissionsExt as _;
+        let tmp = tempfile::tempdir().unwrap();
+        let common = tmp.path();
+        assert_eq!(legacy_remote_refusal(common), None);
+        let remotes = common.join("remotes");
+        std::fs::create_dir(&remotes).unwrap();
+        std::fs::write(
+            remotes.join("fine"),
+            "URL: file:///x\nPull: +refs/heads/*:refs/remotes/fine/*\n",
+        )
+        .unwrap();
+        // a dir there is no remote
+        std::fs::create_dir(remotes.join("adir")).unwrap();
+        // nor is a legacy `origin`: git reads it only when config gives origin
+        // no URL, and then there's no fetch
+        std::fs::write(
+            remotes.join("origin"),
+            "URL: file:///x\nPull: +refs/heads/*:refs/remotes/origin/*\n",
+        )
+        .unwrap();
+        // a non-UTF-8 byte doesn't make a harmless file unreadable
+        std::fs::write(
+            remotes.join("bytes"),
+            b"URL: file:///\xff\nPull: +refs/heads/*:refs/remotes/b\xffs/*\n",
+        )
+        .unwrap();
+        assert_eq!(legacy_remote_refusal(common), None);
+        std::fs::write(
+            remotes.join("legacy"),
+            "URL: file:///x\nPull:  +refs/heads/fx:refs/remotes/origin/fork-fx\n",
+        )
+        .unwrap();
+        assert_eq!(
+            legacy_remote_refusal(common),
+            Some(RemoteFailure::OriginRefsShared {
+                remote: "legacy".into(),
+                refspec: "+refs/heads/fx:refs/remotes/origin/fork-fx".into(),
+            })
+        );
+        // fails closed on what can't be read: a file, then the dir itself
+        std::fs::remove_file(remotes.join("legacy")).unwrap();
+        let sealed = remotes.join("sealed");
+        std::fs::write(&sealed, "Pull: +refs/heads/*:refs/remotes/fine/*\n").unwrap();
+        std::fs::set_permissions(&sealed, std::fs::Permissions::from_mode(0o000)).unwrap();
+        if std::fs::read(&sealed).is_ok() {
+            eprintln!("skipped: permissions don't bind this user (root)");
+            return;
+        }
+        assert_eq!(
+            legacy_remote_refusal(common),
+            Some(RemoteFailure::LegacyRemotesUnreadable {
+                path: sealed.to_string_lossy().into_owned()
+            })
+        );
+        std::fs::set_permissions(&sealed, std::fs::Permissions::from_mode(0o644)).unwrap();
+        std::fs::set_permissions(&remotes, std::fs::Permissions::from_mode(0o000)).unwrap();
+        let refusal = legacy_remote_refusal(common);
+        std::fs::set_permissions(&remotes, std::fs::Permissions::from_mode(0o755)).unwrap();
+        assert_eq!(
+            refusal,
+            Some(RemoteFailure::LegacyRemotesUnreadable {
+                path: remotes.to_string_lossy().into_owned()
+            })
+        );
+    }
 
     fn r(upstream: Option<&str>, track: Track) -> RefFacts {
         RefFacts {

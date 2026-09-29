@@ -1,7 +1,8 @@
 {
-	"version": 3,
+	"version": 4,
 	"workspace": "/home/me/dev",
 	"registry": "/home/me/dev/repos.toml",
+	"fetched": true,
 	"entries": [
 		{
 			"key": "app",
@@ -405,7 +406,11 @@
 					"prune": null
 				}
 			],
-			"fetch_error": null
+			"fetch_error": {
+				"kind": "failed",
+				"message": "fatal: protocol error: bad line length character: Welc"
+			},
+			"visibility_check": null
 		},
 		{
 			"key": "fuz_blog",
@@ -474,8 +479,14 @@
 			"needs_human": [
 				{
 					"kind": "origin_mismatch",
-					"origin": "git@github.com:ryanatkn/fuz_blog",
-					"expected": "git@github.com:fuzdev/fuz_blog"
+					"origin": {
+						"kind": "url",
+						"url": "git@github.com:ryanatkn/fuz_blog"
+					},
+					"expected": "git@github.com:fuzdev/fuz_blog",
+					"fix": {
+						"kind": "set_url"
+					}
 				},
 				{
 					"kind": "operation_in_progress",
@@ -485,7 +496,15 @@
 			],
 			"probe_error": null,
 			"unprobed_worktrees": [],
-			"fetch_error": "fatal: couldn't find remote ref main\n"
+			"fetch_error": {
+				"kind": "ref_gone",
+				"refname": "refs/heads/dev",
+				"fix": {
+					"kind": "set_branches",
+					"branch": "main"
+				}
+			},
+			"visibility_check": null
 		},
 		{
 			"key": "old",
@@ -547,10 +566,24 @@
 			],
 			"stashes": 0,
 			"fetched_at": 1774080000,
-			"needs_human": [],
+			"needs_human": [
+				{
+					"kind": "origin_mismatch",
+					"origin": {
+						"kind": "missing"
+					},
+					"expected": "git@github.com:me/old",
+					"fix": {
+						"kind": "add"
+					}
+				}
+			],
 			"probe_error": null,
 			"unprobed_worktrees": [],
-			"fetch_error": null
+			"fetch_error": null,
+			"visibility_check": {
+				"kind": "leak"
+			}
 		},
 		{
 			"key": "test262",
@@ -644,11 +677,23 @@
 					"kind": "operation_in_progress",
 					"checkout": "/home/me/dev/test262",
 					"op": "rebase"
+				},
+				{
+					"kind": "origin_mismatch",
+					"origin": {
+						"kind": "no_url"
+					},
+					"expected": "https://github.com/tc39/test262",
+					"fix": {
+						"kind": "by_hand",
+						"reason": "empty_value"
+					}
 				}
 			],
 			"probe_error": null,
 			"unprobed_worktrees": [],
-			"fetch_error": null
+			"fetch_error": null,
+			"visibility_check": null
 		},
 		{
 			"key": "ecma262",
@@ -695,6 +740,17 @@
 			"fetched_at": 1799913600,
 			"needs_human": [
 				{
+					"kind": "origin_mismatch",
+					"origin": {
+						"kind": "no_url"
+					},
+					"expected": "git@github.com:me/ecma262",
+					"fix": {
+						"kind": "by_hand",
+						"reason": "valueless_url"
+					}
+				},
+				{
 					"kind": "pinned_on_branch",
 					"branch": "draft"
 				},
@@ -706,7 +762,8 @@
 			],
 			"probe_error": null,
 			"unprobed_worktrees": [],
-			"fetch_error": null
+			"fetch_error": null,
+			"visibility_check": null
 		},
 		{
 			"key": "zzz",
@@ -787,7 +844,12 @@
 			],
 			"probe_error": null,
 			"unprobed_worktrees": [],
-			"fetch_error": null
+			"fetch_error": {
+				"kind": "unreachable",
+				"cause": "connection",
+				"message": "ssh: connect to host github.com port 22: Connection refused"
+			},
+			"visibility_check": null
 		},
 		{
 			"key": "blake3",
@@ -813,7 +875,8 @@
 			"needs_human": [],
 			"probe_error": null,
 			"unprobed_worktrees": [],
-			"fetch_error": null
+			"fetch_error": null,
+			"visibility_check": null
 		},
 		{
 			"key": "goblins",
@@ -844,7 +907,8 @@
 			],
 			"probe_error": null,
 			"unprobed_worktrees": [],
-			"fetch_error": null
+			"fetch_error": null,
+			"visibility_check": null
 		},
 		{
 			"key": "wpt",
@@ -874,7 +938,537 @@
 			"needs_human": [],
 			"probe_error": "git status failed (128): error: bad tree object HEAD",
 			"unprobed_worktrees": [],
-			"fetch_error": null
+			"fetch_error": {
+				"kind": "repo_not_found",
+				"message": "ERROR: Repository not found."
+			},
+			"visibility_check": null
+		},
+		{
+			"key": "fuz_forge",
+			"kind": "repo",
+			"dir": "fuz_forge",
+			"url": "https://github.com/me/fuz_forge",
+			"writable": true,
+			"archived": false,
+			"visibility": "private",
+			"ci": false,
+			"checkout_mode": {
+				"kind": "follow",
+				"branch": "main"
+			},
+			"presence": {
+				"kind": "present"
+			},
+			"layout": {
+				"shallow": false,
+				"sparse": false,
+				"partial_filter": null
+			},
+			"checkouts": [
+				{
+					"path": "/home/me/dev/fuz_forge",
+					"primary": true,
+					"head": {
+						"kind": "branch",
+						"name": "main"
+					},
+					"uncommitted": {
+						"staged": 0,
+						"unstaged": 0,
+						"untracked": 0,
+						"conflicted": 0
+					},
+					"in_progress": null,
+					"locked": false,
+					"linked": false,
+					"submodules": null
+				}
+			],
+			"branches": [],
+			"stashes": 0,
+			"fetched_at": 1799913600,
+			"needs_human": [],
+			"probe_error": null,
+			"unprobed_worktrees": [],
+			"fetch_error": {
+				"kind": "unreachable",
+				"cause": "auth",
+				"message": "git@github.com: Permission denied (publickey)."
+			},
+			"visibility_check": {
+				"kind": "private"
+			}
+		},
+		{
+			"key": "zap",
+			"kind": "repo",
+			"dir": "zap",
+			"url": "https://github.com/me/zap",
+			"writable": true,
+			"archived": false,
+			"visibility": "private",
+			"ci": false,
+			"checkout_mode": {
+				"kind": "follow",
+				"branch": "main"
+			},
+			"presence": {
+				"kind": "present"
+			},
+			"layout": {
+				"shallow": false,
+				"sparse": false,
+				"partial_filter": null
+			},
+			"checkouts": [
+				{
+					"path": "/home/me/dev/zap",
+					"primary": true,
+					"head": {
+						"kind": "branch",
+						"name": "main"
+					},
+					"uncommitted": {
+						"staged": 0,
+						"unstaged": 0,
+						"untracked": 0,
+						"conflicted": 0
+					},
+					"in_progress": null,
+					"locked": false,
+					"linked": false,
+					"submodules": null
+				}
+			],
+			"branches": [],
+			"stashes": 0,
+			"fetched_at": 1799913600,
+			"needs_human": [],
+			"probe_error": null,
+			"unprobed_worktrees": [],
+			"fetch_error": {
+				"kind": "unreachable",
+				"cause": "dns",
+				"message": "ssh: Could not resolve hostname github.com: Temporary failure in name resolution"
+			},
+			"visibility_check": {
+				"kind": "unknown",
+				"failure": {
+					"kind": "timed_out",
+					"after_secs": 120
+				}
+			}
+		},
+		{
+			"key": "site",
+			"kind": "repo",
+			"dir": "site",
+			"url": "https://github.com/me/site",
+			"writable": true,
+			"archived": false,
+			"visibility": "public",
+			"ci": true,
+			"checkout_mode": {
+				"kind": "follow",
+				"branch": "main"
+			},
+			"presence": {
+				"kind": "present"
+			},
+			"layout": {
+				"shallow": false,
+				"sparse": false,
+				"partial_filter": null
+			},
+			"checkouts": [
+				{
+					"path": "/home/me/dev/site",
+					"primary": true,
+					"head": {
+						"kind": "branch",
+						"name": "main"
+					},
+					"uncommitted": {
+						"staged": 0,
+						"unstaged": 0,
+						"untracked": 0,
+						"conflicted": 0
+					},
+					"in_progress": null,
+					"locked": false,
+					"linked": false,
+					"submodules": null
+				}
+			],
+			"branches": [],
+			"stashes": 0,
+			"fetched_at": 1799913600,
+			"needs_human": [
+				{
+					"kind": "origin_mismatch",
+					"origin": {
+						"kind": "url",
+						"url": "https://***@github.com/old/site"
+					},
+					"expected": "git@github.com:me/site",
+					"fix": {
+						"kind": "by_hand",
+						"reason": "outside_repo_file"
+					}
+				}
+			],
+			"probe_error": null,
+			"unprobed_worktrees": [],
+			"fetch_error": {
+				"kind": "unreachable",
+				"cause": "host_key",
+				"message": "Host key verification failed."
+			},
+			"visibility_check": null
+		},
+		{
+			"key": "mdz",
+			"kind": "repo",
+			"dir": "mdz",
+			"url": "https://github.com/me/mdz",
+			"writable": true,
+			"archived": false,
+			"visibility": "public",
+			"ci": true,
+			"checkout_mode": {
+				"kind": "follow",
+				"branch": "main"
+			},
+			"presence": {
+				"kind": "present"
+			},
+			"layout": {
+				"shallow": false,
+				"sparse": false,
+				"partial_filter": null
+			},
+			"checkouts": [
+				{
+					"path": "/home/me/dev/mdz",
+					"primary": true,
+					"head": {
+						"kind": "branch",
+						"name": "main"
+					},
+					"uncommitted": {
+						"staged": 0,
+						"unstaged": 0,
+						"untracked": 0,
+						"conflicted": 0
+					},
+					"in_progress": null,
+					"locked": false,
+					"linked": false,
+					"submodules": null
+				}
+			],
+			"branches": [],
+			"stashes": 0,
+			"fetched_at": 1799913600,
+			"needs_human": [
+				{
+					"kind": "origin_mismatch",
+					"origin": {
+						"kind": "url",
+						"url": "git@github.com:old/mdz"
+					},
+					"expected": "git@github.com:me/mdz",
+					"fix": {
+						"kind": "by_hand",
+						"reason": "several_urls"
+					}
+				}
+			],
+			"probe_error": null,
+			"unprobed_worktrees": [],
+			"fetch_error": {
+				"kind": "ref_gone",
+				"refname": "refs/heads/attrs",
+				"fix": {
+					"kind": "unset_refspec",
+					"pattern": "^\\+?refs/heads/attrs(:|$)"
+				}
+			},
+			"visibility_check": null
+		},
+		{
+			"key": "tsv",
+			"kind": "repo",
+			"dir": "tsv",
+			"url": "https://github.com/me/tsv",
+			"writable": true,
+			"archived": false,
+			"visibility": "public",
+			"ci": true,
+			"checkout_mode": {
+				"kind": "follow",
+				"branch": "main"
+			},
+			"presence": {
+				"kind": "present"
+			},
+			"layout": {
+				"shallow": false,
+				"sparse": false,
+				"partial_filter": null
+			},
+			"checkouts": [
+				{
+					"path": "/home/me/dev/tsv",
+					"primary": true,
+					"head": {
+						"kind": "branch",
+						"name": "main"
+					},
+					"uncommitted": {
+						"staged": 0,
+						"unstaged": 0,
+						"untracked": 0,
+						"conflicted": 0
+					},
+					"in_progress": null,
+					"locked": false,
+					"linked": false,
+					"submodules": null
+				}
+			],
+			"branches": [],
+			"stashes": 0,
+			"fetched_at": 1799913600,
+			"needs_human": [],
+			"probe_error": null,
+			"unprobed_worktrees": [],
+			"fetch_error": {
+				"kind": "ref_gone",
+				"refname": "refs/heads/main",
+				"fix": {
+					"kind": "set_branches",
+					"branch": null
+				}
+			},
+			"visibility_check": null
+		},
+		{
+			"key": "tsv.fuz.dev",
+			"kind": "repo",
+			"dir": "tsv.fuz.dev",
+			"url": "https://github.com/me/tsv.fuz.dev",
+			"writable": true,
+			"archived": false,
+			"visibility": "public",
+			"ci": true,
+			"checkout_mode": {
+				"kind": "follow",
+				"branch": "main"
+			},
+			"presence": {
+				"kind": "present"
+			},
+			"layout": {
+				"shallow": false,
+				"sparse": false,
+				"partial_filter": null
+			},
+			"checkouts": [
+				{
+					"path": "/home/me/dev/tsv.fuz.dev",
+					"primary": true,
+					"head": {
+						"kind": "branch",
+						"name": "main"
+					},
+					"uncommitted": {
+						"staged": 0,
+						"unstaged": 0,
+						"untracked": 0,
+						"conflicted": 0
+					},
+					"in_progress": null,
+					"locked": false,
+					"linked": false,
+					"submodules": null
+				}
+			],
+			"branches": [],
+			"stashes": 0,
+			"fetched_at": 1799913600,
+			"needs_human": [],
+			"probe_error": null,
+			"unprobed_worktrees": [],
+			"fetch_error": {
+				"kind": "refspec_outside_origin",
+				"refspec": "+refs/tags/*:refs/tags/*"
+			},
+			"visibility_check": null
+		},
+		{
+			"key": "fuz_css",
+			"kind": "repo",
+			"dir": "fuz_css",
+			"url": "https://github.com/me/fuz_css",
+			"writable": true,
+			"archived": false,
+			"visibility": "public",
+			"ci": true,
+			"checkout_mode": {
+				"kind": "follow",
+				"branch": "main"
+			},
+			"presence": {
+				"kind": "present"
+			},
+			"layout": {
+				"shallow": false,
+				"sparse": false,
+				"partial_filter": null
+			},
+			"checkouts": [
+				{
+					"path": "/home/me/dev/fuz_css",
+					"primary": true,
+					"head": {
+						"kind": "branch",
+						"name": "main"
+					},
+					"uncommitted": {
+						"staged": 0,
+						"unstaged": 0,
+						"untracked": 0,
+						"conflicted": 0
+					},
+					"in_progress": null,
+					"locked": false,
+					"linked": false,
+					"submodules": null
+				}
+			],
+			"branches": [],
+			"stashes": 0,
+			"fetched_at": 1799913600,
+			"needs_human": [],
+			"probe_error": null,
+			"unprobed_worktrees": [],
+			"fetch_error": {
+				"kind": "origin_refs_shared",
+				"remote": "origin/fork",
+				"refspec": "+refs/heads/*:refs/remotes/origin/fork/*"
+			},
+			"visibility_check": null
+		},
+		{
+			"key": "fuz_ui",
+			"kind": "repo",
+			"dir": "fuz_ui",
+			"url": "https://github.com/me/fuz_ui",
+			"writable": true,
+			"archived": false,
+			"visibility": "public",
+			"ci": true,
+			"checkout_mode": {
+				"kind": "follow",
+				"branch": "main"
+			},
+			"presence": {
+				"kind": "present"
+			},
+			"layout": {
+				"shallow": false,
+				"sparse": false,
+				"partial_filter": null
+			},
+			"checkouts": [
+				{
+					"path": "/home/me/dev/fuz_ui",
+					"primary": true,
+					"head": {
+						"kind": "branch",
+						"name": "main"
+					},
+					"uncommitted": {
+						"staged": 0,
+						"unstaged": 0,
+						"untracked": 0,
+						"conflicted": 0
+					},
+					"in_progress": null,
+					"locked": false,
+					"linked": false,
+					"submodules": null
+				}
+			],
+			"branches": [],
+			"stashes": 0,
+			"fetched_at": 1799913600,
+			"needs_human": [],
+			"probe_error": null,
+			"unprobed_worktrees": [],
+			"fetch_error": {
+				"kind": "legacy_remotes_unreadable",
+				"path": "/home/me/dev/fuz_ui/.git/remotes/old"
+			},
+			"visibility_check": null
+		},
+		{
+			"key": "uz",
+			"kind": "repo",
+			"dir": "uz",
+			"url": "https://github.com/me/uz",
+			"writable": true,
+			"archived": false,
+			"visibility": "public",
+			"ci": true,
+			"checkout_mode": {
+				"kind": "follow",
+				"branch": "main"
+			},
+			"presence": {
+				"kind": "present"
+			},
+			"layout": {
+				"shallow": false,
+				"sparse": false,
+				"partial_filter": null
+			},
+			"checkouts": [
+				{
+					"path": "/home/me/dev/uz",
+					"primary": true,
+					"head": {
+						"kind": "branch",
+						"name": "main"
+					},
+					"uncommitted": {
+						"staged": 0,
+						"unstaged": 0,
+						"untracked": 0,
+						"conflicted": 0
+					},
+					"in_progress": null,
+					"locked": false,
+					"linked": false,
+					"submodules": null
+				}
+			],
+			"branches": [],
+			"stashes": 0,
+			"fetched_at": 1799913600,
+			"needs_human": [],
+			"probe_error": null,
+			"unprobed_worktrees": [],
+			"fetch_error": {
+				"kind": "ref_gone",
+				"refname": "typecheck-arc",
+				"fix": {
+					"kind": "by_hand"
+				}
+			},
+			"visibility_check": null
 		}
 	],
 	"unregistered": [

@@ -76,7 +76,8 @@ struct StatusArgs {
     #[argh(positional)]
     targets: Vec<String>,
     /// fetch owned, non-pinned entries from origin first (writes
-    /// remote-tracking refs)
+    /// remote-tracking refs), and check that repos declared private aren't
+    /// anonymously readable
     #[argh(switch)]
     fetch: bool,
     /// print the report as JSON
@@ -222,11 +223,13 @@ fn run_status(locate: Locate<'_>, args: &StatusArgs) -> Result<Printed> {
         StatusOptions {
             fetch: args.fetch,
             jobs: args.jobs,
+            visibility_base: None,
         },
     );
     let mut report = StatusReport::new(
         loc.root.to_string_lossy().into_owned(),
         loc.path.to_string_lossy().into_owned(),
+        args.fetch,
         run.entries,
     );
     // the whole workspace only: with targets the report is about the named
@@ -378,6 +381,9 @@ fn render_timings(t: &Timings<'_>) -> String {
             slowest(|e| e.fetch),
             ms(fetch_sum)
         );
+    }
+    if t.entries.iter().any(|e| !e.visibility.is_zero()) {
+        let _ = writeln!(out, "          visibility: {}", slowest(|e| e.visibility));
     }
     out
 }

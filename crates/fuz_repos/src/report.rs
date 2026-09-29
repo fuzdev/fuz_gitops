@@ -7,6 +7,7 @@ use crate::STATUS_FORMAT_VERSION;
 use crate::classify::NeedsHuman;
 use crate::error::{Error, ErrorKind};
 use crate::registry::{CheckoutMode, EntryKind, Visibility};
+use crate::remote::{RemoteFailure, VisibilityCheck};
 use crate::state::{BranchStatus, Checkout, Layout, Presence, UnprobedWorktreeStatus};
 
 /// The whole report.
@@ -18,6 +19,13 @@ pub struct StatusReport {
     pub workspace: String,
     /// The registry's path as found.
     pub registry: String,
+    /// Whether the run was asked to fetch (`--fetch`) — not whether any
+    /// fetch succeeded, or ran at all: true even when every fetch failed, or
+    /// no entry was one `--fetch` fetches. Each entry's `fetch_error` says
+    /// how its own fetch went; entries `--fetch` passes over (third-party,
+    /// pinned, or with no `origin` URL) weren't fetched either way. The
+    /// visibility check ran exactly when this is true.
+    pub fetched: bool,
     pub entries: Vec<EntryStatus>,
     /// The workspace root's children holding a `.git` that no registry
     /// entry claims, by dir name; `None` when the scan didn't run (it runs
@@ -26,11 +34,17 @@ pub struct StatusReport {
 }
 
 impl StatusReport {
-    pub const fn new(workspace: String, registry: String, entries: Vec<EntryStatus>) -> Self {
+    pub const fn new(
+        workspace: String,
+        registry: String,
+        fetched: bool,
+        entries: Vec<EntryStatus>,
+    ) -> Self {
         Self {
             version: STATUS_FORMAT_VERSION,
             workspace,
             registry,
+            fetched,
             entries,
             unregistered: None,
         }
@@ -83,8 +97,9 @@ pub struct UnregisteredClone {
     /// Its name under the workspace root (lossy when not UTF-8).
     pub dir: String,
     /// `remote.origin.url` as git reads it (includes applied; the first when
-    /// several are set); `None` when it has none or git can't read its
-    /// config.
+    /// several are set, after any empty value resetting the list), with a
+    /// credential in its userinfo redacted as `***`; `None` when it has none
+    /// or git can't read its config.
     pub origin: Option<String>,
     /// Whether the origin's account is one of the registry's owners.
     pub owned: bool,
@@ -165,7 +180,10 @@ pub struct EntryStatus {
     pub checkouts: Vec<Checkout>,
     pub branches: Vec<BranchStatus>,
     pub stashes: u32,
-    /// `FETCH_HEAD`'s mtime, in unix seconds; `None` when never fetched.
+    /// The newest non-empty `FETCH_HEAD`'s mtime across the repo's
+    /// worktrees, in unix seconds; `None` when never fetched — or when the
+    /// last fetch failed (git empties `FETCH_HEAD` then, so the remote view's
+    /// age is unknown) or found an empty remote.
     pub fetched_at: Option<u64>,
     pub needs_human: Vec<NeedsHuman>,
     /// A git call that failed after the repo was found; the facts above are
@@ -177,11 +195,19 @@ pub struct EntryStatus {
     /// The repo's worktrees that couldn't be probed — gone, or failing; the
     /// rest of the entry's facts stand.
     pub unprobed_worktrees: Vec<UnprobedWorktreeStatus>,
-    /// Under `--fetch`, git's message when the fetch failed.
-    // TODO: slice 2 classifies fetch failures from stderr (a missing remote
-    // ref is the upstream gone; auth, host-key, and connection errors are the
-    // host unreachable), likely turning this into a `kind`-tagged enum
-    pub fetch_error: Option<String>,
+    /// Why the fetch failed or was refused, under `--fetch`: `Some` for a
+    /// fetch git ran and failed, and for one the tool refused to run
+    /// (`refspec_outside_origin`, `origin_refs_shared`,
+    /// `legacy_remotes_unreadable`). `None` when it
+    /// succeeded or wasn't attempted — `--fetch` not given, an entry it
+    /// passes over, or one whose `origin` has no URL, which origin drift
+    /// reports instead. The rest of the entry is probed either way, from the
+    /// remote-tracking refs as they stand.
+    pub fetch_error: Option<RemoteFailure>,
+    /// What an anonymous read of the repo found, under `--fetch`, for a
+    /// `[repos]` entry declared private; `None` when the check didn't run
+    /// (no `--fetch`, or not declared private).
+    pub visibility_check: Option<VisibilityCheck>,
 }
 
 impl EntryStatus {

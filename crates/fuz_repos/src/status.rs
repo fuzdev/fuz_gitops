@@ -9,16 +9,25 @@ use crate::classify::{NeedsHuman, classify};
 use crate::git::Git;
 use crate::probe::{ProbeContext, ProbeRun, Probed, RegistryDirs, probe};
 use crate::registry::Entry;
+use crate::remote::{VisibilityCheck, is_declared_private, read_anonymously, visibility_url};
 use crate::report::EntryStatus;
 use crate::scan::Scan;
 use crate::state::{Checkout, Presence, Prune};
 
 /// How to run `status`.
 #[derive(Debug, Clone, Copy)]
-pub struct StatusOptions {
+pub struct StatusOptions<'a> {
+    /// Fetch owned, non-pinned entries from `origin` before probing, and run
+    /// the visibility check on each `[repos]` entry declared private.
     pub fetch: bool,
-    /// Entries probed at once; at least one.
+    /// Git calls in flight at once — entries probed, visibility checks —
+    /// at least one.
     pub jobs: usize,
+    /// The base the visibility check reads each repo under, as
+    /// `<base><account>/<name>`, in place of its registry URL: a seam for
+    /// tests, which point it at a `file://` dir or a local server. `None`
+    /// reads the registry URL.
+    pub visibility_base: Option<&'a str>,
 }
 
 /// One entry's time, for `--timings`.
@@ -27,6 +36,8 @@ pub struct EntryTiming {
     pub key: String,
     pub fetch: Duration,
     pub probe: Duration,
+    /// The visibility check's; zero when it didn't run.
+    pub visibility: Duration,
 }
 
 /// The entries' statuses, in the order given, with their timings.
@@ -38,14 +49,25 @@ pub struct StatusRun {
     pub elapsed: Duration,
 }
 
+/// A pool's unit of work.
+#[derive(Debug)]
+enum Done {
+    Entry(usize, Box<EntryStatus>, EntryTiming),
+    Visibility(usize, VisibilityCheck, Duration),
+}
+
 /// Probes and classifies `entries` over a pool of `opts.jobs` threads;
 /// `registry_dirs` are the whole registry's dirs, whatever `entries` holds.
+///
+/// Under `opts.fetch` the visibility checks share the pool, queued ahead of
+/// the entries so they overlap the fetches rather than trail them; each
+/// runs in `root` (no repo's config applies to it).
 pub fn status(
     entries: &[Entry],
     registry_dirs: &RegistryDirs,
     root: &Path,
     git: &Git,
-    opts: StatusOptions,
+    opts: StatusOptions<'_>,
 ) -> StatusRun {
     let start = Instant::now();
     let cx = ProbeContext {
@@ -54,23 +76,41 @@ pub fn status(
         registry_dirs,
         fetch: opts.fetch,
     };
+    // the entries the visibility check reads, by index
+    let checks: Vec<usize> = if opts.fetch {
+        (0..entries.len())
+            .filter(|&i| is_declared_private(&entries[i]))
+            .collect()
+    } else {
+        Vec::new()
+    };
+    let tasks = checks.len() + entries.len();
     let next = AtomicUsize::new(0);
-    let jobs = opts.jobs.clamp(1, entries.len().max(1));
-    let mut done: Vec<(usize, EntryStatus, EntryTiming)> = thread::scope(|s| {
+    let jobs = opts.jobs.clamp(1, tasks.max(1));
+    let done: Vec<Done> = thread::scope(|s| {
         let workers: Vec<_> = (0..jobs)
             .map(|_| {
                 s.spawn(|| {
                     let mut out = Vec::new();
                     loop {
-                        let i = next.fetch_add(1, Ordering::Relaxed);
+                        let task = next.fetch_add(1, Ordering::Relaxed);
+                        if let Some(&i) = checks.get(task) {
+                            let start = Instant::now();
+                            let url = visibility_url(&entries[i], opts.visibility_base);
+                            let check = read_anonymously(git, root, &url);
+                            out.push(Done::Visibility(i, check, start.elapsed()));
+                            continue;
+                        }
+                        let i = task - checks.len();
                         let Some(entry) = entries.get(i) else { break };
                         let run = probe(entry, cx);
                         let timing = EntryTiming {
                             key: entry.key.clone(),
                             fetch: run.fetch_time,
                             probe: run.probe_time,
+                            visibility: Duration::ZERO,
                         };
-                        out.push((i, entry_status(entry, run), timing));
+                        out.push(Done::Entry(i, Box::new(entry_status(entry, run)), timing));
                     }
                     out
                 })
@@ -82,8 +122,22 @@ pub fn status(
             .flat_map(|w| w.join().unwrap_or_else(|e| std::panic::resume_unwind(e)))
             .collect()
     });
-    done.sort_by_key(|(i, ..)| *i);
-    let (entries, timings) = done.into_iter().map(|(_, e, t)| (e, t)).unzip();
+    let mut probed = Vec::with_capacity(entries.len());
+    let mut checked = Vec::with_capacity(checks.len());
+    for d in done {
+        match d {
+            Done::Entry(i, status, timing) => probed.push((i, status, timing)),
+            Done::Visibility(i, check, time) => checked.push((i, check, time)),
+        }
+    }
+    probed.sort_by_key(|(i, ..)| *i);
+    for (i, check, time) in checked {
+        if let Some((_, status, timing)) = probed.iter_mut().find(|(j, ..)| *j == i) {
+            status.visibility_check = Some(check);
+            timing.visibility = time;
+        }
+    }
+    let (entries, timings) = probed.into_iter().map(|(_, e, t)| (*e, t)).unzip();
     StatusRun {
         entries,
         timings,
@@ -113,6 +167,7 @@ pub fn entry_status(entry: &Entry, run: ProbeRun) -> EntryStatus {
         probe_error: None,
         unprobed_worktrees: Vec::new(),
         fetch_error: run.fetch.and_then(Result::err),
+        visibility_check: None,
     };
     match run.probed {
         Probed::Missing => status.presence = Presence::Missing,

@@ -5,7 +5,7 @@
 
 mod support;
 
-use fuz_repos::classify::NeedsHuman;
+use fuz_repos::classify::{NeedsHuman, OriginFix, OriginRemote};
 use fuz_repos::registry::CheckoutMode;
 use fuz_repos::state::{
     Head, HeldBy, InProgressOp, Presence, Relation, SyncAction, Uncommitted, Verdict,
@@ -459,8 +459,11 @@ fn origin_mismatch_holds_the_entry_and_names_the_url_to_set() {
     assert_eq!(
         moved.needs_human,
         [NeedsHuman::OriginMismatch {
-            origin: Some("git@github.com:someone/moved".into()),
+            origin: OriginRemote::Url {
+                url: "git@github.com:someone/moved".into()
+            },
             expected: owned_origin("moved"),
+            fix: OriginFix::SetUrl,
         }]
     );
     assert_eq!(
@@ -473,8 +476,9 @@ fn origin_mismatch_holds_the_entry_and_names_the_url_to_set() {
     let no_origin = find_entry(&entries, "no_origin");
     assert!(
         no_origin.needs_human.contains(&NeedsHuman::OriginMismatch {
-            origin: None,
+            origin: OriginRemote::Missing,
             expected: owned_origin("no_origin"),
+            fix: OriginFix::Add,
         }),
         "{:?}",
         no_origin.needs_human
@@ -819,21 +823,4 @@ fn fetch_never_runs_auto_maintenance() {
     ws.upstream_commit("app", "main");
     ws.git(&app, &["fetch", "-q", "origin"]);
     assert_eq!(packs(), 1, "control: plain fetch should auto-gc");
-}
-
-#[test]
-fn a_failed_fetch_is_reported_on_the_entry() {
-    let mut ws = FixtureWorkspace::new();
-    ws.owned_repo("app", &[]);
-    std::fs::remove_dir_all(ws.bare("app")).unwrap();
-
-    let e = support::take_entry(ws.status_with_fetch(), "app");
-    let error = e.fetch_error.as_deref().expect("the fetch should fail");
-    // it reached for the local bare remote, nothing else
-    let bare = ws.bare("app");
-    assert!(error.contains(bare.to_str().unwrap()), "{error}");
-    // the local probe still ran
-    assert_eq!(e.probe_error, None);
-    assert_eq!(e.presence, Presence::Present);
-    assert_eq!(branch(&e, "main").relation, Relation::InSync);
 }

@@ -1,7 +1,8 @@
 {
-	"version": 3,
+	"version": 4,
 	"workspace": "/home/me/dev",
 	"registry": "/home/me/dev/repos.toml",
+	"fetched": false,
 	"entries": [
 		{
 			"key": "gro",
@@ -50,13 +51,19 @@
 			"needs_human": [
 				{
 					"kind": "origin_mismatch",
-					"origin": null,
-					"expected": "git@github.com:me/gro"
+					"origin": {
+						"kind": "missing"
+					},
+					"expected": "git@github.com:me/gro",
+					"fix": {
+						"kind": "add"
+					}
 				}
 			],
 			"probe_error": null,
 			"unprobed_worktrees": [],
-			"fetch_error": null
+			"fetch_error": null,
+			"visibility_check": null
 		}
 	],
 	"unregistered": null

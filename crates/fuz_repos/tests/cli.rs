@@ -66,6 +66,106 @@ fn status_json_is_the_versioned_report() {
 }
 
 #[test]
+fn status_fetch_is_recorded_and_checks_private_repos() {
+    let mut ws = workspace();
+    // declared at a loopback host nothing serves, and never cloned (the
+    // check reads the host alone): were the allowlist to fail, the read
+    // would stop at this machine, never reach the network
+    ws.declare_repo_url("secret", "https://127.0.0.1/me/secret", "private");
+    ws.write_registry();
+
+    let report = parse(&repos(&ws, &ws.root(), &["status", "--json"]));
+    assert_eq!(report["fetched"], false);
+    for e in report["entries"].as_array().unwrap() {
+        assert_eq!(e["fetch_error"], Value::Null, "{}", e["key"]);
+        assert_eq!(e["visibility_check"], Value::Null, "{}", e["key"]);
+    }
+
+    let report = parse(&repos(&ws, &ws.root(), &["status", "--json", "--fetch"]));
+    assert_eq!(report["fetched"], true);
+    let entries = report["entries"].as_array().unwrap();
+    let entry = |key: &str| entries.iter().find(|e| e["key"] == key).unwrap();
+    assert_eq!(entry("app")["fetch_error"], Value::Null);
+    assert_eq!(entry("app")["visibility_check"], Value::Null);
+    // the binary reads the registry's https URL; the fixture's protocol
+    // allowlist (`file` only) stands, so git refuses it before it leaves
+    // the process — the check ran
+    assert_eq!(
+        entry("secret")["visibility_check"],
+        serde_json::json!({
+            "kind": "unknown",
+            "failure": {"kind": "failed", "message": "fatal: transport 'https' not allowed"}
+        })
+    );
+
+    let out = repos(&ws, &ws.root(), &["status", "--fetch"]);
+    assert_eq!(out.status.code(), Some(0), "stderr: {}", stderr(&out));
+    assert!(
+        stdout(&out).starts_with(
+            "failed        secret (visibility check: fatal: transport 'https' not allowed)\n"
+        ),
+        "{}",
+        stdout(&out)
+    );
+}
+
+#[test]
+fn a_registry_url_with_credentials_is_refused_unrepeated() {
+    let mut ws = workspace();
+    ws.declare_repo_url(
+        "leaky",
+        "https://user:sekrit@github.com/me/leaky",
+        "private",
+    );
+    ws.write_registry();
+    for args in [&["status", "--json"][..], &["status"]] {
+        let out = repos(&ws, &ws.root(), args);
+        assert_eq!(out.status.code(), Some(2), "{args:?}");
+        let all = format!("{}{}", stdout(&out), stderr(&out));
+        assert!(all.contains("carries credentials"), "{all}");
+        assert!(!all.contains("sekrit") && !all.contains("user:"), "{all}");
+    }
+}
+
+#[test]
+fn a_credential_in_an_origin_url_never_prints() {
+    let ws = workspace();
+    // a registered entry and an unregistered clone, each with a token in
+    // its origin
+    let app = ws.dir("app");
+    let token_url = "https://me:ghp_TOKEN@github.com/old/app";
+    ws.set_origin(&app, "app", token_url);
+    ws.remote("stray", &[]);
+    ws.clone_as(
+        "stray",
+        "stray",
+        "https://ghp_OTHER@github.com/me/stray",
+        &[],
+    );
+    ws.write_registry();
+
+    for args in [
+        &["status"][..],
+        &["status", "--verbose"],
+        &["status", "--json"],
+        &["status", "--json", "app"],
+    ] {
+        let out = repos(&ws, &ws.root(), args);
+        assert_eq!(out.status.code(), Some(0), "{args:?}: {}", stderr(&out));
+        let all = format!("{}{}", stdout(&out), stderr(&out));
+        assert!(!all.contains("ghp_"), "{args:?}: {all}");
+        assert!(all.contains("***@github.com"), "{args:?}: {all}");
+    }
+    let report = parse(&repos(&ws, &ws.root(), &["status", "--json"]));
+    assert_eq!(
+        report["unregistered"][0]["origin"],
+        "https://***@github.com/me/stray"
+    );
+    // redacted for show, still read as owned
+    assert_eq!(report["unregistered"][0]["owned"], true);
+}
+
+#[test]
 fn status_targets_from_inside_a_checkout() {
     let ws = workspace();
     let report = parse(&repos(&ws, &ws.dir("app"), &["status", "--json", "."]));

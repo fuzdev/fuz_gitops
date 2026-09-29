@@ -122,7 +122,8 @@ has `repos status`: every registry entry's branches and their relation to
 origin, uncommitted work in each checkout (linked worktrees too), what needs
 a human, and the clones at the workspace root the registry doesn't name,
 grouped by what to do next, from local refs (`--fetch` refreshes them
-first). Sync and push aren't built. TS keeps everything else:
+first and checks that repos declared private aren't anonymously readable).
+Sync and push aren't built. TS keeps everything else:
 the dashboard, its data step (GitHub metadata and svelte-docinfo library
 analysis), and the publish cascade. Once `repos sync` ships, the TS tasks stop
 cloning and pulling and read repo state from `repos status --json`, and a
@@ -527,7 +528,7 @@ repos status gro .           # narrow to targets: a key, a dir name, or a path (
 repos status --verbose       # plus stash counts and a block per entry and unregistered dir
 repos status --json          # the versioned report
 COLUMNS=80 repos status      # text wraps at COLUMNS (else 100); color only on a terminal without NO_COLOR
-repos status --fetch         # fetch owned entries from origin first (writes remote-tracking refs)
+repos status --fetch         # fetch owned entries from origin first (writes remote-tracking refs), and check private repos
 repos status --jobs 4 --timings # parallelism (default 16), and per-phase timings on stderr
 repos --version              # the crate version and the commit the binary was built from
 repos --registry <file> --root <dir> status # a registry kept outside the workspace
@@ -550,13 +551,63 @@ toolchain (rustup fetches it on first build), and git must be 2.44 or newer
 (`GIT_NO_LAZY_FETCH` keeps a local `status` on a partial clone off the
 network).
 
+Under `--fetch`, each failed fetch is classified from git's stderr — `ref_gone`
+(a narrowed refspec names a branch the remote deleted; its repair drops only
+that refspec, repoints origin when no other refspec in the repo's config would
+remain, or is `by_hand` when the refspec lives beyond the repo's own config
+file), `unreachable` with its cause (`dns`, `connection`, `host_key`,
+`auth`), `repo_not_found`, `timed_out`, else `failed` with git's line — and
+each `[repos]` entry declared private gets the visibility check: an anonymous
+`git ls-remote` of its HTTPS URL with no config file, credential helper,
+askpass, client certificate, or `.netrc` in reach. Readable means it leaked:
+printed first, as `visibility`. A refusal by the repo's own host (credentials
+asked for, or no such repo, in a line naming that host) is private as
+declared; anything else — a proxy's refusal included — is reported as failed.
+
+The fetch writes remote-tracking refs and nothing else, whatever the repo's
+config says: `--no-tags` (no tag auto-follow or `tagOpt`), `--no-prune-tags`
+(`pruneTags` would delete unpushed local tags), `--recurse-submodules=no`
+(submodules fetch from their own URLs), `--no-write-commit-graph`, `-c
+fetch.bundleURI=` (bundles land in `refs/bundles/`), and the runner's
+`maintenance.auto=false` (no `gc --auto`). A configured origin refspec that
+writes outside `refs/remotes/origin/` (a tag or mirror refspec, or another
+remote's tracking refs, which `--prune` would empty) isn't fetched at all:
+`fetch_error` reads `refspec_outside_origin`. Nor is an entry where another
+remote's refspec — in config, or a legacy `remotes/` file — may write under
+`refs/remotes/origin/`, read as git reads a destination (a `*` one is
+substituted as written, so any whose text before the `*` shares a prefix with
+`refs/remotes/origin/`, like `refs*` or `refs/remotes/*`; a plain one after
+git's DWIM, like a remote named `origin/<x>`), which pruning origin may delete:
+`origin_refs_shared`; a legacy remotes file that can't be read is refused too
+(`legacy_remotes_unreadable`).
+
+`origin` is read as git reads it — the first `remote.origin.url` across every
+config scope, after any empty value resetting the list — and an entry with no
+URL isn't fetched. Origin drift advises only a command that can make the fix:
+`remote add`, or `remote set-url` for a single URL in the repo's own config
+file; anything else — several URLs, one from beyond that file, an empty value
+resetting the list — is `by_hand`. A failed fetch empties `FETCH_HEAD`, so
+`fetched_at` then reads never — the remote view's age is unknown. The report's
+`fetched` records that the run was asked to fetch, whatever each fetch's
+outcome.
+
+Credentials: registry URLs are strict — a plain DNS host, no userinfo or port,
+and plain account and name segments — and a registry parse error redacts any
+userinfo it quotes; every origin URL the report or the text shows (drift, and
+unregistered clones) has its userinfo redacted as `***` (an SSH login name
+stays); the visibility check refuses a URL with userinfo. Other git output the
+report carries (a probe or fetch failure's message) is git's own text,
+unfiltered.
+
 `cargo test --workspace` runs integration tests over hermetic fixture
 workspaces (`crates/fuz_repos/tests/support`): real repos in a tempdir, each
 cloned from a local bare remote, with git's environment cleared (no global or
-system config, fixed identities and dates) and no network. They need git 2.44
-or newer on `PATH`. CI runs these fmt, clippy, and test commands (with
-`--locked`, and `--no-fail-fast` on tests) in the `rust` job of
-`.github/workflows/check.yml`, beside the gro check.
+system config, fixed identities and dates) and no network — SSH failures come
+from a fake `ssh`, and the visibility check reads `file://` repos and a
+loopback HTTP server. They need git 2.44 or newer on `PATH`. CI runs these
+fmt, clippy, and test commands (with `--locked`, and `--no-fail-fast` on
+tests) in the `rust` job of `.github/workflows/check.yml`, beside the gro
+check.
 
 ### Commands by Side Effects
 

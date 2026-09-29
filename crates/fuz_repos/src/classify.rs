@@ -7,7 +7,7 @@
 
 use serde::Serialize;
 
-use crate::porcelain::{BranchConfig, Track};
+use crate::porcelain::{BranchConfig, ConfigFacts, OriginKeys, OriginUrl, Track};
 use crate::probe::{BranchFacts, RepoFacts};
 use crate::registry::{CheckoutMode, Entry, RepoUrl};
 use crate::state::{
@@ -15,6 +15,7 @@ use crate::state::{
     Relation, SyncAction, UnprobedHead, UnprobedWhy, UnprobedWorktree, UnprobedWorktreeStatus,
     Verdict,
 };
+use crate::url::without_userinfo;
 
 /// Why `sync` would stop on an entry and leave it to a person. Branch-level
 /// reasons are on each branch's `Verdict`.
@@ -30,11 +31,13 @@ pub enum NeedsHuman {
         checkout: String,
         op: InProgressOp,
     },
-    /// `origin` isn't the registry's `url`; `None` when there's no `origin`.
-    /// `expected` is the URL to set it to (SSH when owned, else HTTPS).
+    /// `origin` isn't the registry's `url`, or has none. `expected` is the
+    /// URL it should have (SSH when owned, else HTTPS); `fix`, how to set it
+    /// with a command that can.
     OriginMismatch {
-        origin: Option<String>,
+        origin: OriginRemote,
         expected: String,
+        fix: OriginFix,
     },
     /// A worktree's git dir (or `<commondir>/worktrees/` itself) can't be
     /// read, so whether an operation is in progress there is unknowable.
@@ -73,6 +76,89 @@ impl NeedsHuman {
             | Self::UnexpectedDetached { .. }
             | Self::PinnedOnBranch { .. } => false,
         }
+    }
+}
+
+/// The `origin` remote as git sees it (every config scope), when it isn't
+/// the registry's `url`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum OriginRemote {
+    /// Another URL: the one git fetches from, the first of the list (an
+    /// empty value resets the list). A credential in its userinfo is
+    /// redacted as `***`.
+    Url { url: String },
+    /// Known to git — some `remote.origin.*` key is set — but with no URL,
+    /// or a list an empty value reset.
+    NoUrl,
+    /// No `remote.origin.*` key in any scope.
+    Missing,
+}
+
+/// How to point `origin` at the registry's URL.
+///
+/// Decided from what each command can edit: `git remote` writes the repo's
+/// own config file, and refuses or accepts by whether the repo's scope
+/// configures `origin`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum OriginFix {
+    /// `git remote add origin <expected>`: no `remote.origin.*` key in the
+    /// repo's scope (`remote set-url` would say `No such remote`).
+    Add,
+    /// `git remote set-url origin <expected>`: `origin` is the repo's, with
+    /// at most one URL, in its own config file.
+    SetUrl,
+    /// Fix `remote.origin.url` by hand, for `reason`.
+    ByHand { reason: OriginByHand },
+}
+
+/// Why no `git remote` command fits an origin's fix. When several apply,
+/// the first listed here.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum OriginByHand {
+    /// A URL git reads from beyond the repo's own file (global or system
+    /// config, an included file, the worktree config), which no `git remote`
+    /// command edits and which would still come first.
+    OutsideRepoFile,
+    /// A valueless `url` (no `=`), which breaks every git remote command
+    /// (`missing value for 'remote.origin.url'`).
+    ValuelessUrl,
+    /// An empty value among several: it resets the list, and with several
+    /// values `set-url` fails (`remote.origin.url has multiple values`). A
+    /// single empty value is `SetUrl`'s to replace.
+    EmptyValue,
+    /// Several URLs, where a plain `set-url` fails (`remote.origin.url has
+    /// multiple values`) and a value-pattern one fails too whenever the first
+    /// is rewritten by `insteadOf`, duplicated, or spelled with other
+    /// userinfo.
+    SeveralUrls,
+}
+
+impl OriginFix {
+    /// The fix for a repo whose `origin` needs the registry's URL.
+    pub fn decide(config: &ConfigFacts) -> Self {
+        let urls = &config.origin_urls;
+        let by_hand = |reason| Self::ByHand { reason };
+        if urls.iter().any(|v| !v.in_repo_file) {
+            return by_hand(OriginByHand::OutsideRepoFile);
+        }
+        if urls.iter().any(|v| v.value.is_none()) {
+            return by_hand(OriginByHand::ValuelessUrl);
+        }
+        if config.origin_keys != OriginKeys::InRepo {
+            return Self::Add;
+        }
+        if urls.len() > 1 {
+            return by_hand(if urls.iter().any(OriginUrl::resets) {
+                OriginByHand::EmptyValue
+            } else {
+                OriginByHand::SeveralUrls
+            });
+        }
+        // at most one value, maybe empty: `set-url` replaces it
+        Self::SetUrl
     }
 }
 
@@ -410,12 +496,20 @@ fn needs_human(entry: &Entry, facts: &RepoFacts) -> Vec<NeedsHuman> {
     for path in &facts.unreadable {
         reasons.push(NeedsHuman::WorktreeUnreadable { path: path.clone() });
     }
-    match &facts.config.origin_url {
-        Some(origin) if origin_matches(origin, &entry.url) => {}
-        origin => reasons.push(NeedsHuman::OriginMismatch {
-            origin: origin.clone(),
-            expected: entry.remote_url(),
+    let origin = match facts.config.origin_url() {
+        Some(url) if origin_matches(url, &entry.url) => None,
+        Some(url) => Some(OriginRemote::Url {
+            url: without_userinfo(url).into_owned(),
         }),
+        None if facts.config.origin_keys != OriginKeys::None => Some(OriginRemote::NoUrl),
+        None => Some(OriginRemote::Missing),
+    };
+    if let Some(origin) = origin {
+        reasons.push(NeedsHuman::OriginMismatch {
+            origin,
+            expected: entry.remote_url(),
+            fix: OriginFix::decide(&facts.config),
+        });
     }
     let head = &facts.status.head;
     match (&entry.checkout_mode, head) {
@@ -500,7 +594,7 @@ mod tests {
     use std::path::PathBuf;
 
     use super::*;
-    use crate::porcelain::{ConfigFacts, RefFacts, StatusFacts};
+    use crate::porcelain::{ConfigFacts, OriginUrl, RefFacts, StatusFacts};
     use crate::registry::EntryKind;
     use crate::state::{Checkout, GitDirHolds, Layout, Uncommitted, UnprobedWhy, UnprobedWorktree};
 
@@ -574,7 +668,8 @@ mod tests {
 
     fn facts(head: Head, branches: &[B<'_>]) -> RepoFacts {
         let mut config = ConfigFacts {
-            origin_url: Some("git@github.com:me/app".into()),
+            origin_urls: vec![OriginUrl::repo("git@github.com:me/app")],
+            origin_keys: OriginKeys::InRepo,
             ..ConfigFacts::default()
         };
         for b in branches {
@@ -801,7 +896,7 @@ mod tests {
         let e = owned(follow("main"));
 
         let mut drift = facts(on("main"), &branches);
-        drift.config.origin_url = Some("git@github.com:someone/app".into());
+        drift.config.origin_urls = vec![OriginUrl::repo("git@github.com:someone/app")];
         assert_eq!(verdicts(&e, &drift), named(&held));
 
         let mut rebasing = facts(on("main"), &branches);
@@ -1630,7 +1725,8 @@ mod tests {
     fn in_progress_and_origin_reasons() {
         let mut f = facts(on("main"), &[b("main", O, true, Track::Even)]);
         f.in_progress = Some(InProgressOp::Rebase);
-        f.config.origin_url = None;
+        f.config.origin_urls.clear();
+        f.config.origin_keys = OriginKeys::None;
         assert_eq!(
             classify(&owned(follow("main")), &f).needs_human,
             [
@@ -1639,11 +1735,146 @@ mod tests {
                     op: InProgressOp::Rebase
                 },
                 NeedsHuman::OriginMismatch {
-                    origin: None,
-                    expected: "git@github.com:me/app".into()
+                    origin: OriginRemote::Missing,
+                    expected: "git@github.com:me/app".into(),
+                    fix: OriginFix::Add,
                 },
             ]
         );
+        // an `origin` with keys but no URL, the repo's own
+        f.config.origin_keys = OriginKeys::InRepo;
+        assert!(classify(&owned(follow("main")), &f).needs_human.contains(
+            &NeedsHuman::OriginMismatch {
+                origin: OriginRemote::NoUrl,
+                expected: "git@github.com:me/app".into(),
+                fix: OriginFix::SetUrl,
+            }
+        ));
+        // `origin` only in global config: no `git remote` command can edit it
+        // there, and `remote add` would add a URL after it
+        f.config.origin_keys = OriginKeys::Elsewhere;
+        f.config.origin_urls = vec![OriginUrl::elsewhere("git@github.com:old/app")];
+        let reason = |f: &RepoFacts| {
+            classify(&owned(follow("main")), f)
+                .needs_human
+                .into_iter()
+                .find(|r| matches!(r, NeedsHuman::OriginMismatch { .. }))
+        };
+        assert_eq!(
+            reason(&f),
+            Some(NeedsHuman::OriginMismatch {
+                origin: OriginRemote::Url {
+                    url: "git@github.com:old/app".into()
+                },
+                expected: "git@github.com:me/app".into(),
+                fix: OriginFix::ByHand {
+                    reason: OriginByHand::OutsideRepoFile
+                },
+            })
+        );
+        // `origin` known only through a global fetch refspec: `remote add`
+        f.config.origin_urls.clear();
+        assert!(matches!(
+            reason(&f),
+            Some(NeedsHuman::OriginMismatch {
+                origin: OriginRemote::NoUrl,
+                fix: OriginFix::Add,
+                ..
+            })
+        ));
+    }
+
+    #[test]
+    fn origin_urls_as_git_reads_them() {
+        let mut f = facts(on("main"), &[b("main", O, true, Track::Even)]);
+        let reason = |f: &RepoFacts| {
+            classify(&owned(follow("main")), f)
+                .needs_human
+                .into_iter()
+                .find(|r| matches!(r, NeedsHuman::OriginMismatch { .. }))
+        };
+        // the first URL wins: a mismatch first, the registry's second, is
+        // still a mismatch — and the other way round isn't
+        f.config.origin_urls = vec![
+            OriginUrl::repo("https://me:ghp_TOKEN@github.com/old/app"),
+            OriginUrl::repo("git@github.com:me/app"),
+        ];
+        assert_eq!(
+            reason(&f),
+            Some(NeedsHuman::OriginMismatch {
+                // the credential never reaches the report
+                origin: OriginRemote::Url {
+                    url: "https://***@github.com/old/app".into()
+                },
+                expected: "git@github.com:me/app".into(),
+                // several URLs: no command fits every shape of them
+                fix: OriginFix::ByHand {
+                    reason: OriginByHand::SeveralUrls
+                },
+            })
+        );
+        f.config.origin_urls.reverse();
+        assert_eq!(reason(&f), None);
+        // an empty value resets the list: nothing left is no URL, and the
+        // reset is beyond what `set-url` can reason about
+        f.config.origin_urls = vec![
+            OriginUrl::repo("git@github.com:me/app"),
+            OriginUrl::repo(""),
+        ];
+        assert_eq!(
+            reason(&f),
+            Some(NeedsHuman::OriginMismatch {
+                origin: OriginRemote::NoUrl,
+                expected: "git@github.com:me/app".into(),
+                fix: OriginFix::ByHand {
+                    reason: OriginByHand::EmptyValue
+                },
+            })
+        );
+        // a reset then a mismatch: that one is what git fetches from
+        f.config
+            .origin_urls
+            .push(OriginUrl::repo("git@github.com:old/app"));
+        assert!(matches!(
+            reason(&f),
+            Some(NeedsHuman::OriginMismatch {
+                origin: OriginRemote::Url { .. },
+                fix: OriginFix::ByHand {
+                    reason: OriginByHand::EmptyValue
+                },
+                ..
+            })
+        ));
+        // a single empty value: `set-url` replaces it; a valueless one
+        // breaks every git remote command
+        f.config.origin_urls = vec![OriginUrl::repo("")];
+        assert_eq!(
+            reason(&f),
+            Some(NeedsHuman::OriginMismatch {
+                origin: OriginRemote::NoUrl,
+                expected: "git@github.com:me/app".into(),
+                fix: OriginFix::SetUrl,
+            })
+        );
+        f.config.origin_urls = vec![OriginUrl::valueless()];
+        assert!(matches!(
+            reason(&f),
+            Some(NeedsHuman::OriginMismatch {
+                fix: OriginFix::ByHand {
+                    reason: OriginByHand::ValuelessUrl
+                },
+                ..
+            })
+        ));
+        // one URL in the repo's file: a plain `set-url`
+        f.config.origin_urls = vec![OriginUrl::repo("git@github.com:old/app.git")];
+        assert!(matches!(
+            reason(&f),
+            Some(NeedsHuman::OriginMismatch {
+                fix: OriginFix::SetUrl,
+                ..
+            })
+        ));
     }
 
     #[test]

@@ -140,6 +140,14 @@ pub enum Visibility {
 }
 
 /// An HTTPS repo identity, `https://<host>/<account>/<name>`.
+///
+/// Strict, because every part is spliced into URLs and commands: the host is
+/// a plain DNS name — no credentials (`user:token@`), port, or IP-literal
+/// brackets, so the SSH form `git@<host>:…` stays well formed and nothing
+/// secret rides along into reports or network calls — and the account and
+/// name are path segments of letters, digits, `.`, `_`, and `-` (not `.` or
+/// `..`, not starting with `-`), so no query, fragment, escape, or
+/// whitespace can follow. A trailing `/` and a `.git` suffix are dropped.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(try_from = "String", into = "String")]
 pub struct RepoUrl {
@@ -152,18 +160,52 @@ impl TryFrom<String> for RepoUrl {
     type Error = String;
 
     fn try_from(s: String) -> std::result::Result<Self, String> {
-        let invalid = || format!("`{s}` is not an `https://<host>/<account>/<name>` URL");
-        let rest = s.strip_prefix("https://").ok_or_else(invalid)?;
+        // never echo credentials back
+        let shown = crate::url::without_userinfo(&s);
+        let invalid =
+            |why: &str| format!("`{shown}` is not an `https://<host>/<account>/<name>` URL: {why}");
+        let rest = s
+            .strip_prefix("https://")
+            .ok_or_else(|| invalid("it must start with https://"))?;
+        let authority = rest.split('/').next().unwrap_or(rest);
+        if authority.contains('@') {
+            return Err(invalid(
+                "it carries credentials; a registry URL names a repo, never a secret",
+            ));
+        }
         let rest = rest.trim_end_matches('/');
         let rest = rest.strip_suffix(".git").unwrap_or(rest);
         let mut parts = rest.split('/');
         let (Some(host), Some(account), Some(name), None) =
             (parts.next(), parts.next(), parts.next(), parts.next())
         else {
-            return Err(invalid());
+            return Err(invalid(
+                "it must have exactly a host, an account, and a name",
+            ));
         };
-        if host.is_empty() || account.is_empty() || name.is_empty() {
-            return Err(invalid());
+        let is_host = |h: &str| {
+            h.starts_with(|c: char| c.is_ascii_alphanumeric())
+                && h.ends_with(|c: char| c.is_ascii_alphanumeric())
+                && h.chars()
+                    .all(|c| c.is_ascii_alphanumeric() || ".-".contains(c))
+        };
+        if !is_host(host) {
+            return Err(invalid(
+                "the host must be a plain DNS name (no port, credentials, or brackets)",
+            ));
+        }
+        let is_segment = |p: &str| {
+            !p.is_empty()
+                && p != "."
+                && p != ".."
+                && !p.starts_with('-')
+                && p.chars()
+                    .all(|c| c.is_ascii_alphanumeric() || "._-".contains(c))
+        };
+        if !is_segment(account) || !is_segment(name) {
+            return Err(invalid(
+                "the account and name must be letters, digits, `.`, `_`, and `-`",
+            ));
         }
         Ok(Self {
             host: host.to_owned(),
@@ -261,7 +303,8 @@ impl Registry {
         })?;
         Self::parse(&src).map_err(|e| Error::RegistryParse {
             path: path.to_owned(),
-            message: e.to_string(),
+            // the parser quotes the offending line, credentials and all
+            message: crate::url::redact_userinfo_in(&e.to_string()),
         })
     }
 
@@ -818,15 +861,41 @@ purpose = "x"
             "https://github.com/a/b"
         );
         assert_eq!(ok("https://codeberg.org/a/b").ssh(), "git@codeberg.org:a/b");
+        assert_eq!(ok("https://github.com/org/.github").name, ".github");
+        assert_eq!(
+            ok("https://git.example-host.org/a.b/c_d-e").host,
+            "git.example-host.org"
+        );
         for bad in [
             "git@github.com:a/b",
             "http://github.com/a/b",
             "https://github.com/a",
             "https://github.com/a/b/c",
             "https://github.com//b",
+            // credentials, a port, an IP literal, an odd host
+            "https://user:sekrit@github.com/a/b",
+            "https://token@github.com/a/b",
+            "https://github.com:443/a/b",
+            "https://[::1]/a/b",
+            "https://-github.com/a/b",
+            "https://github.com./a/b",
+            "https://git hub.com/a/b",
+            // a query, a fragment, an escape, whitespace, dot segments
+            "https://github.com/a/b?x=1",
+            "https://github.com/a/b#frag",
+            "https://github.com/a/b%2F",
+            "https://github.com/a/b c",
+            "https://github.com/a/b\n",
+            "https://github.com/../b",
+            "https://github.com/a/.",
+            "https://github.com/-a/b",
         ] {
             assert!(RepoUrl::try_from(bad.to_owned()).is_err(), "{bad}");
         }
+        // a rejected URL never echoes its credentials
+        let e = RepoUrl::try_from("https://user:sekrit@github.com/a/b".to_owned()).unwrap_err();
+        assert!(!e.contains("sekrit") && !e.contains("user"), "{e}");
+        assert!(e.contains("carries credentials"), "{e}");
     }
 
     /// The issues `src` validates to (none when valid).
@@ -940,37 +1009,15 @@ purpose = "a third-party clone, no fork"
     }
 
     #[test]
-    fn a_url_derived_dir_is_one_plain_name() {
-        let got = issues(
-            r#"
-owners = ["me"]
-[repos.up]
-url = "https://github.com/me/.."
-visibility = "public"
-purpose = "x"
-[references.here]
-url = "https://github.com/them/."
-purpose = "x"
-"#,
-        );
-        assert_eq!(
-            got,
-            [
-                RegistryIssue::DirNotAName {
-                    entry: name(EntryKind::Repo, "up"),
-                    dir: "..".into(),
-                },
-                RegistryIssue::DirNotAName {
-                    entry: name(EntryKind::Reference, "here"),
-                    dir: ".".into(),
-                },
-            ]
-        );
-        assert_eq!(
-            got[0].to_string(),
-            "repo `up` has dir `..`, which isn't a plain name — an entry's dir is one directory \
-             under the workspace root"
-        );
+    fn a_url_with_a_dot_segment_name_is_rejected_at_parse() {
+        // the dir a URL's name would give is never `.` or `..`: parse refuses
+        // the URL before validation could see such a dir
+        for url in ["https://github.com/me/..", "https://github.com/them/."] {
+            let src =
+                format!("owners = [\"me\"]\n[references.r]\nurl = \"{url}\"\npurpose = \"x\"\n");
+            let e = Registry::parse(&src).unwrap_err().to_string();
+            assert!(e.contains("the account and name must be"), "{e}");
+        }
     }
 
     #[test]
