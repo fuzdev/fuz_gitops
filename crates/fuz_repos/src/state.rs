@@ -51,36 +51,75 @@ pub struct UnprobedWorktree {
     /// `gitdir` file names it; for one whose `gitdir` can't be read, its own
     /// git dir.
     pub path: String,
+    /// Its own git dir, `<commondir>/worktrees/<id>`, canonicalized when it
+    /// can be; `None` for one git lists that no git dir there matches.
+    pub git_dir: Option<String>,
     pub head: UnprobedHead,
     pub locked: bool,
     /// From its own git dir, which outlives the worktree's files.
     pub in_progress: Option<InProgressOp>,
     pub why: UnprobedWhy,
+    /// What its own git dir holds that may exist nowhere else; read only
+    /// for a `Prunable` one, whose git dir `git worktree remove` would drop,
+    /// and `None` for one whose git dir can't be matched (`git_dir` is
+    /// `None`), which then counts as `PruneLoss::UnmatchedGitDir`.
+    pub holds: Option<GitDirHolds>,
+}
+
+/// What a gone worktree's own git dir holds beyond its HEAD and operation
+/// state — each gone with the git dir. Anything that can't be read counts
+/// as held.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+pub struct GitDirHolds {
+    /// `modules/` isn't empty: an initialized submodule's repo, whose
+    /// commits may be nowhere else. Git refuses to remove a present worktree
+    /// with submodules, but not a gone one.
+    pub submodules: bool,
+    /// `refs/` holds a ref: a per-worktree ref (`refs/worktree/`,
+    /// `refs/bisect/`, `refs/rewritten/`), which may be the only ref to its
+    /// commit.
+    pub worktree_refs: bool,
+    /// Whether its index differs from its HEAD — staged changes, in no
+    /// commit (intent-to-add entries aside; no index at all is none);
+    /// `None` when that couldn't be told (git failed, or its HEAD is
+    /// unknown, so it wasn't asked).
+    pub staged: Option<bool>,
 }
 
 /// An unprobed worktree as the report carries it: the probe's facts, plus
-/// what `classify` decided about pruning it.
+/// what `classify` decided about removing it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct UnprobedWorktreeStatus {
     #[serde(flatten)]
     pub worktree: UnprobedWorktree,
-    /// What `git worktree prune` would do to it; `Some` exactly when it's
-    /// `Prunable`.
+    /// What dropping its git dir would lose — decided for this worktree
+    /// alone, so the command that acts on it is `git worktree remove <path>`,
+    /// which drops just this one (`git worktree prune` drops every gone
+    /// worktree of the repo) — or, once the unregistered scan has run, that
+    /// it moved to the workspace root; `Some` exactly when it's `Prunable`.
     pub prune: Option<Prune>,
 }
 
-/// What pruning a gone worktree would do.
+/// What dropping one gone worktree's git dir would do, that worktree's
+/// alone.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Prune {
-    /// Nothing is lost: its HEAD is on a branch that exists, and no
-    /// operation is in progress.
+    /// Nothing is lost: its HEAD is on a branch that exists, no operation is
+    /// in progress, and the repo's worktree paths read the same in every git.
     Safe,
-    /// Pruning discards these.
+    /// Dropping it discards these.
     Loses { losses: Vec<PruneLoss> },
+    /// Not gone: moved into the workspace root, where the unregistered scan
+    /// found each dir in `to` (by name) naming its git dir — so dropping
+    /// the git dir would orphan them; their own lines say what to do.
+    /// Decided after the scan, which runs only without targets, and sees
+    /// only the root: without it, a moved worktree reads as `Safe` or
+    /// `Loses`.
+    Moved { to: Vec<String> },
 }
 
-/// Something a prune would discard with the worktree's git dir.
+/// Something dropping a gone worktree's git dir would discard.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum PruneLoss {
@@ -93,6 +132,24 @@ pub enum PruneLoss {
     /// Its HEAD names a branch that no longer exists, so the HEAD may be the
     /// only ref to its commit.
     MissingBranch { name: String },
+    /// Its git dir holds an initialized submodule's repo (`modules/`),
+    /// whose commits may be nowhere else.
+    Submodules,
+    /// Its git dir holds a per-worktree ref, which may be the only ref to
+    /// its commit.
+    WorktreeRefs,
+    /// Its index differs from its HEAD, or couldn't be compared: staged
+    /// changes that are in no commit.
+    StagedChanges,
+    /// Git lists it, but no worktree git dir matches it, so nothing its git
+    /// dir holds can be read: whatever that is.
+    UnmatchedGitDir,
+    /// The repo's worktree git dir `git_dir` names its worktree by a
+    /// relative path, which git 2.48+ resolves against the git dir and older
+    /// gits against the cwd: this worktree may not be gone at all, or a
+    /// removal by its path may reach another — its index and HEAD are at
+    /// stake.
+    RelativeGitdir { git_dir: String },
 }
 
 /// What an unprobed worktree's HEAD is, from git's worktree list or, for one
@@ -115,8 +172,10 @@ pub enum UnprobedHead {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum UnprobedWhy {
-    /// Its dir is gone and git would prune it — or it was moved by hand, and
-    /// `git worktree repair` at the new path reconnects it.
+    /// Its dir is gone and git would prune it — or it was moved by hand.
+    /// Moved back, it reconnects; `git worktree repair` at the new path is
+    /// repo-wide and may hijack another checkout, so it's offered only by the
+    /// unregistered scan, which vets it for a stray at the workspace root.
     Prunable,
     /// Its dir is gone but git keeps it — locked, as on unmounted media.
     Missing,

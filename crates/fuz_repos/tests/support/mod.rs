@@ -431,7 +431,9 @@ impl FixtureWorkspace {
     pub fn unregistered(&self) -> Vec<UnregisteredClone> {
         let entries = self.entries();
         let registry = Registry::load(&self.root().join(REGISTRY_FILE)).unwrap();
-        scan_unregistered(&self.root(), &entries, &registry.owners, &self.runner()).unwrap()
+        scan_unregistered(&self.root(), &entries, &registry.owners, &self.runner())
+            .unwrap()
+            .unregistered
     }
 
     /// One entry's status, from a run over every entry.

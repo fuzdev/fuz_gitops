@@ -10,11 +10,12 @@
 //! worktrees. Anything else of a registered repo is reported, never skipped:
 //! moved by hand (`git worktree repair` reconnects it, offered only when
 //! the repair — which also walks every other worktree git dir of the repo —
-//! would rewrite no other checkout), orphaned (its git dir is gone or holds
-//! no `HEAD`), or sharing a git dir another checkout uses or may use — a
-//! copy, a locked worktree's absent original, a second copy of a moved
-//! worktree — where a repair would take the git dir from that checkout, so
-//! none is offered.
+//! would rewrite no other checkout, and no git dir of the repo names its
+//! worktree relatively, which git versions resolve differently), orphaned
+//! (its git dir is gone or holds no `HEAD`), or sharing a git dir another
+//! checkout uses or may use — a copy, a locked worktree's absent original, a
+//! second copy of a moved worktree — where a repair would take the git dir
+//! from that checkout, so none is offered.
 //!
 //! Reading is file reads plus one git call per stray, for its origin: `git
 //! config` through the hardened runner, so includes, `includeIf`, and a
@@ -35,6 +36,17 @@ use crate::probe::{
 use crate::registry::{Entry, is_owner};
 use crate::report::{RepairBlock, UnregisteredClone, UnregisteredKind};
 
+/// What the unregistered scan found.
+#[derive(Debug)]
+pub struct Scan {
+    /// The strays, sorted by name.
+    pub unregistered: Vec<UnregisteredClone>,
+    /// For each stray, the git dir its `.git` names, canonicalized, when
+    /// found and not gone — how `mark_moved_worktrees` links a moved
+    /// worktree to the gone one git still lists.
+    pub git_dirs: Vec<Option<PathBuf>>,
+}
+
 /// Scans `root`'s children for unregistered dirs holding a `.git`, sorted by
 /// name. `entries` must be the whole registry — the scan claims a dir for
 /// any entry — and `owners` its owner accounts.
@@ -47,7 +59,7 @@ pub fn scan_unregistered(
     entries: &[Entry],
     owners: &[String],
     git: &Git,
-) -> io::Result<Vec<UnregisteredClone>> {
+) -> io::Result<Scan> {
     let registered: Vec<Registered> = entries
         .iter()
         .map(|e| Registered::resolve(e, root))
@@ -105,7 +117,10 @@ pub fn scan_unregistered(
             kind: settled.kind(i),
         });
     }
-    Ok(found)
+    Ok(Scan {
+        unregistered: found,
+        git_dirs: strays.into_iter().map(|f| f.stray.git_dir).collect(),
+    })
 }
 
 /// The strays' kinds, now that the scan knows every stray: one whose git
@@ -166,7 +181,16 @@ impl<'s, 'r> Settled<'s, 'r> {
                 None,
             ) => UnregisteredKind::Worktree,
             (Kind::Moved { entry, admin, .. }, None) => {
-                let blocked_by = self.hazards[i].map(|h| self.repair_block(i, h));
+                // a relative `gitdir` anywhere in the repo makes the walk
+                // uncertain, whatever else stands in the way
+                let blocked_by = self.registered[*entry].walk(admin).relative.map_or_else(
+                    || self.hazards[i].map(|h| self.repair_block(i, h)),
+                    |git_dir| {
+                        Some(RepairBlock::RelativeGitdir {
+                            git_dir: git_dir.to_string_lossy().into_owned(),
+                        })
+                    },
+                );
                 let exit_noise = if blocked_by.is_none() {
                     self.registered[*entry]
                         .walk(admin)
@@ -305,7 +329,8 @@ struct RepairHazard {
     /// The path, resolved — what the scan compares.
     path: PathBuf,
     /// The path as the git dir's `gitdir` writes it — what git's messages
-    /// name, and what the report shows.
+    /// name, and what the report shows (never a relative one: a repo with
+    /// one gets `RepairBlock::RelativeGitdir` instead).
     shown: PathBuf,
 }
 
@@ -339,6 +364,7 @@ impl<'a> Registered<'a> {
         RepairEffects {
             hazard: walk.hazards.iter().find(|h| h.admin != admin),
             noise: walk.noise.iter().find(|h| h.admin != admin),
+            relative: walk.relative.as_deref(),
         }
     }
 
@@ -369,6 +395,9 @@ struct RepairWalk {
     hazards: Vec<RepairHazard>,
     /// The paths it would complain about, exiting 1, and leave be.
     noise: Vec<RepairHazard>,
+    /// The first worktree git dir whose `gitdir` is relative: git versions
+    /// resolve it differently, so the walk itself is uncertain.
+    relative: Option<PathBuf>,
 }
 
 /// A repair's effects on the other worktrees, for one worktree's repair.
@@ -376,6 +405,7 @@ struct RepairWalk {
 struct RepairEffects<'a> {
     hazard: Option<&'a RepairHazard>,
     noise: Option<&'a RepairHazard>,
+    relative: Option<&'a Path>,
 }
 
 /// The repo-wide part of `git worktree repair`, as git decides it: for each
@@ -384,15 +414,20 @@ struct RepairEffects<'a> {
 /// followed, as git follows them here) that doesn't name that git dir — a
 /// hazard; and complains, exiting 1 but leaving it be, when the path isn't
 /// a dir or its `.git` isn't a file — noise. A git dir whose `gitdir` can't
-/// be read is skipped, as git skips it. `worktrees/` that can't be listed
-/// yields nothing — the scan then can't tell, and git couldn't walk it
-/// either.
+/// be read is skipped, as git skips it. Paths resolve as git 2.48+ resolves
+/// them; older gits resolve a relative `gitdir` against the cwd, so the
+/// first relative one is kept, and makes the whole walk uncertain.
+/// `worktrees/` that can't be listed yields nothing — the scan then can't
+/// tell, and git couldn't walk it either.
 fn repair_walk(common: &Path) -> RepairWalk {
     let mut walk = RepairWalk::default();
     let Ok(admins) = admin_dirs(common) else {
         return walk;
     };
     for a in admins {
+        if a.relative && walk.relative.is_none() {
+            walk.relative = Some(canonical(&a.dir).unwrap_or_else(|| a.dir.clone()));
+        }
         let (Ok(path), Some(admin)) = (a.worktree, canonical(&a.dir)) else {
             continue;
         };
@@ -418,13 +453,14 @@ fn repair_walk(common: &Path) -> RepairWalk {
 }
 
 /// The worktree path a worktree git dir's `gitdir` names, as written: its
-/// `/.git` stripped, as git strips it, and a relative one joined to the git
-/// dir without resolving it.
+/// `/.git` stripped, as git strips it. A relative one is never shown: a repo
+/// with one is blocked (`RepairBlock::RelativeGitdir`) before any path is.
 fn written_worktree(admin: &Path) -> Option<PathBuf> {
     let target = read_regular(&admin.join("gitdir")).ok()?;
     let target = target.trim_end();
-    let worktree = target.strip_suffix("/.git").unwrap_or(target);
-    Some(admin.join(worktree))
+    Some(PathBuf::from(
+        target.strip_suffix("/.git").unwrap_or(target),
+    ))
 }
 
 /// A child found to be a stray, the git dir its `.git` names, and where to
@@ -609,8 +645,14 @@ fn linked_git_dir_kind(
         })
     };
     Some(match read_admin_gitdir(&git_dir) {
-        AdminGitdir::Names(named) if real == Some(named.as_path()) => return None,
-        AdminGitdir::Names(named) if locked || uses_git_dir(&named, &git_dir) => {
+        AdminGitdir::Names {
+            worktree: named, ..
+        } if real == Some(named.as_path()) => {
+            return None;
+        }
+        AdminGitdir::Names {
+            worktree: named, ..
+        } if locked || uses_git_dir(&named, &git_dir) => {
             Kind::Settled(UnregisteredKind::SharedGitDir {
                 entry: key(),
                 with: Some(named.to_string_lossy().into_owned()),

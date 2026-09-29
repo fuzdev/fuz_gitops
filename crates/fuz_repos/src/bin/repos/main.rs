@@ -20,7 +20,7 @@ use fuz_repos::git::{CallOptions, Git, GitError};
 use fuz_repos::registry::Registry;
 use fuz_repos::report::StatusReport;
 use fuz_repos::scan::scan_unregistered;
-use fuz_repos::status::{EntryTiming, StatusOptions, status};
+use fuz_repos::status::{EntryTiming, StatusOptions, mark_moved_worktrees, status};
 
 use crate::render::{View, render_entry, render_summary, render_unregistered};
 
@@ -174,14 +174,16 @@ fn run_status(locate: Locate<'_>, args: &StatusArgs) -> Result<()> {
     // entries, and `unregistered` stays `null`
     let scan_start = Instant::now();
     let scan_time = if args.targets.is_empty() {
-        let found =
+        let scan =
             scan_unregistered(&loc.root, &all, &registry.owners, &git).map_err(|source| {
                 Error::Io {
                     context: format!("failed to list the workspace root {}", loc.root.display()),
                     source,
                 }
             })?;
-        report.unregistered = Some(found);
+        // before render: a gone worktree the scan found moved gets no command
+        mark_moved_worktrees(&mut report.entries, &scan);
+        report.unregistered = Some(scan.unregistered);
         Some(scan_start.elapsed())
     } else {
         None

@@ -81,16 +81,23 @@ impl NeedsHuman {
 pub struct Classified {
     pub branches: Vec<BranchStatus>,
     pub needs_human: Vec<NeedsHuman>,
-    /// The repo's unprobed worktrees, each with what pruning it would do.
+    /// The repo's unprobed worktrees, each with what removing it would do.
     pub unprobed: Vec<UnprobedWorktreeStatus>,
 }
 
-/// What `git worktree prune` would do to an unprobed worktree.
+/// What dropping an unprobed worktree's git dir would do — that worktree's
+/// alone, as `git worktree remove <path>` drops it.
 ///
 /// `None` unless it's `Prunable` (its dir gone); `Safe` when it loses
-/// nothing; else what it loses — an operation's state, or a HEAD that may be
+/// nothing; else what it loses — an operation's state, a HEAD that may be
 /// the only ref to its commit (detached, unreadable, or on a branch that no
-/// longer exists).
+/// longer exists), what its git dir alone holds (submodules' repos,
+/// per-worktree refs, staged changes — an index that can't be compared
+/// counts, unless its HEAD is already lost; a git dir that can't be matched
+/// counts as unknown), or, when a worktree git dir of
+/// the repo names its worktree relatively, whatever git misreads (git
+/// versions resolve a relative `gitdir` differently, so no path of the repo
+/// is certain).
 fn prune(u: &UnprobedWorktree, facts: &RepoFacts) -> Option<Prune> {
     if u.why != UnprobedWhy::Prunable {
         return None;
@@ -107,6 +114,29 @@ fn prune(u: &UnprobedWorktree, facts: &RepoFacts) -> Option<Prune> {
         }
         UnprobedHead::Detached { .. } => losses.push(PruneLoss::DetachedHead),
         UnprobedHead::Unknown => losses.push(PruneLoss::UnknownHead),
+    }
+    if u.git_dir.is_none() {
+        losses.push(PruneLoss::UnmatchedGitDir);
+    }
+    if let Some(holds) = &u.holds {
+        if holds.submodules {
+            losses.push(PruneLoss::Submodules);
+        }
+        if holds.worktree_refs {
+            losses.push(PruneLoss::WorktreeRefs);
+        }
+        // not told: a lost HEAD already says the index can't be judged
+        let head_lost = losses
+            .iter()
+            .any(|l| matches!(l, PruneLoss::UnknownHead | PruneLoss::MissingBranch { .. }));
+        if holds.staged.unwrap_or(!head_lost) {
+            losses.push(PruneLoss::StagedChanges);
+        }
+    }
+    if let Some(git_dir) = &facts.relative_gitdir {
+        losses.push(PruneLoss::RelativeGitdir {
+            git_dir: git_dir.to_string_lossy().into_owned(),
+        });
     }
     Some(if losses.is_empty() {
         Prune::Safe
@@ -469,7 +499,7 @@ mod tests {
     use super::*;
     use crate::porcelain::{ConfigFacts, RefFacts, StatusFacts};
     use crate::registry::EntryKind;
-    use crate::state::{Checkout, Layout, Uncommitted, UnprobedWhy, UnprobedWorktree};
+    use crate::state::{Checkout, GitDirHolds, Layout, Uncommitted, UnprobedWhy, UnprobedWorktree};
 
     const NOW: u64 = 1_800_000_000;
 
@@ -570,6 +600,7 @@ mod tests {
             primary_locked: false,
             worktrees: Vec::new(),
             unprobed: Vec::new(),
+            relative_gitdir: None,
             unreadable: Vec::new(),
             branches: branches
                 .iter()
@@ -807,6 +838,7 @@ mod tests {
     fn unprobed(path: &str, branch: Option<&str>, why: UnprobedWhy) -> UnprobedWorktree {
         UnprobedWorktree {
             path: path.into(),
+            git_dir: Some("/ws/app/.git/worktrees/wt".into()),
             head: branch.map_or_else(
                 || UnprobedHead::Detached {
                     commit: "0123456789abcdef0123456789abcdef01234567".into(),
@@ -818,6 +850,7 @@ mod tests {
             locked: false,
             in_progress: None,
             why,
+            holds: None,
         }
     }
 
@@ -1106,6 +1139,71 @@ mod tests {
                 },
                 PruneLoss::DetachedHead
             ])
+        );
+        // a git dir that can't be matched can't be read
+        let unmatched = UnprobedWorktree {
+            git_dir: None,
+            ..gone.clone()
+        };
+        assert_eq!(
+            prune(&unmatched, &f),
+            loses(vec![PruneLoss::UnmatchedGitDir])
+        );
+        // what its git dir alone holds
+        let holding = |submodules, worktree_refs, staged| UnprobedWorktree {
+            holds: Some(GitDirHolds {
+                submodules,
+                worktree_refs,
+                staged,
+            }),
+            ..gone.clone()
+        };
+        assert_eq!(
+            prune(&holding(false, false, Some(false)), &f),
+            Some(Prune::Safe)
+        );
+        assert_eq!(
+            prune(&holding(true, true, Some(true)), &f),
+            loses(vec![
+                PruneLoss::Submodules,
+                PruneLoss::WorktreeRefs,
+                PruneLoss::StagedChanges
+            ])
+        );
+        // an index that couldn't be compared counts as staged...
+        assert_eq!(
+            prune(&holding(false, false, None), &f),
+            loses(vec![PruneLoss::StagedChanges])
+        );
+        // ...unless its HEAD is already lost, which says as much
+        let lost_head = UnprobedWorktree {
+            head: UnprobedHead::Unknown,
+            ..holding(false, false, None)
+        };
+        assert_eq!(prune(&lost_head, &f), loses(vec![PruneLoss::UnknownHead]));
+        let lost_branch = UnprobedWorktree {
+            head: UnprobedHead::Branch {
+                name: "deleted".into(),
+            },
+            ..holding(false, false, None)
+        };
+        assert_eq!(
+            prune(&lost_branch, &f),
+            loses(vec![PruneLoss::MissingBranch {
+                name: "deleted".into()
+            }])
+        );
+        // a relative `gitdir` anywhere in the repo: no path is certain, so
+        // nothing is safe
+        let relative = RepoFacts {
+            relative_gitdir: Some(PathBuf::from("/ws/app/.git/worktrees/k")),
+            ..f.clone()
+        };
+        assert_eq!(
+            prune(&gone, &relative),
+            loses(vec![PruneLoss::RelativeGitdir {
+                git_dir: "/ws/app/.git/worktrees/k".into()
+            }])
         );
         // not gone: no prune at all
         for why in [

@@ -17,6 +17,15 @@ use fuz_repos::state::{
 /// The label column's width.
 const LABEL_WIDTH: usize = 13;
 
+/// A prunable worktree's advice for when it was moved by hand: back where
+/// git expects it, or to the workspace root, where the scan reports it with
+/// a repair only when that's safe. The hedge exists because the report
+/// can't always tell: a worktree moved into the root reads as
+/// `Prune::Moved`, but only when the scan ran (no targets given), and one
+/// moved anywhere else is out of the scan's sight.
+const IF_MOVED: &str =
+    "if it moved, move it back (or to the workspace root) and rerun repos status";
+
 /// What rendering needs from the environment: the home dir, shown as `~`,
 /// and the current time, which the report's timestamps become ages against.
 #[derive(Debug, Clone, Copy)]
@@ -48,8 +57,9 @@ impl View<'_> {
 pub fn render_summary(report: &StatusReport, view: View<'_>, verbose: bool) -> String {
     let mut g = Groups::default();
     let mut quiet = Counts::default();
+    let workspace = Path::new(&report.workspace);
     for e in &report.entries {
-        if g.add(e, view, verbose) {
+        if g.add(e, workspace, view, verbose) {
             continue;
         }
         match (&e.checkout_mode, e.checkouts.first().map(|c| &c.head)) {
@@ -155,7 +165,7 @@ struct Groups {
 
 impl Groups {
     /// Adds an entry's lines; returns whether it had anything to say.
-    fn add(&mut self, e: &EntryStatus, view: View<'_>, verbose: bool) -> bool {
+    fn add(&mut self, e: &EntryStatus, workspace: &Path, view: View<'_>, verbose: bool) -> bool {
         let before = self.len();
         let key = &e.key;
         let follow = match &e.checkout_mode {
@@ -251,11 +261,29 @@ impl Groups {
                 (UnprobedWhy::Failed { error }, _) => self
                     .failed
                     .push(format!("{key} (worktree {at}: {})", first_line(error))),
+                // never `git worktree repair <new path>` or `git worktree
+                // prune`: both are repo-wide, the one may hijack another
+                // checkout and the other drops every gone worktree, so the
+                // command is `remove`, this one's alone, and only the scan
+                // offers a repair, vetted, for a moved worktree at the root
                 (UnprobedWhy::Prunable, Some(Prune::Safe)) => self.cleanup.push(format!(
-                    "{key} (worktree {at} gone — git worktree prune, \
-                     or git worktree repair <new path> if it moved)"
+                    "{key} (worktree {at} gone — {IF_MOVED}, else git -C {} worktree remove {at})",
+                    view.show(&workspace.join(&e.dir).to_string_lossy())
                 )),
-                // classify found pruning would lose something: word it
+                // the scan found it moved: those strays' lines say what to
+                // do, whatever they are, and removing it would orphan them
+                (UnprobedWhy::Prunable, Some(Prune::Moved { to })) => {
+                    let see = if to.len() == 1 {
+                        "its line"
+                    } else {
+                        "their lines"
+                    };
+                    self.cleanup.push(format!(
+                        "{key} (worktree {at} gone — moved to {}; see {see})",
+                        to.join(", ")
+                    ));
+                }
+                // classify found removing it would lose something: word it
                 (UnprobedWhy::Prunable, loses) => {
                     let losses = match loses {
                         Some(Prune::Loses { losses }) => {
@@ -264,8 +292,7 @@ impl Groups {
                         _ => vec!["its state".to_owned()],
                     };
                     self.cleanup.push(format!(
-                        "{key} (worktree {at} gone — git worktree repair <new path> if it \
-                         moved; pruning discards {})",
+                        "{key} (worktree {at} gone — {IF_MOVED}; removing discards {})",
                         losses.join(" and ")
                     ));
                 }
@@ -637,9 +664,15 @@ fn repair_block_summary(block: &RepairBlock, view: View<'_>) -> String {
             )
         }
         RepairBlock::ClaimedDir { .. } => {
-            "another moved worktree claims this dir; repair it first, then rerun".to_owned()
+            "another moved worktree claims this dir; repair that one first once its repair is \
+             offered, then rerun"
+                .to_owned()
         }
         RepairBlock::Swapped { with, .. } => format!("swapped with {with}; move the dirs back"),
+        RepairBlock::RelativeGitdir { .. } => {
+            "a relative gitdir in this repo, which git versions resolve differently; fix by hand"
+                .to_owned()
+        }
     }
 }
 
@@ -736,8 +769,25 @@ pub fn render_unregistered(u: &UnregisteredClone, report: &StatusReport, view: V
                 "note",
                 format!(
                     "{entry}'s worktree git dir {} names this dir, so a repair would point this \
-                     .git there — repair the moved worktree whose .git names it first, then \
-                     rerun repos status",
+                     .git there — repair the moved worktree whose .git names it first, once its \
+                     repair is offered, then rerun repos status",
+                    git_dir_id(git_dir)
+                ),
+            )],
+        ),
+        UnregisteredKind::MovedWorktree {
+            entry,
+            blocked_by: Some(RepairBlock::RelativeGitdir { git_dir }),
+            ..
+        } => (
+            format!("moved worktree of {entry}"),
+            vec![(
+                "note",
+                format!(
+                    "{entry}'s worktree git dir {} names its worktree by a relative path, which \
+                     git 2.48+ resolves against the git dir and older gits against the cwd — \
+                     what a repair would touch is uncertain, so none is offered; make that gitdir \
+                     absolute by hand, then rerun repos status",
                     git_dir_id(git_dir)
                 ),
             )],
@@ -841,13 +891,23 @@ const fn held_note(by: HeldBy) -> &'static str {
     }
 }
 
-/// What a prune would discard, as the cleanup line words it.
+/// What removing a gone worktree would discard, as the cleanup line words
+/// it.
 fn prune_loss_label(loss: &PruneLoss) -> String {
     match loss {
         PruneLoss::Operation { op } => format!("its {} in progress", op.label()),
         PruneLoss::DetachedHead => "its detached HEAD".into(),
         PruneLoss::UnknownHead => "its HEAD".into(),
         PruneLoss::MissingBranch { name } => format!("its HEAD (branch {name} is gone)"),
+        PruneLoss::Submodules => "its submodules' repos".into(),
+        PruneLoss::WorktreeRefs => "its worktree refs".into(),
+        PruneLoss::StagedChanges => "its staged changes".into(),
+        PruneLoss::UnmatchedGitDir => "whatever its git dir holds (it can't be matched)".into(),
+        PruneLoss::RelativeGitdir { git_dir } => format!(
+            "its index and HEAD if it isn't gone after all (git dir {} names its worktree \
+             relatively, which git versions resolve differently)",
+            git_dir_id(git_dir)
+        ),
     }
 }
 
@@ -987,6 +1047,7 @@ mod tests {
     fn unprobed(path: &str, branch: Option<&str>, why: UnprobedWhy) -> UnprobedWorktree {
         UnprobedWorktree {
             path: path.into(),
+            git_dir: None,
             head: branch.map_or_else(
                 || UnprobedHead::Detached {
                     commit: "0123456789abcdef0123456789abcdef01234567".into(),
@@ -998,6 +1059,7 @@ mod tests {
             locked: false,
             in_progress: None,
             why,
+            holds: None,
         }
     }
 
@@ -1380,7 +1442,7 @@ gro  repo · owned · public · ci · follow main
                 Some(Prune::Safe),
             ),
             status(usb, None),
-            // pruning would lose something: classify said what
+            // removing would lose something: classify said what
             status(
                 unprobed("/home/me/dev/app-spike", None, UnprobedWhy::Prunable),
                 loses(vec![PruneLoss::DetachedHead]),
@@ -1414,6 +1476,37 @@ gro  repo · owned · public · ci · follow main
                 },
                 loses(vec![PruneLoss::UnknownHead]),
             ),
+            status(
+                unprobed("/home/me/dev/app-rel", Some("main"), UnprobedWhy::Prunable),
+                loses(vec![PruneLoss::RelativeGitdir {
+                    git_dir: "/home/me/dev/app/.git/worktrees/k".into(),
+                }]),
+            ),
+            status(
+                unprobed("/home/me/dev/app-held", Some("main"), UnprobedWhy::Prunable),
+                loses(vec![
+                    PruneLoss::Submodules,
+                    PruneLoss::WorktreeRefs,
+                    PruneLoss::StagedChanges,
+                ]),
+            ),
+            status(
+                unprobed("/home/me/dev/app-lost", Some("main"), UnprobedWhy::Prunable),
+                loses(vec![PruneLoss::UnmatchedGitDir]),
+            ),
+            // the scan found it moved: no command
+            status(
+                unprobed("/home/me/dev/app-b", Some("main"), UnprobedWhy::Prunable),
+                Some(Prune::Moved {
+                    to: vec!["b-moved".into()],
+                }),
+            ),
+            status(
+                unprobed("/home/me/dev/app-c", Some("main"), UnprobedWhy::Prunable),
+                Some(Prune::Moved {
+                    to: vec!["c-copy".into(), "c-moved".into()],
+                }),
+            ),
         ];
         let r = report(vec![app]);
         // the missing worktree says nothing here but holds its branch
@@ -1423,7 +1516,7 @@ gro  repo · owned · public · ci · follow main
 failed        app (worktree ~/dev/app-broken: git status failed (128): fatal: not a git repository)
 held          ff app:feat −1 (dirty), app:usb −4 (unprobed worktree)
 uncommitted   app (worktree ~/dev/app-feat, 3)  app (worktree ~/wt/app-feat, 1)
-cleanup       app:old (upstream gone, worktree ~/wt/app-old removable)  app (worktree ~/dev/app-gone gone — git worktree prune, or git worktree repair <new path> if it moved)  app (worktree ~/dev/app-spike gone — git worktree repair <new path> if it moved; pruning discards its detached HEAD)  app (worktree ~/moved-fix gone — git worktree repair <new path> if it moved; pruning discards its rebase in progress and its detached HEAD)  app (worktree ~/dev/app-deleted gone — git worktree repair <new path> if it moved; pruning discards its HEAD (branch feat is gone))  app (worktree ~/dev/app-garbled gone — git worktree repair <new path> if it moved; pruning discards its HEAD)
+cleanup       app:old (upstream gone, worktree ~/wt/app-old removable)  app (worktree ~/dev/app-gone gone — if it moved, move it back (or to the workspace root) and rerun repos status, else git -C ~/dev/app worktree remove ~/dev/app-gone)  app (worktree ~/dev/app-spike gone — if it moved, move it back (or to the workspace root) and rerun repos status; removing discards its detached HEAD)  app (worktree ~/moved-fix gone — if it moved, move it back (or to the workspace root) and rerun repos status; removing discards its rebase in progress and its detached HEAD)  app (worktree ~/dev/app-deleted gone — if it moved, move it back (or to the workspace root) and rerun repos status; removing discards its HEAD (branch feat is gone))  app (worktree ~/dev/app-garbled gone — if it moved, move it back (or to the workspace root) and rerun repos status; removing discards its HEAD)  app (worktree ~/dev/app-rel gone — if it moved, move it back (or to the workspace root) and rerun repos status; removing discards its index and HEAD if it isn't gone after all (git dir k names its worktree relatively, which git versions resolve differently))  app (worktree ~/dev/app-held gone — if it moved, move it back (or to the workspace root) and rerun repos status; removing discards its submodules' repos and its worktree refs and its staged changes)  app (worktree ~/dev/app-lost gone — if it moved, move it back (or to the workspace root) and rerun repos status; removing discards whatever its git dir holds (it can't be matched))  app (worktree ~/dev/app-b gone — moved to b-moved; see its line)  app (worktree ~/dev/app-c gone — moved to c-copy, c-moved; see their lines)
 clean 0 · on branches 0 · pinned 0      ~/dev/repos.toml · fetched 3h ago
 "
         );
@@ -1690,6 +1783,12 @@ clean 1 · on branches 0 · pinned 0      ~/dev/repos.toml · fetched 3h ago
                     git_dir: git_dir("q"),
                 },
             ),
+            moved(
+                "t-moved",
+                RepairBlock::RelativeGitdir {
+                    git_dir: git_dir("k"),
+                },
+            ),
         ];
         let mut r = report(vec![entry("app", main(), "main")]);
         r.unregistered = Some(strays.clone());
@@ -1697,8 +1796,9 @@ clean 1 · on branches 0 · pinned 0      ~/dev/repos.toml · fetched 3h ago
             render_summary(&r, VIEW, false),
             "\
 unregistered  owned: app-feat (moved worktree of app — another moved worktree claims this dir; \
-repair it first, then rerun), s-moved (moved worktree of app — a repair would also rewrite \
-~/dev/q; fix that first)
+repair that one first once its repair is offered, then rerun), s-moved (moved worktree of app — \
+a repair would also rewrite ~/dev/q; fix that first), t-moved (moved worktree of app — a relative \
+gitdir in this repo, which git versions resolve differently; fix by hand)
 clean 1 · on branches 0 · pinned 0      ~/dev/repos.toml · fetched 3h ago
 "
         );
@@ -1712,11 +1812,15 @@ clean 1 · on branches 0 · pinned 0      ~/dev/repos.toml · fetched 3h ago
 app-feat  unregistered · owned · moved worktree of app
   dir       ~/dev/app-feat
   origin    git@github.com:me/app
-  note      app's worktree git dir app-feat names this dir, so a repair would point this .git there — repair the moved worktree whose .git names it first, then rerun repos status
+  note      app's worktree git dir app-feat names this dir, so a repair would point this .git there — repair the moved worktree whose .git names it first, once its repair is offered, then rerun repos status
 s-moved  unregistered · owned · moved worktree of app
   dir       ~/dev/s-moved
   origin    git@github.com:me/app
   note      git worktree repair would also rewrite ~/dev/q/.git — app's worktree git dir q names it, and its .git is missing or names another — fix that first
+t-moved  unregistered · owned · moved worktree of app
+  dir       ~/dev/t-moved
+  origin    git@github.com:me/app
+  note      app's worktree git dir k names its worktree by a relative path, which git 2.48+ resolves against the git dir and older gits against the cwd — what a repair would touch is uncertain, so none is offered; make that gitdir absolute by hand, then rerun repos status
 "
         );
     }

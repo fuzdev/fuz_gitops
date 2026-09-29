@@ -76,6 +76,18 @@ fn moved_claimed(entry: &str, git_dir: &Path) -> UnregisteredKind {
     }
 }
 
+/// Moved, but a worktree git dir of the repo, `git_dir`, names its worktree
+/// relatively, so no repair is certain.
+fn moved_relative(entry: &str, git_dir: &Path) -> UnregisteredKind {
+    UnregisteredKind::MovedWorktree {
+        entry: entry.into(),
+        blocked_by: Some(RepairBlock::RelativeGitdir {
+            git_dir: git_dir.to_str().unwrap().into(),
+        }),
+        exit_noise: None,
+    }
+}
+
 /// `app`, an owned registered repo, clean on `main`.
 fn app(ws: &mut FixtureWorkspace) -> PathBuf {
     let app = ws.owned_repo("app", &[]);
@@ -683,7 +695,8 @@ fn a_git_that_cannot_be_looked_at_is_still_reported() {
 fn a_worktree_git_dir_with_no_head_is_orphaned_not_moved() {
     let mut ws = FixtureWorkspace::new();
     let app = app(&mut ws);
-    // neither `gitdir` nor `HEAD`: the probe calls it prune's to remove
+    // neither `gitdir` nor `HEAD`: the probe advises deleting it by hand
+    // only when it keeps nothing
     let bare = ws.dir("app-bare");
     let admin = ws.add_worktree(&app, &bare, &["-b", "bare"]);
     std::fs::remove_file(admin.join("gitdir")).unwrap();
@@ -1022,7 +1035,8 @@ fn a_relative_gitdir_resolves_against_the_git_dir() {
     ws.assert_head(&feat, Some("feat"));
     assert_eq!(ws.unregistered(), []);
 
-    // moved: the relative path names where it was
+    // moved: the relative path names where it was, but git versions
+    // resolve it differently, so no repair is offered
     let moved_to = ws.dir("app-moved");
     std::fs::rename(&feat, &moved_to).unwrap();
     assert_eq!(
@@ -1031,7 +1045,7 @@ fn a_relative_gitdir_resolves_against_the_git_dir() {
             "app-moved",
             Some(&owned_origin("app")),
             true,
-            moved("app")
+            moved_relative("app", &admin)
         )]
     );
 }
@@ -1692,6 +1706,75 @@ fn a_blocking_path_shows_as_the_git_dir_writes_it() {
             Some(&owned_origin("app")),
             true,
             moved_rewrites("app", &written, &y_admin)
+        )]
+    );
+}
+
+#[test]
+fn a_relative_gitdir_blocks_every_repair_in_its_repo() {
+    let mut ws = FixtureWorkspace::new();
+    let app = app(&mut ws);
+    // git dir `k` names its live worktree relatively: git 2.48+ resolves it
+    // against the git dir, older gits against the cwd — where a repair
+    // would write a `.git` into whatever dir that names
+    let k = ws.outside("k");
+    let k_admin = ws.add_worktree(&app, &k, &["-b", "k"]);
+    std::fs::write(k_admin.join("gitdir"), "../../../../../k/.git\n").unwrap();
+    assert_eq!(k_admin.join("../../../../../k").canonicalize().unwrap(), k);
+    // an unrelated worktree, moved
+    let s_dir = ws.dir("s");
+    ws.add_worktree(&app, &s_dir, &["-b", "s"]);
+    let s_moved = ws.dir("s-moved");
+    std::fs::rename(&s_dir, &s_moved).unwrap();
+    let origin = owned_origin("app");
+
+    let blocked = [stray(
+        "s-moved",
+        Some(&origin),
+        true,
+        moved_relative("app", &k_admin),
+    )];
+    assert_eq!(ws.unregistered(), blocked);
+    // and whatever else stands in the way, the relative gitdir comes first:
+    // `k`'s `.git` gone (a rewrite), then a dir (noise)
+    std::fs::remove_file(k.join(".git")).unwrap();
+    assert_eq!(ws.unregistered(), blocked);
+    std::fs::create_dir(k.join(".git")).unwrap();
+    assert_eq!(ws.unregistered(), blocked);
+}
+
+#[test]
+fn a_noisy_path_shows_as_the_git_dir_writes_it() {
+    let mut ws = FixtureWorkspace::new();
+    let app = app(&mut ws);
+    // git dir `y` names its worktree through a link, and its `.git` is a
+    // dir: git complains about the linked path, and so does the report
+    let real = ws.outside("real");
+    std::fs::create_dir(&real).unwrap();
+    let link = ws.outside("link");
+    symlink(&real, &link).unwrap();
+    let y = real.join("y");
+    let y_admin = ws.add_worktree(&app, &y, &["-b", "y"]);
+    std::fs::remove_file(y.join(".git")).unwrap();
+    std::fs::create_dir(y.join(".git")).unwrap();
+    let written = link.join("y");
+    std::fs::write(
+        y_admin.join("gitdir"),
+        format!("{}\n", written.join(".git").display()),
+    )
+    .unwrap();
+    let s_dir = ws.dir("s");
+    ws.add_worktree(&app, &s_dir, &["-b", "s"]);
+    let s_moved = ws.dir("s-moved");
+    std::fs::rename(&s_dir, &s_moved).unwrap();
+
+    assert_eq!(
+        ws.unregistered(),
+        [stray(
+            "s-moved",
+            Some(&owned_origin("app")),
+            true,
+            moved_noisy("app", &written)
         )]
     );
 }

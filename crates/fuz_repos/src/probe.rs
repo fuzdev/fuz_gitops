@@ -14,7 +14,7 @@ use crate::porcelain::{
 };
 use crate::registry::{CheckoutMode, Entry};
 use crate::state::{
-    Checkout, Head, InProgressOp, Layout, UnprobedHead, UnprobedWhy, UnprobedWorktree,
+    Checkout, GitDirHolds, Head, InProgressOp, Layout, UnprobedHead, UnprobedWhy, UnprobedWorktree,
 };
 
 /// What the probe needs from its caller.
@@ -77,6 +77,10 @@ pub struct RepoFacts {
     /// or `<commondir>/worktrees/` itself — so an operation there is
     /// unknowable.
     pub unreadable: Vec<String>,
+    /// The first worktree git dir whose `gitdir` names its worktree by a
+    /// relative path. Git 2.48+ resolves one against the git dir, older gits
+    /// against the cwd, so every worktree path of the repo is uncertain.
+    pub relative_gitdir: Option<PathBuf>,
     pub branches: Vec<BranchFacts>,
     pub layout: Layout,
     /// The newest `FETCH_HEAD` mtime across the repo's worktrees (each keeps
@@ -293,6 +297,7 @@ fn probe_present(
         worktrees: worktrees.probed,
         unprobed: worktrees.unprobed,
         unreadable: worktrees.unreadable,
+        relative_gitdir: worktrees.relative_gitdir,
         branches,
         layout,
         fetched_at,
@@ -323,6 +328,8 @@ struct Worktrees {
     /// Every admin dir under `<commondir>/worktrees/`, each worktree's own
     /// git dir (where it keeps its `FETCH_HEAD`).
     admins: Vec<PathBuf>,
+    /// The first admin dir whose `gitdir` is relative.
+    relative_gitdir: Option<PathBuf>,
 }
 
 /// Probes every worktree of the repo but the primary: each one `git worktree
@@ -353,6 +360,7 @@ fn probe_worktrees(
     });
     let mut used = vec![false; admins.len()];
     w.admins = admins.iter().map(|a| a.dir.clone()).collect();
+    w.relative_gitdir = admins.iter().find(|a| a.relative).map(|a| a.dir.clone());
     // the primary is found by its git dir, never its path: with
     // `--separate-git-dir` git prints the main worktree's git dir as its path
     let primary_git_dir = canonical(git_dir);
@@ -471,12 +479,19 @@ fn probe_record(
                 (_, Some(d)) => read_head(d),
                 (head, None) => unprobed_head(head),
             };
+            // only a gone one's git dir is at stake, so only it's read — and
+            // one that can't be matched can't be read at all
+            let holds = git_dir
+                .filter(|_| why == UnprobedWhy::Prunable)
+                .map(|d| git_dir_holds(git, d, &head));
             w.unprobed.push(UnprobedWorktree {
                 path: record.path,
+                git_dir: git_dir.map(shown_git_dir),
                 head,
                 locked,
                 in_progress,
                 why,
+                holds,
             });
         }
     }
@@ -495,12 +510,14 @@ fn unlisted_worktree(admin: &AdminDir, unreadable: &mut Vec<String>) -> Unprobed
     };
     UnprobedWorktree {
         path: path.to_string_lossy().into_owned(),
+        git_dir: Some(shown_git_dir(&admin.dir)),
         head: read_head(&admin.dir),
         locked: admin.dir.join("locked").exists(),
         in_progress: markers(&admin.dir, unreadable),
         why: UnprobedWhy::Failed {
             error: format!("not listed by git: {reason}"),
         },
+        holds: None,
     }
 }
 
@@ -549,9 +566,78 @@ fn any_populated(path: &Path, gitlinks: &[String]) -> bool {
         .any(|g| path.join(g).join(".git").try_exists().unwrap_or(true))
 }
 
+/// What a gone worktree's own git dir holds that its removal would drop,
+/// read without writing: `modules/` and `refs/` by listing, the index
+/// against HEAD by one `diff-index --cached` — not asked when its HEAD is
+/// unknown, and none needed when it has no index (added `--no-checkout`).
+fn git_dir_holds(git: &Git, git_dir: &Path, head: &UnprobedHead) -> GitDirHolds {
+    let staged = match git_dir.join("index").try_exists() {
+        Ok(false) => Some(false),
+        Ok(true) if *head != UnprobedHead::Unknown => staged_changes(git, git_dir),
+        Ok(true) | Err(_) => None,
+    };
+    GitDirHolds {
+        submodules: holds_any(&git_dir.join("modules"), false),
+        worktree_refs: holds_any(&git_dir.join("refs"), true),
+        staged,
+    }
+}
+
+/// Whether `dir` holds anything: any entry, or with `files`, anything but a
+/// dir anywhere below it (links not followed). Missing holds nothing; one
+/// that can't be read, or isn't a dir, holds something.
+fn holds_any(dir: &Path, files: bool) -> bool {
+    let entries = match std::fs::read_dir(dir) {
+        Ok(entries) => entries,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return false,
+        Err(_) => return true,
+    };
+    for entry in entries {
+        let Ok(entry) = entry else { return true };
+        let is_dir = entry.file_type().is_ok_and(|t| t.is_dir());
+        if !files || !is_dir || holds_any(&entry.path(), true) {
+            return true;
+        }
+    }
+    false
+}
+
+/// Whether a worktree's index differs from its HEAD, from its git dir
+/// alone: `diff-index --cached --quiet`, which compares the index with the
+/// HEAD tree without refreshing or writing either; intent-to-add entries
+/// (`git add -N`) hold no content, so they don't count. `None` when git
+/// can't tell (a failure, or a path git can't be given).
+fn staged_changes(git: &Git, git_dir: &Path) -> Option<bool> {
+    let git_dir_arg = format!("--git-dir={}", git_dir.to_str()?);
+    let args = [
+        git_dir_arg.as_str(),
+        "diff-index",
+        "--cached",
+        "--ita-invisible-in-index",
+        "--quiet",
+        "HEAD",
+    ];
+    let out = git.run(git_dir, &args, CallOptions::default()).ok()?;
+    match out.status.code() {
+        Some(0) => Some(false),
+        Some(1) => Some(true),
+        _ => None,
+    }
+}
+
 /// A path canonicalized, or `None` when it can't be.
 pub(crate) fn canonical(path: &Path) -> Option<PathBuf> {
     path.canonicalize().ok()
+}
+
+/// A worktree's own git dir as the report carries it: canonicalized when it
+/// can be, so it compares equal to the one a stray's `.git` names.
+fn shown_git_dir(git_dir: &Path) -> String {
+    canonical(git_dir)
+        .as_deref()
+        .unwrap_or(git_dir)
+        .to_string_lossy()
+        .into_owned()
 }
 
 /// A worktree's HEAD, from its git dir: `Unknown` when it can't be read or
@@ -671,6 +757,9 @@ pub(crate) struct AdminDir {
     /// git's worktree list derives the path it prints, so the two compare
     /// equal even when the worktree is gone; `Err` with why it can't be read.
     pub(crate) worktree: Result<PathBuf, String>,
+    /// Whether its `gitdir` names the worktree by a relative path, which git
+    /// 2.48+ resolves against the git dir and older gits against the cwd.
+    pub(crate) relative: bool,
 }
 
 /// Every git dir under `<commondir>/worktrees/`, readable or not; entries
@@ -692,8 +781,14 @@ pub(crate) fn admin_dirs(common_dir: &Path) -> std::io::Result<Vec<AdminDir>> {
         if std::fs::metadata(&dir).is_ok_and(|m| !m.is_dir()) {
             continue;
         }
-        let worktree = admin_worktree(&dir);
-        admins.push(AdminDir { dir, worktree });
+        let gitdir = read_admin_gitdir(&dir);
+        let relative = matches!(gitdir, AdminGitdir::Names { relative: true, .. });
+        let worktree = admin_worktree(&dir, gitdir);
+        admins.push(AdminDir {
+            dir,
+            worktree,
+            relative,
+        });
     }
     admins.sort_by(|a, b| a.dir.cmp(&b.dir));
     Ok(admins)
@@ -707,9 +802,13 @@ pub(crate) fn admin_dirs(common_dir: &Path) -> std::io::Result<Vec<AdminDir>> {
 pub(crate) enum AdminGitdir {
     /// The worktree path it names (relative to the git dir when git writes
     /// relative paths; a trailing `/.git` stripped, as git strips only
-    /// that), resolved as far as it exists — how git's worktree list derives
-    /// the path it prints.
-    Names(PathBuf),
+    /// that), resolved as far as it exists — how git 2.48+'s worktree list
+    /// derives the path it prints; `relative` when written relative, which
+    /// older gits resolve against the cwd instead.
+    Names {
+        worktree: PathBuf,
+        relative: bool,
+    },
     Empty,
     /// No `gitdir` file (the read's error, for messages).
     Missing(std::io::Error),
@@ -723,33 +822,77 @@ pub(crate) fn read_admin_gitdir(admin: &Path) -> AdminGitdir {
         Ok(target) => {
             // git strips a `/.git` suffix and takes anything else as the
             // worktree's path itself
-            let named = admin.join(target.trim_end());
+            let written = Path::new(target.trim_end());
+            let named = admin.join(written);
             let worktree = match named.file_name() {
                 Some(name) if name == ".git" => named.parent().unwrap_or(&named),
                 _ => &named,
             };
-            AdminGitdir::Names(realpath_forgiving(worktree))
+            AdminGitdir::Names {
+                worktree: realpath_forgiving(worktree),
+                relative: written.is_relative(),
+            }
         }
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => AdminGitdir::Missing(e),
         Err(e) => AdminGitdir::Unreadable(e),
     }
 }
 
-/// The worktree path a linked worktree's git dir names (`read_admin_gitdir`);
-/// `Err` with why it can't be read.
-fn admin_worktree(admin: &Path) -> Result<PathBuf, String> {
+/// The worktree path a linked worktree's git dir names, from its `gitdir`
+/// as read; `Err` with why it can't be read.
+fn admin_worktree(admin: &Path, gitdir: AdminGitdir) -> Result<PathBuf, String> {
     let file = admin.join("gitdir");
-    match read_admin_gitdir(admin) {
-        AdminGitdir::Names(worktree) => Ok(worktree),
+    match gitdir {
+        AdminGitdir::Names { worktree, .. } => Ok(worktree),
         AdminGitdir::Empty => Err(format!("{} is empty", file.display())),
-        AdminGitdir::Missing(_) if !admin.join("HEAD").exists() => Err(format!(
-            "{} holds no worktree (no gitdir, no HEAD); git worktree prune removes it",
-            admin.display()
-        )),
+        // never `git worktree prune`: it prunes every gone worktree of the
+        // repo, not just this one
+        AdminGitdir::Missing(_) if !admin.join("HEAD").exists() => {
+            let kept = kept_without_worktree(admin);
+            Err(if kept.is_empty() {
+                format!(
+                    "{} holds no worktree (no gitdir, no HEAD); delete that dir by hand",
+                    admin.display()
+                )
+            } else {
+                format!(
+                    "{} holds no worktree (no gitdir, no HEAD) but keeps {}; check it by hand",
+                    admin.display(),
+                    kept.join(" and ")
+                )
+            })
+        }
         AdminGitdir::Missing(e) | AdminGitdir::Unreadable(e) => {
             Err(format!("reading {}: {e}", file.display()))
         }
     }
+}
+
+/// What a worktree git dir with neither `gitdir` nor `HEAD` still keeps
+/// that deleting it would lose: a lock (`git worktree add` writes it first,
+/// so the add may be under way, and `git worktree prune` skips it), an
+/// index (maybe staged changes), an operation's state, submodules' repos,
+/// per-worktree refs. Anything that can't be looked at counts as kept.
+fn kept_without_worktree(admin: &Path) -> Vec<String> {
+    let mut kept = Vec::new();
+    if admin.join("locked").try_exists().unwrap_or(true) {
+        kept.push("a lock (a git worktree add may be under way)".to_owned());
+    }
+    if admin.join("index").try_exists().unwrap_or(true) {
+        kept.push("an index (maybe staged changes)".to_owned());
+    }
+    match read_in_progress(admin) {
+        Ok(None) => {}
+        Ok(Some(op)) => kept.push(format!("a {} in progress", op.label())),
+        Err(_) => kept.push("operation markers it can't read".to_owned()),
+    }
+    if holds_any(&admin.join("modules"), false) {
+        kept.push("submodules' repos (modules/)".to_owned());
+    }
+    if holds_any(&admin.join("refs"), true) {
+        kept.push("per-worktree refs (refs/)".to_owned());
+    }
+    kept
 }
 
 /// `path` with its longest existing prefix canonicalized and the rest
@@ -957,6 +1100,7 @@ mod tests {
         let named = AdminDir {
             dir: admin.clone(),
             worktree: Ok(PathBuf::from("/ws/app-feat")),
+            relative: false,
         };
         let u = unlisted_worktree(&named, &mut unreadable);
         assert_eq!(u.path, "/ws/app-feat");
@@ -977,6 +1121,7 @@ mod tests {
         let unnamed = AdminDir {
             dir: admin.clone(),
             worktree: Err("gone".into()),
+            relative: false,
         };
         let u = unlisted_worktree(&unnamed, &mut unreadable);
         assert_eq!(u.path, admin.to_str().unwrap());

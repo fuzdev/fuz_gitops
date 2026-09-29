@@ -79,8 +79,8 @@ pub enum UnregisteredKind {
         entry: String,
         blocked_by: Option<RepairBlock>,
         /// With the repair offered, a path git's walk over the other
-        /// worktree git dirs will complain about (as the git dir writes it)
-        /// — one isn't a dir, or its `.git` isn't a file — exiting 1 while
+        /// worktree git dirs will complain about, as the git dir writes it —
+        /// one isn't a dir, or its `.git` isn't a file — exiting 1 while
         /// repairing this one all the same; `None` when the repair exits 0.
         exit_noise: Option<String>,
     },
@@ -152,12 +152,18 @@ pub enum RepairBlock {
     Rewrites { path: String, git_dir: String },
     /// This very dir: the worktree git dir `git_dir` names it, and a repair
     /// would point its `.git` there. The moved worktree whose `.git` names
-    /// `git_dir` is to be repaired first (it's in the same list, with its
-    /// repair offered when that's safe); then rerun.
+    /// `git_dir` is to be repaired first, once its repair is offered — it's
+    /// in the same list, and its own repair may be blocked too (a chain of
+    /// moves settles one repair per run); then rerun.
     ClaimedDir { git_dir: String },
     /// This dir and `with`'s were swapped by hand: `git_dir` names this dir
     /// while `with`'s `.git` names it, and the other way round. Moving the
     /// two dirs back reconnects both; a repair of either would hijack the
     /// other.
     Swapped { git_dir: String, with: String },
+    /// The repo's worktree git dir `git_dir` names its worktree by a relative
+    /// path, which git 2.48+ resolves against the git dir and older gits
+    /// against the cwd, so what a repair would touch is uncertain: fix it by
+    /// hand. Decided before the other blocks, for any stray of the repo.
+    RelativeGitdir { git_dir: String },
 }

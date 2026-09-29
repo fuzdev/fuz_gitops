@@ -10,7 +10,8 @@ use crate::git::Git;
 use crate::probe::{ProbeContext, ProbeRun, Probed, probe};
 use crate::registry::Entry;
 use crate::report::EntryStatus;
-use crate::state::{Checkout, Presence};
+use crate::scan::Scan;
+use crate::state::{Checkout, Presence, Prune};
 
 /// How to run `status`.
 #[derive(Debug, Clone, Copy)]
@@ -135,4 +136,25 @@ pub fn entry_status(entry: &Entry, run: ProbeRun) -> EntryStatus {
         }
     }
     status
+}
+
+/// Marks each gone worktree that the scan found moved into the workspace
+/// root — a stray's `.git` names its git dir — as `Prune::Moved`, naming
+/// every such stray: dropping its git dir would orphan them.
+pub fn mark_moved_worktrees(entries: &mut [EntryStatus], scan: &Scan) {
+    for u in entries.iter_mut().flat_map(|e| &mut e.unprobed_worktrees) {
+        let (Some(_), Some(git_dir)) = (&u.prune, &u.worktree.git_dir) else {
+            continue;
+        };
+        let to: Vec<String> = scan
+            .unregistered
+            .iter()
+            .zip(&scan.git_dirs)
+            .filter(|(_, g)| g.as_deref() == Some(Path::new(git_dir)))
+            .map(|(s, _)| s.dir.clone())
+            .collect();
+        if !to.is_empty() {
+            u.prune = Some(Prune::Moved { to });
+        }
+    }
 }
