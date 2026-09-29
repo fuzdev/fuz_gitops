@@ -11,11 +11,20 @@
 //! moved by hand (`git worktree repair` reconnects it, offered only when
 //! the repair — which also walks every other worktree git dir of the repo —
 //! would rewrite no other checkout, and no git dir of the repo names its
-//! worktree relatively, which git versions resolve differently), orphaned
+//! worktree relatively, which git versions resolve differently, or has a
+//! `gitdir` the tool can't read), orphaned
 //! (its git dir is gone or holds no `HEAD`), or sharing a git dir another
 //! checkout uses or may use — a copy, a locked worktree's absent original, a
 //! second copy of a moved worktree — where a repair would take the git dir
 //! from that checkout, so none is offered.
+//!
+//! A `.git`, a git dir's `commondir`, and a worktree git dir's `gitdir` are
+//! read as git reads them (`gitdir`) — raw bytes, UTF-8 or not — so a child
+//! is linked to a registered repo only through files git itself would
+//! follow, and a repair's walk is judged over every worktree git walks. A
+//! repair is offered only as a command naming the dir exactly: never for a
+//! path that isn't UTF-8, nor through a `gitdir` git reads two ways (a NUL
+//! in it).
 //!
 //! Reading is file reads plus one git call per stray, for its origin: `git
 //! config` through the hardened runner, so includes, `includeIf`, and a
@@ -30,9 +39,8 @@ use std::path::{Path, PathBuf};
 
 use crate::classify::remote_account;
 use crate::git::{CallOptions, Git};
-use crate::probe::{
-    AdminGitdir, admin_dirs, canonical, dot_git_target, read_admin_gitdir, read_regular,
-};
+use crate::gitdir::{dot_git_target, read_commondir, read_worktree_gitdir};
+use crate::probe::{AdminGitdir, admin_dirs, canonical, read_admin_gitdir};
 use crate::registry::{Entry, is_owner};
 use crate::report::{RepairBlock, UnregisteredClone, UnregisteredKind};
 use crate::url::without_userinfo;
@@ -181,22 +189,43 @@ impl<'s, 'r> Settled<'s, 'r> {
                 },
                 None,
             ) => UnregisteredKind::Worktree,
-            (Kind::Moved { entry, admin, .. }, None) => {
-                // a relative `gitdir` anywhere in the repo makes the walk
-                // uncertain, whatever else stands in the way
-                let blocked_by = self.registered[*entry].walk(admin).relative.map_or_else(
-                    || self.hazards[i].map(|h| self.repair_block(i, h)),
-                    |git_dir| {
-                        Some(RepairBlock::RelativeGitdir {
-                            git_dir: git_dir.to_string_lossy().into_owned(),
+            (
+                Kind::Moved {
+                    entry, admin, nul, ..
+                },
+                None,
+            ) => {
+                let effects = self.registered[*entry].walk(admin);
+                let shown = |git_dir: &Path| git_dir.to_string_lossy().into_owned();
+                // a relative or unreadable `gitdir` anywhere in the repo
+                // makes the walk uncertain, whatever else stands in the way;
+                // a path the report can't show exactly can't be named in any
+                // fix; and a NUL in its own `gitdir` may leave the repair
+                // changing nothing
+                let blocked_by = effects
+                    .relative
+                    .map(|git_dir| RepairBlock::RelativeGitdir {
+                        git_dir: shown(git_dir),
+                    })
+                    .or_else(|| {
+                        effects
+                            .unreadable
+                            .map(|git_dir| RepairBlock::UnreadableGitdir {
+                                git_dir: shown(git_dir),
+                            })
+                    })
+                    .or_else(|| self.hazards[i].map(|h| self.repair_block(i, h)))
+                    .or_else(|| {
+                        let exact = self.strays[i].path.to_str().is_some();
+                        (!exact).then_some(RepairBlock::NonUtf8Path)
+                    })
+                    .or_else(|| {
+                        nul.then(|| RepairBlock::NulInGitdir {
+                            git_dir: shown(admin),
                         })
-                    },
-                );
+                    });
                 let exit_noise = if blocked_by.is_none() {
-                    self.registered[*entry]
-                        .walk(admin)
-                        .noise
-                        .map(|h| h.shown.to_string_lossy().into_owned())
+                    effects.noise.map(|h| shown(&h.shown))
                 } else {
                     None
                 };
@@ -249,8 +278,8 @@ impl<'s, 'r> Settled<'s, 'r> {
 }
 
 /// The entry and git dir of a stray a repair could reconnect: moved, its
-/// `.git` a regular file, and no fellow stray at another path naming its
-/// git dir.
+/// `.git` a regular file, no NUL in its git dir's `gitdir`, and no fellow
+/// stray at another path naming its git dir.
 fn repairable<'a>(
     strays: &'a [Found],
     shared: &HashMap<usize, usize>,
@@ -261,6 +290,7 @@ fn repairable<'a>(
             entry,
             admin,
             regular_file: true,
+            nul: false,
         } if !shared.contains_key(&i) => Some((*entry, admin.as_path())),
         _ => None,
     }
@@ -366,6 +396,7 @@ impl<'a> Registered<'a> {
             hazard: walk.hazards.iter().find(|h| h.admin != admin),
             noise: walk.noise.iter().find(|h| h.admin != admin),
             relative: walk.relative.as_deref(),
+            unreadable: walk.unreadable.as_deref(),
         }
     }
 
@@ -377,13 +408,13 @@ impl<'a> Registered<'a> {
     }
 }
 
-/// The common git dir of a git dir, canonicalized: its `commondir` file's
-/// target (relative to it) when it has one — a linked worktree's — else
-/// itself.
+/// The common git dir of a git dir, canonicalized: the dir its `commondir`
+/// names, read as git reads it (`read_commondir`), when it has one — a
+/// linked worktree's — else itself. `None` where git stops with an error.
 fn common_dir_of(git_dir: &Path) -> Option<PathBuf> {
-    match read_regular(&git_dir.join("commondir")) {
-        Ok(common) => canonical(&git_dir.join(common.trim_end())),
-        Err(e) if e.kind() == io::ErrorKind::NotFound => canonical(git_dir),
+    match read_commondir(git_dir) {
+        Ok(Some(common)) => canonical(&common),
+        Ok(None) => canonical(git_dir),
         Err(_) => None,
     }
 }
@@ -399,6 +430,10 @@ struct RepairWalk {
     /// The first worktree git dir whose `gitdir` is relative: git versions
     /// resolve it differently, so the walk itself is uncertain.
     relative: Option<PathBuf>,
+    /// The first worktree git dir whose `gitdir` is there but can't be read
+    /// (or which can't itself be resolved): what git's walk does with it is
+    /// unknown, so the walk is uncertain too.
+    unreadable: Option<PathBuf>,
 }
 
 /// A repair's effects on the other worktrees, for one worktree's repair.
@@ -407,6 +442,7 @@ struct RepairEffects<'a> {
     hazard: Option<&'a RepairHazard>,
     noise: Option<&'a RepairHazard>,
     relative: Option<&'a Path>,
+    unreadable: Option<&'a Path>,
 }
 
 /// The repo-wide part of `git worktree repair`, as git decides it: for each
@@ -414,12 +450,14 @@ struct RepairEffects<'a> {
 /// git rewrites the path's `.git` when that's missing, or is a file (links
 /// followed, as git follows them here) that doesn't name that git dir — a
 /// hazard; and complains, exiting 1 but leaving it be, when the path isn't
-/// a dir or its `.git` isn't a file — noise. A git dir whose `gitdir` can't
-/// be read is skipped, as git skips it. Paths resolve as git 2.48+ resolves
-/// them; older gits resolve a relative `gitdir` against the cwd, so the
-/// first relative one is kept, and makes the whole walk uncertain.
-/// `worktrees/` that can't be listed yields nothing — the scan then can't
-/// tell, and git couldn't walk it either.
+/// a dir or its `.git` isn't a file — noise. Every git dir git walks is
+/// considered, its `gitdir` read as git reads it (bytes, UTF-8 or not): one
+/// that's missing or names nothing is skipped, as git skips it; one that's
+/// there but can't be read is kept, and makes the whole walk uncertain.
+/// Paths resolve as git 2.48+ resolves them; older gits resolve a relative
+/// `gitdir` against the cwd, so the first relative one is kept, and makes
+/// the walk uncertain too. `worktrees/` that can't be listed yields
+/// nothing — the scan then can't tell, and git couldn't walk it either.
 fn repair_walk(common: &Path) -> RepairWalk {
     let mut walk = RepairWalk::default();
     let Ok(admins) = admin_dirs(common) else {
@@ -429,10 +467,19 @@ fn repair_walk(common: &Path) -> RepairWalk {
         if a.relative && walk.relative.is_none() {
             walk.relative = Some(canonical(&a.dir).unwrap_or_else(|| a.dir.clone()));
         }
-        let (Ok(path), Some(admin)) = (a.worktree, canonical(&a.dir)) else {
-            continue;
+        let (path, admin) = match (a.worktree, canonical(&a.dir)) {
+            (Ok(path), Some(admin)) => (path, admin),
+            // missing, or naming nothing: git skips it
+            (Err(_), _) if !a.unreadable => continue,
+            (_, admin) => {
+                if walk.unreadable.is_none() {
+                    walk.unreadable = Some(admin.unwrap_or(a.dir));
+                }
+                continue;
+            }
         };
-        if !path.try_exists().unwrap_or(false) {
+        // lstat, as git's `file_exists`: a dangling link is there, and noise
+        if std::fs::symlink_metadata(&path).is_err() {
             continue;
         }
         let dot_git = path.join(".git");
@@ -453,15 +500,15 @@ fn repair_walk(common: &Path) -> RepairWalk {
     walk
 }
 
-/// The worktree path a worktree git dir's `gitdir` names, as written: its
-/// `/.git` stripped, as git strips it. A relative one is never shown: a repo
-/// with one is blocked (`RepairBlock::RelativeGitdir`) before any path is.
+/// The worktree path a worktree git dir's `gitdir` names, as written and as
+/// git takes it (`read_worktree_gitdir`). A relative one is never shown: a
+/// repo with one is blocked (`RepairBlock::RelativeGitdir`) before any path
+/// is.
 fn written_worktree(admin: &Path) -> Option<PathBuf> {
-    let target = read_regular(&admin.join("gitdir")).ok()?;
-    let target = target.trim_end();
-    Some(PathBuf::from(
-        target.strip_suffix("/.git").unwrap_or(target),
-    ))
+    read_worktree_gitdir(admin)
+        .ok()
+        .map(|g| g.path)
+        .filter(|p| !p.as_os_str().is_empty())
 }
 
 /// A child found to be a stray, the git dir its `.git` names, and where to
@@ -496,6 +543,10 @@ enum Kind {
         /// repair reconnects cleanly (git writes a link's target into the git
         /// dir, and refuses a dir).
         regular_file: bool,
+        /// Whether the git dir's `gitdir` holds a NUL, so a repair of this
+        /// dir may see it as already naming this dir and change nothing
+        /// (`WorktreeGitdir::nul`).
+        nul: bool,
     },
 }
 
@@ -645,7 +696,9 @@ fn linked_git_dir_kind(
             with: None,
         })
     };
-    Some(match read_admin_gitdir(&git_dir) {
+    let gitdir = read_admin_gitdir(&git_dir);
+    let nul = matches!(gitdir, AdminGitdir::Names { nul: true, .. });
+    Some(match gitdir {
         AdminGitdir::Names {
             worktree: named, ..
         } if real == Some(named.as_path()) => {
@@ -670,6 +723,7 @@ fn linked_git_dir_kind(
             entry,
             admin: git_dir,
             regular_file,
+            nul,
         },
     })
 }

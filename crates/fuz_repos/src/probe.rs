@@ -6,16 +6,22 @@
 //! a refspec no flag can confine — origin's writing outside
 //! `refs/remotes/origin/`, or another remote's writing inside it — isn't
 //! fetched).
+//!
+//! The files it reads itself that git reads too — a worktree's `.git`, a
+//! worktree git dir's `HEAD` and `gitdir` — are read as git reads them
+//! (`gitdir`).
 
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant, UNIX_EPOCH};
 
 use crate::git::{CallOptions, Git, GitError, NetworkOptions};
+use crate::gitdir::{dot_git_target, read_head, read_worktree_gitdir};
 use crate::porcelain::{
     self, ConfigFacts, RefFacts, StatusFacts, Track, WorktreeHead, WorktreeRecord,
 };
 use crate::registry::Entry;
+use crate::regular_file::read_regular;
 use crate::remote::{RefspecContext, RemoteFailure};
 use crate::state::{
     Checkout, GitDirHolds, Head, InProgressOp, Layout, UnprobedHead, UnprobedWhy, UnprobedWorktree,
@@ -949,24 +955,6 @@ fn shown_git_dir(git_dir: &Path) -> String {
     own_git_dir(git_dir).to_string_lossy().into_owned()
 }
 
-/// A worktree's HEAD, from its git dir: `Unknown` when it can't be read or
-/// is neither a branch ref nor a full object id.
-fn read_head(admin: &Path) -> UnprobedHead {
-    let Ok(head) = read_regular(&admin.join("HEAD")) else {
-        return UnprobedHead::Unknown;
-    };
-    let head = head.trim();
-    if let Some(name) = head.strip_prefix("ref: refs/heads/") {
-        return UnprobedHead::Branch { name: name.into() };
-    }
-    if porcelain::is_object_id(head) {
-        return UnprobedHead::Detached {
-            commit: head.to_owned(),
-        };
-    }
-    UnprobedHead::Unknown
-}
-
 /// `Err` with why a worktree can't be probed: its dir is gone (`Prunable`
 /// when git says so, else `Missing`, as a locked worktree on unmounted media
 /// is), or it's there but has no `.git` or can't be looked at (`Failed`).
@@ -1024,39 +1012,6 @@ fn probe_worktree(git: &Git, path: &Path, git_dir: Option<&Path>) -> Result<Stat
     porcelain::parse_status(&out)
 }
 
-/// Reads a file that must be a regular one (links followed): a FIFO, a
-/// device, or a dir is an error rather than a read that could block
-/// forever.
-///
-/// # Errors
-///
-/// When it can't be stat'd or read, or isn't a regular file.
-pub(crate) fn read_regular(path: &Path) -> std::io::Result<String> {
-    if !std::fs::metadata(path)?.is_file() {
-        return Err(std::io::Error::new(
-            std::io::ErrorKind::InvalidInput,
-            "not a regular file",
-        ));
-    }
-    std::fs::read_to_string(path)
-}
-
-/// The git dir a worktree's `.git` names: the dir itself, or a `.git` file's
-/// `gitdir:` line (relative to the worktree when git writes relative paths).
-pub(crate) fn dot_git_target(dot_git: &Path) -> Result<PathBuf, String> {
-    if dot_git.is_dir() {
-        return Ok(dot_git.to_owned());
-    }
-    let content =
-        read_regular(dot_git).map_err(|e| format!("reading {}: {e}", dot_git.display()))?;
-    let target = content
-        .lines()
-        .find_map(|l| l.strip_prefix("gitdir: "))
-        .ok_or_else(|| format!("{} has no gitdir line", dot_git.display()))?;
-    let base = dot_git.parent().unwrap_or(dot_git);
-    Ok(base.join(target.trim_end()))
-}
-
 /// A linked worktree's own git dir, `<commondir>/worktrees/<id>`.
 #[derive(Debug)]
 pub(crate) struct AdminDir {
@@ -1069,6 +1024,9 @@ pub(crate) struct AdminDir {
     /// Whether its `gitdir` names the worktree by a relative path, which git
     /// 2.48+ resolves against the git dir and older gits against the cwd.
     pub(crate) relative: bool,
+    /// Whether its `gitdir` is there but can't be read (not missing, not
+    /// empty), so the tool can't tell what worktree git names by it.
+    pub(crate) unreadable: bool,
 }
 
 /// Every git dir under `<commondir>/worktrees/`, readable or not; entries
@@ -1092,11 +1050,13 @@ pub(crate) fn admin_dirs(common_dir: &Path) -> std::io::Result<Vec<AdminDir>> {
         }
         let gitdir = read_admin_gitdir(&dir);
         let relative = matches!(gitdir, AdminGitdir::Names { relative: true, .. });
+        let unreadable = matches!(gitdir, AdminGitdir::Unreadable(_));
         let worktree = admin_worktree(&dir, gitdir);
         admins.push(AdminDir {
             dir,
             worktree,
             relative,
+            unreadable,
         });
     }
     admins.sort_by(|a, b| a.dir.cmp(&b.dir));
@@ -1104,20 +1064,26 @@ pub(crate) fn admin_dirs(common_dir: &Path) -> std::io::Result<Vec<AdminDir>> {
 }
 
 /// What a linked worktree's git dir (`<commondir>/worktrees/<id>`) says in
-/// its `gitdir` file, with the read error's kind kept: a missing or empty file
-/// is lost (`git worktree repair` rewrites it), any other failure may hide a
-/// worktree in use.
+/// its `gitdir` file, read as git reads it (`read_worktree_gitdir`), with the
+/// read error's kind kept: a missing or empty file is lost (`git worktree
+/// repair` rewrites it), any other failure may hide a worktree in use.
 #[derive(Debug)]
 pub(crate) enum AdminGitdir {
-    /// The worktree path it names (relative to the git dir when git writes
-    /// relative paths; a trailing `/.git` stripped, as git strips only
-    /// that), resolved as far as it exists — how git 2.48+'s worktree list
-    /// derives the path it prints; `relative` when written relative, which
-    /// older gits resolve against the cwd instead.
+    /// The worktree path it names, as git takes it — raw bytes, trailing
+    /// whitespace (git's own) trimmed, a trailing `/.git` stripped, then cut
+    /// at the first NUL (`read_worktree_gitdir`) — joined to the git dir (git
+    /// 2.48+ resolves a relative one there) and resolved as far as it
+    /// exists: how git 2.48+'s worktree list derives the path it prints;
+    /// `relative` when written relative, which older gits resolve against
+    /// the cwd instead; `nul` when a NUL is left in it once trimmed, so a
+    /// repair of the worktree reads it otherwise (`WorktreeGitdir::nul`).
     Names {
         worktree: PathBuf,
         relative: bool,
+        nul: bool,
     },
+    /// The file names no path: it's empty, or nothing's left once trimmed
+    /// and cut.
     Empty,
     /// No `gitdir` file (the read's error, for messages).
     Missing(std::io::Error),
@@ -1126,22 +1092,13 @@ pub(crate) enum AdminGitdir {
 
 /// Reads a linked worktree's git dir's `gitdir` file.
 pub(crate) fn read_admin_gitdir(admin: &Path) -> AdminGitdir {
-    match read_regular(&admin.join("gitdir")) {
-        Ok(target) if target.trim().is_empty() => AdminGitdir::Empty,
-        Ok(target) => {
-            // git strips a `/.git` suffix and takes anything else as the
-            // worktree's path itself
-            let written = Path::new(target.trim_end());
-            let named = admin.join(written);
-            let worktree = match named.file_name() {
-                Some(name) if name == ".git" => named.parent().unwrap_or(&named),
-                _ => &named,
-            };
-            AdminGitdir::Names {
-                worktree: realpath_forgiving(worktree),
-                relative: written.is_relative(),
-            }
-        }
+    match read_worktree_gitdir(admin) {
+        Ok(written) if written.path.as_os_str().is_empty() => AdminGitdir::Empty,
+        Ok(written) => AdminGitdir::Names {
+            worktree: realpath_forgiving(&admin.join(&written.path)),
+            relative: written.path.is_relative(),
+            nul: written.nul,
+        },
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => AdminGitdir::Missing(e),
         Err(e) => AdminGitdir::Unreadable(e),
     }
@@ -1609,6 +1566,7 @@ mod tests {
             dir: admin.clone(),
             worktree: Ok(PathBuf::from("/ws/app-feat")),
             relative: false,
+            unreadable: false,
         };
         let u = unlisted_worktree(&named, &mut unreadable);
         assert_eq!(u.path, "/ws/app-feat");
@@ -1630,6 +1588,7 @@ mod tests {
             dir: admin.clone(),
             worktree: Err("gone".into()),
             relative: false,
+            unreadable: false,
         };
         let u = unlisted_worktree(&unnamed, &mut unreadable);
         assert_eq!(u.path, admin.to_str().unwrap());
@@ -1753,35 +1712,6 @@ mod tests {
             submodule_refusal(&git, &fine, &fine.join(".git"), true),
             Some(false)
         );
-    }
-
-    #[test]
-    fn read_head_trusts_only_branches_and_object_ids() {
-        let tmp = tempfile::tempdir().unwrap();
-        assert_eq!(read_head(tmp.path()), UnprobedHead::Unknown);
-        let oid = "3890426260f93bbbdf34262c865872c38302836e";
-        for (content, want) in [
-            (
-                "ref: refs/heads/main\n",
-                UnprobedHead::Branch {
-                    name: "main".into(),
-                },
-            ),
-            (
-                &*format!("{oid}\n"),
-                UnprobedHead::Detached { commit: oid.into() },
-            ),
-            ("garbage\n", UnprobedHead::Unknown),
-            ("abc123\n", UnprobedHead::Unknown),
-            (
-                "0000000000000000000000000000000000000000\n",
-                UnprobedHead::Unknown,
-            ),
-            ("ref: refs/remotes/origin/main\n", UnprobedHead::Unknown),
-        ] {
-            std::fs::write(tmp.path().join("HEAD"), content).unwrap();
-            assert_eq!(read_head(tmp.path()), want, "{content}");
-        }
     }
 
     #[test]

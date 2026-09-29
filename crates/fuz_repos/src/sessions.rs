@@ -1,6 +1,10 @@
 //! The live Claude Code sessions on this machine, for busy detection:
 //! `busy` scopes them to the checkouts they sit in.
 //!
+//! Claude Code's formats are read here, the reason it writes on a worktree
+//! lock included (`claude_lock`), which `busy` matches against the live
+//! sessions.
+//!
 //! **The reader** (`read_live_sessions`) reads every config dir it's given
 //! — `$CLAUDE_CONFIG_DIR` and `~/.claude`, the same dir once — listing
 //! `sessions/` and opening only `<pid>.json` files, plus the background
@@ -61,12 +65,13 @@
 use std::collections::btree_map::Entry;
 use std::collections::{BTreeMap, BTreeSet};
 use std::ffi::OsString;
-use std::io::Read as _;
 use std::os::unix::ffi::OsStrExt as _;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
+
+use crate::regular_file::read_bounded_bytes;
 
 /// The largest session file or roster the reader reads; a larger one
 /// can't be read.
@@ -705,27 +710,6 @@ fn read_bounded(path: &Path, max: u64) -> std::io::Result<String> {
         .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))
 }
 
-/// A regular file's bytes (the path followed), at most `max`.
-pub(crate) fn read_bounded_bytes(path: &Path, max: u64) -> std::io::Result<Vec<u8>> {
-    if !std::fs::metadata(path)?.is_file() {
-        return Err(std::io::Error::new(
-            std::io::ErrorKind::InvalidInput,
-            "not a regular file",
-        ));
-    }
-    let mut bytes = Vec::new();
-    std::fs::File::open(path)?
-        .take(max + 1)
-        .read_to_end(&mut bytes)?;
-    if bytes.len() as u64 > max {
-        return Err(std::io::Error::new(
-            std::io::ErrorKind::InvalidData,
-            format!("larger than {max} bytes"),
-        ));
-    }
-    Ok(bytes)
-}
-
 /// Every live Claude Code session on this machine but the caller's, or why
 /// that can't be vouched for.
 pub fn read_live_sessions(source: &SessionsSource) -> LiveSessions {
@@ -743,6 +727,77 @@ pub fn read_live_sessions(source: &SessionsSource) -> LiveSessions {
         }
         Err(reason) => LiveSessions::Unavailable(reason),
     }
+}
+
+/// What a worktree lock Claude Code wrote names: its process's pid, and
+/// that process's `starttime` when the lock gives one (`busy`'s module doc,
+/// **Claude Code's worktree locks**).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct ClaudeLock<'a> {
+    pid: u64,
+    start: Option<&'a str>,
+}
+
+impl ClaudeLock<'_> {
+    /// Whether it names `session`: the same pid, and the same start time to
+    /// the digit when it gives one, as Claude Code compares them.
+    pub(crate) fn names(&self, session: &Session) -> bool {
+        self.pid == u64::from(session.pid)
+            && self
+                .start
+                .is_none_or(|start| start == session.proc_start.to_string())
+    }
+}
+
+/// A lock reason as Claude Code's own parser reads it, a JavaScript regex:
+///
+/// ```text
+/// ^claude (?:agent|session) .{1,255} \(pid (\d{1,10})(?: start (.{1,255}))?\)$
+/// ```
+///
+/// `None` when it doesn't match: no lock of Claude Code's. The name is
+/// greedy, so of the ` (pid `s in the reason the last that leaves a
+/// matching tail wins.
+pub(crate) fn claude_lock(reason: &str) -> Option<ClaudeLock<'_>> {
+    let rest = reason.strip_prefix("claude ")?;
+    let rest = rest
+        .strip_prefix("agent ")
+        .or_else(|| rest.strip_prefix("session "))?;
+    rest.rmatch_indices(" (pid ").find_map(|(i, sep)| {
+        if !is_js_dots(&rest[..i]) {
+            return None;
+        }
+        let body = rest[i + sep.len()..].strip_suffix(')')?;
+        let digits = body.bytes().take_while(u8::is_ascii_digit).count();
+        if !(1..=10).contains(&digits) {
+            return None;
+        }
+        let (pid, after) = body.split_at(digits);
+        let start = if after.is_empty() {
+            None
+        } else {
+            Some(after.strip_prefix(" start ").filter(|s| is_js_dots(s))?)
+        };
+        Some(ClaudeLock {
+            pid: pid.parse().ok()?,
+            start,
+        })
+    })
+}
+
+/// Whether the JavaScript regex `.{1,255}` (no `u` flag) matches all of
+/// `s`: 1 to 255 UTF-16 code units, none a line terminator.
+fn is_js_dots(s: &str) -> bool {
+    // a UTF-16 unit is at most 3 UTF-8 bytes, so a longer `s` is over 255
+    // units: rejecting it unscanned keeps `claude_lock`'s parse linear
+    if s.len() > 3 * 255 {
+        return false;
+    }
+    let units: usize = s.chars().map(char::len_utf16).sum();
+    (1..=255).contains(&units)
+        && !s
+            .chars()
+            .any(|c| matches!(c, '\n' | '\r' | '\u{2028}' | '\u{2029}'))
 }
 
 #[cfg(test)]
@@ -1147,5 +1202,102 @@ mod tests {
         for bad in ["", "-1", "4 2", "0x2a"] {
             assert!(parse_proc_start(bad).is_err(), "{bad:?}");
         }
+    }
+
+    #[test]
+    fn a_lock_reason_is_read_as_claude_code_reads_it() {
+        let lock = |pid, start| Some(ClaudeLock { pid, start });
+        for (reason, want) in [
+            (
+                "claude agent agent-a1 (pid 42 start 123)",
+                lock(42, Some("123")),
+            ),
+            ("claude agent agent-a1 (pid 42)", lock(42, None)),
+            (
+                "claude session feat/x (pid 42 start 123)",
+                lock(42, Some("123")),
+            ),
+            // the name takes anything but a line break, and is greedy
+            ("claude agent a b) (c (pid 42)", lock(42, None)),
+            (
+                "claude agent a (pid 1) b (pid 42 start 7)",
+                lock(42, Some("7")),
+            ),
+            ("claude agent a (pid 1 start 2) (pid 3)", lock(3, None)),
+            // the last ` (pid ` leaves `9))`, so an earlier one wins
+            (
+                "claude agent x (pid 5 start 7 (pid 9))",
+                lock(5, Some("7 (pid 9)")),
+            ),
+            // `\d{1,10}`, taken as a number
+            ("claude agent a (pid 0042)", lock(42, None)),
+            ("claude agent a (pid 9999999999)", lock(9_999_999_999, None)),
+            ("claude agent a (pid 42 start x y)", lock(42, Some("x y"))),
+        ] {
+            assert_eq!(claude_lock(reason), want, "{reason:?}");
+        }
+        for reason in [
+            "",
+            "claude agent a (pid )",
+            "claude agent a (pid 12345678901)",
+            "claude agent  (pid 42)",
+            "claude agent a (pid 42 start )",
+            "claude agent a (pid 42 start 7",
+            "claude agent a (pid 42) ",
+            "claude agent a (pid 42)\n",
+            "claude agent a\nb (pid 42)",
+            "claude agent a\rb (pid 42)",
+            "claude agent a (pid 42 start 7\u{2028})",
+            "claude agent a (pid 42 start 7\u{2029})",
+            "claude agent a (pid -42)",
+            "claude agent a (pid 42,start 7)",
+            "claude worker a (pid 42)",
+            "claude  agent a (pid 42)",
+            "agent a (pid 42)",
+        ] {
+            assert_eq!(claude_lock(reason), None, "{reason:?}");
+        }
+        // 1 to 255 UTF-16 code units each
+        let name = "n".repeat(255);
+        assert!(claude_lock(&format!("claude agent {name} (pid 42)")).is_some());
+        assert!(claude_lock(&format!("claude agent {name}n (pid 42)")).is_none());
+        let astral = "\u{1F600}".repeat(127);
+        assert!(claude_lock(&format!("claude agent {astral} (pid 42 start {astral})")).is_some());
+        let astral = "\u{1F600}".repeat(128);
+        assert!(claude_lock(&format!("claude agent {astral} (pid 42)")).is_none());
+        assert!(claude_lock(&format!("claude agent a (pid 42 start {astral})")).is_none());
+        // 3 UTF-8 bytes to the unit, the most bytes 255 units can take
+        let wide = "\u{20AC}".repeat(255);
+        assert!(claude_lock(&format!("claude agent {wide} (pid 42 start {wide})")).is_some());
+        assert!(claude_lock(&format!("claude agent {wide}\u{20AC} (pid 42)")).is_none());
+    }
+
+    #[test]
+    fn a_huge_lock_reason_is_rejected_in_linear_time() {
+        // every ` (pid ` is a candidate split, each over an ever longer name
+        let reason = format!("claude agent a{}", " (pid 1".repeat(320 * 1024 / 7));
+        let started = std::time::Instant::now();
+        assert_eq!(claude_lock(&reason), None);
+        assert!(started.elapsed() < Duration::from_secs(5));
+    }
+
+    #[test]
+    fn a_lock_names_a_session_by_pid_and_start_time_to_the_digit() {
+        let s = Session::at(
+            42,
+            123,
+            "/nonexistent-ws".into(),
+            SessionSource::SessionFile,
+        );
+        let names = |reason: &str| claude_lock(reason).unwrap().names(&s);
+        assert!(names("claude agent a (pid 42 start 123)"));
+        assert!(names("claude agent a (pid 42)"));
+        assert!(names("claude agent a (pid 0042)"));
+        assert!(!names("claude agent a (pid 43 start 123)"));
+        assert!(!names("claude agent a (pid 43)"));
+        assert!(!names("claude agent a (pid 42 start 124)"));
+        assert!(!names("claude agent a (pid 42 start 0123)"));
+        assert!(!names("claude agent a (pid 42 start 123 )"));
+        assert!(!names("claude agent a (pid 4294967338)"));
     }
 }

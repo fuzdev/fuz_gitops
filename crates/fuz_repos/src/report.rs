@@ -135,7 +135,8 @@ pub enum UnregisteredKind {
     /// when `blocked_by` is `None`. The repair also walks every other
     /// worktree git dir of the repo and rewrites the `.git` of each existing
     /// dir one names whose `.git` is missing or names another git dir;
-    /// `blocked_by` is the first such dir, which a repair here would hijack.
+    /// `blocked_by` is the first such dir, which a repair here would hijack,
+    /// or what else keeps the repair from being offered (`RepairBlock`).
     MovedWorktree {
         entry: String,
         blocked_by: Option<RepairBlock>,
@@ -261,4 +262,20 @@ pub enum RepairBlock {
     /// against the cwd, so what a repair would touch is uncertain: fix it by
     /// hand. Decided before the other blocks, for any stray of the repo.
     RelativeGitdir { git_dir: String },
+    /// The repo's worktree git dir `git_dir` has a `gitdir` that's there but
+    /// can't be read (or the git dir itself can't be resolved), so what a
+    /// repair's walk over it would rewrite is unknown: fix it by hand.
+    /// Decided after `RelativeGitdir`, before the rest, for any stray of the
+    /// repo.
+    UnreadableGitdir { git_dir: String },
+    /// This dir's path isn't UTF-8, so the report can't name it exactly in
+    /// a command: rename it to a UTF-8 name, then rerun. Decided after the
+    /// blocks above, before `NulInGitdir`, whose fix names this dir.
+    NonUtf8Path,
+    /// This dir's own worktree git dir, `git_dir`, holds a NUL in its
+    /// `gitdir`: git lists the worktree by what's before the NUL, while a
+    /// repair of this dir compares that with this dir's `.git` and may find
+    /// nothing to fix. Rewrite that `gitdir` by hand as this dir's `.git`
+    /// path (what a repair would write), then rerun.
+    NulInGitdir { git_dir: String },
 }

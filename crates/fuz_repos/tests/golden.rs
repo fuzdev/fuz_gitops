@@ -1198,6 +1198,34 @@ fn unregistered() -> Vec<UnregisteredClone> {
             },
         ),
         stray(
+            "unreadable",
+            app_origin,
+            true,
+            moved(
+                Some(RepairBlock::UnreadableGitdir {
+                    git_dir: git_dir("u"),
+                }),
+                None,
+            ),
+        ),
+        stray(
+            "v\u{fffd}",
+            app_origin,
+            true,
+            moved(Some(RepairBlock::NonUtf8Path), None),
+        ),
+        stray(
+            "w-nul",
+            app_origin,
+            true,
+            moved(
+                Some(RepairBlock::NulInGitdir {
+                    git_dir: git_dir("w-nul"),
+                }),
+                None,
+            ),
+        ),
+        stray(
             "wa",
             app_origin,
             true,

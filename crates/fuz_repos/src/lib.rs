@@ -1,12 +1,12 @@
 //! `fuz_repos` — deterministic git operations over the repos a `repos.toml`
 //! registry declares.
 //!
-//! The library holds the registry types, the hardened git runner, the probe,
-//! the unregistered scan, the pure classification, what a remote's answers
-//! mean (fetch failures, the visibility check), and busy detection — the
-//! live Claude Code sessions (`sessions`) and the checkouts they sit in
-//! (`busy`); the `repos` binary parses arguments, renders reports, and owns
-//! exit codes.
+//! The library holds the registry types, the hardened git runner, git's
+//! own files read as git reads them (`gitdir`), the probe, the unregistered
+//! scan, the pure classification, what a remote's answers mean (fetch
+//! failures, the visibility check), and busy detection — the live Claude
+//! Code sessions (`sessions`) and the checkouts they sit in (`busy`); the
+//! `repos` binary parses arguments, renders reports, and owns exit codes.
 //!
 //! Unix-only: it takes git's paths as raw bytes, as git does. Busy
 //! detection reads `/proc`, so it works on Linux alone; elsewhere, with any
@@ -17,9 +17,11 @@ pub mod classify;
 pub mod discover;
 pub mod error;
 pub mod git;
+mod gitdir;
 pub mod porcelain;
 pub mod probe;
 pub mod registry;
+mod regular_file;
 pub mod remote;
 pub mod report;
 pub mod scan;
@@ -28,7 +30,7 @@ pub mod state;
 pub mod status;
 pub mod url;
 
-/// The version of the `repos status --json` document. Bumped on any breaking
-/// change to its shape (a removal, a rename, a changed meaning); additions
-/// don't bump it.
-pub const STATUS_FORMAT_VERSION: u32 = 6;
+/// The version of the `repos status --json` document. Bumped on any change
+/// to its shape, new fields and variants included: consumers parse it with
+/// strict objects and closed unions.
+pub const STATUS_FORMAT_VERSION: u32 = 7;

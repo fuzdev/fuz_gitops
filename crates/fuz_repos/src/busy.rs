@@ -83,36 +83,32 @@
 //! by hand with only `refs/heads` symlinked). A session working through one
 //! is on that entry's `unlisted`, and `classify` holds the branch its
 //! `HEAD` names as though busy — every branch when that `HEAD` is unknown.
-//! Git reads a `commondir` and a `HEAD` whole, however large, and takes
-//! each as a C string (cut at the first NUL; with none, trailing line
-//! breaks trimmed from a `commondir`, trailing whitespace from a `HEAD`),
-//! and so does the walk — reading each only up to its first NUL. A file
-//! with no NUL in its first `MAX_GIT_C_STRING_BYTES` is the tool's own
-//! limit, not git's: such a `commondir` is passed over, where git might
-//! follow it (such a `HEAD` is unknown, which holds every branch).
+//! Its `commondir` and `HEAD` are read as git reads them (`gitdir`); one
+//! past the tool's own read limit is passed over (a `commondir`, where git
+//! might follow it) or unknown (a `HEAD`, which holds every branch).
 //!
 //! Everything else at a `.git` is passed over, and the walk goes on. Git
 //! passes over a `.git` it can't look up (a dir it can't search, a symlink
 //! loop) or that's no dir or regular file, and stops with an error at a
 //! gitfile it can't read, over its 1 MiB limit, or not starting `gitdir: `,
-//! or naming no git dir — so no session commits through any of them. The
-//! parser reads a gitfile exactly as git does (raw bytes, at most git's
-//! 1 MiB, trailing line breaks trimmed, cut at a NUL), so every gitfile git
-//! follows is followed. A git dir the probe doesn't know is passed over as
-//! the prefix scoping passes over repos it doesn't know (a session in a
-//! repo nested in a moved worktree is still in the worktree's files).
+//! or naming no git dir — so no session commits through any of them. A
+//! gitfile is read exactly as git reads it (`gitdir::read_gitfile`), so
+//! every gitfile git follows is followed. A git dir the probe doesn't know
+//! is passed over as the prefix scoping passes over repos it doesn't know
+//! (a session in a repo nested in a moved worktree is still in the
+//! worktree's files).
 //! Walking on only attributes more, and a `.git` never makes detection
 //! unavailable. The walk is one stat per level, a bounded read of a `.git`
 //! file, and a few lookups in a git dir the probe doesn't know.
 //!
-//! **Claude Code's worktree locks** (`claude_lock`): Claude Code locks each
-//! worktree it creates or resumes by name (`EnterWorktree`, a subagent's),
-//! and one a background session adopts as it starts, with the reason
-//! `claude <agent|session> <name> (pid <pid> start <start>)`: its own
-//! process's pid and `starttime` (field 22 of `/proc/<pid>/stat`, as a
-//! session file's `procStart` records it), ` start <start>` left out where
-//! it has none. A checkout whose lock names a live session is busy with
-//! it, wherever the session's places are: probed or unprobed (a missing
+//! **Claude Code's worktree locks** (`sessions::claude_lock`): Claude Code
+//! locks each worktree it creates or resumes by name (`EnterWorktree`, a
+//! subagent's), and one a background session adopts as it starts, with
+//! the reason `claude <agent|session> <name> (pid <pid> start <start>)`:
+//! its own process's pid and `starttime` (field 22 of `/proc/<pid>/stat`,
+//! as a session file's `procStart` records it), ` start <start>` left out
+//! where it has none. A checkout whose lock names a live session is busy
+//! with it, wherever the session's places are: probed or unprobed (a missing
 //! worktree's lock is what git keeps it for), the primary included. The
 //! reason is read as Claude Code's own parser reads it, and names a
 //! session as Claude Code's own liveness check would: the pid is one of
@@ -143,29 +139,13 @@
 
 use std::collections::BTreeMap;
 use std::ffi::OsStr;
-use std::io::Read as _;
-use std::os::unix::ffi::OsStrExt as _;
 use std::path::{Component, Path, PathBuf};
 
 use serde::Serialize;
 
-use crate::porcelain::is_object_id;
-use crate::sessions::{LiveSessions, Session, Unavailable, read_bounded_bytes};
+use crate::gitdir::{read_commondir, read_gitfile, read_head};
+use crate::sessions::{ClaudeLock, LiveSessions, Session, Unavailable, claude_lock};
 use crate::state::UnprobedHead;
-
-/// The largest `.git` file git reads (`read_gitfile_gently`); git refuses a
-/// larger one, so the attribution walk passes it over.
-const MAX_GITFILE_BYTES: u64 = 1024 * 1024;
-
-/// The most of a git dir's `commondir` or `HEAD` the attribution walk reads
-/// looking for a NUL, where git takes the file as a C string. Git reads
-/// either whole, however large, so this is the tool's own limit, not git's:
-/// a larger one with no NUL in reach is passed over (a `commondir`) or
-/// `Unknown` (a `HEAD`), where git might follow it.
-const MAX_GIT_C_STRING_BYTES: u64 = 1024 * 1024;
-
-/// How much of a file `read_c_string` reads at a time.
-const C_STRING_CHUNK: usize = 8 * 1024;
 
 /// Busy detection as the report carries it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -278,67 +258,6 @@ impl EntrySessions {
             })
             .count()
     }
-}
-
-/// A regular file's contents (the path followed) as git takes a C string
-/// from a buffer it read whole and trimmed: the bytes before the first NUL,
-/// untrimmed, since trimming the end can't reach past a NUL; or, with no
-/// NUL, the whole file less its trailing bytes `trimmed` matches. Read in
-/// chunks and stopped at the first NUL, so a file of any size with one
-/// early is read as git reads it; one with no NUL in its first `max` bytes
-/// is an error, as is an empty one (git refuses an empty `commondir`, and
-/// an empty `HEAD` names nothing).
-fn read_c_string(path: &Path, max: u64, trimmed: impl Fn(u8) -> bool) -> std::io::Result<Vec<u8>> {
-    if !std::fs::metadata(path)?.is_file() {
-        return Err(std::io::Error::new(
-            std::io::ErrorKind::InvalidInput,
-            "not a regular file",
-        ));
-    }
-    let mut file = std::fs::File::open(path)?;
-    let mut bytes = Vec::new();
-    let mut chunk = vec![0; C_STRING_CHUNK];
-    loop {
-        let n = match file.read(&mut chunk) {
-            Ok(n) => n,
-            Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
-            Err(e) => return Err(e),
-        };
-        if n == 0 {
-            break;
-        }
-        if let Some(nul) = chunk[..n].iter().position(|&b| b == 0) {
-            bytes.extend_from_slice(&chunk[..nul]);
-            return Ok(bytes);
-        }
-        bytes.extend_from_slice(&chunk[..n]);
-        if bytes.len() as u64 > max {
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::InvalidData,
-                format!("no NUL in its first {max} bytes"),
-            ));
-        }
-    }
-    if bytes.is_empty() {
-        return Err(std::io::Error::new(
-            std::io::ErrorKind::InvalidData,
-            "empty",
-        ));
-    }
-    let end = trim_end(&bytes, trimmed).len();
-    bytes.truncate(end);
-    Ok(bytes)
-}
-
-/// Whether git's `isspace` holds for `b`: git's own ctype, the ASCII space,
-/// tab, and line breaks, not the locale's (no form feed or vertical tab).
-const fn is_git_space(b: u8) -> bool {
-    matches!(b, b' ' | b'\t' | b'\n' | b'\r')
-}
-
-/// Whether `b` is a line break, all git trims from a `commondir` or gitfile.
-const fn is_line_break(b: u8) -> bool {
-    matches!(b, b'\n' | b'\r')
 }
 
 /// The indices of the candidates `cwd` sits deepest in, by path component
@@ -472,77 +391,6 @@ pub struct EntryCheckouts {
     /// it (`RepoFacts::locks`): one Claude Code wrote names the session
     /// working there (`claude_lock`).
     pub locks: Vec<(String, String)>,
-}
-
-/// What a worktree lock Claude Code wrote names: its process's pid, and
-/// that process's `starttime` when the lock gives one (the module doc's
-/// **Claude Code's worktree locks**).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct ClaudeLock<'a> {
-    pid: u64,
-    start: Option<&'a str>,
-}
-
-impl ClaudeLock<'_> {
-    /// Whether it names `session`: the same pid, and the same start time to
-    /// the digit when it gives one, as Claude Code compares them.
-    fn names(&self, session: &Session) -> bool {
-        self.pid == u64::from(session.pid)
-            && self
-                .start
-                .is_none_or(|start| start == session.proc_start.to_string())
-    }
-}
-
-/// A lock reason as Claude Code's own parser reads it, a JavaScript regex:
-///
-/// ```text
-/// ^claude (?:agent|session) .{1,255} \(pid (\d{1,10})(?: start (.{1,255}))?\)$
-/// ```
-///
-/// `None` when it doesn't match: no lock of Claude Code's. The name is
-/// greedy, so of the ` (pid `s in the reason the last that leaves a
-/// matching tail wins.
-fn claude_lock(reason: &str) -> Option<ClaudeLock<'_>> {
-    let rest = reason.strip_prefix("claude ")?;
-    let rest = rest
-        .strip_prefix("agent ")
-        .or_else(|| rest.strip_prefix("session "))?;
-    rest.rmatch_indices(" (pid ").find_map(|(i, sep)| {
-        if !is_js_dots(&rest[..i]) {
-            return None;
-        }
-        let body = rest[i + sep.len()..].strip_suffix(')')?;
-        let digits = body.bytes().take_while(u8::is_ascii_digit).count();
-        if !(1..=10).contains(&digits) {
-            return None;
-        }
-        let (pid, after) = body.split_at(digits);
-        let start = if after.is_empty() {
-            None
-        } else {
-            Some(after.strip_prefix(" start ").filter(|s| is_js_dots(s))?)
-        };
-        Some(ClaudeLock {
-            pid: pid.parse().ok()?,
-            start,
-        })
-    })
-}
-
-/// Whether the JavaScript regex `.{1,255}` (no `u` flag) matches all of
-/// `s`: 1 to 255 UTF-16 code units, none a line terminator.
-fn is_js_dots(s: &str) -> bool {
-    // a UTF-16 unit is at most 3 UTF-8 bytes, so a longer `s` is over 255
-    // units: rejecting it unscanned keeps `claude_lock`'s parse linear
-    if s.len() > 3 * 255 {
-        return false;
-    }
-    let units: usize = s.chars().map(char::len_utf16).sum();
-    (1..=255).contains(&units)
-        && !s
-            .chars()
-            .any(|c| matches!(c, '\n' | '\r' | '\u{2028}' | '\u{2029}'))
 }
 
 /// A checkout's lock that Claude Code wrote, by entry and path as the
@@ -786,7 +634,7 @@ fn attributed<'a>(cwd: &Path, known: &KnownGitDirs<'a>) -> Attributed<'a> {
         // followed, as git's own stat is: a symlinked `.git` counts
         let target = match std::fs::metadata(&dot_git) {
             Ok(m) if m.is_dir() => Some(dot_git),
-            Ok(m) if m.is_file() => gitfile_target(&dot_git),
+            Ok(m) if m.is_file() => read_gitfile(&dot_git).ok(),
             Ok(_) | Err(_) => None,
         };
         if let Some(found) = target.and_then(|t| known_git_dir(&t, dir, known)) {
@@ -823,7 +671,7 @@ fn known_git_dir<'a>(
     let common = shared_common_dir(&real, |dir| known.commons.contains_key(dir))?;
     Some(Attributed::Unlisted {
         entries: known.commons.get(&common)?.clone(),
-        head: unlisted_head(&real),
+        head: read_head(&real),
         git_dir: real,
         toplevel: Some(toplevel.to_owned()),
     })
@@ -831,8 +679,7 @@ fn known_git_dir<'a>(
 
 /// The common dir a git dir the probe doesn't know shares refs with,
 /// canonical, when that can be told. With a `commondir` file, the dir it
-/// names as git reads it (a C string, trailing line breaks dropped,
-/// relative to the git dir; `read_c_string`), and nothing else: git keeps
+/// names as git reads it (`read_commondir`), and nothing else: git keeps
 /// branches there alone. Without one, the first of these `is_common` knows:
 /// the dir its `refs` resolves in, a `refs` symlinked into another git dir
 /// as `git-new-workdir` makes, or the dir its `refs/heads` resolves two
@@ -841,17 +688,10 @@ fn known_git_dir<'a>(
 /// has no NUL within the tool's own limit, or neither lookup names a dir
 /// `is_common` knows.
 fn shared_common_dir(git_dir: &Path, is_common: impl Fn(&Path) -> bool) -> Option<PathBuf> {
-    match read_c_string(
-        &git_dir.join("commondir"),
-        MAX_GIT_C_STRING_BYTES,
-        is_line_break,
-    ) {
-        Ok(bytes) => {
-            let named = Path::new(OsStr::from_bytes(&bytes));
-            return git_dir.join(named).canonicalize().ok();
-        }
-        Err(e) if e.kind() != std::io::ErrorKind::NotFound => return None,
-        Err(_) => {}
+    match read_commondir(git_dir) {
+        Ok(Some(named)) => return named.canonicalize().ok(),
+        Ok(None) => {}
+        Err(_) => return None,
     }
     // the dir `path` resolves in, as many levels up as `names`, when those
     // are the names on the way
@@ -872,73 +712,6 @@ fn shared_common_dir(git_dir: &Path, is_common: impl Fn(&Path) -> bool) -> Optio
     .into_iter()
     .flatten()
     .find(|dir| is_common(dir))
-}
-
-/// An unlisted git dir's `HEAD`, read as git reads a loose ref: the file a
-/// C string with trailing whitespace dropped (`read_c_string`, git's own
-/// whitespace), then `ref:` and optional whitespace naming a branch, or a
-/// full object id. A symlink (git's oldest form, the link naming the
-/// branch), a name that isn't UTF-8, and anything else are `Unknown`.
-fn unlisted_head(git_dir: &Path) -> UnprobedHead {
-    let head = git_dir.join("HEAD");
-    if !std::fs::symlink_metadata(&head).is_ok_and(|m| m.is_file()) {
-        return UnprobedHead::Unknown;
-    }
-    let Ok(bytes) = read_c_string(&head, MAX_GIT_C_STRING_BYTES, is_git_space) else {
-        return UnprobedHead::Unknown;
-    };
-    let Ok(text) = String::from_utf8(bytes) else {
-        return UnprobedHead::Unknown;
-    };
-    if let Some(target) = text.strip_prefix("ref:") {
-        return target
-            .trim_start_matches(|c: char| u8::try_from(c).is_ok_and(is_git_space))
-            .strip_prefix("refs/heads/")
-            .map_or(UnprobedHead::Unknown, |name| UnprobedHead::Branch {
-                name: name.to_owned(),
-            });
-    }
-    if is_object_id(&text) {
-        return UnprobedHead::Detached { commit: text };
-    }
-    UnprobedHead::Unknown
-}
-
-/// `bytes` less its trailing bytes `trimmed` matches.
-fn trim_end(bytes: &[u8], trimmed: impl Fn(u8) -> bool) -> &[u8] {
-    let end = bytes
-        .iter()
-        .rposition(|&b| !trimmed(b))
-        .map_or(0, |i| i + 1);
-    &bytes[..end]
-}
-
-/// A path as git takes one from a buffer: a C string, so up to the first
-/// NUL, and raw bytes, UTF-8 or not.
-fn c_path(bytes: &[u8]) -> &Path {
-    let end = bytes.iter().position(|&b| b == 0).unwrap_or(bytes.len());
-    Path::new(OsStr::from_bytes(&bytes[..end]))
-}
-
-/// The git dir a `.git` file names, as git's `read_gitfile_gently` reads
-/// it: a regular file of at most `MAX_GITFILE_BYTES` starting `gitdir: `;
-/// trailing line breaks dropped from the whole file, which must leave a
-/// byte past the prefix; the path the rest up to the first NUL, raw bytes,
-/// relative to the file's dir unless absolute. `None` where git stops with
-/// an error instead: the file can't be read, is too large, or isn't a
-/// gitfile.
-fn gitfile_target(dot_git: &Path) -> Option<PathBuf> {
-    const PREFIX: &[u8] = b"gitdir: ";
-    let bytes = read_bounded_bytes(dot_git, MAX_GITFILE_BYTES).ok()?;
-    if !bytes.starts_with(PREFIX) {
-        return None;
-    }
-    let trimmed = trim_end(&bytes, is_line_break);
-    if trimmed.len() <= PREFIX.len() {
-        return None;
-    }
-    let named = c_path(&trimmed[PREFIX.len()..]);
-    Some(dot_git.parent().unwrap_or(dot_git).join(named))
 }
 
 #[cfg(test)]
@@ -1137,54 +910,7 @@ mod tests {
     }
 
     #[test]
-    fn a_gitfile_is_read_as_git_reads_it() {
-        let tmp = tempfile::tempdir().unwrap();
-        let base = tmp.path().canonicalize().unwrap();
-        let dot_git = base.join(".git");
-        let target = |content: &[u8]| {
-            std::fs::write(&dot_git, content).unwrap();
-            gitfile_target(&dot_git)
-        };
-        // relative to the file's dir, and absolute as written; trailing line
-        // breaks dropped, nothing else
-        assert_eq!(target(b"gitdir: ../g\n"), Some(base.join("../g")));
-        assert_eq!(target(b"gitdir: /g/w\r\n"), Some(PathBuf::from("/g/w")));
-        assert_eq!(target(b"gitdir: g \n"), Some(base.join("g ")));
-        assert_eq!(target(b"gitdir: g\n\n\r\n"), Some(base.join("g")));
-        // a C string: cut at the first NUL, after the line breaks are trimmed
-        // from the end of the whole file
-        assert_eq!(target(b"gitdir: /g\0junk\n"), Some(PathBuf::from("/g")));
-        assert_eq!(target(b"gitdir: /g\n\0\n"), Some(PathBuf::from("/g\n")));
-        // nothing before the NUL is the file's own dir, as git joins it
-        assert_eq!(target(b"gitdir: \0x"), Some(base.join("")));
-        // raw bytes, UTF-8 or not
-        assert_eq!(
-            target(b"gitdir: /g\xff\n"),
-            Some(PathBuf::from(OsStr::from_bytes(b"/g\xff")))
-        );
-        // anything else isn't a gitfile: git stops with an error
-        let not: [&[u8]; 6] = [
-            b"",
-            b"gitdir: \n",
-            b"gitdir:g\n",
-            b"x\ngitdir: g\n",
-            b" gitdir: g",
-            b"gitdir\0: g",
-        ];
-        for bad in not {
-            assert_eq!(target(bad), None, "{bad:?}");
-        }
-        // git's size limit, padding included
-        let max = usize::try_from(MAX_GITFILE_BYTES).unwrap();
-        let mut at_limit = b"gitdir: /g".to_vec();
-        at_limit.resize(max, b'\n');
-        assert_eq!(target(&at_limit), Some(PathBuf::from("/g")));
-        at_limit.push(b'\n');
-        assert_eq!(target(&at_limit), None);
-    }
-
-    #[test]
-    fn a_commondir_is_read_as_git_reads_it() {
+    fn a_shared_common_dir_is_its_commondir_or_where_its_refs_resolve() {
         let tmp = tempfile::tempdir().unwrap();
         let base = tmp.path().canonicalize().unwrap();
         let git_dir = base.join("hand");
@@ -1196,28 +922,19 @@ mod tests {
             std::fs::write(git_dir.join("commondir"), content).unwrap();
             shared_common_dir(&git_dir, any)
         };
+        // a `commondir`, read as git reads it (`gitdir::read_commondir`),
+        // resolved
         assert_eq!(shared(b"../common\n"), Some(common.clone()));
-        assert_eq!(shared(b"../common\0junk\r\n"), Some(common.clone()));
         let absolute = format!("{}\n", common.display());
         assert_eq!(shared(absolute.as_bytes()), Some(common.clone()));
-        // a C string: trimming the end can't reach past a NUL, and nothing
-        // before one is the git dir itself
-        assert_eq!(shared(b"../common\n\0\n"), None);
-        assert_eq!(shared(b"\0../common"), Some(git_dir.clone()));
         assert_eq!(shared(b"\n"), Some(git_dir.clone()));
-        // git reads it whole however large, so one with a NUL in reach is
-        // read past any size limit
-        let max = usize::try_from(MAX_GIT_C_STRING_BYTES).unwrap();
-        let mut large = b"../common\0".to_vec();
-        large.resize(max + C_STRING_CHUNK * 2, b'x');
-        assert_eq!(shared(&large), Some(common.clone()));
-        // the tool's own limit: no NUL in reach, passed over
-        let mut padded = b"../common".to_vec();
-        padded.resize(max + 1, b'\n');
-        assert_eq!(shared(&padded), None);
         // one git can't use stops git, and no `refs` is looked at
         assert_eq!(shared(b""), None);
         assert_eq!(shared(b"../nowhere\n"), None);
+        assert_eq!(shared(b"../common \n"), None);
+        std::fs::remove_file(git_dir.join("commondir")).unwrap();
+        std::os::unix::fs::symlink("nowhere", git_dir.join("commondir")).unwrap();
+        assert_eq!(shared_common_dir(&git_dir, any), None);
         // without one, the dir its `refs` resolves in
         std::fs::remove_file(git_dir.join("commondir")).unwrap();
         assert_eq!(shared_common_dir(&git_dir, any), Some(git_dir.clone()));
@@ -1244,60 +961,6 @@ mod tests {
         std::fs::remove_file(git_dir.join("refs/heads")).unwrap();
         std::os::unix::fs::symlink("../../common/other", git_dir.join("refs/heads")).unwrap();
         assert_eq!(shared_common_dir(&git_dir, known), None);
-    }
-
-    #[test]
-    fn an_unlisted_head_is_read_as_git_reads_a_ref() {
-        let tmp = tempfile::tempdir().unwrap();
-        let git_dir = tmp.path();
-        let head = |content: &[u8]| {
-            std::fs::write(git_dir.join("HEAD"), content).unwrap();
-            unlisted_head(git_dir)
-        };
-        let on = |name: &str| UnprobedHead::Branch { name: name.into() };
-        assert_eq!(head(b"ref: refs/heads/main\n"), on("main"));
-        assert_eq!(head(b"ref:refs/heads/a/b \n\n"), on("a/b"));
-        assert_eq!(head(b"ref:\trefs/heads/x"), on("x"));
-        // a C string: cut at the first NUL, and trimming the end can't reach
-        // past it
-        assert_eq!(head(b"ref: refs/heads/other\0junk\n"), on("other"));
-        assert_eq!(head(b"ref: refs/heads/x \0\n"), on("x "));
-        let max = usize::try_from(MAX_GIT_C_STRING_BYTES).unwrap();
-        let mut large = b"ref: refs/heads/big\0".to_vec();
-        large.resize(max + C_STRING_CHUNK * 2, b'x');
-        assert_eq!(head(&large), on("big"));
-        // git's own whitespace, not the locale's
-        assert_eq!(head(b"ref: refs/heads/x\x0c\n"), on("x\x0c"));
-        let id = "0123456789abcdef0123456789abcdef01234567";
-        assert_eq!(
-            head(format!("{id}\n").as_bytes()),
-            UnprobedHead::Detached { commit: id.into() }
-        );
-        assert_eq!(
-            head(format!("{id}\0junk").as_bytes()),
-            UnprobedHead::Detached { commit: id.into() }
-        );
-        let unknown: [&[u8]; 7] = [
-            b"ref: refs/tags/v1\n",
-            b"",
-            b"\0ref: refs/heads/main\n",
-            b"garbage\n",
-            b"ref: main\n",
-            b"ref:\x0crefs/heads/x\n",
-            b"ref: refs/heads/\xff\n",
-        ];
-        for bad in unknown {
-            assert_eq!(head(bad), UnprobedHead::Unknown, "{bad:?}");
-        }
-        // the tool's own limit: no NUL in reach
-        let mut padded = b"ref: refs/heads/main".to_vec();
-        padded.resize(max + 1, b'\n');
-        assert_eq!(head(&padded), UnprobedHead::Unknown);
-        // a symlink names its branch by the link: not read here
-        std::fs::remove_file(git_dir.join("HEAD")).unwrap();
-        std::fs::write(git_dir.join("main"), format!("{id}\n")).unwrap();
-        std::os::unix::fs::symlink("main", git_dir.join("HEAD")).unwrap();
-        assert_eq!(unlisted_head(git_dir), UnprobedHead::Unknown);
     }
 
     #[test]
@@ -1368,103 +1031,6 @@ mod tests {
                 .iter()
                 .all(|e| e.detection == Detection::Unavailable)
         );
-    }
-
-    #[test]
-    fn a_lock_reason_is_read_as_claude_code_reads_it() {
-        let lock = |pid, start| Some(ClaudeLock { pid, start });
-        for (reason, want) in [
-            (
-                "claude agent agent-a1 (pid 42 start 123)",
-                lock(42, Some("123")),
-            ),
-            ("claude agent agent-a1 (pid 42)", lock(42, None)),
-            (
-                "claude session feat/x (pid 42 start 123)",
-                lock(42, Some("123")),
-            ),
-            // the name takes anything but a line break, and is greedy
-            ("claude agent a b) (c (pid 42)", lock(42, None)),
-            (
-                "claude agent a (pid 1) b (pid 42 start 7)",
-                lock(42, Some("7")),
-            ),
-            ("claude agent a (pid 1 start 2) (pid 3)", lock(3, None)),
-            // the last ` (pid ` leaves `9))`, so an earlier one wins
-            (
-                "claude agent x (pid 5 start 7 (pid 9))",
-                lock(5, Some("7 (pid 9)")),
-            ),
-            // `\d{1,10}`, taken as a number
-            ("claude agent a (pid 0042)", lock(42, None)),
-            ("claude agent a (pid 9999999999)", lock(9_999_999_999, None)),
-            ("claude agent a (pid 42 start x y)", lock(42, Some("x y"))),
-        ] {
-            assert_eq!(claude_lock(reason), want, "{reason:?}");
-        }
-        for reason in [
-            "",
-            "claude agent a (pid )",
-            "claude agent a (pid 12345678901)",
-            "claude agent  (pid 42)",
-            "claude agent a (pid 42 start )",
-            "claude agent a (pid 42 start 7",
-            "claude agent a (pid 42) ",
-            "claude agent a (pid 42)\n",
-            "claude agent a\nb (pid 42)",
-            "claude agent a\rb (pid 42)",
-            "claude agent a (pid 42 start 7\u{2028})",
-            "claude agent a (pid 42 start 7\u{2029})",
-            "claude agent a (pid -42)",
-            "claude agent a (pid 42,start 7)",
-            "claude worker a (pid 42)",
-            "claude  agent a (pid 42)",
-            "agent a (pid 42)",
-        ] {
-            assert_eq!(claude_lock(reason), None, "{reason:?}");
-        }
-        // 1 to 255 UTF-16 code units each
-        let name = "n".repeat(255);
-        assert!(claude_lock(&format!("claude agent {name} (pid 42)")).is_some());
-        assert!(claude_lock(&format!("claude agent {name}n (pid 42)")).is_none());
-        let astral = "\u{1F600}".repeat(127);
-        assert!(claude_lock(&format!("claude agent {astral} (pid 42 start {astral})")).is_some());
-        let astral = "\u{1F600}".repeat(128);
-        assert!(claude_lock(&format!("claude agent {astral} (pid 42)")).is_none());
-        assert!(claude_lock(&format!("claude agent a (pid 42 start {astral})")).is_none());
-        // 3 UTF-8 bytes to the unit, the most bytes 255 units can take
-        let wide = "\u{20AC}".repeat(255);
-        assert!(claude_lock(&format!("claude agent {wide} (pid 42 start {wide})")).is_some());
-        assert!(claude_lock(&format!("claude agent {wide}\u{20AC} (pid 42)")).is_none());
-    }
-
-    #[test]
-    fn a_huge_lock_reason_is_rejected_in_linear_time() {
-        // every ` (pid ` is a candidate split, each over an ever longer name
-        let reason = format!("claude agent a{}", " (pid 1".repeat(320 * 1024 / 7));
-        let started = std::time::Instant::now();
-        assert_eq!(claude_lock(&reason), None);
-        assert!(started.elapsed() < std::time::Duration::from_secs(5));
-    }
-
-    #[test]
-    fn a_lock_names_a_session_by_pid_and_start_time_to_the_digit() {
-        let s = Session::at(
-            42,
-            123,
-            "/nonexistent-ws".into(),
-            SessionSource::SessionFile,
-        );
-        let names = |reason: &str| claude_lock(reason).unwrap().names(&s);
-        assert!(names("claude agent a (pid 42 start 123)"));
-        assert!(names("claude agent a (pid 42)"));
-        assert!(names("claude agent a (pid 0042)"));
-        assert!(!names("claude agent a (pid 43 start 123)"));
-        assert!(!names("claude agent a (pid 43)"));
-        assert!(!names("claude agent a (pid 42 start 124)"));
-        assert!(!names("claude agent a (pid 42 start 0123)"));
-        assert!(!names("claude agent a (pid 42 start 123 )"));
-        assert!(!names("claude agent a (pid 4294967338)"));
     }
 
     #[test]

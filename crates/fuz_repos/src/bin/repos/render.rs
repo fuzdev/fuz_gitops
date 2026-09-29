@@ -1130,6 +1130,17 @@ fn repair_block_summary(block: &RepairBlock, view: View<'_>) -> String {
             "a relative gitdir in this repo, which git versions resolve differently; fix by hand"
                 .to_owned()
         }
+        RepairBlock::UnreadableGitdir { .. } => {
+            "a gitdir in this repo can't be read; fix by hand".to_owned()
+        }
+        RepairBlock::NulInGitdir { .. } => {
+            "a NUL in its git dir's gitdir, so a repair may change nothing; its fix under \
+             --verbose"
+                .to_owned()
+        }
+        RepairBlock::NonUtf8Path => {
+            "its path isn't UTF-8; rename it to a UTF-8 name, then rerun".to_owned()
+        }
     }
 }
 
@@ -1254,6 +1265,63 @@ pub fn render_unregistered(u: &UnregisteredClone, report: &StatusReport, view: V
                      absolute by hand, then rerun repos status",
                     git_dir_id(git_dir)
                 ),
+            )],
+        ),
+        UnregisteredKind::MovedWorktree {
+            entry,
+            blocked_by: Some(RepairBlock::UnreadableGitdir { git_dir }),
+            ..
+        } => (
+            format!("moved worktree of {entry}"),
+            vec![(
+                "note",
+                format!(
+                    "{entry}'s worktree git dir {} has a gitdir that can't be read by this \
+                     tool (unreadable, or past its size limit, which git may read fine) — what a \
+                     repair would touch is unknown, so none is offered; trim or fix it by hand, \
+                     then rerun repos status",
+                    git_dir_id(git_dir)
+                ),
+            )],
+        ),
+        UnregisteredKind::MovedWorktree {
+            entry,
+            blocked_by: Some(RepairBlock::NulInGitdir { git_dir }),
+            ..
+        } => (
+            format!("moved worktree of {entry}"),
+            vec![
+                (
+                    "note",
+                    format!(
+                        "{entry}'s worktree git dir {} holds a NUL in its gitdir — git lists \
+                         this worktree by what's before the NUL, while a repair here compares \
+                         that with this .git and may change nothing; the fix writes this .git \
+                         into that gitdir",
+                        git_dir_id(git_dir)
+                    ),
+                ),
+                (
+                    "fix",
+                    format!(
+                        "printf '%s\\n' {} > {}",
+                        view.show_arg(&Path::new(&*path).join(".git").to_string_lossy()),
+                        view.show_arg(&Path::new(git_dir).join("gitdir").to_string_lossy())
+                    ),
+                ),
+            ],
+        ),
+        UnregisteredKind::MovedWorktree {
+            entry,
+            blocked_by: Some(RepairBlock::NonUtf8Path),
+            ..
+        } => (
+            format!("moved worktree of {entry}"),
+            vec![(
+                "note",
+                "its path isn't UTF-8, so no repair command here can name it exactly — rename \
+                 it to a UTF-8 name, then rerun repos status"
+                    .to_owned(),
             )],
         ),
         UnregisteredKind::OrphanedWorktree { entry } => (
@@ -3014,6 +3082,19 @@ clean 1 · on branches 0 · pinned 0      ~/dev/repos.toml · fetched 3h ago
                     git_dir: git_dir("k"),
                 },
             ),
+            moved(
+                "u-moved",
+                RepairBlock::UnreadableGitdir {
+                    git_dir: git_dir("u"),
+                },
+            ),
+            moved("v\u{fffd}", RepairBlock::NonUtf8Path),
+            moved(
+                "w-moved",
+                RepairBlock::NulInGitdir {
+                    git_dir: git_dir("w"),
+                },
+            ),
         ];
         let mut r = report(vec![entry("app", main(), "main")]);
         r.unregistered = Some(strays.clone());
@@ -3022,7 +3103,10 @@ clean 1 · on branches 0 · pinned 0      ~/dev/repos.toml · fetched 3h ago
             "\
 unregistered  owned: app-feat (moved worktree of app — another moved worktree claims this dir; repair that one first once its repair is offered, then rerun),
               s-moved (moved worktree of app — a repair would also rewrite ~/dev/q; fix that first),
-              t-moved (moved worktree of app — a relative gitdir in this repo, which git versions resolve differently; fix by hand)
+              t-moved (moved worktree of app — a relative gitdir in this repo, which git versions resolve differently; fix by hand),
+              u-moved (moved worktree of app — a gitdir in this repo can't be read; fix by hand),
+              v\u{fffd} (moved worktree of app — its path isn't UTF-8; rename it to a UTF-8 name, then rerun),
+              w-moved (moved worktree of app — a NUL in its git dir's gitdir, so a repair may change nothing; its fix under --verbose)
 clean 1 · on branches 0 · pinned 0      ~/dev/repos.toml · fetched 3h ago
 "
         );
@@ -3045,6 +3129,19 @@ t-moved  unregistered · owned · moved worktree of app
   dir       ~/dev/t-moved
   origin    git@github.com:me/app
   note      app's worktree git dir k names its worktree by a relative path, which git 2.48+ resolves against the git dir and older gits against the cwd — what a repair would touch is uncertain, so none is offered; make that gitdir absolute by hand, then rerun repos status
+u-moved  unregistered · owned · moved worktree of app
+  dir       ~/dev/u-moved
+  origin    git@github.com:me/app
+  note      app's worktree git dir u has a gitdir that can't be read by this tool (unreadable, or past its size limit, which git may read fine) — what a repair would touch is unknown, so none is offered; trim or fix it by hand, then rerun repos status
+v\u{fffd}  unregistered · owned · moved worktree of app
+  dir       ~/dev/v\u{fffd}
+  origin    git@github.com:me/app
+  note      its path isn't UTF-8, so no repair command here can name it exactly — rename it to a UTF-8 name, then rerun repos status
+w-moved  unregistered · owned · moved worktree of app
+  dir       ~/dev/w-moved
+  origin    git@github.com:me/app
+  note      app's worktree git dir w holds a NUL in its gitdir — git lists this worktree by what's before the NUL, while a repair here compares that with this .git and may change nothing; the fix writes this .git into that gitdir
+  fix       printf '%s\\n' ~/dev/w-moved/.git > ~/dev/app/.git/worktrees/w/gitdir
 "
         );
     }

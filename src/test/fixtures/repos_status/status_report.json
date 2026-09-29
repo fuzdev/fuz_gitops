@@ -1,5 +1,5 @@
 {
-	"version": 6,
+	"version": 7,
 	"workspace": "/home/me/dev",
 	"registry": "/home/me/dev/repos.toml",
 	"fetched": true,
@@ -1651,6 +1651,41 @@
 			"owned": false,
 			"kind": "orphaned_worktree",
 			"entry": "app"
+		},
+		{
+			"dir": "unreadable",
+			"origin": "git@github.com:me/app",
+			"owned": true,
+			"kind": "moved_worktree",
+			"entry": "app",
+			"blocked_by": {
+				"kind": "unreadable_gitdir",
+				"git_dir": "/home/me/dev/app/.git/worktrees/u"
+			},
+			"exit_noise": null
+		},
+		{
+			"dir": "v�",
+			"origin": "git@github.com:me/app",
+			"owned": true,
+			"kind": "moved_worktree",
+			"entry": "app",
+			"blocked_by": {
+				"kind": "non_utf8_path"
+			},
+			"exit_noise": null
+		},
+		{
+			"dir": "w-nul",
+			"origin": "git@github.com:me/app",
+			"owned": true,
+			"kind": "moved_worktree",
+			"entry": "app",
+			"blocked_by": {
+				"kind": "nul_in_gitdir",
+				"git_dir": "/home/me/dev/app/.git/worktrees/w-nul"
+			},
+			"exit_noise": null
 		},
 		{
 			"dir": "wa",
