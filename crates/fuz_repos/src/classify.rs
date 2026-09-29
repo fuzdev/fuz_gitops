@@ -10,7 +10,7 @@ use serde::Serialize;
 use crate::busy::{Detection, EntrySessions};
 use crate::porcelain::{BranchConfig, ConfigFacts, OriginKeys, OriginUrl, Track};
 use crate::probe::{BranchFacts, RepoFacts};
-use crate::registry::{CheckoutMode, Entry, RepoUrl};
+use crate::registry::{Entry, RepoUrl};
 use crate::sessions::Session;
 use crate::state::{
     BranchNeedsHuman, BranchStatus, CleanupReason, Head, HeldBy, InProgressOp, Prune, PruneLoss,
@@ -55,9 +55,6 @@ pub enum NeedsHuman {
     UnexpectedDetached {
         checkout: String,
     },
-    PinnedOnBranch {
-        branch: String,
-    },
     /// A checkout's path can't be resolved — `path` is as far as it got, in
     /// a dir the tool can't search or a symlink loop — so whether a live
     /// session works in it can't be told. It may be busy: like a busy
@@ -99,7 +96,6 @@ impl NeedsHuman {
             Self::DefaultBranchMissing { .. }
             | Self::DefaultBranchNoUpstream { .. }
             | Self::UnexpectedDetached { .. }
-            | Self::PinnedOnBranch { .. }
             | Self::CheckoutUnresolvable { .. }
             | Self::UnlistedGitDir { .. } => false,
         }
@@ -285,6 +281,7 @@ pub fn classify(entry: &Entry, facts: &RepoFacts, sessions: &EntrySessions) -> C
                 .and_then(BranchConfig::display);
             let on = checkouts_on(b, facts, sessions);
             let holds = Holds {
+                pinned: entry.pinned,
                 entry: entry_held,
                 on: &on,
                 detection: sessions.detection,
@@ -374,6 +371,8 @@ struct CheckoutsOn<'a> {
 /// What may hold a branch's action back.
 #[derive(Debug, Clone, Copy)]
 struct Holds<'a, 'b> {
+    /// The entry is pinned.
+    pinned: bool,
     /// An entry-level `needs_human` reason.
     entry: bool,
     on: &'b CheckoutsOn<'a>,
@@ -381,17 +380,20 @@ struct Holds<'a, 'b> {
 }
 
 impl Holds<'_, '_> {
-    /// What holds `action`, if anything: an entry-level reason or a live
-    /// session holds every action; a dirty checkout, or one that couldn't be
-    /// probed, all but a push, which only moves refs; and a checkout that
-    /// may be busy — busy detection unavailable, which leaves every checkout
-    /// in doubt, or one on the branch whose path can't be resolved or that
-    /// the probe didn't find, or an unlisted git dir a session works through
-    /// — holds every action. The most specific reason
-    /// names the hold.
+    /// What holds `action`, if anything: a pin (whose pushes never get
+    /// here), an entry-level reason, or a live session holds every action;
+    /// a dirty checkout, or one that couldn't be probed, all but a push,
+    /// which only moves refs; and a checkout that may be busy — busy
+    /// detection unavailable, which leaves every checkout in doubt, or one
+    /// on the branch whose path can't be resolved or that the probe didn't
+    /// find, or an unlisted git dir a session works through — holds every
+    /// action. A pin names the hold before anything else, since clearing the
+    /// rest never releases it; otherwise the most specific reason names it.
     fn of(&self, action: SyncAction) -> Option<HeldBy> {
         let push = matches!(action, SyncAction::Push { .. });
-        if self.entry {
+        if self.pinned {
+            Some(HeldBy::Pinned)
+        } else if self.entry {
             Some(HeldBy::Entry)
         } else if self.on.busy {
             Some(HeldBy::Busy)
@@ -505,6 +507,13 @@ fn checkouts_on<'a>(
 /// What sync does with a branch. `has_upstream` is whether any upstream is
 /// configured; `holds` what may hold its action back, including the
 /// checkouts it's on.
+///
+/// A pin is left alone — never fetched, updated, pushed, or reported
+/// behind — so what its remote-tracking refs say of a branch is stale by
+/// contract: a branch in any relation but a fast-forward's or a move's
+/// reads `LocalOnly` when it has commits on no remote ref, else `Quiet`,
+/// never a push, cleanup, or needs-human. Its fast-forwards and moves are
+/// the pin's to hold.
 fn verdict(
     entry: &Entry,
     b: &BranchFacts,
@@ -512,66 +521,62 @@ fn verdict(
     has_upstream: bool,
     holds: &Holds<'_, '_>,
 ) -> Verdict {
+    use std::ops::ControlFlow::{Break, Continue};
+
     let on = holds.on;
-    let follow = match &entry.checkout_mode {
-        CheckoutMode::Follow { branch } => Some(branch.as_str()),
-        CheckoutMode::Pinned | CheckoutMode::Head => None,
-    };
     let action = match relation {
-        Relation::Ahead { .. } if entry.archived => {
-            return Verdict::NeedsHuman {
-                reason: BranchNeedsHuman::ArchivedAhead,
-            };
-        }
-        Relation::Ahead { commits } => SyncAction::Push { commits },
-        Relation::Behind { commits } => SyncAction::FastForward { commits },
+        Relation::Ahead { .. } if entry.archived => Break(Verdict::NeedsHuman {
+            reason: BranchNeedsHuman::ArchivedAhead,
+        }),
+        Relation::Ahead { commits } => Continue(SyncAction::Push { commits }),
+        Relation::Behind { commits } => Continue(SyncAction::FastForward { commits }),
         // nothing local at stake: a stale pointer at an old root
-        Relation::Shallow if b.unique_commits == 0 => SyncAction::Move,
-        Relation::Shallow => {
-            return Verdict::NeedsHuman {
-                reason: BranchNeedsHuman::ShallowLocalWork,
-            };
-        }
-        Relation::Diverged { .. } => {
-            return Verdict::NeedsHuman {
-                reason: BranchNeedsHuman::Diverged,
-            };
-        }
-        Relation::Unmapped => {
-            return Verdict::NeedsHuman {
-                reason: BranchNeedsHuman::Unmapped,
-            };
-        }
-        Relation::Gone => {
-            return Verdict::Cleanup {
-                reason: CleanupReason::UpstreamGone,
-                removable_worktree: on.removable.map(str::to_owned),
-            };
-        }
-        Relation::Untracked if b.unique_commits > 0 => return Verdict::LocalOnly,
+        Relation::Shallow if b.unique_commits == 0 => Continue(SyncAction::Move),
+        Relation::Shallow => Break(Verdict::NeedsHuman {
+            reason: BranchNeedsHuman::ShallowLocalWork,
+        }),
+        Relation::Diverged { .. } => Break(Verdict::NeedsHuman {
+            reason: BranchNeedsHuman::Diverged,
+        }),
+        Relation::Unmapped => Break(Verdict::NeedsHuman {
+            reason: BranchNeedsHuman::Unmapped,
+        }),
+        Relation::Gone => Break(Verdict::Cleanup {
+            reason: CleanupReason::UpstreamGone,
+            removable_worktree: on.removable.map(str::to_owned),
+        }),
+        Relation::Untracked if b.unique_commits > 0 => Break(Verdict::LocalOnly),
         // nothing unique and no upstream: merged, unless it's checked out
         // anywhere, possibly (a fresh branch looks the same), or the
         // registry's branch (a needs-human reason) — so never in a worktree
         // to remove
         Relation::Untracked
-            if !has_upstream && !on.checked_out && Some(b.branch.name.as_str()) != follow =>
+            if !has_upstream
+                && !on.checked_out
+                && Some(b.branch.name.as_str()) != entry.branch.as_deref() =>
         {
-            return Verdict::Cleanup {
+            Break(Verdict::Cleanup {
                 reason: CleanupReason::Merged,
                 removable_worktree: None,
-            };
+            })
         }
         // in sync; tracking another remote; checked out with nothing committed
-        Relation::InSync | Relation::Untracked => return Verdict::Quiet,
+        Relation::InSync | Relation::Untracked => Break(Verdict::Quiet),
     };
-    // a pinned checkout is never fetched, moved, or pushed; commits it
-    // carries are local work
-    if entry.checkout_mode == CheckoutMode::Pinned {
-        return match action {
-            SyncAction::Push { .. } => Verdict::LocalOnly,
-            SyncAction::FastForward { .. } | SyncAction::Move => Verdict::Quiet,
-        };
-    }
+    let action = match action {
+        // the tool leaves a pin alone, pushes included, so no stale ref's
+        // word stands: the branch carries local work or nothing. Its other
+        // actions are the pin's to hold
+        Break(_) | Continue(SyncAction::Push { .. }) if entry.pinned => {
+            return if b.unique_commits > 0 {
+                Verdict::LocalOnly
+            } else {
+                Verdict::Quiet
+            };
+        }
+        Break(verdict) => return verdict,
+        Continue(action) => action,
+    };
     holds
         .of(action)
         .map_or(Verdict::Act { action }, |by| Verdict::Held { action, by })
@@ -612,45 +617,39 @@ fn needs_human(entry: &Entry, facts: &RepoFacts, sessions: &EntrySessions) -> Ve
         });
     }
     let head = &facts.status.head;
-    match (&entry.checkout_mode, head) {
-        (CheckoutMode::Follow { branch }, _) => {
-            if !facts.branches.iter().any(|b| b.branch.name == *branch) {
-                reasons.push(NeedsHuman::DefaultBranchMissing {
-                    branch: branch.clone(),
-                });
-            } else if !facts
-                .config
-                .branches
-                .get(branch)
-                .is_some_and(BranchConfig::is_origin)
-            {
-                reasons.push(NeedsHuman::DefaultBranchNoUpstream {
-                    branch: branch.clone(),
-                });
-            }
-            // a rebase or bisect detaches HEAD by design: the operation is
-            // the reason, and reattaching mid-way would be the wrong fix; a
-            // merge, cherry-pick, revert, sequencer, or am keeps HEAD on its
-            // branch, so a detach beside one is still unexpected. Only the
-            // primary's HEAD and operation count: a linked worktree detached
-            // is normal, and its operation can't explain the primary's HEAD
-            if matches!(head, Head::Detached { .. })
-                && !matches!(
-                    facts.in_progress,
-                    Some(InProgressOp::Rebase | InProgressOp::Bisect)
-                )
-            {
-                reasons.push(NeedsHuman::UnexpectedDetached {
-                    checkout: facts.path.clone(),
-                });
-            }
-        }
-        (CheckoutMode::Pinned, Head::Branch { name }) => {
-            reasons.push(NeedsHuman::PinnedOnBranch {
-                branch: name.clone(),
+    // the branch the entry follows; a pin's checkout is its consumer's,
+    // wherever its HEAD is, so nothing is expected of it
+    if let (Some(branch), false) = (&entry.branch, entry.pinned) {
+        if !facts.branches.iter().any(|b| b.branch.name == *branch) {
+            reasons.push(NeedsHuman::DefaultBranchMissing {
+                branch: branch.clone(),
+            });
+        } else if !facts
+            .config
+            .branches
+            .get(branch)
+            .is_some_and(BranchConfig::is_origin)
+        {
+            reasons.push(NeedsHuman::DefaultBranchNoUpstream {
+                branch: branch.clone(),
             });
         }
-        (CheckoutMode::Pinned, Head::Detached { .. }) | (CheckoutMode::Head, _) => {}
+        // a rebase or bisect detaches HEAD by design: the operation is
+        // the reason, and reattaching mid-way would be the wrong fix; a
+        // merge, cherry-pick, revert, sequencer, or am keeps HEAD on its
+        // branch, so a detach beside one is still unexpected. Only the
+        // primary's HEAD and operation count: a linked worktree detached
+        // is normal, and its operation can't explain the primary's HEAD
+        if matches!(head, Head::Detached { .. })
+            && !matches!(
+                facts.in_progress,
+                Some(InProgressOp::Rebase | InProgressOp::Bisect)
+            )
+        {
+            reasons.push(NeedsHuman::UnexpectedDetached {
+                checkout: facts.path.clone(),
+            });
+        }
     }
     // in the order the checkouts are probed: the primary, then the other
     // worktrees, probed or not. Said once: a checkout at or under a git dir
@@ -736,7 +735,23 @@ mod tests {
         RepoUrl::try_from(s.to_owned()).unwrap()
     }
 
-    fn owned(mode: CheckoutMode) -> Entry {
+    /// Where a test entry's checkout lives and who moves its HEAD.
+    #[derive(Debug, Clone, Copy)]
+    enum Mode<'a> {
+        Follow(&'a str),
+        Pinned,
+        /// Pinned, its checkout living on the branch.
+        PinnedOn(&'a str),
+        Head,
+    }
+
+    fn owned(mode: Mode<'_>) -> Entry {
+        let (branch, pinned) = match mode {
+            Mode::Follow(b) => (Some(b.to_owned()), false),
+            Mode::Pinned => (None, true),
+            Mode::PinnedOn(b) => (Some(b.to_owned()), true),
+            Mode::Head => (None, false),
+        };
         Entry {
             key: "app".into(),
             kind: EntryKind::Repo,
@@ -746,17 +761,12 @@ mod tests {
             archived: false,
             visibility: None,
             ci: false,
-            checkout_mode: mode,
+            branch,
+            pinned,
         }
     }
 
-    fn follow(branch: &str) -> CheckoutMode {
-        CheckoutMode::Follow {
-            branch: branch.into(),
-        }
-    }
-
-    fn third_party(mode: CheckoutMode) -> Entry {
+    fn third_party(mode: Mode<'_>) -> Entry {
         Entry {
             url: url("https://github.com/them/lib"),
             writable: false,
@@ -900,7 +910,7 @@ mod tests {
                 b("other", Some("upstream"), true, Track::Behind(9)),
             ],
         );
-        let got = relations(&owned(follow("main")), &f);
+        let got = relations(&owned(Mode::Follow("main")), &f);
         let want = [
             ("main", Relation::InSync),
             ("ahead", Relation::Ahead { commits: 2 }),
@@ -972,7 +982,7 @@ mod tests {
         );
         f.branches[9].branch.worktree = Some("/ws/app".into());
         assert_eq!(
-            verdicts(&owned(follow("main")), &f),
+            verdicts(&owned(Mode::Follow("main")), &f),
             named(&[
                 // the registry's branch without an upstream is an entry
                 // reason, not merged work
@@ -1028,7 +1038,7 @@ mod tests {
             // not an action, so not held
             ("wip", Verdict::LocalOnly),
         ];
-        let e = owned(follow("main"));
+        let e = owned(Mode::Follow("main"));
 
         let mut drift = facts(on("main"), &branches);
         drift.config.origin_urls = vec![OriginUrl::repo("git@github.com:someone/app")];
@@ -1111,7 +1121,7 @@ mod tests {
             linked("/ws/app-linked", on("linked")),
             linked("/ws/app-linked-2", on("linked-ahead")),
         ];
-        let e = owned(follow("main"));
+        let e = owned(Mode::Follow("main"));
 
         let clean = verdicts(&e, &f);
         assert_eq!(
@@ -1204,7 +1214,7 @@ mod tests {
             ],
         );
         f.worktrees = vec![linked("/ws/app-linked", on("linked"))];
-        let e = owned(follow("main"));
+        let e = owned(Mode::Follow("main"));
         assert_eq!(
             verdicts_with(&e, &f, &EntrySessions::idle()),
             [act(push(1)), act(ff(2)), act(push(3))]
@@ -1274,7 +1284,7 @@ mod tests {
         let mut wt = linked("/ws/app-old", on("old"));
         wt.submodules = Some(false);
         f.worktrees = vec![wt];
-        let e = owned(follow("main"));
+        let e = owned(Mode::Follow("main"));
         let gone = |removable: Option<&str>| Verdict::Cleanup {
             reason: CleanupReason::UpstreamGone,
             removable_worktree: removable.map(str::to_owned),
@@ -1351,7 +1361,7 @@ mod tests {
                     .into(),
             },
         )];
-        let e = owned(follow("main"));
+        let e = owned(Mode::Follow("main"));
         let gone = |removable: Option<&str>| Verdict::Cleanup {
             reason: CleanupReason::UpstreamGone,
             removable_worktree: removable.map(str::to_owned),
@@ -1468,7 +1478,7 @@ mod tests {
         // a probed linked worktree on another branch doesn't count
         f.worktrees = vec![linked("/ws/app-other", on("main-2"))];
         assert_eq!(
-            verdicts(&owned(follow("main")), &f),
+            verdicts(&owned(Mode::Follow("main")), &f),
             named(&[
                 ("main", Verdict::Quiet),
                 (
@@ -1520,7 +1530,7 @@ mod tests {
             unprobed("/ws/app-busy", Some("busy"), UnprobedWhy::Prunable),
             unprobed("/ws/app-old", Some("old"), UnprobedWhy::Prunable),
         ];
-        let e = owned(follow("main"));
+        let e = owned(Mode::Follow("main"));
         let classified = classify(&e, &f, &busy_at(&["/ws/app-busy"]));
         let verdicts: Vec<(String, Verdict)> = classified
             .branches
@@ -1618,7 +1628,7 @@ mod tests {
         f.branches[2].branch.worktree = Some("/ws/app-somewhere".into());
         f.branches[3].branch.worktree = Some("/ws/app-elsewhere".into());
         assert_eq!(
-            verdicts(&owned(follow("main")), &f)[1..],
+            verdicts(&owned(Mode::Follow("main")), &f)[1..],
             named(&[
                 ("listed", held.clone()),
                 ("unlisted", held),
@@ -1636,7 +1646,7 @@ mod tests {
         // branch, has no files: nothing there to hold
         f.bare_main = Some("/ws/app-elsewhere".into());
         assert_eq!(
-            verdicts(&owned(follow("main")), &f)[3],
+            verdicts(&owned(Mode::Follow("main")), &f)[3],
             (
                 "unlisted-ahead".to_owned(),
                 act(SyncAction::Push { commits: 1 })
@@ -1668,7 +1678,7 @@ mod tests {
             )
         }];
         assert_eq!(
-            verdicts(&owned(follow("main")), &f),
+            verdicts(&owned(Mode::Follow("main")), &f),
             named(&[
                 (
                     "main",
@@ -1703,7 +1713,7 @@ mod tests {
             ],
         );
         f.unreadable = vec!["/ws/app/.git/worktrees".into()];
-        let c = classify(&owned(follow("main")), &f, &EntrySessions::idle());
+        let c = classify(&owned(Mode::Follow("main")), &f, &EntrySessions::idle());
         assert_eq!(
             c.needs_human,
             [NeedsHuman::WorktreeUnreadable {
@@ -1711,7 +1721,7 @@ mod tests {
             }]
         );
         assert_eq!(
-            verdicts(&owned(follow("main")), &f),
+            verdicts(&owned(Mode::Follow("main")), &f),
             named(&[
                 (
                     "main",
@@ -1883,7 +1893,7 @@ mod tests {
             linked("/ws/app-twice-1", on("twice")),
             linked("/ws/app-twice-2", on("twice")),
         ];
-        let e = owned(follow("main"));
+        let e = owned(Mode::Follow("main"));
         let v = verdicts(&e, &f);
         assert_eq!(v[0].1, ff1);
         // two clean worktrees on it: neither is the branch's to remove
@@ -1970,7 +1980,7 @@ mod tests {
         for i in 1..7 {
             f.branches[i].branch.worktree = Some(f.worktrees[i - 1].path.clone());
         }
-        let v = verdicts(&owned(follow("main")), &f);
+        let v = verdicts(&owned(Mode::Follow("main")), &f);
         assert_eq!(
             v[1..],
             named(&[
@@ -2023,7 +2033,7 @@ mod tests {
             linked("/ws/app-merged", on("merged-in-wt")),
         ];
         assert_eq!(
-            verdicts(&owned(follow("main")), &f),
+            verdicts(&owned(Mode::Follow("main")), &f),
             named(&[
                 ("main", Verdict::Quiet),
                 ("in-clean", cleanup(Some("/ws/app-clean"))),
@@ -2050,7 +2060,7 @@ mod tests {
         );
         let archived = Entry {
             archived: true,
-            ..owned(follow("main"))
+            ..owned(Mode::Follow("main"))
         };
         assert_eq!(
             verdicts(&archived, &f),
@@ -2060,11 +2070,20 @@ mod tests {
                 ("feat", act(SyncAction::FastForward { commits: 2 })),
             ])
         );
-        // a pinned checkout is never moved or pushed; its commits are local
-        // work
+        // a pin is never fetched, so its commits are local work, and every
+        // other action is the pin's to hold
         assert_eq!(
-            verdicts(&owned(CheckoutMode::Pinned), &f),
-            named(&[("main", Verdict::LocalOnly), ("feat", Verdict::Quiet)])
+            verdicts(&owned(Mode::Pinned), &f),
+            named(&[
+                ("main", Verdict::LocalOnly),
+                (
+                    "feat",
+                    Verdict::Held {
+                        action: SyncAction::FastForward { commits: 2 },
+                        by: HeldBy::Pinned,
+                    },
+                ),
+            ])
         );
     }
 
@@ -2096,7 +2115,7 @@ mod tests {
         );
         f.layout.shallow = true;
         assert_eq!(
-            verdicts(&owned(CheckoutMode::Head), &f),
+            verdicts(&owned(Mode::Head), &f),
             named(&[
                 ("moved", act(SyncAction::Move)),
                 ("stranded", needs(BranchNeedsHuman::ShallowLocalWork)),
@@ -2113,7 +2132,7 @@ mod tests {
             &[b("audit", None, false, Track::Even).unique(2)],
         );
         assert_eq!(
-            verdicts(&third_party(CheckoutMode::Head), &f),
+            verdicts(&third_party(Mode::Head), &f),
             named(&[("audit", Verdict::LocalOnly)])
         );
     }
@@ -2152,7 +2171,7 @@ mod tests {
             ],
         );
         f.layout.shallow = true;
-        let got = relations(&owned(follow("main")), &f);
+        let got = relations(&owned(Mode::Follow("main")), &f);
         assert_eq!(
             got.into_iter().map(|(_, r)| r).collect::<Vec<_>>(),
             [
@@ -2177,11 +2196,7 @@ mod tests {
                 b("master", O, true, Track::Gone),
             ],
         );
-        let c = classify(
-            &third_party(CheckoutMode::Pinned),
-            &f,
-            &EntrySessions::idle(),
-        );
+        let c = classify(&third_party(Mode::Pinned), &f, &EntrySessions::idle());
         assert_eq!(c.branches.len(), 1);
         assert_eq!(c.branches[0].name, "tsv-format-audit");
         assert_eq!(c.branches[0].relation, Relation::Untracked);
@@ -2197,7 +2212,7 @@ mod tests {
 
     #[test]
     fn follow_mode_reasons() {
-        let e = owned(follow("main"));
+        let e = owned(Mode::Follow("main"));
         let missing = facts(on("dev"), &[b("dev", O, true, Track::Even)]);
         assert_eq!(
             classify(&e, &missing, &EntrySessions::idle()).needs_human,
@@ -2265,19 +2280,17 @@ mod tests {
             &[b("main", O, true, Track::Behind(1))],
         );
         let on_main = facts(on("main"), &[b("main", O, true, Track::Even)]);
-        let pinned = owned(CheckoutMode::Pinned);
-        let head = owned(CheckoutMode::Head);
-        assert!(
-            classify(&pinned, &detached, &EntrySessions::idle())
-                .needs_human
-                .is_empty()
-        );
-        assert_eq!(
-            classify(&pinned, &on_main, &EntrySessions::idle()).needs_human,
-            [NeedsHuman::PinnedOnBranch {
-                branch: "main".into()
-            }]
-        );
+        let pinned = owned(Mode::Pinned);
+        let head = owned(Mode::Head);
+        // a pin's HEAD is its consumer's: detached or on a branch, nothing
+        // to say
+        for f in [&detached, &on_main] {
+            assert!(
+                classify(&pinned, f, &EntrySessions::idle())
+                    .needs_human
+                    .is_empty()
+            );
+        }
         assert!(
             classify(&head, &detached, &EntrySessions::idle())
                 .needs_human
@@ -2291,13 +2304,284 @@ mod tests {
     }
 
     #[test]
+    fn a_pin_on_its_branch_expects_nothing_of_it() {
+        let pinned = owned(Mode::PinnedOn("fork"));
+        let reasons = |f: &RepoFacts| classify(&pinned, f, &EntrySessions::idle()).needs_human;
+        // on its branch, behind a stale remote-tracking ref: held, not
+        // reported
+        let on_fork = facts(on("fork"), &[b("fork", O, true, Track::Behind(3))]);
+        assert!(reasons(&on_fork).is_empty());
+        assert_eq!(
+            verdicts(&pinned, &on_fork),
+            named(&[(
+                "fork",
+                Verdict::Held {
+                    action: SyncAction::FastForward { commits: 3 },
+                    by: HeldBy::Pinned,
+                },
+            )])
+        );
+        // detached, on another branch, its branch missing or with no
+        // upstream: none of the follow reasons
+        let detached = facts(
+            Head::Detached {
+                commit: "abc".into(),
+            },
+            &[b("fork", O, true, Track::Even)],
+        );
+        let elsewhere = facts(on("main"), &[b("main", O, true, Track::Even)]);
+        let no_upstream = facts(on("fork"), &[b("fork", None, false, Track::Even)]);
+        for f in [&detached, &elsewhere, &no_upstream] {
+            assert!(reasons(f).is_empty());
+        }
+        // the same branch, followed rather than pinned, has all three
+        let followed = owned(Mode::Follow("fork"));
+        let followed_reasons =
+            |f: &RepoFacts| classify(&followed, f, &EntrySessions::idle()).needs_human;
+        assert!(matches!(
+            followed_reasons(&detached)[..],
+            [NeedsHuman::UnexpectedDetached { .. }]
+        ));
+        assert!(matches!(
+            followed_reasons(&elsewhere)[..],
+            [NeedsHuman::DefaultBranchMissing { .. }]
+        ));
+        assert!(matches!(
+            followed_reasons(&no_upstream)[..],
+            [NeedsHuman::DefaultBranchNoUpstream { .. }]
+        ));
+        // its branch with nothing unique and no upstream isn't merged
+        // cleanup: it's where the pin lives
+        let detached_bare = facts(
+            Head::Detached {
+                commit: "abc".into(),
+            },
+            &[b("fork", None, false, Track::Even)],
+        );
+        assert_eq!(
+            verdicts(&pinned, &detached_bare),
+            named(&[("fork", Verdict::Quiet)])
+        );
+    }
+
+    #[test]
+    fn a_stale_main_beside_a_pin_is_held_by_it() {
+        let held = |commits| Verdict::Held {
+            action: SyncAction::FastForward { commits },
+            by: HeldBy::Pinned,
+        };
+        // detached at the pin, and on the pin's branch: a local main far
+        // behind a stale origin/main never moves, and local work stays
+        // local
+        for head in [
+            Head::Detached {
+                commit: "abc".into(),
+            },
+            on("fork"),
+        ] {
+            let f = facts(
+                head,
+                &[
+                    b("fork", O, true, Track::Even),
+                    b("main", O, true, Track::Behind(57)),
+                    b("audit", None, false, Track::Even).unique(2),
+                    b("ahead", O, true, Track::Ahead(1)).unique(1),
+                ],
+            );
+            let c = classify(&owned(Mode::PinnedOn("fork")), &f, &EntrySessions::idle());
+            assert!(c.needs_human.is_empty());
+            assert_eq!(
+                c.branches
+                    .iter()
+                    .map(|b| (b.name.clone(), b.verdict.clone()))
+                    .collect::<Vec<_>>(),
+                named(&[
+                    ("fork", Verdict::Quiet),
+                    ("main", held(57)),
+                    ("audit", Verdict::LocalOnly),
+                    ("ahead", Verdict::LocalOnly),
+                ])
+            );
+        }
+    }
+
+    #[test]
+    fn a_pin_branch_ahead_reads_its_unique_commits() {
+        // a fork's main fast-forwarded from upstream: ahead of a stale
+        // origin/main with every commit on a remote ref, so nothing local
+        let f = facts(
+            on("fork"),
+            &[
+                b("fork", O, true, Track::Even),
+                b("main", O, true, Track::Ahead(2)),
+                b("work", O, true, Track::Ahead(2)).unique(1),
+            ],
+        );
+        assert_eq!(
+            verdicts(&owned(Mode::PinnedOn("fork")), &f),
+            named(&[
+                ("fork", Verdict::Quiet),
+                ("main", Verdict::Quiet),
+                ("work", Verdict::LocalOnly),
+            ])
+        );
+    }
+
+    #[test]
+    fn a_pin_gets_no_verdict_from_its_stale_refs() {
+        let pinned = owned(Mode::PinnedOn("fork"));
+        let diverged = Track::Diverged {
+            ahead: 1,
+            behind: 1,
+        };
+        let f = facts(
+            on("fork"),
+            &[
+                b("fork", O, true, Track::Gone).unique(1),
+                b("side", O, true, Track::Gone),
+                b("diverged", O, true, diverged).unique(1),
+                b("unmapped", O, false, Track::Even).unique(5),
+                b("merged", None, false, Track::Even),
+                b("ahead", O, true, Track::Ahead(2)).unique(2),
+                b("behind", O, true, Track::Behind(3)),
+            ],
+        );
+        let held = |action| Verdict::Held {
+            action,
+            by: HeldBy::Pinned,
+        };
+        // never fetched, so no ref's word is taken: local work where the
+        // branch has commits on no remote, else nothing — not the gone
+        // branch the pin lives on to clean up, nor a merged one
+        assert_eq!(
+            verdicts(&pinned, &f),
+            named(&[
+                ("fork", Verdict::LocalOnly),
+                ("side", Verdict::Quiet),
+                ("diverged", Verdict::LocalOnly),
+                ("unmapped", Verdict::LocalOnly),
+                ("merged", Verdict::Quiet),
+                ("ahead", Verdict::LocalOnly),
+                ("behind", held(SyncAction::FastForward { commits: 3 })),
+            ])
+        );
+        // followed, the same refs are taken at their word
+        let gone = |removable_worktree| Verdict::Cleanup {
+            reason: CleanupReason::UpstreamGone,
+            removable_worktree,
+        };
+        assert_eq!(
+            verdicts(&owned(Mode::Follow("fork")), &f),
+            named(&[
+                ("fork", gone(None)),
+                ("side", gone(None)),
+                ("diverged", needs(BranchNeedsHuman::Diverged)),
+                ("unmapped", needs(BranchNeedsHuman::Unmapped)),
+                (
+                    "merged",
+                    Verdict::Cleanup {
+                        reason: CleanupReason::Merged,
+                        removable_worktree: None,
+                    },
+                ),
+                ("ahead", act(SyncAction::Push { commits: 2 })),
+                ("behind", act(SyncAction::FastForward { commits: 3 })),
+            ])
+        );
+        // shallow: the stranded work is local, the stale pointer held
+        let mut f = facts(
+            on("fork"),
+            &[
+                b("moved", O, true, diverged),
+                b("stranded", O, true, diverged).unique(1),
+            ],
+        );
+        f.layout.shallow = true;
+        assert_eq!(
+            verdicts(&pinned, &f),
+            named(&[
+                ("moved", held(SyncAction::Move)),
+                ("stranded", Verdict::LocalOnly),
+            ])
+        );
+        assert_eq!(
+            verdicts(&owned(Mode::Follow("fork")), &f),
+            named(&[
+                ("moved", act(SyncAction::Move)),
+                ("stranded", needs(BranchNeedsHuman::ShallowLocalWork)),
+            ])
+        );
+    }
+
+    #[test]
+    fn a_pin_names_the_hold_before_busy_dirt_and_the_entry() {
+        let ff = SyncAction::FastForward { commits: 2 };
+        let mut f = facts(
+            on("fork"),
+            &[
+                b("fork", O, true, Track::Behind(2)),
+                b("local", O, true, Track::Ahead(1)).unique(1),
+            ],
+        );
+        f.status.uncommitted.unstaged = 1;
+        let pinned = owned(Mode::PinnedOn("fork"));
+        let followed = owned(Mode::Follow("fork"));
+        let busy = busy_at(&["/ws/app"]);
+        // followed: the busy dirty checkout names the hold, and holds the
+        // push
+        assert_eq!(
+            verdicts_with(&followed, &f, &busy),
+            [
+                Verdict::Held {
+                    action: ff,
+                    by: HeldBy::Busy
+                },
+                act(SyncAction::Push { commits: 1 }),
+            ]
+        );
+        // pinned: the pin, which clearing the session or the dirt never
+        // releases; its commits stay local work
+        let pinned_verdicts = [
+            Verdict::Held {
+                action: ff,
+                by: HeldBy::Pinned,
+            },
+            Verdict::LocalOnly,
+        ];
+        assert_eq!(verdicts_with(&pinned, &f, &busy), pinned_verdicts);
+        assert_eq!(
+            verdicts_with(&pinned, &f, &EntrySessions::idle()),
+            pinned_verdicts
+        );
+        // busy detection unavailable too
+        assert_eq!(
+            verdicts_with(&pinned, &f, &EntrySessions::unavailable()),
+            pinned_verdicts
+        );
+        // an entry-level reason stays on the entry, the pin still named
+        f.in_progress = Some(InProgressOp::Merge);
+        let c = classify(&pinned, &f, &busy);
+        assert!(matches!(
+            c.needs_human[..],
+            [NeedsHuman::OperationInProgress { .. }]
+        ));
+        assert_eq!(
+            c.branches
+                .into_iter()
+                .map(|b| b.verdict)
+                .collect::<Vec<_>>(),
+            pinned_verdicts
+        );
+    }
+
+    #[test]
     fn in_progress_and_origin_reasons() {
         let mut f = facts(on("main"), &[b("main", O, true, Track::Even)]);
         f.in_progress = Some(InProgressOp::Rebase);
         f.config.origin_urls.clear();
         f.config.origin_keys = OriginKeys::None;
         assert_eq!(
-            classify(&owned(follow("main")), &f, &EntrySessions::idle()).needs_human,
+            classify(&owned(Mode::Follow("main")), &f, &EntrySessions::idle()).needs_human,
             [
                 NeedsHuman::OperationInProgress {
                     checkout: "/ws/app".into(),
@@ -2313,7 +2597,7 @@ mod tests {
         // an `origin` with keys but no URL, the repo's own
         f.config.origin_keys = OriginKeys::InRepo;
         assert!(
-            classify(&owned(follow("main")), &f, &EntrySessions::idle())
+            classify(&owned(Mode::Follow("main")), &f, &EntrySessions::idle())
                 .needs_human
                 .contains(&NeedsHuman::OriginMismatch {
                     origin: OriginRemote::NoUrl,
@@ -2326,7 +2610,7 @@ mod tests {
         f.config.origin_keys = OriginKeys::Elsewhere;
         f.config.origin_urls = vec![OriginUrl::elsewhere("git@github.com:old/app")];
         let reason = |f: &RepoFacts| {
-            classify(&owned(follow("main")), f, &EntrySessions::idle())
+            classify(&owned(Mode::Follow("main")), f, &EntrySessions::idle())
                 .needs_human
                 .into_iter()
                 .find(|r| matches!(r, NeedsHuman::OriginMismatch { .. }))
@@ -2359,7 +2643,7 @@ mod tests {
     fn origin_urls_as_git_reads_them() {
         let mut f = facts(on("main"), &[b("main", O, true, Track::Even)]);
         let reason = |f: &RepoFacts| {
-            classify(&owned(follow("main")), f, &EntrySessions::idle())
+            classify(&owned(Mode::Follow("main")), f, &EntrySessions::idle())
                 .needs_human
                 .into_iter()
                 .find(|r| matches!(r, NeedsHuman::OriginMismatch { .. }))
@@ -2459,7 +2743,7 @@ mod tests {
         for op in [InProgressOp::Rebase, InProgressOp::Bisect] {
             f.in_progress = Some(op);
             assert_eq!(
-                classify(&owned(follow("main")), &f, &EntrySessions::idle()).needs_human,
+                classify(&owned(Mode::Follow("main")), &f, &EntrySessions::idle()).needs_human,
                 [NeedsHuman::OperationInProgress {
                     checkout: "/ws/app".into(),
                     op
@@ -2476,7 +2760,7 @@ mod tests {
         ] {
             f.in_progress = Some(op);
             assert_eq!(
-                classify(&owned(follow("main")), &f, &EntrySessions::idle()).needs_human,
+                classify(&owned(Mode::Follow("main")), &f, &EntrySessions::idle()).needs_human,
                 [
                     NeedsHuman::OperationInProgress {
                         checkout: "/ws/app".into(),
@@ -2497,7 +2781,7 @@ mod tests {
         wt.submodules = Some(false);
         f.worktrees = vec![wt];
         let verdict = |f: &RepoFacts| {
-            classify(&owned(follow("main")), f, &EntrySessions::idle()).branches[0]
+            classify(&owned(Mode::Follow("main")), f, &EntrySessions::idle()).branches[0]
                 .verdict
                 .clone()
         };
@@ -2536,7 +2820,7 @@ mod tests {
         reverting.in_progress = Some(InProgressOp::Revert);
         f.unprobed = vec![reverting];
         f.in_progress = Some(InProgressOp::CherryPick);
-        let c = classify(&owned(follow("main")), &f, &EntrySessions::idle());
+        let c = classify(&owned(Mode::Follow("main")), &f, &EntrySessions::idle());
         assert_eq!(
             c.needs_human,
             [
@@ -2564,7 +2848,7 @@ mod tests {
         f.unprobed.clear();
         f.worktrees.remove(2);
         assert_eq!(
-            verdicts(&owned(follow("main")), &f),
+            verdicts(&owned(Mode::Follow("main")), &f),
             named(&[(
                 "main",
                 Verdict::Held {
@@ -2577,7 +2861,7 @@ mod tests {
 
     #[test]
     fn only_the_primary_counts_for_a_detached_head() {
-        let e = owned(follow("main"));
+        let e = owned(Mode::Follow("main"));
         // a linked worktree detached is normal
         let mut f = facts(on("main"), &[b("main", O, true, Track::Even)]);
         f.worktrees = vec![linked(

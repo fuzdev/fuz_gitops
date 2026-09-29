@@ -1,5 +1,5 @@
 {
-	"version": 5,
+	"version": 6,
 	"workspace": "/home/me/dev",
 	"registry": "/home/me/dev/repos.toml",
 	"fetched": false,
@@ -22,10 +22,8 @@
 			"archived": false,
 			"visibility": "public",
 			"ci": true,
-			"checkout_mode": {
-				"kind": "follow",
-				"branch": "main"
-			},
+			"branch": "main",
+			"pinned": false,
 			"presence": {
 				"kind": "present"
 			},
@@ -84,10 +82,8 @@
 			"archived": false,
 			"visibility": "public",
 			"ci": true,
-			"checkout_mode": {
-				"kind": "follow",
-				"branch": "main"
-			},
+			"branch": "main",
+			"pinned": false,
 			"presence": {
 				"kind": "present"
 			},

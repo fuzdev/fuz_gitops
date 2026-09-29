@@ -317,6 +317,14 @@ pub enum Verdict {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum HeldBy {
+    /// The entry is pinned: its consumer moves HEAD, never the tool, so
+    /// every fast-forward and move in it is held for good, whether HEAD is
+    /// detached or on a branch — a stale local branch beside the pin
+    /// included, since a pin is never fetched. Named before any other hold:
+    /// clearing those never releases a pin. (A pin's pushes aren't held: the
+    /// tool leaves a pin alone, pushes included, so a branch ahead reads
+    /// `LocalOnly` when it has commits on no remote ref, else `Quiet`.)
+    Pinned,
     /// An entry-level `needs_human` reason stops sync on the whole entry.
     Entry,
     /// The branch is checked out in a checkout with uncommitted changes, and

@@ -5,7 +5,7 @@
 
 use std::path::PathBuf;
 
-use fuz_repos::registry::{CheckoutMode, EntryKind, Registry};
+use fuz_repos::registry::{EntryKind, Registry};
 
 #[test]
 fn parses_and_validates_the_real_registry() {
@@ -27,14 +27,11 @@ fn parses_and_validates_the_real_registry() {
     let entries = registry.entries();
     assert!(entries.iter().any(|e| e.kind == EntryKind::Repo));
     assert!(entries.iter().any(|e| e.kind == EntryKind::Reference));
-    // every repo follows a branch (dirs are unique: `DirClaimedTwice`)
+    // every repo follows a branch, unpinned (dirs are unique:
+    // `DirClaimedTwice`)
     for e in &entries {
         if e.kind == EntryKind::Repo {
-            assert!(
-                matches!(e.checkout_mode, CheckoutMode::Follow { .. }),
-                "{}",
-                e.key
-            );
+            assert!(e.branch.is_some() && !e.pinned, "{}", e.key);
         }
     }
 }

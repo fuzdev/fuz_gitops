@@ -1,5 +1,5 @@
 {
-	"version": 5,
+	"version": 6,
 	"workspace": "/home/me/dev",
 	"registry": "/home/me/dev/repos.toml",
 	"fetched": true,
@@ -28,10 +28,8 @@
 			"archived": false,
 			"visibility": "public",
 			"ci": true,
-			"checkout_mode": {
-				"kind": "follow",
-				"branch": "main"
-			},
+			"branch": "main",
+			"pinned": false,
 			"presence": {
 				"kind": "present"
 			},
@@ -512,10 +510,8 @@
 			"archived": false,
 			"visibility": "public",
 			"ci": true,
-			"checkout_mode": {
-				"kind": "follow",
-				"branch": "main"
-			},
+			"branch": "main",
+			"pinned": false,
 			"presence": {
 				"kind": "present"
 			},
@@ -613,10 +609,8 @@
 			"archived": true,
 			"visibility": "private",
 			"ci": false,
-			"checkout_mode": {
-				"kind": "follow",
-				"branch": "main"
-			},
+			"branch": "main",
+			"pinned": false,
 			"presence": {
 				"kind": "present"
 			},
@@ -693,9 +687,8 @@
 			"archived": false,
 			"visibility": null,
 			"ci": false,
-			"checkout_mode": {
-				"kind": "head"
-			},
+			"branch": null,
+			"pinned": false,
 			"presence": {
 				"kind": "present"
 			},
@@ -804,9 +797,8 @@
 			"archived": false,
 			"visibility": null,
 			"ci": true,
-			"checkout_mode": {
-				"kind": "pinned"
-			},
+			"branch": "draft",
+			"pinned": true,
 			"presence": {
 				"kind": "present"
 			},
@@ -836,7 +828,27 @@
 					"busy": []
 				}
 			],
-			"branches": [],
+			"branches": [
+				{
+					"name": "draft",
+					"upstream": "origin/draft",
+					"worktree": null,
+					"unique_commits": 0,
+					"newest_commit_at": 1799827200,
+					"relation": {
+						"kind": "behind",
+						"commits": 5
+					},
+					"verdict": {
+						"kind": "held",
+						"action": {
+							"kind": "fast_forward",
+							"commits": 5
+						},
+						"by": "pinned"
+					}
+				}
+			],
 			"stashes": 0,
 			"fetched_at": 1799913600,
 			"needs_human": [
@@ -850,10 +862,6 @@
 						"kind": "by_hand",
 						"reason": "valueless_url"
 					}
-				},
-				{
-					"kind": "pinned_on_branch",
-					"branch": "draft"
 				},
 				{
 					"kind": "operation_in_progress",
@@ -875,10 +883,8 @@
 			"archived": false,
 			"visibility": "public",
 			"ci": true,
-			"checkout_mode": {
-				"kind": "follow",
-				"branch": "dev"
-			},
+			"branch": "dev",
+			"pinned": false,
 			"presence": {
 				"kind": "present"
 			},
@@ -962,10 +968,8 @@
 			"archived": false,
 			"visibility": "public",
 			"ci": true,
-			"checkout_mode": {
-				"kind": "follow",
-				"branch": "main"
-			},
+			"branch": "main",
+			"pinned": false,
 			"presence": {
 				"kind": "missing"
 			},
@@ -989,10 +993,8 @@
 			"archived": false,
 			"visibility": "public",
 			"ci": true,
-			"checkout_mode": {
-				"kind": "follow",
-				"branch": "main"
-			},
+			"branch": "main",
+			"pinned": false,
 			"presence": {
 				"kind": "not_a_repo"
 			},
@@ -1021,10 +1023,8 @@
 			"archived": false,
 			"visibility": "public",
 			"ci": true,
-			"checkout_mode": {
-				"kind": "follow",
-				"branch": "main"
-			},
+			"branch": "main",
+			"pinned": false,
 			"presence": {
 				"kind": "present"
 			},
@@ -1055,10 +1055,8 @@
 			"archived": false,
 			"visibility": "private",
 			"ci": false,
-			"checkout_mode": {
-				"kind": "follow",
-				"branch": "main"
-			},
+			"branch": "main",
+			"pinned": false,
 			"presence": {
 				"kind": "present"
 			},
@@ -1112,10 +1110,8 @@
 			"archived": false,
 			"visibility": "private",
 			"ci": false,
-			"checkout_mode": {
-				"kind": "follow",
-				"branch": "main"
-			},
+			"branch": "main",
+			"pinned": false,
 			"presence": {
 				"kind": "present"
 			},
@@ -1173,10 +1169,8 @@
 			"archived": false,
 			"visibility": "public",
 			"ci": true,
-			"checkout_mode": {
-				"kind": "follow",
-				"branch": "main"
-			},
+			"branch": "main",
+			"pinned": false,
 			"presence": {
 				"kind": "present"
 			},
@@ -1241,10 +1235,8 @@
 			"archived": false,
 			"visibility": "public",
 			"ci": true,
-			"checkout_mode": {
-				"kind": "follow",
-				"branch": "main"
-			},
+			"branch": "main",
+			"pinned": false,
 			"presence": {
 				"kind": "present"
 			},
@@ -1312,10 +1304,8 @@
 			"archived": false,
 			"visibility": "public",
 			"ci": true,
-			"checkout_mode": {
-				"kind": "follow",
-				"branch": "main"
-			},
+			"branch": "main",
+			"pinned": false,
 			"presence": {
 				"kind": "present"
 			},
@@ -1370,10 +1360,8 @@
 			"archived": false,
 			"visibility": "public",
 			"ci": true,
-			"checkout_mode": {
-				"kind": "follow",
-				"branch": "main"
-			},
+			"branch": "main",
+			"pinned": false,
 			"presence": {
 				"kind": "present"
 			},
@@ -1424,10 +1412,8 @@
 			"archived": false,
 			"visibility": "public",
 			"ci": true,
-			"checkout_mode": {
-				"kind": "follow",
-				"branch": "main"
-			},
+			"branch": "main",
+			"pinned": false,
 			"presence": {
 				"kind": "present"
 			},
@@ -1479,10 +1465,8 @@
 			"archived": false,
 			"visibility": "public",
 			"ci": true,
-			"checkout_mode": {
-				"kind": "follow",
-				"branch": "main"
-			},
+			"branch": "main",
+			"pinned": false,
 			"presence": {
 				"kind": "present"
 			},
@@ -1533,10 +1517,8 @@
 			"archived": false,
 			"visibility": "public",
 			"ci": true,
-			"checkout_mode": {
-				"kind": "follow",
-				"branch": "main"
-			},
+			"branch": "main",
+			"pinned": false,
 			"presence": {
 				"kind": "present"
 			},

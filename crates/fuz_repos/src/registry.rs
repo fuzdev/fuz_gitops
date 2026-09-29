@@ -3,8 +3,8 @@
 //!
 //! Core fields belong to this tool, and an unknown one is a parse error with
 //! its position. The `grimoire` namespace on a repo belongs to the grimoire
-//! and is accepted unread. A reference's `branch` and `pinned` fold into one
-//! `CheckoutMode`, so declaring both is a parse error. The integrity rules
+//! and is accepted unread. A reference's `branch` (where its checkout
+//! lives) and `pinned` (who moves HEAD) are independent. The integrity rules
 //! the schema can't express — ownership, unique dirs and keys, checkout-list
 //! targets — are `Registry::validate`'s, and only its `ValidRegistry` yields
 //! entries.
@@ -62,73 +62,24 @@ pub struct RepoEntry {
 
 /// A reference checkout — a `[references.<key>]` table.
 #[derive(Debug, Deserialize)]
-#[serde(try_from = "RawReference")]
+#[serde(deny_unknown_fields)]
 pub struct ReferenceEntry {
     pub url: RepoUrl,
     pub dir: Option<String>,
     pub upstream: Option<RepoUrl>,
     pub purpose: String,
     /// A clone recipe (`--depth 1`); an existing full clone is left as is.
+    #[serde(default)]
     pub shallow: bool,
     /// The only subtree checked out (cone mode).
     pub sparse: Option<String>,
-    pub checkout: CheckoutMode,
-}
-
-/// The reference table as written; `deny_unknown_fields` lives here because
-/// serde ignores it on a `try_from` container.
-#[derive(Debug, Deserialize)]
-#[serde(deny_unknown_fields)]
-struct RawReference {
-    url: RepoUrl,
-    dir: Option<String>,
-    upstream: Option<RepoUrl>,
-    purpose: String,
+    /// Where the checkout lives: the branch a clone takes, whose history
+    /// holds the commits the checkout sits on. Absent leaves HEAD alone.
+    pub branch: Option<String>,
+    /// Who moves HEAD: its consumer, never the tool — independent of
+    /// `branch`, detached or on a branch.
     #[serde(default)]
-    shallow: bool,
-    sparse: Option<String>,
-    branch: Option<String>,
-    #[serde(default)]
-    pinned: bool,
-}
-
-impl TryFrom<RawReference> for ReferenceEntry {
-    type Error = String;
-
-    fn try_from(raw: RawReference) -> std::result::Result<Self, String> {
-        let checkout = match (raw.branch, raw.pinned) {
-            (Some(_), true) => {
-                return Err(
-                    "`pinned` and `branch` are mutually exclusive: a pinned checkout is detached"
-                        .into(),
-                );
-            }
-            (Some(branch), false) => CheckoutMode::Follow { branch },
-            (None, true) => CheckoutMode::Pinned,
-            (None, false) => CheckoutMode::Head,
-        };
-        Ok(Self {
-            url: raw.url,
-            dir: raw.dir,
-            upstream: raw.upstream,
-            purpose: raw.purpose,
-            shallow: raw.shallow,
-            sparse: raw.sparse,
-            checkout,
-        })
-    }
-}
-
-/// What a checkout's HEAD is supposed to do. Repos always follow a branch.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-#[serde(tag = "kind", rename_all = "snake_case")]
-pub enum CheckoutMode {
-    /// On this branch, kept in sync with its remote.
-    Follow { branch: String },
-    /// Detached at a commit its consumer pins: never moved.
-    Pinned,
-    /// Leave HEAD wherever it is.
-    Head,
+    pub pinned: bool,
 }
 
 /// A repo's declared visibility on its host.
@@ -252,6 +203,8 @@ pub enum EntryKind {
 
 /// One registry entry, repo or reference, with its defaults and derived
 /// fields resolved — what the probe and the report work from.
+// Independent declared facts, not a hidden state machine.
+#[allow(clippy::struct_excessive_bools)]
 #[derive(Debug, Clone)]
 pub struct Entry {
     pub key: String,
@@ -265,7 +218,14 @@ pub struct Entry {
     /// Declared on repos; references declare none.
     pub visibility: Option<Visibility>,
     pub ci: bool,
-    pub checkout_mode: CheckoutMode,
+    /// The branch the checkout lives on: a repo's default branch, kept in
+    /// sync with origin; a reference's declared one, else `None`, which
+    /// leaves HEAD wherever it is.
+    pub branch: Option<String>,
+    /// A pinned reference's consumer moves its HEAD, never the tool: a
+    /// permanent hold, whether HEAD is detached or on a branch. It's never
+    /// fetched, and every fast-forward and move in it is `HeldBy::Pinned`.
+    pub pinned: bool,
 }
 
 impl Entry {
@@ -479,12 +439,12 @@ impl ValidRegistry {
             archived: r.archived,
             visibility: Some(r.visibility),
             ci: r.ci.unwrap_or(r.visibility == Visibility::Public),
-            checkout_mode: CheckoutMode::Follow {
-                branch: r
-                    .branch
+            branch: Some(
+                r.branch
                     .clone()
                     .unwrap_or_else(|| DEFAULT_BRANCH.to_owned()),
-            },
+            ),
+            pinned: false,
         });
         let references = registry.references.iter().map(|(key, r)| Entry {
             key: key.clone(),
@@ -495,7 +455,8 @@ impl ValidRegistry {
             archived: false,
             visibility: None,
             ci: false,
-            checkout_mode: r.checkout.clone(),
+            branch: r.branch.clone(),
+            pinned: r.pinned,
         });
         repos.chain(references).collect()
     }
@@ -668,6 +629,13 @@ pinned = true
 [references.loose]
 url = "https://github.com/them/loose/"
 purpose = "leave HEAD"
+
+[references.wpt]
+url = "https://github.com/me/wpt"
+upstream = "https://github.com/them/wpt"
+purpose = "pinned, its commit on a branch"
+branch = "fork"
+pinned = true
 "#;
 
     #[test]
@@ -675,7 +643,7 @@ purpose = "leave HEAD"
         let r = Registry::parse(MINIMAL).unwrap();
         assert_eq!(r.owners, ["me"]);
         assert_eq!(r.repos.len(), 2);
-        assert_eq!(r.references.len(), 3);
+        assert_eq!(r.references.len(), 4);
         let site = &r.repos["site"];
         assert_eq!(site.url.name, "private_site");
         assert_eq!(site.dir.as_deref(), Some("site"));
@@ -683,16 +651,16 @@ purpose = "leave HEAD"
     }
 
     #[test]
-    fn folds_checkout_mode() {
+    fn branch_and_pinned_are_independent() {
         let r = Registry::parse(MINIMAL).unwrap();
-        assert_eq!(
-            r.references["spec"].checkout,
-            CheckoutMode::Follow {
-                branch: "fork".into()
-            }
-        );
-        assert_eq!(r.references["oracle"].checkout, CheckoutMode::Pinned);
-        assert_eq!(r.references["loose"].checkout, CheckoutMode::Head);
+        let checkout = |key: &str| {
+            let e = &r.references[key];
+            (e.branch.as_deref(), e.pinned)
+        };
+        assert_eq!(checkout("spec"), (Some("fork"), false));
+        assert_eq!(checkout("oracle"), (None, true));
+        assert_eq!(checkout("loose"), (None, false));
+        assert_eq!(checkout("wpt"), (Some("fork"), true));
     }
 
     #[test]
@@ -700,34 +668,36 @@ purpose = "leave HEAD"
         let r = Registry::parse(MINIMAL).unwrap().validate().unwrap();
         let entries = r.entries();
         let keys: Vec<_> = entries.iter().map(|e| e.key.as_str()).collect();
-        assert_eq!(keys, ["app", "site", "loose", "oracle", "spec"]);
+        assert_eq!(keys, ["app", "site", "loose", "oracle", "spec", "wpt"]);
 
         let app = &entries[0];
         assert_eq!(app.dir, "app");
         assert!(app.writable && app.ci && !app.archived);
-        assert_eq!(
-            app.checkout_mode,
-            CheckoutMode::Follow {
-                branch: "main".into()
-            }
-        );
+        assert_eq!((app.branch.as_deref(), app.pinned), (Some("main"), false));
 
         let site = &entries[1];
         assert_eq!(site.dir, "site");
         assert!(site.ci && site.archived);
         assert_eq!(
-            site.checkout_mode,
-            CheckoutMode::Follow {
-                branch: "trunk".into()
-            }
+            (site.branch.as_deref(), site.pinned),
+            (Some("trunk"), false)
         );
 
         let loose = &entries[2];
         assert_eq!(loose.dir, "loose");
         assert!(!loose.writable && !loose.ci && loose.visibility.is_none());
+        assert_eq!((loose.branch.as_deref(), loose.pinned), (None, false));
+
+        let oracle = &entries[3];
+        assert_eq!((oracle.branch.as_deref(), oracle.pinned), (None, true));
 
         let spec = &entries[4];
         assert!(spec.writable);
+        assert_eq!((spec.branch.as_deref(), spec.pinned), (Some("fork"), false));
+
+        let wpt = &entries[5];
+        assert!(wpt.writable);
+        assert_eq!((wpt.branch.as_deref(), wpt.pinned), (Some("fork"), true));
     }
 
     #[test]
@@ -815,20 +785,37 @@ grimoire.lore_id = "x"
     }
 
     #[test]
-    fn pinned_with_branch_is_an_error() {
+    fn pinned_must_be_a_bool() {
         let e = Registry::parse(
             r#"
 owners = []
 [references.x]
 url = "https://github.com/them/x"
 purpose = "x"
-pinned = true
-branch = "main"
+pinned = "yes"
 "#,
         )
         .unwrap_err()
         .to_string();
-        assert!(e.contains("mutually exclusive"), "{e}");
+        assert!(e.contains("line 6"), "{e}");
+    }
+
+    #[test]
+    fn pinned_is_references_only() {
+        let e = Registry::parse(
+            r#"
+owners = ["me"]
+[repos.x]
+url = "https://github.com/me/x"
+visibility = "public"
+purpose = "x"
+pinned = true
+"#,
+        )
+        .unwrap_err()
+        .to_string();
+        assert!(e.contains("pinned"), "{e}");
+        assert!(e.contains("line 7"), "{e}");
     }
 
     #[test]

@@ -23,9 +23,7 @@ use fuz_repos::STATUS_FORMAT_VERSION;
 use fuz_repos::busy::Sessions;
 use fuz_repos::classify::{NeedsHuman, OriginByHand, OriginFix, OriginRemote};
 use fuz_repos::error::Error;
-use fuz_repos::registry::{
-    CheckoutList, CheckoutMode, EntryKind, EntryName, RegistryIssue, Visibility,
-};
+use fuz_repos::registry::{CheckoutList, EntryKind, EntryName, RegistryIssue, Visibility};
 use fuz_repos::remote::{RefGoneFix, RemoteFailure, UnreachableCause, VisibilityCheck};
 use fuz_repos::report::{
     EntryStatus, ErrorReport, RepairBlock, StatusReport, UnregisteredClone, UnregisteredKind,
@@ -217,7 +215,7 @@ fn targeted_doc() -> StatusReport {
                     expected: "git@github.com:me/gro".into(),
                     fix: OriginFix::Add,
                 }],
-                ..entry("gro", follow("main"))
+                ..entry("gro", Some("main"))
             },
             EntryStatus {
                 branches: vec![BranchStatus {
@@ -233,7 +231,7 @@ fn targeted_doc() -> StatusReport {
                         },
                     )
                 }],
-                ..entry("fuz_util", follow("main"))
+                ..entry("fuz_util", Some("main"))
             },
         ],
     )
@@ -308,12 +306,6 @@ fn path(dir: &str) -> String {
     format!("{WORKSPACE}/{dir}")
 }
 
-fn follow(branch: &str) -> CheckoutMode {
-    CheckoutMode::Follow {
-        branch: branch.into(),
-    }
-}
-
 const fn plain_layout() -> Layout {
     Layout {
         shallow: false,
@@ -340,9 +332,9 @@ fn on(name: &str) -> Head {
     Head::Branch { name: name.into() }
 }
 
-/// A present, owned, public repo on `main`, fetched a day ago, with nothing
-/// to say.
-fn entry(key: &str, mode: CheckoutMode) -> EntryStatus {
+/// A present, owned, public repo on `main`, unpinned, fetched a day ago,
+/// with nothing to say.
+fn entry(key: &str, branch: Option<&str>) -> EntryStatus {
     EntryStatus {
         key: key.into(),
         kind: EntryKind::Repo,
@@ -352,7 +344,8 @@ fn entry(key: &str, mode: CheckoutMode) -> EntryStatus {
         archived: false,
         visibility: Some(Visibility::Public),
         ci: true,
-        checkout_mode: mode,
+        branch: branch.map(str::to_owned),
+        pinned: false,
         presence: Presence::Present,
         layout: Some(plain_layout()),
         checkouts: vec![primary(key, on("main"))],
@@ -385,11 +378,11 @@ fn branch(
 }
 
 /// The busiest repo: every relation but `Shallow` (`test262()`), every
-/// verdict kind, every `HeldBy` but `Entry` (`blog()`) and `BusyUnknown`
-/// (the targeted document), linked worktrees — one a live session works in
-/// — and every way a worktree goes unprobed, one busy too.
+/// verdict kind, every `HeldBy` but `Entry` (`blog()`), `Pinned` (`spec()`),
+/// and `BusyUnknown` (the targeted document), linked worktrees — one a live
+/// session works in — and every way a worktree goes unprobed, one busy too.
 fn app() -> EntryStatus {
-    let mut e = entry("app", follow("main"));
+    let mut e = entry("app", Some("main"));
     e.fetch_error = Some(RemoteFailure::Failed {
         message: "fatal: protocol error: bad line length character: Welc".into(),
     });
@@ -723,7 +716,7 @@ fn prune_losses() -> Vec<PruneLoss> {
 /// Origin drift, holding the entry's push; a merge in its primary; a
 /// worktree whose path can't be resolved; the fetch failed.
 fn blog() -> EntryStatus {
-    let mut e = entry("fuz_blog", follow("main"));
+    let mut e = entry("fuz_blog", Some("main"));
     e.url = "https://github.com/fuzdev/fuz_blog".into();
     e.checkouts[0].in_progress = Some(InProgressOp::Merge);
     e.branches = vec![BranchStatus {
@@ -769,7 +762,7 @@ fn blog() -> EntryStatus {
 /// Archived and private, no CI, with a commit ahead its host refuses, and
 /// no `origin` — and anyone can read it.
 fn archived() -> EntryStatus {
-    let mut e = entry("old", follow("main"));
+    let mut e = entry("old", Some("main"));
     e.needs_human = vec![NeedsHuman::OriginMismatch {
         origin: OriginRemote::Missing,
         expected: "git@github.com:me/old".into(),
@@ -798,7 +791,7 @@ fn archived() -> EntryStatus {
 /// A third-party reference left at its HEAD: shallow and sparse, detached
 /// mid-rebase, one branch to move and one with local work off the tip.
 fn test262() -> EntryStatus {
-    let mut e = entry("test262", CheckoutMode::Head);
+    let mut e = entry("test262", None);
     e.kind = EntryKind::Reference;
     e.url = "https://github.com/tc39/test262".into();
     e.writable = false;
@@ -856,14 +849,25 @@ fn test262() -> EntryStatus {
     e
 }
 
-/// An owned fork kept as a reference, pinned but found on a branch, with a
-/// `git am` stopped mid-way and a valueless `origin` URL.
+/// An owned fork kept as a reference, pinned on the branch it lives on and
+/// behind a stale remote-tracking ref (the pin holds the fast-forward), with
+/// a `git am` stopped mid-way and a valueless `origin` URL.
 fn spec() -> EntryStatus {
-    let mut e = entry("ecma262", CheckoutMode::Pinned);
+    let mut e = entry("ecma262", Some("draft"));
+    e.pinned = true;
     e.kind = EntryKind::Reference;
     e.visibility = None;
     e.checkouts[0].head = on("draft");
     e.checkouts[0].in_progress = Some(InProgressOp::Am);
+    e.branches = vec![branch(
+        "draft",
+        Some("origin/draft"),
+        Relation::Behind { commits: 5 },
+        Verdict::Held {
+            action: SyncAction::FastForward { commits: 5 },
+            by: HeldBy::Pinned,
+        },
+    )];
     e.needs_human = vec![
         NeedsHuman::OriginMismatch {
             origin: OriginRemote::NoUrl,
@@ -871,9 +875,6 @@ fn spec() -> EntryStatus {
             fix: OriginFix::ByHand {
                 reason: OriginByHand::ValuelessUrl,
             },
-        },
-        NeedsHuman::PinnedOnBranch {
-            branch: "draft".into(),
         },
         NeedsHuman::OperationInProgress {
             checkout: path("ecma262"),
@@ -886,7 +887,7 @@ fn spec() -> EntryStatus {
 /// Following `dev`, which is missing, detached where it shouldn't be, with a
 /// sequencer stopped in it; `main` has no upstream.
 fn zzz() -> EntryStatus {
-    let mut e = entry("zzz", follow("dev"));
+    let mut e = entry("zzz", Some("dev"));
     e.fetch_error = Some(RemoteFailure::Unreachable {
         cause: UnreachableCause::Connection,
         message: "ssh: connect to host github.com port 22: Connection refused".into(),
@@ -921,7 +922,7 @@ fn missing() -> EntryStatus {
         layout: None,
         checkouts: vec![],
         fetched_at: None,
-        ..entry("blake3", follow("main"))
+        ..entry("blake3", Some("main"))
     }
 }
 
@@ -935,7 +936,7 @@ fn not_a_repo() -> EntryStatus {
         needs_human: vec![NeedsHuman::NotARepo {
             detail: "empty directory".into(),
         }],
-        ..entry("goblins", follow("main"))
+        ..entry("goblins", Some("main"))
     }
 }
 
@@ -953,7 +954,7 @@ fn partial() -> EntryStatus {
         fetch_error: Some(RemoteFailure::RepoNotFound {
             message: "ERROR: Repository not found.".into(),
         }),
-        ..entry("wpt", follow("main"))
+        ..entry("wpt", Some("main"))
     }
 }
 
@@ -967,7 +968,7 @@ fn forge() -> EntryStatus {
             message: "git@github.com: Permission denied (publickey).".into(),
         }),
         visibility_check: Some(VisibilityCheck::Private),
-        ..entry("fuz_forge", follow("main"))
+        ..entry("fuz_forge", Some("main"))
     }
 }
 
@@ -985,7 +986,7 @@ fn zap() -> EntryStatus {
         visibility_check: Some(VisibilityCheck::Unknown {
             failure: RemoteFailure::TimedOut { after_secs: 120 },
         }),
-        ..entry("zap", follow("main"))
+        ..entry("zap", Some("main"))
     }
 }
 
@@ -1008,7 +1009,7 @@ fn mdz() -> EntryStatus {
                 pattern: r"^\+?refs/heads/attrs(:|$)".into(),
             },
         }),
-        ..entry("mdz", follow("main"))
+        ..entry("mdz", Some("main"))
     }
 }
 
@@ -1020,7 +1021,7 @@ fn tsv() -> EntryStatus {
             refname: "refs/heads/main".into(),
             fix: RefGoneFix::SetBranches { branch: None },
         }),
-        ..entry("tsv", follow("main"))
+        ..entry("tsv", Some("main"))
     }
 }
 
@@ -1032,7 +1033,7 @@ fn fuz_css() -> EntryStatus {
             remote: "origin/fork".into(),
             refspec: "+refs/heads/*:refs/remotes/origin/fork/*".into(),
         }),
-        ..entry("fuz_css", follow("main"))
+        ..entry("fuz_css", Some("main"))
     }
 }
 
@@ -1043,7 +1044,7 @@ fn fuz_ui() -> EntryStatus {
         fetch_error: Some(RemoteFailure::LegacyRemotesUnreadable {
             path: path("fuz_ui/.git/remotes/old"),
         }),
-        ..entry("fuz_ui", follow("main"))
+        ..entry("fuz_ui", Some("main"))
     }
 }
 
@@ -1053,7 +1054,7 @@ fn tsv_fuz_dev() -> EntryStatus {
         fetch_error: Some(RemoteFailure::RefspecOutsideOrigin {
             refspec: "+refs/tags/*:refs/tags/*".into(),
         }),
-        ..entry("tsv.fuz.dev", follow("main"))
+        ..entry("tsv.fuz.dev", Some("main"))
     }
 }
 
@@ -1064,7 +1065,7 @@ fn uz() -> EntryStatus {
             refname: "typecheck-arc".into(),
             fix: RefGoneFix::ByHand,
         }),
-        ..entry("uz", follow("main"))
+        ..entry("uz", Some("main"))
     }
 }
 
@@ -1085,7 +1086,7 @@ fn site() -> EntryStatus {
             cause: UnreachableCause::HostKey,
             message: "Host key verification failed.".into(),
         }),
-        ..entry("site", follow("main"))
+        ..entry("site", Some("main"))
     }
 }
 

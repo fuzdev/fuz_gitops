@@ -1,12 +1,11 @@
 //! Entry-level state from real repos: presence, `needs_human` reasons, the
-//! checkout's dirt, checkout modes, third-party references, `--fetch`, and
+//! checkout's dirt, branch and pin, third-party references, `--fetch`, and
 //! the runner's guards (no writes to the git dir, no hooks or fsmonitor, no
 //! parent repo claiming a dir).
 
 mod support;
 
 use fuz_repos::classify::{NeedsHuman, OriginFix, OriginRemote};
-use fuz_repos::registry::CheckoutMode;
 use fuz_repos::state::{
     Head, HeldBy, InProgressOp, Presence, Relation, SyncAction, Uncommitted, Verdict,
 };
@@ -557,7 +556,7 @@ fn unexpected_detached() {
 }
 
 #[test]
-fn pinned_detached_with_a_stale_main_is_quiet() {
+fn pinned_detached_holds_a_stale_main() {
     let mut ws = FixtureWorkspace::new();
     for name in ["lib", "fork"] {
         ws.remote(name, &[]);
@@ -578,34 +577,160 @@ fn pinned_detached_with_a_stale_main_is_quiet() {
     let entries = ws.status();
     let lib = find_entry(&entries, "lib");
     assert!(!lib.writable);
-    assert_eq!(lib.checkout_mode, CheckoutMode::Pinned);
+    assert_eq!((lib.branch.as_deref(), lib.pinned), (None, true));
     assert!(lib.needs_human.is_empty(), "{:?}", lib.needs_human);
     // third-party: only branches with local work are kept
     assert!(lib.branches.is_empty(), "{:?}", lib.branches);
-    // owned and pinned: never moved
+    // owned and pinned: never moved, the pin naming the hold
     let fork = find_entry(&entries, "fork");
     assert!(fork.writable);
     assert!(fork.needs_human.is_empty(), "{:?}", fork.needs_human);
     let main = branch(fork, "main");
     assert_eq!(main.relation, Relation::Behind { commits: 1 });
-    assert_eq!(main.verdict, Verdict::Quiet);
+    assert_eq!(
+        main.verdict,
+        Verdict::Held {
+            action: SyncAction::FastForward { commits: 1 },
+            by: HeldBy::Pinned,
+        }
+    );
 }
 
 #[test]
-fn pinned_but_on_a_branch() {
+fn pinned_on_its_branch_reads_clean() {
     let mut ws = FixtureWorkspace::new();
-    ws.remote("lib", &[]);
+    for name in ["lib", "fork"] {
+        ws.remote(name, &[]);
+    }
+    ws.upstream_commit("fork", "pin");
     ws.declare_reference("lib", support::THIRD_PARTY, "lib", "pinned = true");
-    let lib = ws.clone_third_party("lib", "lib", &[]);
-    ws.assert_head(&lib, Some("main"));
-
-    let e = ws.entry("lib");
-    assert_eq!(
-        e.needs_human,
-        [NeedsHuman::PinnedOnBranch {
-            branch: "main".into()
-        }]
+    ws.declare_reference(
+        "fork",
+        support::OWNER,
+        "fork",
+        "branch = \"pin\"\npinned = true",
     );
+    let lib = ws.clone_third_party("lib", "lib", &[]);
+    let fork = ws.clone_owned("fork", "fork", &["--branch", "pin"]);
+    ws.assert_head(&lib, Some("main"));
+    ws.assert_head(&fork, Some("pin"));
+    // the fork's pin sits behind the branch it lives on
+    ws.upstream_commit("fork", "pin");
+    ws.git(&fork, &["fetch", "-q", "origin"]);
+    ws.assert_track(&fork, "pin", "[behind 1]");
+
+    let entries = ws.status();
+    let lib = find_entry(&entries, "lib");
+    assert!(lib.needs_human.is_empty(), "{:?}", lib.needs_human);
+    assert!(lib.branches.is_empty(), "{:?}", lib.branches);
+    let fork = find_entry(&entries, "fork");
+    assert_eq!((fork.branch.as_deref(), fork.pinned), (Some("pin"), true));
+    assert!(fork.needs_human.is_empty(), "{:?}", fork.needs_human);
+    let pin = branch(fork, "pin");
+    assert_eq!(pin.relation, Relation::Behind { commits: 1 });
+    let held = Verdict::Held {
+        action: SyncAction::FastForward { commits: 1 },
+        by: HeldBy::Pinned,
+    };
+    assert_eq!(pin.verdict, held);
+
+    // `--fetch` passes the pin over: the branch it lives on moves again
+    // upstream, unseen
+    let fork_dir = ws.dir("fork");
+    let tracking = ws.git(&fork_dir, &["rev-parse", "refs/remotes/origin/pin"]);
+    let fetch_head = std::fs::read(fork_dir.join(".git/FETCH_HEAD")).unwrap();
+    let moved = ws.upstream_commit("fork", "pin");
+    assert_ne!(moved, tracking);
+    let entries = ws.status_with_fetch();
+    let fork = find_entry(&entries, "fork");
+    assert_eq!(fork.fetch_error, None);
+    assert_eq!(
+        ws.git(&fork_dir, &["rev-parse", "refs/remotes/origin/pin"]),
+        tracking
+    );
+    assert_eq!(
+        std::fs::read(fork_dir.join(".git/FETCH_HEAD")).unwrap(),
+        fetch_head
+    );
+    ws.assert_track(&fork_dir, "pin", "[behind 1]");
+    assert!(fork.needs_human.is_empty(), "{:?}", fork.needs_human);
+    assert_eq!(branch(fork, "pin").verdict, held);
+}
+
+#[test]
+fn a_pin_whose_upstream_is_gone_is_not_offered_for_cleanup() {
+    let mut ws = FixtureWorkspace::new();
+    ws.remote("fork", &[]);
+    // both at main, whose commits stay on a remote
+    for b in ["pin", "side"] {
+        ws.git(
+            &ws.upstream("fork"),
+            &["push", "-q", "origin", &format!("main:{b}")],
+        );
+    }
+    ws.declare_reference(
+        "fork",
+        support::OWNER,
+        "fork",
+        "branch = \"pin\"\npinned = true",
+    );
+    let fork = ws.clone_owned("fork", "fork", &["--branch", "pin"]);
+    ws.git(&fork, &["branch", "-q", "--track", "side", "origin/side"]);
+    // the pin carries local work; then both are deleted upstream
+    ws.commit(&fork, "local");
+    for b in ["pin", "side"] {
+        ws.upstream_delete_branch("fork", b);
+    }
+    ws.git(&fork, &["fetch", "-q", "--prune", "origin"]);
+    ws.assert_track(&fork, "pin", "[gone]");
+    ws.assert_track(&fork, "side", "[gone]");
+
+    let e = ws.entry("fork");
+    assert!(e.needs_human.is_empty(), "{:?}", e.needs_human);
+    // the branch the pinned commit lives on is local work, never cleanup
+    let pin = branch(&e, "pin");
+    assert_eq!(pin.relation, Relation::Gone);
+    assert_eq!(pin.unique_commits, 1);
+    assert_eq!(pin.verdict, Verdict::LocalOnly);
+    // nothing unique beside it: nothing to say
+    let side = branch(&e, "side");
+    assert_eq!(side.relation, Relation::Gone);
+    assert_eq!(side.unique_commits, 0);
+    assert_eq!(side.verdict, Verdict::Quiet);
+}
+
+#[test]
+fn a_pin_branch_ahead_on_remote_commits_is_quiet() {
+    let mut ws = FixtureWorkspace::new();
+    ws.remote("fork", &[]);
+    ws.upstream_commit("fork", "pin");
+    ws.upstream_commit("fork", "next");
+    ws.declare_reference(
+        "fork",
+        support::OWNER,
+        "fork",
+        "branch = \"pin\"\npinned = true",
+    );
+    let fork = ws.clone_owned("fork", "fork", &["--branch", "pin"]);
+    // main fast-forwarded from another remote's ref, as a fork's main
+    // from its upstream: ahead of origin/main with nothing unique
+    ws.git(&fork, &["branch", "-q", "--track", "main", "origin/main"]);
+    ws.git(&fork, &["update-ref", "refs/heads/main", "origin/next"]);
+    ws.assert_track(&fork, "main", "[ahead 1]");
+    // the pin, ahead with a commit on no remote
+    ws.commit(&fork, "local");
+    ws.assert_track(&fork, "pin", "[ahead 1]");
+
+    let e = ws.entry("fork");
+    assert!(e.needs_human.is_empty(), "{:?}", e.needs_human);
+    let main = branch(&e, "main");
+    assert_eq!(main.relation, Relation::Ahead { commits: 1 });
+    assert_eq!(main.unique_commits, 0);
+    assert_eq!(main.verdict, Verdict::Quiet);
+    let pin = branch(&e, "pin");
+    assert_eq!(pin.relation, Relation::Ahead { commits: 1 });
+    assert_eq!(pin.unique_commits, 1);
+    assert_eq!(pin.verdict, Verdict::LocalOnly);
 }
 
 #[test]
@@ -627,7 +752,7 @@ fn a_third_party_reference_keeps_only_local_only_work() {
 
     let e = ws.entry("lib");
     assert!(!e.writable);
-    assert_eq!(e.checkout_mode, CheckoutMode::Head);
+    assert_eq!((e.branch.as_deref(), e.pinned), (None, false));
     assert!(e.needs_human.is_empty(), "{:?}", e.needs_human);
     assert_eq!(branch_names(&e), ["audit"]);
     let audit = branch(&e, "audit");

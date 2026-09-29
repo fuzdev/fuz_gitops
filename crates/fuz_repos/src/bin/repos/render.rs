@@ -8,7 +8,7 @@ use std::path::Path;
 
 use fuz_repos::busy::Sessions;
 use fuz_repos::classify::{NeedsHuman, OriginByHand, OriginFix, OriginRemote};
-use fuz_repos::registry::{CheckoutMode, EntryKind, Visibility};
+use fuz_repos::registry::{EntryKind, Visibility};
 use fuz_repos::remote::{RefGoneFix, RemoteFailure, UnreachableCause, VisibilityCheck};
 use fuz_repos::report::{
     EntryStatus, RepairBlock, StatusReport, UnregisteredClone, UnregisteredKind,
@@ -219,9 +219,9 @@ pub fn render_summary(report: &StatusReport, view: View<'_>, verbose: bool) -> S
         if g.add(e, workspace, view, verbose) {
             continue;
         }
-        match (&e.checkout_mode, e.checkouts.first().map(|c| &c.head)) {
-            (CheckoutMode::Pinned, _) => quiet.pinned += 1,
-            (CheckoutMode::Follow { branch }, Some(Head::Branch { name })) if name != branch => {
+        match (e.pinned, &e.branch, e.checkouts.first().map(|c| &c.head)) {
+            (true, _, _) => quiet.pinned += 1,
+            (false, Some(branch), Some(Head::Branch { name })) if name != branch => {
                 quiet.on_branches += 1;
             }
             _ => quiet.clean += 1,
@@ -490,12 +490,8 @@ impl Groups {
     fn add(&mut self, e: &EntryStatus, workspace: &Path, view: View<'_>, verbose: bool) -> bool {
         let before = self.len();
         let key = &e.key;
-        let follow = match &e.checkout_mode {
-            CheckoutMode::Follow { branch } => Some(branch.as_str()),
-            CheckoutMode::Pinned | CheckoutMode::Head => None,
-        };
         let label = |b: &BranchStatus| {
-            if Some(b.name.as_str()) == follow {
+            if Some(&b.name) == e.branch.as_ref() {
                 key.clone()
             } else {
                 format!("{key}:{}", b.name)
@@ -542,7 +538,13 @@ impl Groups {
         }
         for b in &e.branches {
             match &b.verdict {
-                Verdict::Quiet => {}
+                // a pin is the consumer's standing choice, not a hold to
+                // clear: the entry counts as pinned, and `--verbose` shows
+                // what it holds
+                Verdict::Quiet
+                | Verdict::Held {
+                    by: HeldBy::Pinned, ..
+                } => {}
                 Verdict::Act { action } => self.act.add(*action, &label(b), ""),
                 Verdict::Held { action, by } => {
                     self.held.add(*action, &label(b), held_note(*by));
@@ -718,7 +720,6 @@ fn needs_human_label(reason: &NeedsHuman, e: &EntryStatus, view: View<'_>) -> St
             format!("{branch} has no origin upstream")
         }
         NeedsHuman::UnexpectedDetached { .. } => "detached".into(),
-        NeedsHuman::PinnedOnBranch { branch } => format!("pinned, on {branch}"),
         NeedsHuman::CheckoutUnresolvable {
             checkout,
             path,
@@ -761,7 +762,6 @@ fn footer(report: &StatusReport, view: View<'_>) -> String {
             e.kind == EntryKind::Repo
                 && e.writable
                 && !e.archived
-                && e.checkout_mode != CheckoutMode::Pinned
                 && e.presence == Presence::Present
                 && e.probe_error.is_none()
         })
@@ -806,10 +806,12 @@ pub fn render_entry(e: &EntryStatus, workspace: &Path, view: View<'_>) -> String
     if e.archived {
         tags.push("archived".into());
     }
-    tags.push(match &e.checkout_mode {
-        CheckoutMode::Follow { branch } => format!("follow {branch}"),
-        CheckoutMode::Pinned => "pinned".into(),
-        CheckoutMode::Head => "leave HEAD".into(),
+    // where the checkout lives, and who moves its HEAD
+    tags.push(match (&e.branch, e.pinned) {
+        (Some(branch), false) => format!("follow {branch}"),
+        (None, false) => "leave HEAD".into(),
+        (Some(branch), true) => format!("pinned · branch {branch}"),
+        (None, true) => "pinned".into(),
     });
     let _ = writeln!(out, "{}  {}", e.key, tags.join(" · "));
     let _ = writeln!(out, "  {:<10}{}", "url", e.url);
@@ -1347,6 +1349,7 @@ fn verdict_label(v: &Verdict) -> Option<String> {
 /// reason printed on the entry instead.
 const fn held_note(by: HeldBy) -> &'static str {
     match by {
+        HeldBy::Pinned => " (pinned)",
         HeldBy::Entry => "",
         HeldBy::DirtyCheckout => " (dirty)",
         HeldBy::UnprobedWorktree => " (unprobed worktree)",
@@ -1525,7 +1528,23 @@ mod tests {
 
     use super::*;
 
-    fn entry(key: &str, mode: CheckoutMode, head: &str) -> EntryStatus {
+    /// Where a test entry's checkout lives and who moves its HEAD.
+    #[derive(Debug, Clone, Copy)]
+    enum Mode<'a> {
+        Follow(&'a str),
+        Pinned,
+        /// Pinned, its checkout living on the branch.
+        PinnedOn(&'a str),
+        Head,
+    }
+
+    fn entry(key: &str, mode: Mode<'_>, head: &str) -> EntryStatus {
+        let (branch, pinned) = match mode {
+            Mode::Follow(branch) => (Some(branch.to_owned()), false),
+            Mode::Pinned => (None, true),
+            Mode::PinnedOn(branch) => (Some(branch.to_owned()), true),
+            Mode::Head => (None, false),
+        };
         EntryStatus {
             key: key.into(),
             kind: EntryKind::Repo,
@@ -1535,7 +1554,8 @@ mod tests {
             archived: false,
             visibility: Some(Visibility::Public),
             ci: true,
-            checkout_mode: mode,
+            branch,
+            pinned,
             presence: Presence::Present,
             layout: Some(Layout {
                 shallow: false,
@@ -1564,10 +1584,8 @@ mod tests {
         }
     }
 
-    fn main() -> CheckoutMode {
-        CheckoutMode::Follow {
-            branch: "main".into(),
-        }
+    const fn main() -> Mode<'static> {
+        Mode::Follow("main")
     }
 
     fn branch(
@@ -1677,9 +1695,8 @@ mod tests {
             Verdict::Quiet,
         )];
         let pinned = EntryStatus {
-            checkout_mode: CheckoutMode::Pinned,
             writable: false,
-            ..entry("oracle", CheckoutMode::Pinned, "x")
+            ..entry("oracle", Mode::Pinned, "x")
         };
         let out = render_summary(
             &report(vec![entry("app", main(), "main"), feature, pinned]),
@@ -1689,6 +1706,67 @@ mod tests {
         assert_eq!(
             out,
             "clean 1 · on branches 1 · pinned 1      ~/dev/repos.toml · fetched 3h ago\n"
+        );
+    }
+
+    #[test]
+    fn a_pin_holds_quietly() {
+        let held = |commits| Verdict::Held {
+            action: SyncAction::FastForward { commits },
+            by: HeldBy::Pinned,
+        };
+        // on the branch it lives on, behind a stale ref, with a stale main
+        // beside it and local work
+        let mut wpt = EntryStatus {
+            kind: EntryKind::Reference,
+            visibility: None,
+            ci: false,
+            ..entry("wpt", Mode::PinnedOn("fork"), "fork")
+        };
+        wpt.branches = vec![
+            branch(
+                "fork",
+                Some("origin/fork"),
+                Relation::Behind { commits: 2 },
+                0,
+                held(2),
+            ),
+            branch(
+                "main",
+                Some("origin/main"),
+                Relation::Behind { commits: 57 },
+                0,
+                held(57),
+            ),
+        ];
+        let r = report(vec![wpt.clone()]);
+        assert_eq!(
+            render_summary(&r, VIEW, false),
+            "clean 0 · on branches 0 · pinned 1      ~/dev/repos.toml\n"
+        );
+        wpt.branches.push(branch(
+            "audit",
+            None,
+            Relation::Untracked,
+            1,
+            Verdict::LocalOnly,
+        ));
+        let r = report(vec![wpt]);
+        assert_eq!(
+            render_summary(&r, VIEW, false),
+            "\
+local-only    wpt:audit (+1, 2d)
+clean 0 · on branches 0 · pinned 0      ~/dev/repos.toml
+"
+        );
+        let block = render_entry(&r.entries[0], Path::new("/home/me/dev"), VIEW);
+        assert!(
+            block.starts_with("wpt  reference · owned · pinned · branch fork\n"),
+            "{block}"
+        );
+        assert!(
+            block.contains("  branch    fork   origin/fork  behind 2 · 2d → held ff (pinned)\n"),
+            "{block}"
         );
     }
 
@@ -1759,7 +1837,7 @@ mod tests {
             1,
             needs(BranchNeedsHuman::ArchivedAhead),
         )];
-        let mut svelte = entry("svelte", CheckoutMode::Pinned, "x");
+        let mut svelte = entry("svelte", Mode::Pinned, "x");
         svelte.writable = false;
         svelte.checkouts[0].head = Head::Detached {
             commit: "abc".into(),
@@ -1771,13 +1849,7 @@ mod tests {
             4,
             Verdict::LocalOnly,
         )];
-        let mut wpt = entry(
-            "wpt",
-            CheckoutMode::Follow {
-                branch: "fork".into(),
-            },
-            "fork",
-        );
+        let mut wpt = entry("wpt", Mode::Follow("fork"), "fork");
         wpt.branches = vec![branch(
             "fork",
             Some("origin/fork"),
@@ -2147,7 +2219,7 @@ failed        app (probe: git status failed (128): error: bad tree object HEAD)
             expected: "git@github.com:fuzdev/fuz_blog".into(),
             fix: OriginFix::SetUrl,
         }];
-        let mut kit = entry("kit", CheckoutMode::Head, "main");
+        let mut kit = entry("kit", Mode::Head, "main");
         kit.writable = false;
         kit.url = "https://github.com/sveltejs/kit".into();
         kit.needs_human = vec![NeedsHuman::OriginMismatch {
@@ -2157,7 +2229,7 @@ failed        app (probe: git status failed (128): error: bad tree object HEAD)
             expected: "https://github.com/sveltejs/kit".into(),
             fix: OriginFix::SetUrl,
         }];
-        let mut test262 = entry("test262", CheckoutMode::Head, "x");
+        let mut test262 = entry("test262", Mode::Head, "x");
         test262.checkouts[0].head = Head::Detached {
             commit: "abc".into(),
         };
@@ -2177,7 +2249,7 @@ failed        app (probe: git status failed (128): error: bad tree object HEAD)
                 needs(BranchNeedsHuman::ShallowLocalWork),
             ),
         ];
-        let mut goblins = entry("goblins", CheckoutMode::Head, "x");
+        let mut goblins = entry("goblins", Mode::Head, "x");
         goblins.presence = Presence::NotARepo;
         goblins.checkouts.clear();
         goblins.layout = None;
@@ -2296,7 +2368,7 @@ clean 0 · on branches 0 · pinned 0      ~/dev/repos.toml · fetched 3h ago
         )];
         gro.checkouts[0].uncommitted.unstaged = 2;
         // a dormant owned fork, fetched long ago: not the freshness it reports
-        let mut spec = entry("spec", CheckoutMode::Head, "x");
+        let mut spec = entry("spec", Mode::Head, "x");
         spec.kind = EntryKind::Reference;
         spec.fetched_at = Some(NOW - 90 * 86400);
         assert!(

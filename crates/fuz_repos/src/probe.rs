@@ -15,7 +15,7 @@ use crate::git::{CallOptions, Git, GitError, NetworkOptions};
 use crate::porcelain::{
     self, ConfigFacts, RefFacts, StatusFacts, Track, WorktreeHead, WorktreeRecord,
 };
-use crate::registry::{CheckoutMode, Entry};
+use crate::registry::Entry;
 use crate::remote::{RefspecContext, RemoteFailure};
 use crate::state::{
     Checkout, GitDirHolds, Head, InProgressOp, Layout, UnprobedHead, UnprobedWhy, UnprobedWorktree,
@@ -169,9 +169,10 @@ pub const fn could_carry_local_work(r: &RefFacts) -> bool {
     )
 }
 
-/// Whether `--fetch` fetches this entry: owned and not pinned.
-pub fn fetches(entry: &Entry) -> bool {
-    entry.writable && entry.checkout_mode != CheckoutMode::Pinned
+/// Whether `--fetch` fetches this entry: owned and not pinned — a pin is
+/// never fetched, whatever branch it's on.
+pub const fn fetches(entry: &Entry) -> bool {
+    entry.writable && !entry.pinned
 }
 
 /// Probes one entry.
@@ -313,10 +314,7 @@ fn probe_present(
                     e,
                     RefspecContext {
                         refspecs: &config.origin_fetch,
-                        branch: match &entry.checkout_mode {
-                            CheckoutMode::Follow { branch } => Some(branch),
-                            CheckoutMode::Pinned | CheckoutMode::Head => None,
-                        },
+                        branch: entry.branch.as_deref(),
                     },
                 )
             })

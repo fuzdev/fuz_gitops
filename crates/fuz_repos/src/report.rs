@@ -7,7 +7,7 @@ use crate::STATUS_FORMAT_VERSION;
 use crate::busy::Sessions;
 use crate::classify::NeedsHuman;
 use crate::error::{Error, ErrorKind};
-use crate::registry::{CheckoutMode, EntryKind, Visibility};
+use crate::registry::{EntryKind, Visibility};
 use crate::remote::{RemoteFailure, VisibilityCheck};
 use crate::state::{BranchStatus, Checkout, Layout, Presence, UnprobedWorktreeStatus};
 
@@ -177,7 +177,12 @@ pub struct EntryStatus {
     pub visibility: Option<Visibility>,
     /// Defaulted: a public repo runs CI unless it says otherwise.
     pub ci: bool,
-    pub checkout_mode: CheckoutMode,
+    /// The branch the checkout lives on, as on the registry's `Entry`: a
+    /// repo's default branch, a reference's declared one, else `None`.
+    pub branch: Option<String>,
+    /// Its consumer moves HEAD, never the tool: never fetched, and every
+    /// fast-forward and move in it `HeldBy::Pinned`.
+    pub pinned: bool,
     pub presence: Presence,
     /// `None` when the repo isn't present, or its probe failed before the
     /// config was read; with `probe_error` set it's what was read first.

@@ -142,7 +142,7 @@ impl RefGoneFix {
 pub struct RefspecContext<'a> {
     /// Origin's fetch refspecs, as git reads them.
     pub refspecs: &'a [ConfigValue],
-    /// The branch the registry follows, if any: what `SetBranches` names.
+    /// The entry's branch, if any: what `SetBranches` names.
     pub branch: Option<&'a str>,
 }
 

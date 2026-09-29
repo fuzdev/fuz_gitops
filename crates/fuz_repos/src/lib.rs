@@ -31,4 +31,4 @@ pub mod url;
 /// The version of the `repos status --json` document. Bumped on any breaking
 /// change to its shape (a removal, a rename, a changed meaning); additions
 /// don't bump it.
-pub const STATUS_FORMAT_VERSION: u32 = 5;
+pub const STATUS_FORMAT_VERSION: u32 = 6;
