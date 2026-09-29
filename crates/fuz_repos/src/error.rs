@@ -3,9 +3,13 @@
 //! Per-entry failures (a git call that fails in one repo) are report data,
 //! never an `Error`: these are the failures that stop a whole run.
 
+use std::borrow::Cow;
 use std::path::PathBuf;
 
+use serde::Serialize;
 use thiserror::Error;
+
+use crate::git::GitVersion;
 
 /// A failure that stops a run before it has a report.
 #[derive(Debug, Error)]
@@ -32,8 +36,13 @@ pub enum Error {
     /// `git` isn't on `PATH`.
     #[error("git not found on PATH")]
     GitNotFound,
-    /// A target that names no registry entry.
-    #[error("no registry entry matches `{name}`")]
+    /// git is older than the runner supports, or reports a version it can't
+    /// read. `found` is the version git reports.
+    #[error("git reports version `{found}`; repos needs {required} or newer")]
+    GitTooOld { found: String, required: GitVersion },
+    /// A target that names no registry entry; `suggestions` are close keys,
+    /// best first.
+    #[error("unknown target `{name}`")]
     UnknownEntry {
         name: String,
         suggestions: Vec<String>,
@@ -58,27 +67,102 @@ impl Error {
             | Self::RegistryRead { .. }
             | Self::RegistryParse { .. }
             | Self::GitNotFound
+            | Self::GitTooOld { .. }
             | Self::UnknownEntry { .. } => 2,
             Self::Io { .. } => 1,
         }
     }
 
     /// A fix suggestion for the user, when there is one.
-    pub const fn hint(&self) -> Option<&'static str> {
-        match self {
-            Self::MissingCommand => Some("see `repos --help`"),
-            Self::RootNotFound { .. } => Some("`--root` names the dir the entries live under"),
+    pub fn hint(&self) -> Option<Cow<'static, str>> {
+        let hint = match self {
+            Self::MissingCommand => "see `repos --help`",
+            Self::RootNotFound { .. } => "`--root` names the dir the entries live under",
             Self::RegistryNotFound { .. } => {
-                Some("run inside the workspace, or pass `--registry <path>`")
+                "run inside the workspace or a checkout of one of its repos, or pass \
+                 `--registry <path>`"
             }
-            Self::GitNotFound => Some("install git 2.44 or newer"),
-            // TODO: suggest close keys (pass 2)
+            Self::GitNotFound => "install git 2.44 or newer",
+            Self::GitTooOld { .. } => {
+                "repos sets `GIT_NO_LAZY_FETCH` (git 2.44+) so a local call on a partial \
+                 clone never touches the network — upgrade git"
+            }
+            Self::UnknownEntry { suggestions, .. } if !suggestions.is_empty() => {
+                return Some(Cow::Owned(format!(
+                    "did you mean: {}",
+                    suggestions.join(", ")
+                )));
+            }
             Self::UnknownEntry { .. } => {
-                Some("a target is a registry key, an entry's dir name, or a path inside a checkout")
+                "a target is a registry key, an entry's dir name, or a path inside a checkout"
             }
-            Self::RegistryRead { .. } | Self::RegistryParse { .. } | Self::Io { .. } => None,
+            Self::RegistryRead { .. } | Self::RegistryParse { .. } | Self::Io { .. } => {
+                return None;
+            }
+        };
+        Some(Cow::Borrowed(hint))
+    }
+
+    /// The message with its `#[source]` chain, `: `-joined — what the binary
+    /// prints after `error: `.
+    pub fn message(&self) -> String {
+        let mut message = self.to_string();
+        let mut source = std::error::Error::source(self);
+        while let Some(s) = source {
+            message = format!("{message}: {s}");
+            source = s.source();
+        }
+        message
+    }
+
+    /// The stable, machine-readable kind and its payload, for the `--json`
+    /// error document.
+    pub fn kind(&self) -> ErrorKind {
+        match self {
+            Self::MissingCommand => ErrorKind::MissingCommand,
+            Self::RootNotFound { .. } => ErrorKind::RootNotFound,
+            Self::RegistryNotFound { .. } => ErrorKind::RegistryNotFound,
+            Self::RegistryRead { .. } => ErrorKind::RegistryRead,
+            Self::RegistryParse { .. } => ErrorKind::RegistryParse,
+            Self::GitNotFound => ErrorKind::GitNotFound,
+            Self::GitTooOld { found, required } => ErrorKind::GitTooOld {
+                found: found.clone(),
+                required: required.to_string(),
+            },
+            Self::UnknownEntry { name, suggestions } => ErrorKind::UnknownEntry {
+                name: name.clone(),
+                suggestions: suggestions.clone(),
+            },
+            Self::Io { .. } => ErrorKind::Io,
         }
     }
+}
+
+/// An `Error`'s kind, for the `--json` error document.
+///
+/// Serialized as the `kind` tag — a closed set in snake case, one per `Error`
+/// variant — plus the payload a consumer can act on; the rest is in the
+/// message.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum ErrorKind {
+    MissingCommand,
+    RootNotFound,
+    RegistryNotFound,
+    RegistryRead,
+    RegistryParse,
+    GitNotFound,
+    /// `found` as git reports it; `required` as `X.Y.Z`.
+    GitTooOld {
+        found: String,
+        required: String,
+    },
+    /// The target as given, and the close keys suggested, best first.
+    UnknownEntry {
+        name: String,
+        suggestions: Vec<String>,
+    },
+    Io,
 }
 
 /// Result alias for the crate.
@@ -103,6 +187,10 @@ mod tests {
                 message: String::new(),
             },
             Error::GitNotFound,
+            Error::GitTooOld {
+                found: "2.40.0".into(),
+                required: crate::git::MIN_GIT_VERSION,
+            },
             Error::UnknownEntry {
                 name: "x".into(),
                 suggestions: vec![],
@@ -116,5 +204,64 @@ mod tests {
             source: std::io::Error::other("x"),
         };
         assert_eq!(io.exit_code(), 1);
+    }
+
+    #[test]
+    fn unknown_entry_hints_its_suggestions() {
+        let e = Error::UnknownEntry {
+            name: "gr".into(),
+            suggestions: vec!["gro".into(), "grimoire".into()],
+        };
+        assert_eq!(e.to_string(), "unknown target `gr`");
+        assert_eq!(e.hint().as_deref(), Some("did you mean: gro, grimoire"));
+        let e = Error::UnknownEntry {
+            name: "zzzzzz".into(),
+            suggestions: vec![],
+        };
+        assert!(e.hint().is_some_and(|h| h.contains("registry key")));
+    }
+
+    #[test]
+    fn git_too_old_names_both_versions_and_why() {
+        let e = Error::GitTooOld {
+            found: "2.40.0".into(),
+            required: crate::git::MIN_GIT_VERSION,
+        };
+        assert_eq!(
+            e.to_string(),
+            "git reports version `2.40.0`; repos needs 2.44.0 or newer"
+        );
+        assert!(e.hint().is_some_and(|h| h.contains("GIT_NO_LAZY_FETCH")));
+    }
+
+    #[test]
+    fn kinds_are_snake_case_with_their_payloads() {
+        let json = |e: &Error| serde_json::to_value(e.kind()).unwrap();
+        assert_eq!(
+            json(&Error::RegistryNotFound {
+                start: PathBuf::from("/x")
+            }),
+            serde_json::json!({"kind": "registry_not_found"})
+        );
+        assert_eq!(
+            json(&Error::UnknownEntry {
+                name: "x".into(),
+                suggestions: vec!["y".into()],
+            }),
+            serde_json::json!({"kind": "unknown_entry", "name": "x", "suggestions": ["y"]})
+        );
+        assert_eq!(
+            json(&Error::GitTooOld {
+                found: "2.40.0".into(),
+                required: crate::git::MIN_GIT_VERSION,
+            }),
+            serde_json::json!({"kind": "git_too_old", "found": "2.40.0", "required": "2.44.0"})
+        );
+        let io = Error::Io {
+            context: "failed to list".into(),
+            source: std::io::Error::other("denied"),
+        };
+        assert_eq!(json(&io), serde_json::json!({"kind": "io"}));
+        assert_eq!(io.message(), "failed to list: denied");
     }
 }

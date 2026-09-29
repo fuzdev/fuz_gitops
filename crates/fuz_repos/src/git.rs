@@ -45,6 +45,68 @@ const SCRUBBED_ENV: &[&str] = &[
     "GIT_CEILING_DIRECTORIES",
 ];
 
+/// The oldest git the runner supports: `GIT_NO_LAZY_FETCH`, which keeps a
+/// local call on a partial clone off the network, landed in 2.44.
+pub const MIN_GIT_VERSION: GitVersion = GitVersion {
+    major: 2,
+    minor: 44,
+    patch: 0,
+};
+
+/// A git release, compared by its numeric components.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub struct GitVersion {
+    pub major: u32,
+    pub minor: u32,
+    pub patch: u32,
+}
+
+impl std::fmt::Display for GitVersion {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}.{}.{}", self.major, self.minor, self.patch)
+    }
+}
+
+impl GitVersion {
+    /// Parses `git --version`'s output: the first line reading `git version
+    /// X.Y.Z` (a wrapper may print a banner first), then anything — a vendor
+    /// suffix (`2.47.3.windows.1`, `2.39.5 (Apple Git-154)`), a release
+    /// candidate (`2.44.0.rc1`, read as `2.44.0`), a dev build's describe
+    /// (`2.43.0.381.gb435a96ce8`, read as `2.43.0`). The patch may be absent
+    /// (read as `0`); the major and minor may not.
+    pub fn parse(output: &str) -> Option<Self> {
+        let version = version_line(output)?;
+        let token = version.split_whitespace().next()?;
+        let mut parts = token.split('.');
+        let mut number = |required: bool| -> Option<u32> {
+            let part = parts.next();
+            let digits = part.map_or("", |p| {
+                let end = p.find(|c: char| !c.is_ascii_digit()).unwrap_or(p.len());
+                &p[..end]
+            });
+            // a component with no leading digits: required ones fail, the
+            // patch reads as `0`
+            if digits.is_empty() {
+                return if required { None } else { Some(0) };
+            }
+            digits.parse().ok()
+        };
+        Some(Self {
+            major: number(true)?,
+            minor: number(true)?,
+            patch: number(false)?,
+        })
+    }
+}
+
+/// The first line of `git --version`'s output reading `git version …`, from
+/// after that prefix.
+fn version_line(output: &str) -> Option<&str> {
+    output
+        .lines()
+        .find_map(|line| line.trim().strip_prefix("git version "))
+}
+
 /// A git call that didn't produce usable output.
 #[derive(Debug, Error)]
 pub enum GitError {
@@ -200,6 +262,45 @@ impl Git {
         wait_capped(child, timeout, || args.join(" "))
     }
 
+    /// Checks that git is on `PATH` and at least `MIN_GIT_VERSION`, with one
+    /// `git --version` in `dir`. Run once, before anything else calls git.
+    ///
+    /// # Errors
+    ///
+    /// `GitNotFound` when git isn't on `PATH`; `GitTooOld` when its version
+    /// is older or unrecognized — the runner can't vouch for a git it can't
+    /// place — or when git rejects the runner's own flags (git before 2.15
+    /// has no `--no-optional-locks`); `Io` when `git --version` otherwise
+    /// fails.
+    pub fn check_version(&self, dir: &Path) -> crate::error::Result<GitVersion> {
+        use crate::error::Error;
+        let out = match self.output_string(dir, &["--version"], CallOptions::default()) {
+            Ok(out) => out,
+            Err(GitError::NotFound) => return Err(Error::GitNotFound),
+            Err(GitError::Failed { stderr, .. })
+                if stderr.to_ascii_lowercase().starts_with("unknown option") =>
+            {
+                return Err(Error::GitTooOld {
+                    found: FOUND_PRE_OPTIONAL_LOCKS.into(),
+                    required: MIN_GIT_VERSION,
+                });
+            }
+            Err(e) => {
+                return Err(Error::Io {
+                    context: "failed to run git --version".into(),
+                    source: io::Error::other(e),
+                });
+            }
+        };
+        match GitVersion::parse(&out) {
+            Some(v) if v >= MIN_GIT_VERSION => Ok(v),
+            parsed => Err(Error::GitTooOld {
+                found: parsed.map_or_else(|| describe_version(&out), |v| v.to_string()),
+                required: MIN_GIT_VERSION,
+            }),
+        }
+    }
+
     /// Runs git and returns stdout, treating a non-zero exit as an error.
     ///
     /// # Errors
@@ -238,6 +339,18 @@ impl Git {
             args: args.join(" "),
         })
     }
+}
+
+/// `GitTooOld`'s `found` for a git that rejects `--no-optional-locks`, the
+/// runner's first flag, before it can print its version.
+pub const FOUND_PRE_OPTIONAL_LOCKS: &str = "unknown (older than 2.15)";
+
+/// What an unrecognized `git --version` printed, for the error: its version
+/// line without the `git version ` prefix, else its first line; capped.
+fn describe_version(output: &str) -> String {
+    const CAP: usize = 80;
+    let line = version_line(output).unwrap_or_else(|| output.lines().next().unwrap_or(""));
+    line.trim().chars().take(CAP).collect()
 }
 
 /// Captured bytes, and whether any were dropped over the cap.
@@ -430,6 +543,71 @@ mod tests {
         let seen = seen_env(&Git::new(), tmp.path());
         assert!(seen.contains(&inherited), "{inherited}: {seen:?}");
         assert!(!seen.iter().any(|l| l == "FIXTURE_VAR=kept"));
+    }
+
+    #[test]
+    fn parses_git_versions() {
+        let v = |major, minor, patch| {
+            Some(GitVersion {
+                major,
+                minor,
+                patch,
+            })
+        };
+        for (output, expected) in [
+            ("git version 2.47.3\n", v(2, 47, 3)),
+            ("git version 2.44.0", v(2, 44, 0)),
+            ("git version 2.47.3.windows.1\n", v(2, 47, 3)),
+            ("git version 2.39.5 (Apple Git-154)\n", v(2, 39, 5)),
+            ("git version 2.44.0.rc1", v(2, 44, 0)),
+            ("git version 2.43.0.381.gb435a96ce8", v(2, 43, 0)),
+            ("git version 2.44", v(2, 44, 0)),
+            ("git version 2.44.rc0", v(2, 44, 0)),
+            ("git version 10.0.1", v(10, 0, 1)),
+            ("  git version 2.50.1  \n", v(2, 50, 1)),
+            // a wrapper's banner first
+            ("wrapper 1.0 here\ngit version 2.47.3\n", v(2, 47, 3)),
+            ("banner\n\n  git version 2.40.1\ntrailer\n", v(2, 40, 1)),
+            // not a version
+            ("git version", None),
+            ("git version 2", None),
+            ("git version two.44.0", None),
+            ("git version 2.x.0", None),
+            ("version 2.44.0", None),
+            ("2.44.0", None),
+            ("2.44.0\ngit 2.44.0", None),
+            ("", None),
+            ("hub version 2.44.0", None),
+        ] {
+            assert_eq!(GitVersion::parse(output), expected, "{output:?}");
+        }
+    }
+
+    #[test]
+    fn git_versions_order_numerically() {
+        let parse = |s: &str| GitVersion::parse(&format!("git version {s}")).unwrap();
+        assert!(parse("2.43.9") < MIN_GIT_VERSION);
+        assert!(parse("2.9.0") < MIN_GIT_VERSION);
+        assert!(parse("1.99.99") < MIN_GIT_VERSION);
+        assert!(parse("2.44.0") >= MIN_GIT_VERSION);
+        assert!(parse("2.100.0") > MIN_GIT_VERSION);
+        assert!(parse("3.0.0") > MIN_GIT_VERSION);
+        assert_eq!(MIN_GIT_VERSION.to_string(), "2.44.0");
+    }
+
+    #[test]
+    fn an_unrecognized_version_is_described_capped() {
+        assert_eq!(describe_version("git version weird\nmore"), "weird");
+        assert_eq!(describe_version("banner\ngit version weird\n"), "weird");
+        assert_eq!(describe_version("not git"), "not git");
+        assert_eq!(describe_version(&"x".repeat(200)).len(), 80);
+    }
+
+    #[test]
+    fn this_git_is_new_enough() {
+        let tmp = tempfile::tempdir().unwrap();
+        let v = Git::new().check_version(tmp.path()).unwrap();
+        assert!(v >= MIN_GIT_VERSION, "{v}");
     }
 
     #[test]

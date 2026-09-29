@@ -91,7 +91,21 @@ fn an_unknown_target_is_an_error() {
     let ws = workspace();
     let not_a_repo = ws.outside("plain");
     std::fs::create_dir(&not_a_repo).unwrap();
-    for target in ["nope", "plain", "../plain", not_a_repo.to_str().unwrap()] {
+    let app_typo = ws.outside("apq");
+    std::fs::create_dir(&app_typo).unwrap();
+    for (target, close) in [
+        ("nope", &[][..]),
+        ("plain", &[]),
+        ("../plain", &[]),
+        (not_a_repo.to_str().unwrap(), &[]),
+        // suggestions name keys, matched against keys and dirs: `ap-dir` is
+        // near only the dir `app-dir`, and named by its key `app`
+        ("lbi", &["lib"]),
+        ("ap-dir", &["app"]),
+        ("app-dri", &["app"]),
+        ("APP/", &["app"]),
+        (app_typo.to_str().unwrap(), &["app"]),
+    ] {
         let e = resolve_targets(
             &ws.entries(),
             &ws.root(),
@@ -101,8 +115,9 @@ fn an_unknown_target_is_an_error() {
         )
         .unwrap_err();
         assert!(
-            matches!(&e, Error::UnknownEntry { name, .. } if name == target),
-            "{target}: {e}"
+            matches!(&e, Error::UnknownEntry { name, suggestions }
+                if name == target && suggestions == close),
+            "{target}: {e:?}"
         );
         assert_eq!(e.exit_code(), 2);
     }

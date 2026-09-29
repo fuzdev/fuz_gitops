@@ -536,7 +536,9 @@ cargo test --workspace
 ```
 
 `repos` finds its registry by walking up from the cwd to the first
-`repos.toml`, and the **workspace root is the directory holding it as found** —
+`repos.toml` (from a linked worktree outside the workspace, it walks up from
+the repo's main checkout instead), and the **workspace root is the directory
+holding it as found** —
 entry dirs resolve against that root. A `repos.toml` symlink at the workspace
 root pointing at a registry kept elsewhere works (the root stays the link's
 dir); `--registry` naming a file in some other directory makes *that* directory

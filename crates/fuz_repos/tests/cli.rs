@@ -1,6 +1,7 @@
 //! The `repos` binary over a fixture workspace: exit codes, the `--json`
-//! document, and the global `--registry` / `--root` flags. Run under the
-//! same hermetic environment as the fixtures.
+//! documents (the report and the fatal-error document), discovery, and the
+//! global `--registry` / `--root` flags. Run under the same hermetic
+//! environment as the fixtures.
 
 // helpers outside `#[test]` fns fail the test the way an assertion would
 #![allow(clippy::unwrap_used)]
@@ -84,6 +85,11 @@ fn status_from_a_linked_worktree_outside_the_workspace() {
     ws.git(&feature, &["push", "-q", "-u", "origin", "feature"]);
     ws.upstream_delete_branch("app", "feature");
     ws.git(&app, &["fetch", "-q", "--prune", "origin"]);
+    // backdated, so the text's `fetched … ago` reads the same across runs
+    support::set_mtime(
+        &app.join(".git/FETCH_HEAD"),
+        std::time::UNIX_EPOCH + std::time::Duration::from_secs(support::CLOCK_START),
+    );
     ws.assert_track(&app, "feature", "[gone]");
     ws.assert_clean(&feature);
     let scratch = ws.outside("app-scratch");
@@ -98,14 +104,23 @@ fn status_from_a_linked_worktree_outside_the_workspace() {
         assert!(!wt.starts_with(ws.root()));
     }
 
-    // outside the workspace, discovery can't walk up to the registry
+    // outside the workspace, the walk-up from the cwd finds no registry: it
+    // walks up again from the repo's main checkout — from the worktree's
+    // root or deeper — or `--registry` names it
     let registry = ws.root().join("repos.toml");
     let registry = registry.to_str().unwrap();
-    let report = parse(&repos(
-        &ws,
-        &feature,
-        &["--registry", registry, "status", "--json", "."],
-    ));
+    let deeper = feature.join("src/deeper");
+    std::fs::create_dir_all(&deeper).unwrap();
+    let report = parse(&repos(&ws, &feature, &["status", "--json", "."]));
+    assert_eq!(report["workspace"], ws.root().to_str().unwrap());
+    assert_eq!(report["registry"], registry);
+    assert_eq!(report["entries"][0]["fetched_at"], support::CLOCK_START);
+    for (cwd, args) in [
+        (&deeper, &["status", "--json", "."][..]),
+        (&feature, &["--registry", registry, "status", "--json", "."]),
+    ] {
+        assert_eq!(parse(&repos(&ws, cwd, args)), report, "{args:?}");
+    }
     let entries = report["entries"].as_array().unwrap();
     assert_eq!(entries.len(), 1);
     let e = &entries[0];
@@ -159,9 +174,11 @@ fn status_from_a_linked_worktree_outside_the_workspace() {
         })
     );
 
-    let out = repos(&ws, &feature, &["--registry", registry, "status", "."]);
+    let out = repos(&ws, &feature, &["status", "."]);
     assert_eq!(out.status.code(), Some(0), "stderr: {}", stderr(&out));
     let text = stdout(&out);
+    let with_registry = repos(&ws, &feature, &["--registry", registry, "status", "."]);
+    assert_eq!(stdout(&with_registry), text);
     assert!(
         text.contains(&format!(
             "uncommitted   app (worktree {}, 1)\n",
@@ -518,8 +535,15 @@ fn a_registry_outside_the_workspace_with_root() {
 #[test]
 fn caller_errors_exit_two() {
     let ws = workspace();
-    let cases: [(&[&str], &str); 4] = [
-        (&["status", "nope"], "no registry entry matches `nope`"),
+    let cases: [(&[&str], &str); 5] = [
+        (
+            &["status", "nope"],
+            "error: unknown target `nope`\nhint: a target is",
+        ),
+        (
+            &["status", "apq"],
+            "error: unknown target `apq`\nhint: did you mean: app\n",
+        ),
         (&["--root", "nowhere", "status"], "no workspace root"),
         (
             &["--registry", "missing.toml", "status"],
@@ -533,9 +557,346 @@ fn caller_errors_exit_two() {
         assert!(stderr(&out).contains(message), "{args:?}: {}", stderr(&out));
         assert!(stdout(&out).is_empty(), "{args:?}");
     }
-    // an argument the parser rejects
-    let out = repos(&ws, &ws.root(), &["status", "--bogus"]);
-    assert_eq!(out.status.code(), Some(2));
+    // an argument the parser rejects, `--json` or not: argh's text on
+    // stderr, nothing on stdout
+    for args in [&["status", "--bogus"][..], &["status", "--json", "--bogus"]] {
+        let out = repos(&ws, &ws.root(), args);
+        assert_eq!(out.status.code(), Some(2), "{args:?}");
+        assert!(
+            stderr(&out).contains("--bogus"),
+            "{args:?}: {}",
+            stderr(&out)
+        );
+        assert!(stdout(&out).is_empty(), "{args:?}");
+    }
+}
+
+/// A fatal error's `--json` document: exactly `version` and `error`, the
+/// message and hint the same ones stderr prints. Returns `error`.
+fn error_doc(out: &Output, code: i32) -> Value {
+    assert_eq!(out.status.code(), Some(code), "stderr: {}", stderr(out));
+    let doc: Value = serde_json::from_str(&stdout(out))
+        .map_err(|e| format!("{e}: stdout: {}", stdout(out)))
+        .unwrap();
+    let fields: Vec<&String> = doc.as_object().unwrap().keys().collect();
+    assert_eq!(fields, ["error", "version"], "{doc}");
+    assert_eq!(doc["version"], STATUS_FORMAT_VERSION);
+    let error = doc["error"].clone();
+    let err = stderr(out);
+    let message = error["message"].as_str().unwrap();
+    assert!(err.starts_with(&format!("error: {message}\n")), "{err}");
+    match error["hint"].as_str() {
+        Some(hint) => assert!(err.ends_with(&format!("\nhint: {hint}\n")), "{err}"),
+        None => assert!(!err.contains("hint:"), "{err}"),
+    }
+    error
+}
+
+/// A `git` on `PATH` ahead of the real one that prints `version` for any
+/// call; returns the `PATH` to run under.
+fn fake_git(ws: &FixtureWorkspace, version: &str) -> std::ffi::OsString {
+    let bin = ws.outside("fake-bin");
+    support::write_executable(&bin, "git", &format!("#!/bin/sh\necho '{version}'\n"));
+    let mut dirs = vec![bin];
+    dirs.extend(std::env::split_paths(&std::env::var_os("PATH").unwrap()));
+    std::env::join_paths(dirs).unwrap()
+}
+
+#[test]
+fn caller_errors_print_a_json_document() {
+    let ws = workspace();
+    let root = ws.root();
+    let registry = root.join("repos.toml");
+
+    // an unknown target, with its close keys
+    let error = error_doc(&repos(&ws, &root, &["status", "--json", "apq"]), 2);
+    assert_eq!(
+        error,
+        serde_json::json!({
+            "kind": "unknown_entry",
+            "name": "apq",
+            "suggestions": ["app"],
+            "message": "unknown target `apq`",
+            "hint": "did you mean: app",
+        })
+    );
+    let error = error_doc(&repos(&ws, &root, &["status", "--json", "zzzzzz"]), 2);
+    assert_eq!(error["suggestions"], serde_json::json!([]));
+    assert_eq!(
+        error["hint"],
+        "a target is a registry key, an entry's dir name, or a path inside a checkout"
+    );
+
+    let error = error_doc(
+        &repos(&ws, &root, &["--root", "nowhere", "status", "--json"]),
+        2,
+    );
+    assert_eq!(error["kind"], "root_not_found");
+    assert_eq!(
+        error["message"],
+        format!("no workspace root at {}", root.join("nowhere").display())
+    );
+
+    let error = error_doc(
+        &repos(
+            &ws,
+            &root,
+            &["--registry", "missing.toml", "status", "--json"],
+        ),
+        2,
+    );
+    assert_eq!(error["kind"], "registry_read");
+    assert_eq!(error["hint"], Value::Null);
+    assert!(
+        error["message"]
+            .as_str()
+            .unwrap()
+            .starts_with("failed to read the registry at "),
+        "{error}"
+    );
+
+    // outside the workspace and outside any repo
+    let plain = ws.outside("plain");
+    std::fs::create_dir(&plain).unwrap();
+    let error = error_doc(&repos(&ws, &plain, &["status", "--json"]), 2);
+    assert_eq!(
+        error,
+        serde_json::json!({
+            "kind": "registry_not_found",
+            "message": format!(
+                "no repos.toml found in {} or any parent directory",
+                plain.display()
+            ),
+            "hint": "run inside the workspace or a checkout of one of its repos, or pass \
+                     `--registry <path>`",
+        })
+    );
+    // in a repo outside the workspace, whose main checkout has no registry
+    // above it either
+    ws.remote("stray", &[]);
+    let stray = ws.outside("stray");
+    ws.git(
+        ws.base(),
+        &[
+            "clone",
+            "-q",
+            &format!("file://{}", ws.bare("stray").display()),
+            stray.to_str().unwrap(),
+        ],
+    );
+    let error = error_doc(&repos(&ws, &stray, &["status", "--json"]), 2);
+    assert_eq!(error["kind"], "registry_not_found");
+
+    // git missing, or too old for `GIT_NO_LAZY_FETCH`
+    let empty = ws.outside("empty-bin");
+    std::fs::create_dir(&empty).unwrap();
+    let out = ws
+        .command(REPOS, &root)
+        .env("PATH", &empty)
+        .args(["status", "--json"])
+        .output()
+        .unwrap();
+    let error = error_doc(&out, 2);
+    assert_eq!(error["kind"], "git_not_found");
+    assert_eq!(error["message"], "git not found on PATH");
+    // checked before discovery: outside the workspace too
+    let out = ws
+        .command(REPOS, &plain)
+        .env("PATH", &empty)
+        .args(["status", "--json"])
+        .output()
+        .unwrap();
+    assert_eq!(error_doc(&out, 2)["kind"], "git_not_found");
+    for (version, found) in [
+        ("git version 2.40.0", "2.40.0"),
+        // a wrapper's banner before the version line
+        ("wrapper banner\ngit version 2.40.1", "2.40.1"),
+        ("git version 2.43.7 (Apple Git-150)", "2.43.7"),
+        ("git version 2.43.0.windows.1", "2.43.0"),
+        ("not a git at all", "not a git at all"),
+    ] {
+        let path = fake_git(&ws, version);
+        let out = ws
+            .command(REPOS, &root)
+            .env("PATH", &path)
+            .args(["status", "--json"])
+            .output()
+            .unwrap();
+        let error = error_doc(&out, 2);
+        assert_eq!(
+            error,
+            serde_json::json!({
+                "kind": "git_too_old",
+                "found": found,
+                "required": "2.44.0",
+                "message": format!("git reports version `{found}`; repos needs 2.44.0 or newer"),
+                "hint": "repos sets `GIT_NO_LAZY_FETCH` (git 2.44+) so a local call on a \
+                         partial clone never touches the network — upgrade git",
+            }),
+            "{version}"
+        );
+        // text mode: the same lines, nothing on stdout
+        let out = ws
+            .command(REPOS, &root)
+            .env("PATH", &path)
+            .args(["status"])
+            .output()
+            .unwrap();
+        assert_eq!(out.status.code(), Some(2));
+        assert!(stdout(&out).is_empty());
+        assert!(
+            stderr(&out).contains("GIT_NO_LAZY_FETCH"),
+            "{}",
+            stderr(&out)
+        );
+    }
+    // git before 2.15 rejects the runner's `--no-optional-locks` before it
+    // can print a version
+    let bin = ws.outside("ancient-bin");
+    support::write_executable(
+        &bin,
+        "git",
+        "#!/bin/sh\necho \"Unknown option: $1\" >&2\necho 'usage: git [--version] <command>' >&2\n\
+         exit 129\n",
+    );
+    let out = ws
+        .command(REPOS, &root)
+        .env("PATH", &bin)
+        .args(["status", "--json"])
+        .output()
+        .unwrap();
+    let error = error_doc(&out, 2);
+    assert_eq!(error["kind"], "git_too_old");
+    assert_eq!(error["found"], "unknown (older than 2.15)");
+    assert!(!stderr(&out).contains("usage:"), "{}", stderr(&out));
+    // a new enough fake passes the check: whatever fails next isn't it
+    let out = ws
+        .command(REPOS, &root)
+        .env("PATH", fake_git(&ws, "git version 2.44.0.windows.1"))
+        .args(["status", "--json"])
+        .output()
+        .unwrap();
+    assert!(
+        !stderr(&out).contains("git reports version"),
+        "{}",
+        stderr(&out)
+    );
+
+    // last: it rewrites the registry
+    std::fs::write(
+        &registry,
+        "owners = [\"me\"]\n[repos.app]\nurl = \"https://github.com/me/app\"\nbogus = 1\n",
+    )
+    .unwrap();
+    let error = error_doc(&repos(&ws, &root, &["status", "--json"]), 2);
+    assert_eq!(error["kind"], "registry_parse");
+    assert!(
+        error["message"].as_str().unwrap().contains("bogus"),
+        "{error}"
+    );
+}
+
+#[test]
+fn a_non_utf8_argument_is_a_usage_error() {
+    use std::os::unix::ffi::OsStrExt;
+    let ws = workspace();
+    let arg = std::ffi::OsStr::from_bytes(b"a\xffb");
+    let s = std::ffi::OsStr::new;
+    // a target, and a flag's value
+    for args in [
+        [s("status"), s("--json"), arg],
+        [s("--registry"), arg, s("status")],
+    ] {
+        let out = ws.command(REPOS, &ws.root()).args(args).output().unwrap();
+        assert_eq!(out.status.code(), Some(2), "stderr: {}", stderr(&out));
+        assert!(stdout(&out).is_empty());
+        assert_eq!(
+            stderr(&out),
+            "error: argument `a\u{fffd}b` is not valid UTF-8; repos takes UTF-8 arguments \
+             only (paths included)\n"
+        );
+    }
+}
+
+#[test]
+fn the_discovery_fallback_is_for_linked_worktrees_only() {
+    let ws = workspace();
+    // a checkout whose git dir lives in a dir holding a registry: the git
+    // dir's parent is no checkout, and discovery doesn't search it
+    let elsewhere = ws.outside("elsewhere");
+    std::fs::create_dir(&elsewhere).unwrap();
+    std::fs::copy(ws.root().join("repos.toml"), elsewhere.join("repos.toml")).unwrap();
+    let home = ws.outside("home2");
+    let git_dir = elsewhere.join("dot.git");
+    ws.git(
+        ws.base(),
+        &[
+            "init",
+            "-q",
+            &format!("--separate-git-dir={}", git_dir.display()),
+            home.to_str().unwrap(),
+        ],
+    );
+    ws.git(&home, &["commit", "-q", "--allow-empty", "-m", "init"]);
+    let proj = home.join("proj");
+    std::fs::create_dir(&proj).unwrap();
+    assert_eq!(
+        ws.git(
+            &proj,
+            &["rev-parse", "--path-format=absolute", "--git-common-dir"]
+        ),
+        git_dir.to_str().unwrap()
+    );
+    let error = error_doc(&repos(&ws, &proj, &["status", "--json"]), 2);
+    assert_eq!(error["kind"], "registry_not_found");
+    // nor from a linked worktree of it: its common dir isn't a `.git` in a
+    // main checkout
+    let wt = ws.outside("home2-wt");
+    ws.add_worktree(&home, &wt, &["-b", "wt"]);
+    let error = error_doc(&repos(&ws, &wt, &["status", "--json"]), 2);
+    assert_eq!(error["kind"], "registry_not_found");
+    // nor when the separate git dir is itself named `.git`: it isn't a
+    // linked worktree, so no fallback, though the common dir's parent looks
+    // like a checkout
+    let elsewhere3 = ws.outside("elsewhere3");
+    std::fs::create_dir(&elsewhere3).unwrap();
+    std::fs::copy(ws.root().join("repos.toml"), elsewhere3.join("repos.toml")).unwrap();
+    let home3 = ws.outside("home3");
+    ws.git(
+        ws.base(),
+        &[
+            "init",
+            "-q",
+            &format!("--separate-git-dir={}", elsewhere3.join(".git").display()),
+            home3.to_str().unwrap(),
+        ],
+    );
+    let proj3 = home3.join("proj");
+    std::fs::create_dir(&proj3).unwrap();
+    let error = error_doc(&repos(&ws, &proj3, &["status", "--json"]), 2);
+    assert_eq!(error["kind"], "registry_not_found");
+    // control: from the registry's own dir it's found
+    let out = repos(&ws, &elsewhere, &["status", "--json"]);
+    assert_eq!(out.status.code(), Some(0), "stderr: {}", stderr(&out));
+}
+
+#[test]
+fn a_runtime_error_prints_a_json_document() {
+    let ws = workspace();
+    let root = ws.root();
+    let Some(_unseal) = support::seal(&root, 0o311) else {
+        return;
+    };
+    let error = error_doc(&repos(&ws, &root, &["status", "--json"]), 1);
+    assert_eq!(error["kind"], "io");
+    assert_eq!(error["hint"], Value::Null);
+    assert!(
+        error["message"].as_str().unwrap().starts_with(&format!(
+            "failed to list the workspace root {}: ",
+            root.display()
+        )),
+        "{error}"
+    );
 }
 
 #[test]

@@ -5,6 +5,7 @@ use serde::Serialize;
 
 use crate::STATUS_FORMAT_VERSION;
 use crate::classify::NeedsHuman;
+use crate::error::{Error, ErrorKind};
 use crate::registry::{CheckoutMode, EntryKind, Visibility};
 use crate::state::{BranchStatus, Checkout, Layout, Presence, UnprobedWorktreeStatus};
 
@@ -32,6 +33,44 @@ impl StatusReport {
             registry,
             entries,
             unregistered: None,
+        }
+    }
+}
+
+/// The `--json` document for a fatal error, printed on stdout in place of
+/// the report.
+///
+/// A consumer never parses empty stdout. The document carries the same
+/// `version` as the report; a consumer tells the two apart by `error`.
+/// Argument-parse errors precede knowing `--json` and stay plain text on
+/// stderr.
+#[derive(Debug, Clone, Serialize)]
+pub struct ErrorReport {
+    /// `STATUS_FORMAT_VERSION`.
+    pub version: u32,
+    pub error: ErrorBody,
+}
+
+/// A fatal error: its kind (flattened: the `kind` tag and its payload sit
+/// beside `message`), the message the binary prints after `error: `, and the
+/// hint it prints after `hint: `.
+#[derive(Debug, Clone, Serialize)]
+pub struct ErrorBody {
+    #[serde(flatten)]
+    pub kind: ErrorKind,
+    pub message: String,
+    pub hint: Option<String>,
+}
+
+impl ErrorReport {
+    pub fn new(e: &Error) -> Self {
+        Self {
+            version: STATUS_FORMAT_VERSION,
+            error: ErrorBody {
+                kind: e.kind(),
+                message: e.message(),
+                hint: e.hint().map(std::borrow::Cow::into_owned),
+            },
         }
     }
 }

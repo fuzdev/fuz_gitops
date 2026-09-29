@@ -2,8 +2,14 @@
 //!
 //! Exit codes: `0` when the command ran (what the report says is data, not
 //! failure); `1` for a runtime failure; `2` when the caller must change
-//! something — usage, a missing or invalid registry, git missing, an unknown
-//! target.
+//! something — usage, a missing or invalid registry, git missing or too old,
+//! an unknown target.
+//!
+//! A fatal error prints `error: …` and `hint: …` on stderr; under `status
+//! --json` it also prints one `ErrorReport` document on stdout, in place of
+//! the report. An argument the parser rejects is reported before `--json` is
+//! known, so it stays argh's text on stderr (exit 2) under `--json` too; so
+//! does a non-UTF-8 argument.
 
 mod render;
 
@@ -16,9 +22,9 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use argh::{EarlyExit, FromArgs};
 use fuz_repos::discover::{find_registry, resolve_targets};
 use fuz_repos::error::{Error, Result};
-use fuz_repos::git::{CallOptions, Git, GitError};
+use fuz_repos::git::Git;
 use fuz_repos::registry::Registry;
-use fuz_repos::report::StatusReport;
+use fuz_repos::report::{ErrorReport, StatusReport};
 use fuz_repos::scan::scan_unregistered;
 use fuz_repos::status::{EntryTiming, StatusOptions, mark_moved_worktrees, status};
 
@@ -83,7 +89,13 @@ struct StatusArgs {
 }
 
 fn main() -> ExitCode {
-    let args: Vec<String> = std::env::args().skip(1).collect();
+    let args = match utf8_args(std::env::args_os().skip(1)) {
+        Ok(args) => args,
+        Err(message) => {
+            eprintln!("error: {message}");
+            return ExitCode::from(2);
+        }
+    };
     let args: Vec<&str> = args.iter().map(String::as_str).collect();
     let cli = match Cli::from_args(&["repos"], &args) {
         Ok(cli) => cli,
@@ -98,26 +110,69 @@ fn main() -> ExitCode {
             };
         }
     };
-    let Err(e) = run(cli) else {
-        return ExitCode::SUCCESS;
+    let json = matches!(&cli.command, Some(Command::Status(args)) if args.json);
+    let printed = match run(cli) {
+        Ok(printed) => printed,
+        Err(e) => {
+            print_error(&e, json);
+            return ExitCode::from(e.exit_code());
+        }
     };
-    let mut message = e.to_string();
-    let mut source = std::error::Error::source(&e);
-    while let Some(s) = source {
-        message = format!("{message}: {s}");
-        source = s.source();
+    // stdout's own failure gets no JSON document: stdout is what failed
+    if let Err(e) = write_stdout(&printed.stdout) {
+        print_error(&e, false);
+        return ExitCode::from(e.exit_code());
     }
-    eprintln!("error: {message}");
+    eprint!("{}", printed.stderr);
+    ExitCode::SUCCESS
+}
+
+/// The arguments as UTF-8, or the usage error naming the first that isn't —
+/// argh parses only `str`s, so no argument can be a non-UTF-8 path.
+fn utf8_args(
+    args: impl Iterator<Item = std::ffi::OsString>,
+) -> std::result::Result<Vec<String>, String> {
+    args.map(|arg| {
+        arg.into_string().map_err(|arg| {
+            format!(
+                "argument `{}` is not valid UTF-8; repos takes UTF-8 arguments only \
+                 (paths included)",
+                arg.to_string_lossy()
+            )
+        })
+    })
+    .collect()
+}
+
+/// Prints a fatal error on stderr and, under `--json`, its document on
+/// stdout.
+fn print_error(e: &Error, json: bool) {
+    eprintln!("error: {}", e.message());
     if let Some(hint) = e.hint() {
         eprintln!("hint: {hint}");
     }
-    ExitCode::from(e.exit_code())
+    if json {
+        // an `ErrorReport` is strings all the way down: it always serializes
+        if let Ok(mut doc) = serde_json::to_string_pretty(&ErrorReport::new(e)) {
+            doc.push('\n');
+            let _ = io::stdout().lock().write_all(doc.as_bytes());
+        }
+    }
 }
 
-fn run(cli: Cli) -> Result<()> {
+/// What a successful run prints: stdout, then stderr.
+#[derive(Debug, Default)]
+struct Printed {
+    stdout: String,
+    stderr: String,
+}
+
+fn run(cli: Cli) -> Result<Printed> {
     if cli.version {
-        println!("repos {VERSION}");
-        return Ok(());
+        return Ok(Printed {
+            stdout: format!("repos {VERSION}\n"),
+            stderr: String::new(),
+        });
     }
     let locate = Locate {
         registry: cli.registry.as_deref().map(Path::new),
@@ -136,22 +191,17 @@ struct Locate<'a> {
     root: Option<&'a Path>,
 }
 
-fn run_status(locate: Locate<'_>, args: &StatusArgs) -> Result<()> {
+fn run_status(locate: Locate<'_>, args: &StatusArgs) -> Result<Printed> {
     let start = Instant::now();
     let cwd = std::env::current_dir().map_err(|source| Error::Io {
         context: "failed to read the current directory".into(),
         source,
     })?;
-    let loc = find_registry(&cwd, locate.registry, locate.root)?;
-    let registry = Registry::load(&loc.path)?;
     let git = Git::new();
-    // TODO: check git ≥ 2.44 for `GIT_NO_LAZY_FETCH` (`GitTooOld`, pass 2)
-    if matches!(
-        git.run(&cwd, &["--version"], CallOptions::default()),
-        Err(GitError::NotFound)
-    ) {
-        return Err(Error::GitNotFound);
-    }
+    // first: discovery's fallback runs git too
+    git.check_version(&cwd)?;
+    let loc = find_registry(&cwd, locate.registry, locate.root, &git)?;
+    let registry = Registry::load(&loc.path)?;
     let all = registry.entries();
     let entries = resolve_targets(&all, &loc.root, &cwd, &args.targets, &git)?;
     let load_time = start.elapsed();
@@ -221,24 +271,24 @@ fn run_status(locate: Locate<'_>, args: &StatusArgs) -> Result<()> {
         out
     };
     let render_time = render_start.elapsed();
-    write_stdout(&out)?;
 
+    let mut printed = Printed {
+        stdout: out,
+        stderr: String::new(),
+    };
     if args.timings {
-        eprint!(
-            "{}",
-            render_timings(&Timings {
-                load: load_time,
-                probe: run.elapsed,
-                scan: scan_time,
-                render: render_time,
-                total: start.elapsed(),
-                jobs: args.jobs,
-                spawns: git.spawns(),
-                entries: &run.timings,
-            })
-        );
+        printed.stderr = render_timings(&Timings {
+            load: load_time,
+            probe: run.elapsed,
+            scan: scan_time,
+            render: render_time,
+            total: start.elapsed(),
+            jobs: args.jobs,
+            spawns: git.spawns(),
+            entries: &run.timings,
+        });
     }
-    Ok(())
+    Ok(printed)
 }
 
 /// Writes to stdout, treating a closed pipe (`repos status | head`) as done.

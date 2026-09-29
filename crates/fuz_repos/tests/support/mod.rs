@@ -396,7 +396,7 @@ impl FixtureWorkspace {
     /// found by walking up from the root.
     pub fn entries(&self) -> Vec<Entry> {
         self.write_registry();
-        let loc = find_registry(&self.root(), None, None).unwrap();
+        let loc = find_registry(&self.root(), None, None, &self.runner()).unwrap();
         assert_eq!(loc.root, self.root());
         Registry::load(&loc.path).unwrap().entries()
     }
