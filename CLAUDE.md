@@ -532,6 +532,7 @@ repos status --jobs 4 --timings # parallelism (default 16), and per-phase timing
 repos --version              # the crate version and the commit the binary was built from
 repos --registry <file> --root <dir> status # a registry kept outside the workspace
 
+cargo fmt --check
 cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
 UPDATE_GOLDEN=1 cargo test --test golden # regenerate the --json golden fixtures in src/test/fixtures/repos_status/ (never hand-edit)
@@ -553,7 +554,9 @@ network).
 workspaces (`crates/fuz_repos/tests/support`): real repos in a tempdir, each
 cloned from a local bare remote, with git's environment cleared (no global or
 system config, fixed identities and dates) and no network. They need git 2.44
-or newer on `PATH`.
+or newer on `PATH`. CI runs these fmt, clippy, and test commands (with
+`--locked`, and `--no-fail-fast` on tests) in the `rust` job of
+`.github/workflows/check.yml`, beside the gro check.
 
 ### Commands by Side Effects
 
