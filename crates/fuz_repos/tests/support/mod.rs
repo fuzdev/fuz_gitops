@@ -14,9 +14,14 @@
 //! A clone's `origin` holds the URL the registry expects (SSH for owned
 //! entries, HTTPS for third-party ones) — the probe reads it raw from config
 //! — and a repo-local `url.<file URL>.insteadOf` sends fetches to the local
-//! bare remote; `GIT_ALLOW_PROTOCOL=file` makes any other transport an error.
-//! The visibility check reads under `visibility_base`, a `file://` dir, so it
-//! stays local too.
+//! bare remote. A push goes where it would for real, the registry's URL (an
+//! identity `pushInsteadOf` exempts it from the fetch's rewrite): over SSH,
+//! where `ssh` on `PATH` is the fixture's own (`FIXTURE_SSH`), which serves
+//! the owner's repos from the local bare remotes and refuses anything else,
+//! so no push ever leaves the tempdir. `GIT_ALLOW_PROTOCOL=file:ssh` makes
+//! any other transport an error (unless a test widens it,
+//! `allow_transport`). The visibility check reads under
+//! `visibility_base`, a `file://` dir, so it stays local too.
 //!
 //! Setups assert the git state they build (`assert_track` and kin) before the
 //! tool reads it: a setup that silently builds the wrong state tests nothing.
@@ -49,7 +54,7 @@ use fuz_repos::probe::RegistryDirs;
 use fuz_repos::registry::{Entry, ValidRegistry};
 use fuz_repos::report::{EntryStatus, UnregisteredClone};
 use fuz_repos::scan::scan_unregistered;
-use fuz_repos::sessions::{LiveSessions, stat_starttime};
+use fuz_repos::sessions::{Caller, LiveSessions, stat_starttime};
 use fuz_repos::state::{BranchStatus, UnprobedWorktree};
 use fuz_repos::status::{StatusOptions, StatusRun, status};
 use fuz_repos::sync::{SyncOptions, SyncRun, sync};
@@ -64,6 +69,37 @@ pub const CLOCK_START: u64 = 1_700_000_000;
 /// How far the clock moves per git call.
 const TICK: u64 = 60;
 
+/// The fixture's `ssh`, first on `PATH`: serves
+/// `git@github.com:<OWNER>/<name>` from the local bare remote `<name>.git`
+/// under `@REMOTES@` — as a real host would, without the client's
+/// `GIT_CONFIG_PARAMETERS` (the runner's hardening), so the bare remote's
+/// own hooks run — and refuses any other host, command, or path. Each call's
+/// arguments are appended to `@LOG@`.
+const FIXTURE_SSH: &str = r#"#!/bin/sh
+printf '%s\n' "$*" >> '@LOG@'
+host=; cmd=
+for arg; do host=$cmd; cmd=$arg; done
+if [ "$host" != git@github.com ]; then
+	echo "fixture ssh: refused host $host" >&2; exit 255
+fi
+case $cmd in
+"git-receive-pack '"*"'") verb=receive-pack ;;
+"git-upload-pack '"*"'") verb=upload-pack ;;
+*) echo "fixture ssh: refused command $cmd" >&2; exit 255 ;;
+esac
+path=${cmd#* \'}; path=${path%\'}; path=${path#/}; path=${path%.git}
+name=${path#@OWNER@/}
+case $name in
+''|*/*|"$path") echo "fixture ssh: refused path $path" >&2; exit 255 ;;
+esac
+if [ ! -d '@REMOTES@'/"$name.git" ]; then
+	echo "ERROR: Repository not found." >&2; exit 1
+fi
+unset GIT_CONFIG_PARAMETERS GIT_CONFIG_COUNT GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE \
+	GIT_OBJECT_DIRECTORY GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_COMMON_DIR GIT_NAMESPACE
+exec git "$verb" '@REMOTES@'/"$name.git"
+"#;
+
 /// A workspace of fixture repos under one tempdir.
 #[derive(Debug)]
 pub struct FixtureWorkspace {
@@ -75,6 +111,8 @@ pub struct FixtureWorkspace {
     clock: Cell<u64>,
     /// The registry's tables, in declaration order.
     tables: Vec<String>,
+    /// `GIT_ALLOW_PROTOCOL`: `file:ssh`, unless a test widens it.
+    allowed_protocols: String,
 }
 
 impl Default for FixtureWorkspace {
@@ -87,14 +125,20 @@ impl FixtureWorkspace {
     pub fn new() -> Self {
         let tmp = tempfile::tempdir().unwrap();
         let base = tmp.path().canonicalize().unwrap();
-        for dir in ["ws", "remotes", "upstream", "home"] {
+        for dir in ["ws", "remotes", "upstream", "home", "ssh-bin"] {
             std::fs::create_dir(base.join(dir)).unwrap();
         }
+        let ssh = FIXTURE_SSH
+            .replace("@LOG@", base.join("ssh.log").to_str().unwrap())
+            .replace("@REMOTES@", base.join("remotes").to_str().unwrap())
+            .replace("@OWNER@", OWNER);
+        write_executable(&base.join("ssh-bin"), "ssh", &ssh);
         Self {
             _tmp: tmp,
             base,
             clock: Cell::new(CLOCK_START),
             tables: Vec::new(),
+            allowed_protocols: "file:ssh".into(),
         }
     }
 
@@ -153,13 +197,41 @@ impl FixtureWorkspace {
             ("GIT_COMMITTER_EMAIL".into(), "committer@example.com".into()),
             ("GIT_TERMINAL_PROMPT".into(), "0".into()),
             ("LC_ALL".into(), "C".into()),
-            // nothing but the local bare remotes, ever
-            ("GIT_ALLOW_PROTOCOL".into(), "file".into()),
+            // nothing but the local bare remotes, ever: `ssh` is the
+            // fixture's own, which serves them
+            (
+                "GIT_ALLOW_PROTOCOL".into(),
+                (&self.allowed_protocols).into(),
+            ),
         ];
-        if let Some(path) = std::env::var_os("PATH") {
-            env.push(("PATH".into(), path));
-        }
+        // the fixture's `ssh` before any other
+        let path = std::env::join_paths(std::iter::once(self.base.join("ssh-bin")).chain(
+            std::env::split_paths(&std::env::var_os("PATH").unwrap_or_default()),
+        ))
+        .unwrap();
+        env.push(("PATH".into(), path));
         env
+    }
+
+    /// Widens `GIT_ALLOW_PROTOCOL` by `transport` for every later call, the
+    /// library's included: a test of a call that allows less than the
+    /// caller's environment.
+    pub fn allow_transport(&mut self, transport: &str) {
+        self.allowed_protocols = format!("{}:{transport}", self.allowed_protocols);
+    }
+
+    /// A dir on every call's `PATH`, first: where a test puts a program
+    /// git looks up there, like a remote helper (`git-remote-<name>`).
+    pub fn bin(&self) -> PathBuf {
+        self.base.join("ssh-bin")
+    }
+
+    /// Every call the fixture's `ssh` served or refused, its arguments one
+    /// line each.
+    pub fn ssh_log(&self) -> Vec<String> {
+        std::fs::read_to_string(self.base.join("ssh.log"))
+            .map(|s| s.lines().map(str::to_owned).collect())
+            .unwrap_or_default()
     }
 
     /// The library's runner, under the hermetic environment.
@@ -314,11 +386,18 @@ impl FixtureWorkspace {
         self.git(repo, &["remote", "set-url", "origin", url]);
         let key = format!("url.{}.insteadOf", self.file_url(name));
         self.git(repo, &["config", &key, url]);
+        // a push goes to `url` itself, where the fixture's `ssh` serves it
+        let key = format!("url.{url}.pushInsteadOf");
+        self.git(repo, &["config", &key, url]);
         assert_eq!(self.git(repo, &["config", "remote.origin.url"]), url);
-        // what a fetch actually reaches
+        // what a fetch actually reaches, and a push
         assert_eq!(
             self.git(repo, &["ls-remote", "--get-url", "origin"]),
             self.file_url(name)
+        );
+        assert_eq!(
+            self.git(repo, &["remote", "get-url", "--push", "--all", "origin"]),
+            url
         );
     }
 
@@ -462,6 +541,7 @@ impl FixtureWorkspace {
                 jobs: 4,
                 visibility_base: Some(visibility_base),
                 live: &LiveSessions::Known(vec![]),
+                caller: Caller::Person,
             },
         );
         run.entries
@@ -486,13 +566,24 @@ impl FixtureWorkspace {
                 jobs: 4,
                 visibility_base: Some(&self.visibility_base()),
                 live,
+                caller: Caller::Person,
             },
         )
     }
 
     /// `sync` over every entry with `jobs` in flight, `read_live` reading
-    /// the live sessions each time sync asks.
+    /// the live sessions each time sync asks, run by a person.
     pub fn sync_with(&self, jobs: usize, read_live: &(dyn Fn() -> LiveSessions + Sync)) -> SyncRun {
+        self.sync_as(Caller::Person, jobs, read_live)
+    }
+
+    /// `sync_with`, run by `caller`.
+    pub fn sync_as(
+        &self,
+        caller: Caller,
+        jobs: usize,
+        read_live: &(dyn Fn() -> LiveSessions + Sync),
+    ) -> SyncRun {
         let entries = self.entries();
         let root = self.root();
         sync(
@@ -504,6 +595,7 @@ impl FixtureWorkspace {
                 jobs,
                 visibility_base: Some(&self.visibility_base()),
                 read_live: &read_live,
+                caller,
             },
         )
     }

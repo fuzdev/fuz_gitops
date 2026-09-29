@@ -153,6 +153,12 @@ fn ref_gone_hint(fix: &RefGoneFix, dir: &str) -> String {
 const HOST_KEY_HINT: &str = "repos never asks to trust a host — check its key (or \
      certificate), then connect once by hand to record it";
 
+/// Pushes an agent's run held: agents push through the gateway, and until
+/// it exists the user's own sync pushes. Said as what happens, never as a
+/// step for the agent reading it to take.
+const GATEWAY_HINT: &str =
+    "hint: an agent's pushes wait for the gateway; the user's own repos sync pushes them";
+
 /// An HTTPS certificate the visibility check couldn't verify.
 const CERTIFICATE_HINT: &str = "the host's HTTPS certificate didn't verify — check it, and the \
      system's CA certificates, then rerun repos status --fetch";
@@ -277,11 +283,18 @@ fn summary(
     if report.entries.iter().any(EntryStatus::probe_failed_partial) {
         hints.push(format!("{} (each under --verbose)", partial_hint("<dir>")));
     }
+    // a fetch's failure, or under sync a push's
     let fetch_failed = |pick: fn(&RemoteFailure) -> bool| {
         report
             .entries
             .iter()
             .any(|e| e.fetch_error.as_ref().is_some_and(pick))
+            || synced.into_iter().flatten().any(|e| {
+                e.branches.iter().any(|b| match &b.outcome {
+                    BranchOutcome::PushFailed { failure } => pick(failure),
+                    _ => false,
+                })
+            })
     };
     if fetch_failed(|f| matches!(f, RemoteFailure::RefGone { .. })) {
         hints.push(REF_GONE_HINT.to_owned());
@@ -332,17 +345,14 @@ fn summary(
         let hint = format!("hint: {} (each under --verbose)", fixes.join(", or "));
         line("", Tone::Plain, Items::Singles(vec![hint]));
     }
+    let gateway = g.gateway.then(|| GATEWAY_HINT.to_owned());
     if synced.is_some() {
-        let unpushed = !g.held.push.is_empty();
         let uncloned = !g.clone.is_empty();
         line("synced", Tone::Green, Items::Runs(g.act.verbs(), " · "));
         let mut held = g.held.verbs();
         held.extend(prefixed("clone ", g.clone));
         line("held", Tone::Yellow, Items::Runs(held, " · "));
-        let mut hints = Vec::new();
-        if unpushed {
-            hints.push("hint: sync never pushes — each push held is yours to make".to_owned());
-        }
+        let mut hints: Vec<String> = gateway.into_iter().collect();
         if uncloned {
             hints.push("hint: sync never clones — each missing entry is yours to clone".to_owned());
         }
@@ -354,6 +364,9 @@ fn summary(
         sync.extend(prefixed("clone ", g.clone));
         line("sync would", Tone::Green, Items::Runs(sync, " · "));
         line("held", Tone::Yellow, Items::Runs(g.held.verbs(), " · "));
+        if let Some(hint) = gateway {
+            line("", Tone::Plain, Items::Singles(vec![hint]));
+        }
     }
     line("local-only", Tone::Plain, Items::Singles(g.local_only));
     line("uncommitted", Tone::Plain, Items::Singles(g.uncommitted));
@@ -517,6 +530,8 @@ impl Actions {
 struct Groups {
     /// A sync report's: `act` is what sync did.
     synced: bool,
+    /// A push is held for the gateway: an agent runs the tool.
+    gateway: bool,
     visibility: Vec<String>,
     failed: Vec<String>,
     needs_human: Vec<String>,
@@ -611,6 +626,7 @@ impl Groups {
                 } => {}
                 Verdict::Act { action } => self.act.add(*action, &label(b), ""),
                 Verdict::Held { action, by } => {
+                    self.gateway |= *by == HeldBy::Gateway;
                     self.held.add(*action, &label(b), held_note(*by));
                 }
                 Verdict::NeedsHuman { reason } => {
@@ -727,7 +743,11 @@ impl Groups {
             _ => return,
         };
         match outcome {
-            Some(BranchOutcome::FastForwarded { .. } | BranchOutcome::Moved { .. }) => {
+            Some(
+                BranchOutcome::FastForwarded { .. }
+                | BranchOutcome::Moved { .. }
+                | BranchOutcome::Pushed { .. },
+            ) => {
                 self.act.add(action, label, "");
             }
             // a pin is a standing choice: counted, not held
@@ -739,7 +759,14 @@ impl Groups {
                 | BranchOutcome::Untouched,
             ) => {}
             Some(BranchOutcome::Held { action, by }) => {
+                self.gateway |= *by == SyncHold::Gateway;
                 self.held.add(*action, label, hold_note(*by));
+            }
+            Some(BranchOutcome::PushFailed { failure }) => {
+                self.failed.push(format!(
+                    "{label} (push: {})",
+                    remote_failure_label(failure, false)
+                ));
             }
             Some(BranchOutcome::Failed { action, message }) => {
                 self.failed
@@ -786,6 +813,10 @@ fn branch_needs_human_label(reason: BranchNeedsHuman, b: &BranchStatus) -> Strin
         (BranchNeedsHuman::ShallowLocalWork, _) => {
             format!("shallow, tips differ, +{} local", b.unique_commits)
         }
+        (BranchNeedsHuman::UpstreamNotABranch, _) => format!(
+            "ahead, upstream {} not a branch",
+            b.upstream.as_deref().unwrap_or("unknown")
+        ),
     }
 }
 
@@ -858,6 +889,15 @@ fn needs_human_label(reason: &NeedsHuman, e: &EntryStatus, view: View<'_>) -> St
             unprobed_head_label(head),
             sessions_label(busy, view)
         ),
+        NeedsHuman::PushUrlMismatch { push_urls, .. } => match &push_urls[..] {
+            [] => "push goes nowhere".into(),
+            [one] => format!("push goes to {one}"),
+            several => format!(
+                "push goes to {} URLs: {}",
+                several.len(),
+                several.join(", ")
+            ),
+        },
     }
 }
 
@@ -1081,6 +1121,11 @@ pub fn render_entry(e: &EntryStatus, workspace: &Path, view: View<'_>) -> String
                 };
                 format!("{} — {command}", needs_human_label(reason, e, view))
             }
+            NeedsHuman::PushUrlMismatch { expected, .. } => format!(
+                "{} — sync pushes only to {expected}: see git -C {dir} remote get-url --push \
+                 --all origin (remote.origin.pushurl, url.*.pushInsteadOf)",
+                needs_human_label(reason, e, view)
+            ),
             reason => needs_human_label(reason, e, view),
         };
         let _ = writeln!(out, "  {:<10}{detail}", "needs");
@@ -1543,7 +1588,9 @@ fn held_note(by: HeldBy) -> &'static str {
 const fn hold_note(by: SyncHold) -> &'static str {
     match by {
         SyncHold::Pinned => " (pinned)",
-        SyncHold::Entry | SyncHold::NotPushed => "",
+        SyncHold::Entry => "",
+        SyncHold::PushUrl => " (push URL)",
+        SyncHold::Gateway => " (gateway)",
         SyncHold::FetchFailed => " (fetch failed)",
         SyncHold::DirtyCheckout => " (dirty)",
         SyncHold::UnprobedWorktree => " (unprobed worktree)",
@@ -1666,6 +1713,11 @@ fn remote_failure_label(f: &RemoteFailure, detail: bool) -> String {
         RemoteFailure::RepoNotFound { message } => with("repo not found", message),
         RemoteFailure::TimedOut { after_secs } => format!("timed out after {after_secs}s"),
         RemoteFailure::Failed { message } => first_line(message).to_owned(),
+        RemoteFailure::Rejected { reason, message } => match message {
+            Some(message) if detail => format!("rejected ({reason}) — {message}"),
+            Some(message) => format!("rejected: {message}"),
+            None => format!("rejected ({reason})"),
+        },
         RemoteFailure::RefspecOutsideOrigin { refspec } => {
             format!("not run — refspec {refspec} writes outside refs/remotes/origin/")
         }

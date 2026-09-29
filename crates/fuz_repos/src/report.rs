@@ -312,16 +312,15 @@ impl SyncReport {
 
     /// Whether anything failed — a fetch (one git ran and failed, or one
     /// the tool refused to run, its refspec unconfinable: either way the
-    /// entry wasn't synced and a person must act), a probe, or an action —
-    /// so the run exits `1`. A hold, a person's call, or busy detection that
+    /// entry wasn't synced and a person must act), a probe, or an action (a
+    /// push the remote refused or couldn't be reached for included) — so
+    /// the run exits `1`. A hold, a person's call, or busy detection that
     /// couldn't vouch for every session is the report's to say, not a
     /// failure.
     pub fn failed(&self) -> bool {
         self.entries.iter().any(|e| {
             matches!(e.fetch, FetchOutcome::Failed { .. })
-                || e.branches
-                    .iter()
-                    .any(|b| matches!(b.outcome, BranchOutcome::Failed { .. }))
+                || e.branches.iter().any(|b| b.outcome.failed())
         }) || self.status.entries.iter().any(|e| e.probe_error.is_some())
     }
 }
@@ -390,9 +389,25 @@ pub enum BranchOutcome {
     /// A shallow branch with nothing local moved from `from` to the fetched
     /// tip `to`.
     Moved { from: String, to: String },
+    /// Pushed through `origin` to the branch's upstream: the remote's
+    /// branch moved from `from` to `to`, the commit classified — a
+    /// fast-forward, as git reported it. `from` is `None` when the push
+    /// created the branch: it was deleted on the remote after the fetch.
+    Pushed { from: Option<String>, to: String },
+    /// The push reached for the remote and failed there: refused
+    /// (`rejected`, a ruleset or hook's refusal), unreachable, timed out —
+    /// classified as a fetch failure is. The run exits `1`.
+    PushFailed { failure: RemoteFailure },
     /// The action ran and git refused it (`message`, git's words), or it
     /// couldn't run: the run exits `1`.
     Failed { action: SyncAction, message: String },
+}
+
+impl BranchOutcome {
+    /// Whether the action failed, so the run exits `1`.
+    pub const fn failed(&self) -> bool {
+        matches!(self, Self::PushFailed { .. } | Self::Failed { .. })
+    }
 }
 
 /// What held a branch's action: the verdict's hold (`HeldBy`, the same
@@ -403,6 +418,10 @@ pub enum BranchOutcome {
 pub enum SyncHold {
     Pinned,
     Entry,
+    /// A push through `origin` wouldn't reach the registry's repo over SSH —
+    /// as classified, or found when sync re-read the push URLs right before
+    /// pushing.
+    PushUrl,
     FetchFailed,
     /// The checkout the branch is on has uncommitted changes — as
     /// classified, or found when sync came to act.
@@ -416,15 +435,16 @@ pub enum SyncHold {
     /// A live session may work there unseen — as classified, or found so
     /// right before acting (busy detection unavailable, among them).
     BusyUnknown,
+    /// A push by an agent (`HeldBy::Gateway`): a person runs sync to push.
+    Gateway,
     /// Found at the moment of acting: the branch or its checkout isn't as
     /// the probe read it — the checkout's HEAD left the branch, a shallow
     /// branch gained commits on no remote, a branch to move in place is
-    /// checked out now, or a branch to update in place became a symbolic
-    /// ref. Rerun to reclassify.
+    /// checked out now, a branch to update in place became a symbolic ref,
+    /// a branch to push holds another commit or upstream than classified or
+    /// is no longer ahead of it — or the remote moved since the fetch, so
+    /// git rejected the push as no fast-forward. Rerun to reclassify.
     Changed,
-    /// A push: sync never pushes, so a branch ahead stays ahead for a
-    /// person to push.
-    NotPushed,
 }
 
 impl From<HeldBy> for SyncHold {
@@ -432,12 +452,14 @@ impl From<HeldBy> for SyncHold {
         match by {
             HeldBy::Pinned => Self::Pinned,
             HeldBy::Entry => Self::Entry,
+            HeldBy::PushUrl => Self::PushUrl,
             HeldBy::FetchFailed => Self::FetchFailed,
             HeldBy::DirtyCheckout => Self::DirtyCheckout,
             HeldBy::UnprobedWorktree => Self::UnprobedWorktree,
             HeldBy::SeveralCheckouts => Self::SeveralCheckouts,
             HeldBy::Busy => Self::Busy,
             HeldBy::BusyUnknown => Self::BusyUnknown,
+            HeldBy::Gateway => Self::Gateway,
         }
     }
 }

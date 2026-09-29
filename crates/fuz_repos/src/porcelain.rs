@@ -79,15 +79,20 @@ pub fn parse_status(out: &[u8]) -> Result<StatusFacts, String> {
     })
 }
 
-/// The `for-each-ref` format `parse_refs` reads: name, symref target,
-/// resolved upstream, upstream track, worktree path, committer date —
+/// The `for-each-ref` format `parse_refs` reads.
+///
+/// Name, commit, symref target, resolved upstream, the upstream's ref on
+/// its remote, upstream track, worktree path, committer date —
 /// NUL-separated fields, newline-separated records.
-pub const REFS_FORMAT: &str = "%(refname:lstrip=2)%00%(symref)%00%(upstream)%00%(upstream:track)%00%(worktreepath)%00%(committerdate:unix)";
+pub const REFS_FORMAT: &str = "%(refname:lstrip=2)%00%(objectname)%00%(symref)%00%(upstream)%00%(upstream:remoteref)%00%(upstream:track)%00%(worktreepath)%00%(committerdate:unix)";
 
 /// A local branch as `for-each-ref` reports it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RefFacts {
     pub name: String,
+    /// The object it holds: the commit a push names, so a commit landing
+    /// after the probe is never pushed unseen.
+    pub oid: String,
     /// The full ref it points at when the branch is a symbolic ref
     /// (`refs/heads/m` → `refs/heads/main`): an alias, whose upstream,
     /// track, and date git reads through to the target.
@@ -95,6 +100,10 @@ pub struct RefFacts {
     /// The resolved upstream ref (`refs/remotes/origin/main`), `None` when git
     /// resolves none — no upstream configured, or one outside the refspec.
     pub upstream_ref: Option<String>,
+    /// The upstream's ref on its remote (`refs/heads/main`), as git
+    /// resolves it — the first `branch.<b>.merge` — when `upstream_ref` is
+    /// resolved: the ref a push through the remote names.
+    pub merge_ref: Option<String>,
     pub track: Track,
     pub worktree: Option<String>,
     pub committer_time: u64,
@@ -160,17 +169,30 @@ pub fn parse_refs(out: &[u8]) -> Result<Vec<RefFacts>, String> {
         .filter(|l| !l.is_empty())
         .map(|line| {
             let f: Vec<&str> = line.split('\0').collect();
-            let [name, symref, upstream, track, worktree, date] = f[..] else {
+            let [
+                name,
+                oid,
+                symref,
+                upstream,
+                merge_ref,
+                track,
+                worktree,
+                date,
+            ] = f[..]
+            else {
                 return Err(format!(
-                    "for-each-ref: expected 6 fields in `{}`",
+                    "for-each-ref: expected 8 fields in `{}`",
                     line.replace('\0', "|")
                 ));
             };
             let non_empty = |s: &str| (!s.is_empty()).then(|| s.to_owned());
+            let upstream_ref = non_empty(upstream);
             Ok(RefFacts {
                 name: name.to_owned(),
+                oid: oid.to_owned(),
                 symref: non_empty(symref),
-                upstream_ref: non_empty(upstream),
+                merge_ref: upstream_ref.as_ref().and_then(|_| non_empty(merge_ref)),
+                upstream_ref,
                 track: parse_track(track)?,
                 worktree: non_empty(worktree),
                 committer_time: if date.is_empty() {
@@ -733,13 +755,15 @@ mod tests {
     #[test]
     fn refs_records() {
         let out = [
-            "main\0\0refs/remotes/origin/main\0[ahead 1]\0/home/me/dev/gro\0",
+            "main\0c1\0\0refs/remotes/origin/main\0refs/heads/main\0[ahead 1]\0",
+            "/home/me/dev/gro\0",
             "1759000000\n",
-            "fork\0\0\0\0\0",
+            "fork\0c2\0\0\0\0\0\0",
             "1758000000\n",
-            "diff-rework\0\0refs/remotes/origin/diff-rework\0[gone]\0\0",
+            "diff-rework\0c3\0\0refs/remotes/origin/diff-rework\0refs/heads/diff-rework\0",
+            "[gone]\0\0",
             "1757000000\n",
-            "m\0refs/heads/main\0\0\0\0",
+            "m\0c1\0refs/heads/main\0\0\0\0\0",
             "1759000000\n",
         ]
         .concat();
@@ -749,14 +773,17 @@ mod tests {
             refs[0],
             RefFacts {
                 name: "main".into(),
+                oid: "c1".into(),
                 symref: None,
                 upstream_ref: Some("refs/remotes/origin/main".into()),
+                merge_ref: Some("refs/heads/main".into()),
                 track: Track::Ahead(1),
                 worktree: Some("/home/me/dev/gro".into()),
                 committer_time: 1_759_000_000,
             }
         );
         assert_eq!(refs[1].upstream_ref, None);
+        assert_eq!(refs[1].merge_ref, None);
         assert_eq!(refs[1].track, Track::Even);
         assert_eq!(refs[2].track, Track::Gone);
         assert_eq!(refs[3].symref.as_deref(), Some("refs/heads/main"));

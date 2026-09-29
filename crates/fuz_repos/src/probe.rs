@@ -186,8 +186,13 @@ pub struct RepoFacts {
     pub fetched_at: Option<u64>,
     /// This run's fetch failed or was refused, so its remote-tracking refs
     /// weren't refreshed — and after a refusal (a refspec writing into them
-    /// from elsewhere) may not be origin's at all: no branch moves to them.
+    /// from elsewhere) may not be origin's at all: no branch moves to them,
+    /// and none is pushed.
     pub fetch_failed: bool,
+    /// Where a push through `origin` goes (`read_push_urls`), read when sync
+    /// may push a branch — owned, not pinned or archived, with an `origin`
+    /// URL, and a branch ahead; `None` otherwise.
+    pub push_urls: Option<Vec<String>>,
 }
 
 /// A local branch's facts.
@@ -213,6 +218,20 @@ pub const fn could_carry_local_work(r: &RefFacts) -> bool {
             (&r.upstream_ref, r.track),
             (Some(_), Track::Even | Track::Behind(_))
         )
+}
+
+/// Whether a branch may read ahead of its upstream, so sync may push it: a
+/// plain ref with a resolved upstream, ahead of it — or in a shallow clone,
+/// with commits on no remote on top of the fetched tip. Classify decides;
+/// this only spares reading the push URLs of an entry with nothing to push.
+const fn could_push(b: &BranchFacts, shallow: bool) -> bool {
+    b.branch.symref.is_none()
+        && b.branch.upstream_ref.is_some()
+        && if shallow {
+            b.unique_commits > 0 && b.on_fetched_tip
+        } else {
+            matches!(b.branch.track, Track::Ahead(_))
+        }
 }
 
 /// Whether `--fetch` fetches this entry: owned and not pinned — a pin is
@@ -415,6 +434,19 @@ fn probe_present(
         });
     }
 
+    // where a push through origin goes, rewrites applied, when sync may
+    // push a branch of the entry (an archived repo's are a person's):
+    // classify checks it's the registry's repo
+    let push_urls = if fetches(entry)
+        && !entry.archived
+        && config.origin_url().is_some()
+        && branches.iter().any(|b| could_push(b, layout.shallow))
+    {
+        Some(read_push_urls(cx.git, dir, local)?)
+    } else {
+        None
+    };
+
     // 6. the other worktrees
     let worktrees_dir = common_dir.join("worktrees");
     let mut worktrees = match std::fs::metadata(&worktrees_dir) {
@@ -477,7 +509,31 @@ fn probe_present(
         layout,
         fetched_at,
         fetch_failed: early.fetch.as_ref().is_some_and(Result::is_err),
+        push_urls,
     })))
+}
+
+/// Every URL a push through `origin` goes to, in git's order, as git
+/// resolves them: `remote.origin.pushurl` when set, else its `url`, with
+/// `insteadOf` and `pushInsteadOf` rewrites applied — what `git push origin`
+/// would reach.
+///
+/// # Errors
+///
+/// Git's message when it can't say (no `origin`, a config it can't read).
+pub(crate) fn read_push_urls(
+    git: &Git,
+    dir: &Path,
+    opts: CallOptions<'_>,
+) -> Result<Vec<String>, String> {
+    let out = git
+        .output_string(
+            dir,
+            &["remote", "get-url", "--push", "--all", "origin"],
+            opts,
+        )
+        .map_err(|e| format!("push URLs: {e}"))?;
+    Ok(out.lines().map(str::to_owned).collect())
 }
 
 /// `status --fetch`'s fetch (and `sync`'s), before `--depth 1` (a shallow clone) and
@@ -1547,8 +1603,10 @@ mod tests {
     fn r(upstream: Option<&str>, track: Track) -> RefFacts {
         RefFacts {
             name: "b".into(),
+            oid: "c".into(),
             symref: None,
             upstream_ref: upstream.map(str::to_owned),
+            merge_ref: upstream.map(|_| "refs/heads/b".to_owned()),
             track,
             worktree: None,
             committer_time: 0,

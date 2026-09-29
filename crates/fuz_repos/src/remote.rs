@@ -48,6 +48,14 @@ pub enum RemoteFailure {
     TimedOut { after_secs: u64 },
     /// Anything else, with git's first line.
     Failed { message: String },
+    /// A push only: the remote refused the update — `[remote rejected]`
+    /// with git's `reason` (`pre-receive hook declined`, `protected branch
+    /// hook declined`), and the remote's own first `error:` line, when it
+    /// sent one (a GitHub ruleset's `GH006: …`).
+    Rejected {
+        reason: String,
+        message: Option<String>,
+    },
     /// Not a remote's answer: the fetch wasn't run, because origin's
     /// `refspec` writes outside `refs/remotes/origin/` (a local branch, a
     /// tag, another remote's tracking refs), and `status --fetch` writes

@@ -239,7 +239,7 @@ fn head_on(refname: &[u8]) -> UnprobedHead {
 /// ending with `.lock`; no `..` or `@{`; no ASCII control byte, space, `~`,
 /// `^`, `:`, `?`, `*`, `[`, or `\`; not ending with `.`; and not `@` alone.
 /// Bytes past ASCII are accepted, UTF-8 or not.
-fn is_valid_refname(refname: &[u8]) -> bool {
+pub fn is_valid_refname(refname: &[u8]) -> bool {
     if refname == b"@" || refname.ends_with(b".") {
         return false;
     }

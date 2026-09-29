@@ -17,7 +17,7 @@ use crate::remote::{
 };
 use crate::report::EntryStatus;
 use crate::scan::Scan;
-use crate::sessions::LiveSessions;
+use crate::sessions::{Caller, LiveSessions};
 use crate::state::{Checkout, Presence, Prune};
 
 /// How to run `status`.
@@ -37,6 +37,9 @@ pub struct StatusOptions<'a> {
     /// The live sessions the run scopes to checkouts
     /// (`read_live_sessions`), read by the caller: a seam for tests.
     pub live: &'a LiveSessions,
+    /// Who runs the tool (`Caller::from_env`): an agent's pushes are
+    /// previewed held for the gateway, as its sync would hold them.
+    pub caller: Caller,
 }
 
 /// One entry's time, for `--timings`.
@@ -95,7 +98,7 @@ pub fn status(
         opts.jobs,
         opts.visibility_base,
     );
-    let assessed = assess(entries, probes, opts.live);
+    let assessed = assess(entries, probes, opts.live, opts.caller);
     StatusRun {
         entries: assessed.entries,
         sessions: assessed.sessions,
@@ -211,8 +214,13 @@ pub(crate) struct Assessed {
 }
 
 /// Scopes `live` to the probed checkouts, so a session lands in the deepest
-/// of them all, and classifies each entry.
-pub(crate) fn assess(entries: &[Entry], probes: Probes, live: &LiveSessions) -> Assessed {
+/// of them all, and classifies each entry for `caller`.
+pub(crate) fn assess(
+    entries: &[Entry],
+    probes: Probes,
+    live: &LiveSessions,
+    caller: Caller,
+) -> Assessed {
     let checkouts: Vec<EntryCheckouts> = probes
         .runs
         .iter()
@@ -233,7 +241,9 @@ pub(crate) fn assess(entries: &[Entry], probes: Probes, live: &LiveSessions) -> 
             _ => None,
         });
         assessed.fetches.push(run.fetch.clone());
-        assessed.entries.push(entry_status(entry, run, busy));
+        assessed
+            .entries
+            .push(entry_status(entry, run, busy, caller));
         assessed.timings.push(timing);
     }
     for (i, check, time) in probes.checks {
@@ -263,8 +273,13 @@ pub(crate) fn entry_checkouts(probed: &Probed) -> EntryCheckouts {
 }
 
 /// Assembles an entry's report from its probe and the live sessions in its
-/// checkouts.
-pub fn entry_status(entry: &Entry, run: ProbeRun, sessions: &EntrySessions) -> EntryStatus {
+/// checkouts, classified for `caller`.
+pub fn entry_status(
+    entry: &Entry,
+    run: ProbeRun,
+    sessions: &EntrySessions,
+    caller: Caller,
+) -> EntryStatus {
     let mut status = EntryStatus {
         key: entry.key.clone(),
         kind: entry.kind,
@@ -299,7 +314,7 @@ pub fn entry_status(entry: &Entry, run: ProbeRun, sessions: &EntrySessions) -> E
             status.layout = layout;
         }
         Probed::Present(facts) => {
-            let classified = classify(entry, &facts, sessions);
+            let classified = classify(entry, &facts, sessions, caller);
             status.branches = classified.branches;
             status.needs_human = classified.needs_human;
             status.stashes = facts.status.stashes;

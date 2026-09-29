@@ -8,16 +8,17 @@
 use serde::Serialize;
 
 use crate::busy::{Detection, EntrySessions};
-use crate::porcelain::{BranchConfig, ConfigFacts, OriginKeys, OriginUrl, Track};
+use crate::gitdir::is_valid_refname;
+use crate::porcelain::{BranchConfig, ConfigFacts, OriginKeys, OriginUrl, RefFacts, Track};
 use crate::probe::{BranchFacts, RepoFacts};
 use crate::registry::{Entry, RepoUrl};
-use crate::sessions::Session;
+use crate::sessions::{Caller, Session};
 use crate::state::{
     BranchNeedsHuman, BranchStatus, CleanupReason, Head, HeldBy, InProgressOp, Prune, PruneLoss,
     Relation, SyncAction, UnprobedHead, UnprobedWhy, UnprobedWorktree, UnprobedWorktreeStatus,
     Verdict,
 };
-use crate::url::without_userinfo;
+use crate::url::{RemoteParts, remote_parts, without_userinfo};
 
 /// Why `sync` would stop on an entry and leave it to a person. Branch-level
 /// reasons are on each branch's `Verdict`.
@@ -77,6 +78,17 @@ pub enum NeedsHuman {
         head: UnprobedHead,
         busy: Vec<Session>,
     },
+    /// A push through `origin` would go somewhere other than the registry's
+    /// repo over SSH: `push_urls` is where, as git resolves it (`pushurl`
+    /// over `url`, `insteadOf` and `pushInsteadOf` applied; a credential in
+    /// a URL's userinfo redacted as `***`) — another repo, another
+    /// transport, or several URLs, each of which a push would reach.
+    /// `expected` is the registry's SSH URL. Every push is held
+    /// (`PushUrl`); fetches and fast-forwards go on.
+    PushUrlMismatch {
+        push_urls: Vec<String>,
+        expected: String,
+    },
 }
 
 impl NeedsHuman {
@@ -97,7 +109,8 @@ impl NeedsHuman {
             | Self::DefaultBranchNoUpstream { .. }
             | Self::UnexpectedDetached { .. }
             | Self::CheckoutUnresolvable { .. }
-            | Self::UnlistedGitDir { .. } => false,
+            | Self::UnlistedGitDir { .. }
+            | Self::PushUrlMismatch { .. } => false,
         }
     }
 }
@@ -255,14 +268,23 @@ fn prune(u: &UnprobedWorktree, facts: &RepoFacts) -> Option<Prune> {
 }
 
 /// Classifies a present repo's facts against its registry entry, with the
-/// live sessions in its checkouts.
+/// live sessions in its checkouts and who runs the tool (an agent's pushes
+/// are held for the gateway).
 ///
 /// Owned entries get a relation per branch. Third-party references are never
 /// compared against a remote: they keep only branches with commits on no
 /// remote, as `Untracked` — local work that can never be pushed.
-pub fn classify(entry: &Entry, facts: &RepoFacts, sessions: &EntrySessions) -> Classified {
+pub fn classify(
+    entry: &Entry,
+    facts: &RepoFacts,
+    sessions: &EntrySessions,
+    caller: Caller,
+) -> Classified {
     let needs_human = needs_human(entry, facts, sessions);
     let entry_held = needs_human.iter().any(NeedsHuman::holds_entry);
+    let push_url = needs_human
+        .iter()
+        .any(|r| matches!(r, NeedsHuman::PushUrlMismatch { .. }));
     let branches = facts
         .branches
         .iter()
@@ -283,9 +305,11 @@ pub fn classify(entry: &Entry, facts: &RepoFacts, sessions: &EntrySessions) -> C
             let holds = Holds {
                 pinned: entry.pinned,
                 entry: entry_held,
+                push_url,
                 fetch_failed: facts.fetch_failed,
                 on: &on,
                 detection: sessions.detection,
+                gateway: caller == Caller::Agent,
             };
             // an alias never acts: git writes through it to its target,
             // unchecked (`BranchStatus::symref` says why nothing is lost)
@@ -380,36 +404,47 @@ struct CheckoutsOn<'a> {
 }
 
 /// What may hold a branch's action back.
+// Independent facts, each holding some actions, not a hidden state machine.
+#[allow(clippy::struct_excessive_bools)]
 #[derive(Debug, Clone, Copy)]
 struct Holds<'a, 'b> {
     /// The entry is pinned.
     pinned: bool,
     /// An entry-level `needs_human` reason.
     entry: bool,
+    /// A push through origin wouldn't reach the registry's repo.
+    push_url: bool,
     /// The run's fetch of the entry failed or was refused.
     fetch_failed: bool,
     on: &'b CheckoutsOn<'a>,
     detection: Detection,
+    /// An agent runs the tool, so pushes wait for the gateway.
+    gateway: bool,
 }
 
 impl Holds<'_, '_> {
     /// What holds `action`, if anything: a pin (whose pushes never get
-    /// here), an entry-level reason, or a live session holds every action;
-    /// a failed fetch, a dirty checkout, one that couldn't be probed, or a
+    /// here), an entry-level reason, a failed fetch, or a live session holds
+    /// every action; a dirty checkout, one that couldn't be probed, or a
     /// branch on HEAD in several checkouts, all but a push, which only moves
-    /// refs and which the remote checks; and a checkout that may be busy — busy
+    /// refs and which the remote checks; a checkout that may be busy — busy
     /// detection unavailable, which leaves every checkout in doubt, or one
     /// on the branch whose path can't be resolved or that the probe didn't
     /// find, or an unlisted git dir a session works through — holds every
-    /// action. A pin names the hold before anything else, since clearing the
-    /// rest never releases it; otherwise the most specific reason names it.
+    /// action; and a push URL other than the registry's, or an agent running
+    /// the tool, holds a push. A pin names the hold before anything else,
+    /// since clearing the rest never releases it; the gateway after
+    /// everything else, so it says only that the person's sync would push;
+    /// otherwise the most specific reason names it.
     fn of(&self, action: SyncAction) -> Option<HeldBy> {
         let push = matches!(action, SyncAction::Push { .. });
         if self.pinned {
             Some(HeldBy::Pinned)
         } else if self.entry {
             Some(HeldBy::Entry)
-        } else if !push && self.fetch_failed {
+        } else if push && self.push_url {
+            Some(HeldBy::PushUrl)
+        } else if self.fetch_failed {
             Some(HeldBy::FetchFailed)
         } else if self.on.busy {
             Some(HeldBy::Busy)
@@ -421,6 +456,8 @@ impl Holds<'_, '_> {
             Some(HeldBy::SeveralCheckouts)
         } else if self.on.maybe_busy || self.detection == Detection::Unavailable {
             Some(HeldBy::BusyUnknown)
+        } else if push && self.gateway {
+            Some(HeldBy::Gateway)
         } else {
             None
         }
@@ -547,6 +584,10 @@ fn verdict(
         Relation::Ahead { .. } if entry.archived => Break(Verdict::NeedsHuman {
             reason: BranchNeedsHuman::ArchivedAhead,
         }),
+        // the push would name it on origin: only a branch there
+        Relation::Ahead { .. } if push_target(&b.branch).is_none() => Break(Verdict::NeedsHuman {
+            reason: BranchNeedsHuman::UpstreamNotABranch,
+        }),
         Relation::Ahead { commits } => Continue(SyncAction::Push { commits }),
         Relation::Behind { commits } => Continue(SyncAction::FastForward { commits }),
         // nothing local at stake: a stale pointer at an old root
@@ -628,6 +669,7 @@ fn needs_human(entry: &Entry, facts: &RepoFacts, sessions: &EntrySessions) -> Ve
         None if facts.config.origin_keys != OriginKeys::None => Some(OriginRemote::NoUrl),
         None => Some(OriginRemote::Missing),
     };
+    let drift = origin.is_some();
     if let Some(origin) = origin {
         reasons.push(NeedsHuman::OriginMismatch {
             origin,
@@ -701,40 +743,81 @@ fn needs_human(entry: &Entry, facts: &RepoFacts, sessions: &EntrySessions) -> Ve
             busy: u.busy.clone(),
         });
     }
+    // said with a matching origin only: origin drift already holds the
+    // entry, and its fix may fix this too
+    if let Some(urls) = &facts.push_urls
+        && !drift
+        && !push_urls_match(urls, &entry.url)
+    {
+        reasons.push(NeedsHuman::PushUrlMismatch {
+            push_urls: urls
+                .iter()
+                .map(|u| without_userinfo(u).into_owned())
+                .collect(),
+            expected: entry.remote_url(),
+        });
+    }
     reasons
 }
 
-/// Whether a remote URL names the registry's repo: SSH and HTTPS forms
-/// compare equal, `.git` and trailing slashes drop, userinfo drops, and case
-/// folds (GitHub paths are case-insensitive).
-pub fn origin_matches(origin: &str, url: &RepoUrl) -> bool {
-    normalize_remote(origin) == normalize_remote(&url.to_string())
+/// The ref a push of `b` through origin names: its upstream's ref on the
+/// remote, when that's a branch.
+///
+/// `refs/heads/<name>`, never `refs/heads/HEAD` (which would create a
+/// branch named `HEAD` there), and a ref name git accepts.
+pub fn push_target(b: &RefFacts) -> Option<&str> {
+    let merge = b.merge_ref.as_deref()?;
+    let name = merge.strip_prefix("refs/heads/")?;
+    (!name.is_empty() && name != "HEAD" && is_valid_refname(merge.as_bytes())).then_some(merge)
 }
 
-/// The account a remote URL names, in `origin_matches`'s normalized
-/// (lowercased) form: the second segment of `host/account/name…`; `None`
-/// for a URL with no host and account, such as a local path.
+/// Whether a push through origin reaches the registry's repo (`url`), over
+/// SSH.
+///
+/// Exactly one push URL, SSH (scp-like `git@host:path` or `ssh://`), naming
+/// the registry's repo as `origin_matches` reads it. Several URLs would
+/// each take the push.
+pub fn push_urls_match(urls: &[String], url: &RepoUrl) -> bool {
+    match urls {
+        [one] => remote_parts(one).is_some_and(|p| p.ssh && names_repo(&p, url)),
+        _ => false,
+    }
+}
+
+/// Whether a remote URL names the registry's repo, read structurally
+/// (`remote_parts`), never by its text.
+///
+/// The host git connects to is the registry's (ASCII case folded), with no
+/// port — the registry's URLs name none — and the path on it is
+/// `<account>/<name>` (a trailing `.git` or `/` dropped, case folded:
+/// GitHub paths are case-insensitive). SSH, `git://`, and HTTPS forms
+/// compare equal; a `user@` drops. Anything else — an `@` outside the
+/// authority, an escape, an IP literal, a port — is a mismatch.
+pub fn origin_matches(origin: &str, url: &RepoUrl) -> bool {
+    remote_parts(origin).is_some_and(|p| names_repo(&p, url))
+}
+
+fn names_repo(p: &RemoteParts<'_>, url: &RepoUrl) -> bool {
+    let (account, name) = p.path.split_once('/').unwrap_or((p.path, ""));
+    p.port.is_none()
+        && p.host.eq_ignore_ascii_case(&url.host)
+        && account.eq_ignore_ascii_case(&url.account)
+        && name.eq_ignore_ascii_case(&url.name)
+}
+
+/// The account a remote URL names, lowercased.
+///
+/// The first segment of the path on its host (`remote_parts`, any port
+/// aside), when a name follows; `None` for a URL with no host and account,
+/// such as a local path.
 pub fn remote_account(url: &str) -> Option<String> {
-    let normalized = normalize_remote(url);
-    let mut parts = normalized.split('/');
-    let (Some(host), Some(account), Some(name)) = (parts.next(), parts.next(), parts.next()) else {
+    let p = remote_parts(url)?;
+    let mut parts = p.path.split('/');
+    let (Some(account), Some(name)) = (parts.next(), parts.next()) else {
         return None;
     };
     let named = |s: &str| !s.is_empty() && s != "." && s != "..";
-    (named(host) && named(account) && named(name)).then(|| account.to_owned())
-}
-
-fn normalize_remote(url: &str) -> String {
-    let url = url.trim();
-    let scheme_less = ["ssh://", "git://", "https://", "http://"]
-        .iter()
-        .find_map(|scheme| url.strip_prefix(scheme));
-    // otherwise scp-like `git@host:account/name`
-    let rest = scheme_less.map_or_else(|| url.replacen(':', "/", 1), str::to_owned);
-    let rest = rest.split_once('@').map_or(rest.as_str(), |(_, r)| r);
-    let rest = rest.trim_end_matches('/');
-    let rest = rest.strip_suffix(".git").unwrap_or(rest);
-    rest.to_ascii_lowercase()
+    (named(account) && named(name)).then(|| account.to_ascii_lowercase())
 }
 
 #[cfg(test)]
@@ -870,10 +953,12 @@ mod tests {
                 .map(|b| BranchFacts {
                     branch: RefFacts {
                         name: b.name.into(),
+                        oid: format!("c-{}", b.name),
                         symref: None,
                         upstream_ref: b.resolved.then(|| {
                             format!("refs/remotes/{}/{}", b.remote.unwrap_or("origin"), b.name)
                         }),
+                        merge_ref: b.resolved.then(|| format!("refs/heads/{}", b.name)),
                         track: b.track,
                         worktree: None,
                         committer_time: NOW - 3600,
@@ -889,6 +974,7 @@ mod tests {
             },
             fetched_at: None,
             fetch_failed: false,
+            push_urls: Some(vec!["git@github.com:me/app".into()]),
         }
     }
 
@@ -897,7 +983,7 @@ mod tests {
     }
 
     fn relations(entry: &Entry, f: &RepoFacts) -> Vec<(String, Relation)> {
-        classify(entry, f, &EntrySessions::idle())
+        classify(entry, f, &EntrySessions::idle(), Caller::Person)
             .branches
             .into_iter()
             .map(|b| (b.name, b.relation))
@@ -954,7 +1040,7 @@ mod tests {
     }
 
     fn verdicts(entry: &Entry, f: &RepoFacts) -> Vec<(String, Verdict)> {
-        classify(entry, f, &EntrySessions::idle())
+        classify(entry, f, &EntrySessions::idle(), Caller::Person)
             .branches
             .into_iter()
             .map(|b| (b.name, b.verdict))
@@ -1197,7 +1283,7 @@ mod tests {
     }
 
     fn verdicts_with(entry: &Entry, f: &RepoFacts, sessions: &EntrySessions) -> Vec<Verdict> {
-        classify(entry, f, sessions)
+        classify(entry, f, sessions, Caller::Person)
             .branches
             .into_iter()
             .map(|b| b.verdict)
@@ -1274,7 +1360,7 @@ mod tests {
             head: UnprobedHead::Unknown,
             ..unprobed("/ws/app-lost", None, UnprobedWhy::Missing)
         }];
-        let c = classify(&e, &f, &busy_at(&["/ws/app-lost"]));
+        let c = classify(&e, &f, &busy_at(&["/ws/app-lost"]), Caller::Person);
         assert_eq!(
             c.branches
                 .iter()
@@ -1409,7 +1495,7 @@ mod tests {
             "/ws/sealed/app-old",
             "/ws/sealed/app-linked",
         ]);
-        let c = classify(&e, &f, &all);
+        let c = classify(&e, &f, &all, Caller::Person);
         let reason = |checkout: &str| NeedsHuman::CheckoutUnresolvable {
             checkout: checkout.into(),
             path: checkout.into(),
@@ -1552,7 +1638,7 @@ mod tests {
             unprobed("/ws/app-old", Some("old"), UnprobedWhy::Prunable),
         ];
         let e = owned(Mode::Follow("main"));
-        let classified = classify(&e, &f, &busy_at(&["/ws/app-busy"]));
+        let classified = classify(&e, &f, &busy_at(&["/ws/app-busy"]), Caller::Person);
         let verdicts: Vec<(String, Verdict)> = classified
             .branches
             .into_iter()
@@ -1734,7 +1820,12 @@ mod tests {
             ],
         );
         f.unreadable = vec!["/ws/app/.git/worktrees".into()];
-        let c = classify(&owned(Mode::Follow("main")), &f, &EntrySessions::idle());
+        let c = classify(
+            &owned(Mode::Follow("main")),
+            &f,
+            &EntrySessions::idle(),
+            Caller::Person,
+        );
         assert_eq!(
             c.needs_human,
             [NeedsHuman::WorktreeUnreadable {
@@ -1973,7 +2064,7 @@ mod tests {
     }
 
     #[test]
-    fn a_failed_fetch_holds_all_but_pushes() {
+    fn a_failed_fetch_holds_every_action() {
         let ff = |commits| SyncAction::FastForward { commits };
         let held = |action, by| Verdict::Held { action, by };
         let mut f = facts(
@@ -1990,7 +2081,10 @@ mod tests {
             verdicts(&e, &f),
             named(&[
                 ("main", held(ff(2), HeldBy::FetchFailed)),
-                ("ahead", act(SyncAction::Push { commits: 1 })),
+                (
+                    "ahead",
+                    held(SyncAction::Push { commits: 1 }, HeldBy::FetchFailed)
+                ),
                 ("idle", held(ff(1), HeldBy::FetchFailed)),
             ])
         );
@@ -2106,6 +2200,197 @@ mod tests {
                 // nothing unique and checked out reads as a fresh branch
                 ("merged-in-wt", Verdict::Quiet),
             ])
+        );
+    }
+
+    #[test]
+    fn a_push_url_other_than_the_registrys_holds_pushes_only() {
+        let push = SyncAction::Push { commits: 1 };
+        let mut f = facts(
+            on("main"),
+            &[
+                b("main", O, true, Track::Ahead(1)),
+                b("feat", O, true, Track::Behind(1)),
+            ],
+        );
+        let e = owned(Mode::Follow("main"));
+        let reasons = |f: &RepoFacts| {
+            classify(&e, f, &EntrySessions::idle(), Caller::Person)
+                .needs_human
+                .into_iter()
+                .filter(|r| matches!(r, NeedsHuman::PushUrlMismatch { .. }))
+                .collect::<Vec<_>>()
+        };
+        // the registry's repo over SSH, however spelled
+        for url in [
+            "git@github.com:me/app",
+            "ssh://git@github.com/me/app.git",
+            "git+ssh://git@github.com/Me/App/",
+        ] {
+            f.push_urls = Some(vec![url.into()]);
+            assert_eq!(reasons(&f), [], "{url}");
+            assert_eq!(verdicts(&e, &f)[0].1, act(push), "{url}");
+        }
+        // another repo, another transport, several URLs, or none
+        for urls in [
+            &["git@github.com:me/other"][..],
+            &["git@evil.example.com:me/app"],
+            &["https://github.com/me/app"],
+            &["https://tok@github.com/me/app"],
+            &["file:///srv/me/app.git"],
+            &["/srv/me/app"],
+            &["git@github.com:me/app", "git@github.com:me/app"],
+            &[],
+        ] {
+            f.push_urls = Some(urls.iter().map(|u| (*u).to_owned()).collect());
+            assert_eq!(
+                reasons(&f),
+                [NeedsHuman::PushUrlMismatch {
+                    push_urls: urls.iter().map(|u| u.replace("tok@", "***@")).collect(),
+                    expected: "git@github.com:me/app".into(),
+                }],
+                "{urls:?}"
+            );
+            assert_eq!(
+                verdicts(&e, &f),
+                named(&[
+                    (
+                        "main",
+                        Verdict::Held {
+                            action: push,
+                            by: HeldBy::PushUrl
+                        }
+                    ),
+                    ("feat", act(SyncAction::FastForward { commits: 1 })),
+                ]),
+                "{urls:?}"
+            );
+        }
+        // a lookalike, however much of the registry's URL it spells
+        for lookalike in LOOKALIKE_URLS {
+            assert!(
+                !push_urls_match(&[lookalike.to_owned()], &e.url),
+                "{lookalike}"
+            );
+            f.push_urls = Some(vec![lookalike.to_owned()]);
+            assert_eq!(
+                verdicts(&e, &f)[0].1,
+                Verdict::Held {
+                    action: push,
+                    by: HeldBy::PushUrl
+                },
+                "{lookalike}"
+            );
+        }
+        // origin drift says it first, and holds the entry
+        f.config.origin_urls = vec![OriginUrl::repo("git@github.com:me/other")];
+        assert_eq!(reasons(&f), []);
+        // not read: nothing to say
+        f.config.origin_urls = vec![OriginUrl::repo("git@github.com:me/app")];
+        f.push_urls = None;
+        assert_eq!(reasons(&f), []);
+    }
+
+    #[test]
+    fn an_agents_pushes_wait_for_the_gateway_after_every_other_hold() {
+        let push = SyncAction::Push { commits: 1 };
+        let held = |by| Verdict::Held { action: push, by };
+        let mut f = facts(
+            on("main"),
+            &[
+                b("main", O, true, Track::Ahead(1)),
+                b("feat", O, true, Track::Behind(1)),
+            ],
+        );
+        let e = owned(Mode::Follow("main"));
+        let agent = |f: &RepoFacts, sessions: &EntrySessions| -> Vec<Verdict> {
+            classify(&e, f, sessions, Caller::Agent)
+                .branches
+                .into_iter()
+                .map(|b| b.verdict)
+                .collect()
+        };
+        // fast-forwards go on
+        assert_eq!(
+            agent(&f, &EntrySessions::idle()),
+            [
+                held(HeldBy::Gateway),
+                act(SyncAction::FastForward { commits: 1 }),
+            ]
+        );
+        // a person's run pushes
+        assert_eq!(verdicts(&e, &f)[0].1, act(push));
+        // a dirty checkout holds no push: still the gateway
+        f.status.uncommitted.unstaged = 1;
+        assert_eq!(agent(&f, &EntrySessions::idle())[0], held(HeldBy::Gateway));
+        // anything else that holds it names it
+        assert_eq!(agent(&f, &busy_at(&["/ws/app"]))[0], held(HeldBy::Busy));
+        f.push_urls = Some(vec!["git@github.com:me/other".into()]);
+        assert_eq!(agent(&f, &EntrySessions::idle())[0], held(HeldBy::PushUrl));
+        f.fetch_failed = true;
+        assert_eq!(agent(&f, &EntrySessions::idle())[0], held(HeldBy::PushUrl));
+        f.push_urls = Some(vec!["git@github.com:me/app".into()]);
+        assert_eq!(
+            agent(&f, &EntrySessions::idle())[0],
+            held(HeldBy::FetchFailed)
+        );
+    }
+
+    #[test]
+    fn a_push_names_only_a_branch_on_origin() {
+        let mut f = facts(
+            on("main"),
+            &[
+                b("main", O, true, Track::Ahead(1)),
+                b("tip", O, true, Track::Ahead(2)),
+                b("tag", O, true, Track::Ahead(1)),
+                b("lag", O, true, Track::Behind(1)),
+            ],
+        );
+        // `origin/HEAD` as an upstream, and a ref outside `refs/heads/`
+        f.branches[1].branch.merge_ref = Some("refs/heads/HEAD".into());
+        f.branches[2].branch.merge_ref = Some("refs/tags/v1".into());
+        // behind: a fast-forward names no ref on origin
+        f.branches[3].branch.merge_ref = Some("refs/heads/HEAD".into());
+        assert_eq!(push_target(&f.branches[0].branch), Some("refs/heads/main"));
+        assert_eq!(push_target(&f.branches[1].branch), None);
+        assert_eq!(push_target(&f.branches[2].branch), None);
+        // a ref name git itself refuses: never named on the remote
+        let mut odd = f.branches[0].branch.clone();
+        for merge in [
+            "refs/heads/a..b",
+            "refs/heads/x.lock",
+            "refs/heads/a b",
+            "refs/heads/a:b",
+            "refs/heads/.hidden",
+            "refs/heads/a//b",
+            "refs/heads/a/",
+            "refs/heads/a@{1}",
+            "refs/heads/end.",
+        ] {
+            odd.merge_ref = Some(merge.into());
+            assert_eq!(push_target(&odd), None, "{merge}");
+        }
+        odd.merge_ref = Some("refs/heads/feat/x-1.2".into());
+        assert_eq!(push_target(&odd), Some("refs/heads/feat/x-1.2"));
+        let e = owned(Mode::Follow("main"));
+        assert_eq!(
+            verdicts(&e, &f),
+            named(&[
+                ("main", act(SyncAction::Push { commits: 1 })),
+                ("tip", needs(BranchNeedsHuman::UpstreamNotABranch)),
+                ("tag", needs(BranchNeedsHuman::UpstreamNotABranch)),
+                ("lag", act(SyncAction::FastForward { commits: 1 })),
+            ])
+        );
+        // archived says it first
+        let archived = Entry {
+            archived: true,
+            ..e
+        };
+        assert_eq!(
+            verdicts(&archived, &f)[1].1,
+            needs(BranchNeedsHuman::ArchivedAhead)
         );
     }
 
@@ -2256,7 +2541,12 @@ mod tests {
                 b("master", O, true, Track::Gone),
             ],
         );
-        let c = classify(&third_party(Mode::Pinned), &f, &EntrySessions::idle());
+        let c = classify(
+            &third_party(Mode::Pinned),
+            &f,
+            &EntrySessions::idle(),
+            Caller::Person,
+        );
         assert_eq!(c.branches.len(), 1);
         assert_eq!(c.branches[0].name, "tsv-format-audit");
         assert_eq!(c.branches[0].relation, Relation::Untracked);
@@ -2275,14 +2565,14 @@ mod tests {
         let e = owned(Mode::Follow("main"));
         let missing = facts(on("dev"), &[b("dev", O, true, Track::Even)]);
         assert_eq!(
-            classify(&e, &missing, &EntrySessions::idle()).needs_human,
+            classify(&e, &missing, &EntrySessions::idle(), Caller::Person).needs_human,
             [NeedsHuman::DefaultBranchMissing {
                 branch: "main".into()
             }]
         );
         let no_upstream = facts(on("main"), &[b("main", None, false, Track::Even)]);
         assert_eq!(
-            classify(&e, &no_upstream, &EntrySessions::idle()).needs_human,
+            classify(&e, &no_upstream, &EntrySessions::idle(), Caller::Person).needs_human,
             [NeedsHuman::DefaultBranchNoUpstream {
                 branch: "main".into()
             }]
@@ -2292,7 +2582,7 @@ mod tests {
             &[b("main", Some("upstream"), true, Track::Even)],
         );
         assert_eq!(
-            classify(&e, &other_remote, &EntrySessions::idle()).needs_human,
+            classify(&e, &other_remote, &EntrySessions::idle(), Caller::Person).needs_human,
             [NeedsHuman::DefaultBranchNoUpstream {
                 branch: "main".into()
             }]
@@ -2300,7 +2590,7 @@ mod tests {
         // unmapped is a branch-level reason, not a missing upstream
         let unmapped = facts(on("main"), &[b("main", O, false, Track::Even)]);
         assert!(
-            classify(&e, &unmapped, &EntrySessions::idle())
+            classify(&e, &unmapped, &EntrySessions::idle(), Caller::Person)
                 .needs_human
                 .is_empty()
         );
@@ -2311,7 +2601,7 @@ mod tests {
             &[b("main", O, true, Track::Even)],
         );
         assert_eq!(
-            classify(&e, &detached, &EntrySessions::idle()).needs_human,
+            classify(&e, &detached, &EntrySessions::idle(), Caller::Person).needs_human,
             [NeedsHuman::UnexpectedDetached {
                 checkout: "/ws/app".into()
             }]
@@ -2325,7 +2615,7 @@ mod tests {
             ],
         );
         assert!(
-            classify(&e, &feature, &EntrySessions::idle())
+            classify(&e, &feature, &EntrySessions::idle(), Caller::Person)
                 .needs_human
                 .is_empty()
         );
@@ -2346,18 +2636,18 @@ mod tests {
         // to say
         for f in [&detached, &on_main] {
             assert!(
-                classify(&pinned, f, &EntrySessions::idle())
+                classify(&pinned, f, &EntrySessions::idle(), Caller::Person)
                     .needs_human
                     .is_empty()
             );
         }
         assert!(
-            classify(&head, &detached, &EntrySessions::idle())
+            classify(&head, &detached, &EntrySessions::idle(), Caller::Person)
                 .needs_human
                 .is_empty()
         );
         assert!(
-            classify(&head, &on_main, &EntrySessions::idle())
+            classify(&head, &on_main, &EntrySessions::idle(), Caller::Person)
                 .needs_human
                 .is_empty()
         );
@@ -2366,7 +2656,9 @@ mod tests {
     #[test]
     fn a_pin_on_its_branch_expects_nothing_of_it() {
         let pinned = owned(Mode::PinnedOn("fork"));
-        let reasons = |f: &RepoFacts| classify(&pinned, f, &EntrySessions::idle()).needs_human;
+        let reasons = |f: &RepoFacts| {
+            classify(&pinned, f, &EntrySessions::idle(), Caller::Person).needs_human
+        };
         // on its branch, behind a stale remote-tracking ref: held, not
         // reported
         let on_fork = facts(on("fork"), &[b("fork", O, true, Track::Behind(3))]);
@@ -2396,8 +2688,9 @@ mod tests {
         }
         // the same branch, followed rather than pinned, has all three
         let followed = owned(Mode::Follow("fork"));
-        let followed_reasons =
-            |f: &RepoFacts| classify(&followed, f, &EntrySessions::idle()).needs_human;
+        let followed_reasons = |f: &RepoFacts| {
+            classify(&followed, f, &EntrySessions::idle(), Caller::Person).needs_human
+        };
         assert!(matches!(
             followed_reasons(&detached)[..],
             [NeedsHuman::UnexpectedDetached { .. }]
@@ -2448,7 +2741,12 @@ mod tests {
                     b("ahead", O, true, Track::Ahead(1)).unique(1),
                 ],
             );
-            let c = classify(&owned(Mode::PinnedOn("fork")), &f, &EntrySessions::idle());
+            let c = classify(
+                &owned(Mode::PinnedOn("fork")),
+                &f,
+                &EntrySessions::idle(),
+                Caller::Person,
+            );
             assert!(c.needs_human.is_empty());
             assert_eq!(
                 c.branches
@@ -2620,7 +2918,7 @@ mod tests {
         );
         // an entry-level reason stays on the entry, the pin still named
         f.in_progress = Some(InProgressOp::Merge);
-        let c = classify(&pinned, &f, &busy);
+        let c = classify(&pinned, &f, &busy, Caller::Person);
         assert!(matches!(
             c.needs_human[..],
             [NeedsHuman::OperationInProgress { .. }]
@@ -2641,7 +2939,13 @@ mod tests {
         f.config.origin_urls.clear();
         f.config.origin_keys = OriginKeys::None;
         assert_eq!(
-            classify(&owned(Mode::Follow("main")), &f, &EntrySessions::idle()).needs_human,
+            classify(
+                &owned(Mode::Follow("main")),
+                &f,
+                &EntrySessions::idle(),
+                Caller::Person
+            )
+            .needs_human,
             [
                 NeedsHuman::OperationInProgress {
                     checkout: "/ws/app".into(),
@@ -2657,23 +2961,33 @@ mod tests {
         // an `origin` with keys but no URL, the repo's own
         f.config.origin_keys = OriginKeys::InRepo;
         assert!(
-            classify(&owned(Mode::Follow("main")), &f, &EntrySessions::idle())
-                .needs_human
-                .contains(&NeedsHuman::OriginMismatch {
-                    origin: OriginRemote::NoUrl,
-                    expected: "git@github.com:me/app".into(),
-                    fix: OriginFix::SetUrl,
-                })
+            classify(
+                &owned(Mode::Follow("main")),
+                &f,
+                &EntrySessions::idle(),
+                Caller::Person
+            )
+            .needs_human
+            .contains(&NeedsHuman::OriginMismatch {
+                origin: OriginRemote::NoUrl,
+                expected: "git@github.com:me/app".into(),
+                fix: OriginFix::SetUrl,
+            })
         );
         // `origin` only in global config: no `git remote` command can edit it
         // there, and `remote add` would add a URL after it
         f.config.origin_keys = OriginKeys::Elsewhere;
         f.config.origin_urls = vec![OriginUrl::elsewhere("git@github.com:old/app")];
         let reason = |f: &RepoFacts| {
-            classify(&owned(Mode::Follow("main")), f, &EntrySessions::idle())
-                .needs_human
-                .into_iter()
-                .find(|r| matches!(r, NeedsHuman::OriginMismatch { .. }))
+            classify(
+                &owned(Mode::Follow("main")),
+                f,
+                &EntrySessions::idle(),
+                Caller::Person,
+            )
+            .needs_human
+            .into_iter()
+            .find(|r| matches!(r, NeedsHuman::OriginMismatch { .. }))
         };
         assert_eq!(
             reason(&f),
@@ -2703,11 +3017,24 @@ mod tests {
     fn origin_urls_as_git_reads_them() {
         let mut f = facts(on("main"), &[b("main", O, true, Track::Even)]);
         let reason = |f: &RepoFacts| {
-            classify(&owned(Mode::Follow("main")), f, &EntrySessions::idle())
-                .needs_human
-                .into_iter()
-                .find(|r| matches!(r, NeedsHuman::OriginMismatch { .. }))
+            classify(
+                &owned(Mode::Follow("main")),
+                f,
+                &EntrySessions::idle(),
+                Caller::Person,
+            )
+            .needs_human
+            .into_iter()
+            .find(|r| matches!(r, NeedsHuman::OriginMismatch { .. }))
         };
+        // read where git connects, never by the text: a lookalike is drift
+        for lookalike in LOOKALIKE_URLS {
+            f.config.origin_urls = vec![OriginUrl::repo(lookalike)];
+            assert!(reason(&f).is_some(), "{lookalike}");
+        }
+        // an uppercase host is still the registry's
+        f.config.origin_urls = vec![OriginUrl::repo("git@GITHUB.com:me/app")];
+        assert_eq!(reason(&f), None);
         // the first URL wins: a mismatch first, the registry's second, is
         // still a mismatch — and the other way round isn't
         f.config.origin_urls = vec![
@@ -2803,7 +3130,13 @@ mod tests {
         for op in [InProgressOp::Rebase, InProgressOp::Bisect] {
             f.in_progress = Some(op);
             assert_eq!(
-                classify(&owned(Mode::Follow("main")), &f, &EntrySessions::idle()).needs_human,
+                classify(
+                    &owned(Mode::Follow("main")),
+                    &f,
+                    &EntrySessions::idle(),
+                    Caller::Person
+                )
+                .needs_human,
                 [NeedsHuman::OperationInProgress {
                     checkout: "/ws/app".into(),
                     op
@@ -2820,7 +3153,13 @@ mod tests {
         ] {
             f.in_progress = Some(op);
             assert_eq!(
-                classify(&owned(Mode::Follow("main")), &f, &EntrySessions::idle()).needs_human,
+                classify(
+                    &owned(Mode::Follow("main")),
+                    &f,
+                    &EntrySessions::idle(),
+                    Caller::Person
+                )
+                .needs_human,
                 [
                     NeedsHuman::OperationInProgress {
                         checkout: "/ws/app".into(),
@@ -2841,7 +3180,13 @@ mod tests {
         wt.submodules = Some(false);
         f.worktrees = vec![wt];
         let verdict = |f: &RepoFacts| {
-            classify(&owned(Mode::Follow("main")), f, &EntrySessions::idle()).branches[0]
+            classify(
+                &owned(Mode::Follow("main")),
+                f,
+                &EntrySessions::idle(),
+                Caller::Person,
+            )
+            .branches[0]
                 .verdict
                 .clone()
         };
@@ -2880,7 +3225,12 @@ mod tests {
         reverting.in_progress = Some(InProgressOp::Revert);
         f.unprobed = vec![reverting];
         f.in_progress = Some(InProgressOp::CherryPick);
-        let c = classify(&owned(Mode::Follow("main")), &f, &EntrySessions::idle());
+        let c = classify(
+            &owned(Mode::Follow("main")),
+            &f,
+            &EntrySessions::idle(),
+            Caller::Person,
+        );
         assert_eq!(
             c.needs_human,
             [
@@ -2931,7 +3281,7 @@ mod tests {
             },
         )];
         assert!(
-            classify(&e, &f, &EntrySessions::idle())
+            classify(&e, &f, &EntrySessions::idle(), Caller::Person)
                 .needs_human
                 .is_empty()
         );
@@ -2942,7 +3292,7 @@ mod tests {
         };
         f.worktrees[0].in_progress = Some(InProgressOp::Rebase);
         assert_eq!(
-            classify(&e, &f, &EntrySessions::idle()).needs_human,
+            classify(&e, &f, &EntrySessions::idle(), Caller::Person).needs_human,
             [
                 NeedsHuman::OperationInProgress {
                     checkout: "/ws/app-detached".into(),
@@ -2965,6 +3315,9 @@ mod tests {
             "https://github.com/me/app/",
             "https://token@github.com/me/app",
             "git://github.com/me/app.git",
+            "git+ssh://github.com/me/app",
+            "ssh+git://git@github.com/me/app",
+            "git@GitHub.COM:ME/APP.git",
         ] {
             assert!(origin_matches(same, &u), "{same}");
         }
@@ -2973,10 +3326,49 @@ mod tests {
             "git@gitlab.com:me/app",
             "https://github.com/them/app",
             "git://github.com/them/app",
+            "git@github.com:me/app/extra",
+            "git@github.com:me",
+            "git@github.com:/me/app",
+            " git@github.com:me/app",
+            "git@github.com:me/app\n",
         ] {
             assert!(!origin_matches(different, &u), "{different}");
         }
     }
+
+    /// URLs that name the registry's repo somewhere in their text while git
+    /// connects elsewhere, or that name it in a way the registry's never
+    /// does: none matches, as origin or push URL.
+    const LOOKALIKE_URLS: [&str; 20] = [
+        // an `@` past the authority: git connects to `evil.com`
+        "ssh://evil.com/x@github.com/me/app",
+        "evil.com:x@github.com/me/app",
+        "ssh+git://evil.com/@github.com/me/app",
+        "git@evil.com:git@github.com:me/app",
+        "https://evil.com/x@github.com/me/app",
+        // escapes git decodes before splitting: `evil.com` again
+        "ssh://evil.com%2F@github.com/me/app",
+        "ssh://git%40evil.com@github.com/me/app",
+        "git@github.com:me%2Fapp",
+        // an `@` left in the host
+        "ssh://a@b@github.com/me/app",
+        // IP literals and brackets
+        "git@[::1]:me/app",
+        "ssh://git@[::1]/me/app",
+        "[git@github.com]:me/app",
+        // a bracketed run in the user: git connects to `evil.com`
+        "ssh://[evil.com]x@github.com/me/app",
+        "ssh://[evil.com]x@github.com:2222/me/app",
+        "[evil.com]x@github.com:me/app",
+        // `@[` in the path: git's scan runs into it, connecting to `x`
+        "git@github.com:me/app@[x]:y",
+        // a port: the registry's URLs name none
+        "ssh://git@github.com:22/me/app",
+        "https://github.com:443/me/app",
+        // a user that reads as an option, a scheme git spells otherwise
+        "-oProxyCommand=x@github.com:me/app",
+        "SSH://git@github.com/me/app",
+    ];
 
     #[test]
     fn remote_accounts() {
@@ -2994,6 +3386,9 @@ mod tests {
             ("./me/app", None),
             ("file:///srv/git/app.git", None),
             ("https://github.com/me", None),
+            // brackets: git connects to another host
+            ("ssh://[evil.com]x@github.com:2222/me/app", None),
+            ("git@github.com:me/app@[x]:y", None),
             ("", None),
         ] {
             assert_eq!(remote_account(url).as_deref(), account, "{url}");

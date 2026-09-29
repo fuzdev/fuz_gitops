@@ -224,6 +224,36 @@ impl SessionsSource {
     }
 }
 
+/// Who runs the tool: a person, or an agent — a Claude Code agent shell,
+/// which sets `CLAUDECODE`.
+///
+/// An agent's pushes are held (`HeldBy::Gateway`): agents push through the
+/// gateway, `repos push` with its policy, and until it lands a person runs
+/// `repos sync` to push. The hold lifts with it. Guidance, not a boundary —
+/// an agent can unset the variable; the host's rules are the floor.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Caller {
+    Person,
+    Agent,
+}
+
+impl Caller {
+    /// From the environment: `Agent` when `CLAUDECODE` is set (an empty
+    /// value counts as unset).
+    pub fn from_env() -> Self {
+        Self::from_claudecode(std::env::var_os("CLAUDECODE").as_deref())
+    }
+
+    /// From `CLAUDECODE`'s value, as `from_env` reads it.
+    pub fn from_claudecode(value: Option<&std::ffi::OsStr>) -> Self {
+        if value.is_some_and(|v| !v.is_empty()) {
+            Self::Agent
+        } else {
+            Self::Person
+        }
+    }
+}
+
 /// The config dirs to read: `config_dir` (`CLAUDE_CONFIG_DIR`), when it's
 /// given, and `home`'s `.claude`, the same dir once.
 ///
@@ -805,6 +835,15 @@ mod tests {
     use std::path::Component;
 
     use super::*;
+
+    #[test]
+    fn claudecode_set_is_an_agent() {
+        let caller = |v: Option<&str>| Caller::from_claudecode(v.map(std::ffi::OsStr::new));
+        assert_eq!(caller(Some("1")), Caller::Agent);
+        assert_eq!(caller(Some("0")), Caller::Agent);
+        assert_eq!(caller(Some("")), Caller::Person);
+        assert_eq!(caller(None), Caller::Person);
+    }
 
     #[test]
     fn starttime_is_field_22_after_the_last_paren() {

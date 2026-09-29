@@ -1,5 +1,5 @@
 //! `repos sync`: fetch, classify, and act on each branch's verdict — the
-//! fast-forwards and shallow moves `status` previews.
+//! fast-forwards, shallow moves, and pushes `status` previews.
 //!
 //! **The pipeline.** Sync is `status --fetch` (the same probe pool, the same
 //! hardened fetch writing remote-tracking refs alone, the same visibility
@@ -10,15 +10,19 @@
 //! 2. Read the live sessions — after the fetches, which can take minutes,
 //!    so a session started meanwhile still holds — scope them to the
 //!    checkouts probed, and classify.
-//! 3. Act on each branch's verdict: an `act` fast-forward or move is made;
-//!    everything else is reported as it stands. Entries sharing a repo act
-//!    together, one after another, each branch once; repos act in parallel.
+//! 3. Act on each branch's verdict: an `act` fast-forward, move, or push is
+//!    made; everything else is reported as it stands. Entries sharing a repo
+//!    act together, one after another, each branch once; repos act in
+//!    parallel.
 //!
-//! **Never** a push, a rebase, a merge that isn't a fast-forward, a clone,
-//! a deleted branch, or a pruned worktree (the origin fetch's `--prune`
-//! deletes only remote-tracking refs gone upstream); a third-party
-//! reference or a pin is never touched (their verdicts never act). An entry
-//! whose probe failed has no verdicts, so nothing in it acts.
+//! **Never** a force-push, a tag pushed, a remote branch created on
+//! purpose, a rebase, a merge that isn't a fast-forward, a clone, a deleted
+//! branch, or a pruned worktree (the origin fetch's `--prune` deletes only
+//! remote-tracking refs gone upstream); a third-party reference or a pin is
+//! never touched (their verdicts never act). An entry whose probe failed
+//! has no verdicts, so nothing in it acts. An agent's pushes are held
+//! (`Caller::Agent`, `HeldBy::Gateway`) until the gateway lands: a person
+//! runs sync to push.
 //!
 //! **The verdict is a plan; git is the check.** Right before each action,
 //! sync re-reads the live sessions (a hold when busy detection has become
@@ -76,18 +80,48 @@
 //!   gets no entry from the switch, and is held (`changed`): the move
 //!   wasn't sync's.
 //!
+//! - **A push** is `git push origin <oid>:<ref>`: the commit the branch held
+//!   when probed, to its upstream's ref on origin (`push_target`: a branch,
+//!   never `refs/heads/HEAD`), so a commit landing after classifying is never
+//!   pushed unseen. Right before, sync re-reads the branch — the same commit,
+//!   upstream, and ref on origin, no symbolic ref, else `changed` — re-reads
+//!   where a push through origin goes (`git remote get-url --push --all`,
+//!   `pushurl` and `pushInsteadOf` applied: exactly one URL, the registry's
+//!   repo over SSH as `push_urls_match` reads it — the host git connects to
+//!   and the path there, never the URL's text — else held `push_url`), and
+//!   re-counts the commits ahead of the remote-tracking ref (the same count,
+//!   the ref an ancestor, else `changed`). The push is a plain one — no force,
+//!   no lease: a lease is git's force with a check, which would replace git's
+//!   own fast-forward refusal with the tool's ancestor check, and git's
+//!   refusal stays the last check — with no tags, no submodules, no push
+//!   options, no push certificate, and git's own remote command
+//!   (`PUSH_ARGS`), over SSH only
+//!   (`GIT_ALLOW_PROTOCOL=ssh`), batch-mode as the fetch. Git refuses anything
+//!   but a fast-forward of what the remote holds, so a remote moved since the
+//!   fetch is held (`changed`) for a rerun; the remote's own refusal (a
+//!   ruleset, a hook) or a host unreachable fails (`push_failed`, classified).
+//!   Git records the push in origin's remote-tracking ref for the pushed
+//!   branch, the one the fetch writes; a failed or refused fetch holds every
+//!   push, so that write goes through refspecs the fetch confined. A remote
+//!   branch deleted in the instant between the fetch and the push is made anew
+//!   (`pushed` with no `from`), and one deleted and recreated at an ancestor
+//!   of the commit is fast-forwarded: the one race a lease would refuse and a
+//!   plain push can't.
+//!
 //! A branch deleted since classifying is held (`changed`) wherever the
 //! action reads it.
 //!
 //! Each action moves one branch and touches at most the one checkout it's on
-//! (classify holds a branch on several), re-reading what it relies on right
-//! before, so actions within a repo don't depend on their order. The two
+//! (classify holds a fast-forward or move on several; a push touches none),
+//! re-reading what it relies on right before, so actions within a repo
+//! don't depend on their order. The two
 //! that rewrite a working tree run under `CHECKOUT_TIMEOUT`, not the local
 //! timeout: git killed mid-checkout leaves the files half-written.
 //!
 //! **What runs.** The runner's hardening holds (the `git` module doc): no
 //! hook, fsmonitor, or alternate-refs command runs, so nothing a fetch or
-//! fast-forward brings in is executed. Programs the local config names —
+//! fast-forward brings in is executed — a push's `pre-push` and
+//! `reference-transaction` hooks included. Programs the local config names —
 //! filter drivers such as Git LFS's smudge, the gpg program
 //! `merge.verifySignatures` calls — are the user's own and run as in any
 //! merge or checkout they'd make.
@@ -97,15 +131,17 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 use crate::busy::{Detection, EntryCheckouts, Sessions, scope_sessions};
-use crate::git::{CallOptions, Git, GitError};
+use crate::classify::{push_target, push_urls_match};
+use crate::git::{CallOptions, Git, GitError, NetworkOptions};
 use crate::porcelain;
 use crate::probe::{
-    ProbeContext, RegistryDirs, RepoFacts, RepoFetches, STATUS_ARGS, canonical, read_shallow_roots,
+    ProbeContext, RegistryDirs, RepoFacts, RepoFetches, STATUS_ARGS, canonical, read_push_urls,
+    read_shallow_roots,
 };
-use crate::registry::Entry;
-use crate::remote::RemoteFailure;
+use crate::registry::{Entry, RepoUrl};
+use crate::remote::{RefspecContext, RemoteFailure};
 use crate::report::{BranchOutcome, BranchSync, EntryStatus, EntrySync, FetchOutcome, SyncHold};
-use crate::sessions::LiveSessions;
+use crate::sessions::{Caller, LiveSessions};
 use crate::state::{BranchStatus, Head, SyncAction, Verdict};
 use crate::status::{EntryTiming, assess, probe_all, run_pool};
 
@@ -130,6 +166,9 @@ pub struct SyncOptions<'a> {
     /// done, to classify, and again right before each action. A seam for
     /// tests.
     pub read_live: &'a (dyn Fn() -> LiveSessions + Sync),
+    /// Who runs the tool (`Caller::from_env`): an agent's pushes are held
+    /// for the gateway.
+    pub caller: Caller,
 }
 
 impl std::fmt::Debug for SyncOptions<'_> {
@@ -137,6 +176,7 @@ impl std::fmt::Debug for SyncOptions<'_> {
         f.debug_struct("SyncOptions")
             .field("jobs", &self.jobs)
             .field("visibility_base", &self.visibility_base)
+            .field("caller", &self.caller)
             .finish_non_exhaustive()
     }
 }
@@ -185,14 +225,16 @@ pub fn sync(
     );
     let probe_elapsed = start.elapsed();
     // after the fetches, never before: a session started while they ran holds
-    let assessed = assess(entries, probes, &(opts.read_live)());
+    let assessed = assess(entries, probes, &(opts.read_live)(), opts.caller);
 
     let start = Instant::now();
     let actor = Actor {
         git,
         root,
+        entries,
         checkouts: &assessed.checkouts,
         read_live: opts.read_live,
+        caller: opts.caller,
     };
     let groups = repo_groups(&assessed.facts);
     let acted = run_pool(groups.len(), opts.jobs, |g| {
@@ -257,8 +299,11 @@ fn repo_groups(facts: &[Option<RepoFacts>]) -> Vec<Vec<usize>> {
 struct Actor<'a> {
     git: &'a Git,
     root: &'a Path,
+    /// The entries acted on, in the order the statuses are.
+    entries: &'a [Entry],
     checkouts: &'a [EntryCheckouts],
     read_live: &'a (dyn Fn() -> LiveSessions + Sync),
+    caller: Caller,
 }
 
 impl Actor<'_> {
@@ -295,18 +340,18 @@ impl Actor<'_> {
                 .iter()
                 .map(|b| {
                     let (outcome, repeats) = match &b.verdict {
-                        Verdict::Act {
-                            action: action @ (SyncAction::FastForward { .. } | SyncAction::Move),
-                        } => match (stopped.get(b.name.as_str()), done.get(b.name.as_str())) {
-                            (Some((by, o)), _) | (None, Some((by, o))) => {
-                                (o.clone(), Some(statuses[*by].key.clone()))
+                        Verdict::Act { action } => {
+                            match (stopped.get(b.name.as_str()), done.get(b.name.as_str())) {
+                                (Some((by, o)), _) | (None, Some((by, o))) => {
+                                    (o.clone(), Some(statuses[*by].key.clone()))
+                                }
+                                (None, None) => {
+                                    let o = self.act(i, f, b, *action);
+                                    done.insert(b.name.as_str(), (i, o.clone()));
+                                    (o, None)
+                                }
                             }
-                            (None, None) => {
-                                let o = self.act(i, f, b, *action);
-                                done.insert(b.name.as_str(), (i, o.clone()));
-                                (o, None)
-                            }
-                        },
+                        }
                         verdict => (settled(verdict), None),
                     };
                     BranchSync {
@@ -331,16 +376,21 @@ impl Actor<'_> {
     ) -> BranchOutcome {
         let held = |by| BranchOutcome::Held { action, by };
         let failed = |message: String| BranchOutcome::Failed { action, message };
-        let Some(upstream) = facts
-            .branches
-            .iter()
-            .find(|f| f.branch.name == b.name)
-            .and_then(|f| f.branch.upstream_ref.as_deref())
-        else {
+        // classify held it already, so no verdict reaches here as an agent's
+        // push; a second line, before anything is read, should that slip
+        // (`an_agents_push_is_held_at_act_time_whatever_the_verdict`)
+        if matches!(action, SyncAction::Push { .. }) && self.caller == Caller::Agent {
+            return held(SyncHold::Gateway);
+        }
+        let Some(branch) = facts.branches.iter().find(|f| f.branch.name == b.name) else {
+            return failed(format!("{} isn't among the branches probed", b.name));
+        };
+        let Some(upstream) = branch.branch.upstream_ref.as_deref() else {
             return failed(format!("{} has no upstream to move to", b.name));
         };
         // the probed checkouts on it, from the facts classify read: it held
-        // a branch on several, or on an unprobed one
+        // a fast-forward or move on several, or on an unprobed one; a push
+        // on several goes on, since it moves no files
         let on_branch = |head: &Head| matches!(head, Head::Branch { name } if *name == b.name);
         let mut on: Vec<&str> = Vec::new();
         if on_branch(&facts.status.head) {
@@ -353,18 +403,7 @@ impl Actor<'_> {
                 .filter(|c| on_branch(&c.head))
                 .map(|c| c.path.as_str()),
         );
-        debug_assert!(
-            on.len() <= 1,
-            "{} acts on several checkouts: {on:?}",
-            b.name
-        );
-        let checkout = match on[..] {
-            [] => None,
-            [c] => Some(c),
-            // unreachable, but never a guess at which checkout
-            _ => return failed(format!("{} is checked out in several checkouts", b.name)),
-        };
-        if let Some(by) = self.busy_now(i, &b.name, checkout) {
+        if let Some(by) = self.busy_now(i, &b.name, &on) {
             return held(by);
         }
         let step = Step {
@@ -377,18 +416,48 @@ impl Actor<'_> {
             upstream,
             common_dir: &facts.common_dir,
         };
-        let result = match (action, checkout) {
-            (SyncAction::FastForward { .. }, None) => step.ff_in_place(Path::new(&facts.path)),
-            (SyncAction::FastForward { .. }, Some(c)) => step.ff_in_checkout(Path::new(c)),
-            (SyncAction::Move, None) => step.move_in_place(Path::new(&facts.path)),
-            (SyncAction::Move, Some(c)) => step.move_in_checkout(Path::new(c)),
-            (SyncAction::Push { .. }, _) => return held(SyncHold::NotPushed),
+        let result = if let SyncAction::Push { commits } = action {
+            let Some(target) = push_target(&branch.branch) else {
+                // classify leaves it to a person; never a guess at a ref
+                return failed(format!("{}'s upstream isn't a branch on origin", b.name));
+            };
+            step.push(
+                Path::new(&facts.path),
+                &Push {
+                    oid: &branch.branch.oid,
+                    target,
+                    commits,
+                    shallow: facts.layout.shallow,
+                    url: &self.entries[i].url,
+                    batch_ssh: !facts.config.ssh_command && !self.git.env_configures_ssh(),
+                },
+            )
+        } else {
+            debug_assert!(
+                on.len() <= 1,
+                "{} acts on several checkouts: {on:?}",
+                b.name
+            );
+            let checkout = match on[..] {
+                [] => None,
+                [c] => Some(c),
+                // unreachable, but never a guess at which checkout
+                _ => return failed(format!("{} is checked out in several checkouts", b.name)),
+            };
+            match (action, checkout) {
+                (SyncAction::Move, None) => step.move_in_place(Path::new(&facts.path)),
+                (SyncAction::Move, Some(c)) => step.move_in_checkout(Path::new(c)),
+                (_, None) => step.ff_in_place(Path::new(&facts.path)),
+                (_, Some(c)) => step.ff_in_checkout(Path::new(c)),
+            }
         };
         match result {
             Ok(Done::Updated { from, to }) if matches!(action, SyncAction::Move) => {
                 BranchOutcome::Moved { from, to }
             }
             Ok(Done::Updated { from, to }) => BranchOutcome::FastForwarded { from, to },
+            Ok(Done::Pushed { from, to }) => BranchOutcome::Pushed { from, to },
+            Ok(Done::PushFailed(failure)) => BranchOutcome::PushFailed { failure },
             Ok(Done::AlreadyThere) => BranchOutcome::Untouched,
             Ok(Done::Held(by)) => held(by),
             Err(message) => failed(message),
@@ -397,20 +466,19 @@ impl Actor<'_> {
 
     /// What holds an action on `branch` now, from the live sessions re-read:
     /// detection unavailable, or a session that may be on the branch
-    /// through a git dir no worktree list names, holds any action; one in
-    /// the checkout it's on, or a checkout whose path can't be resolved,
-    /// holds that checkout's.
-    fn busy_now(&self, i: usize, branch: &str, checkout: Option<&str>) -> Option<SyncHold> {
+    /// through a git dir no worktree list names, holds any action; one in a
+    /// checkout it's on (`checkouts`), or a checkout whose path can't be
+    /// resolved, holds that checkout's.
+    fn busy_now(&self, i: usize, branch: &str, checkouts: &[&str]) -> Option<SyncHold> {
         let live = (self.read_live)();
         let (_, per_entry) = scope_sessions(&live, self.checkouts);
         let sessions = &per_entry[i];
         if sessions.detection == Detection::Unavailable || sessions.unlisted_on(branch) > 0 {
             return Some(SyncHold::BusyUnknown);
         }
-        let checkout = checkout?;
-        if !sessions.at(checkout).is_empty() {
+        if checkouts.iter().any(|c| !sessions.at(c).is_empty()) {
             Some(SyncHold::Busy)
-        } else if sessions.unresolved_at(checkout) {
+        } else if checkouts.iter().any(|c| sessions.unresolved_at(c)) {
             Some(SyncHold::BusyUnknown)
         } else {
             None
@@ -418,8 +486,9 @@ impl Actor<'_> {
     }
 }
 
-/// A verdict that doesn't act, as an outcome; an `act` on a push is held,
-/// since sync never pushes.
+/// A verdict that doesn't act, as an outcome. An `act` is `act_on_repo`'s
+/// to carry out, never settled: reaching here would be a bug, reported as a
+/// failure rather than passed over.
 fn settled(verdict: &Verdict) -> BranchOutcome {
     match verdict {
         Verdict::Quiet | Verdict::LocalOnly | Verdict::Cleanup { .. } => BranchOutcome::Untouched,
@@ -428,9 +497,9 @@ fn settled(verdict: &Verdict) -> BranchOutcome {
             action: *action,
             by: (*by).into(),
         },
-        Verdict::Act { action } => BranchOutcome::Held {
+        Verdict::Act { action } => BranchOutcome::Failed {
             action: *action,
-            by: SyncHold::NotPushed,
+            message: "sync didn't carry out the verdict".to_owned(),
         },
     }
 }
@@ -440,6 +509,10 @@ fn settled(verdict: &Verdict) -> BranchOutcome {
 enum Done {
     /// The branch moved from `from` to `to`.
     Updated { from: String, to: String },
+    /// The remote's branch moved from `from` (`None`: it had none) to `to`.
+    Pushed { from: Option<String>, to: String },
+    /// The push failed at the remote, or reaching it.
+    PushFailed(RemoteFailure),
     /// The branch already held the tip.
     AlreadyThere,
     /// A re-check held it.
@@ -471,6 +544,51 @@ const LOCAL_FETCH_ARGS: [&str; 10] = [
     "--recurse-submodules=no",
     // no `--update-head-ok`: git refuses a branch checked out anywhere
     "--no-write-commit-graph",
+];
+
+/// What a push sends, as classified.
+struct Push<'a> {
+    /// The commit the branch held when probed: the one pushed, whatever
+    /// lands on the branch after.
+    oid: &'a str,
+    /// The upstream's ref on origin (`push_target`), named explicitly.
+    target: &'a str,
+    /// The commits ahead the verdict counted.
+    commits: u32,
+    /// A shallow clone, where the verdict counted commits on no remote ref.
+    shallow: bool,
+    /// The registry's URL, which the push URL must name.
+    url: &'a RepoUrl,
+    /// Batch-mode SSH, unless the user configures SSH (as the fetch).
+    batch_ssh: bool,
+}
+
+/// The push's flags before `origin` and its refspec. No force of any kind,
+/// and nothing but the one ref: no tags (`push.followTags`), no submodule
+/// pushes (`push.recurseSubmodules`), no push certificate
+/// (`push.gpgSign` — a signing prompt under a batch run, and a host that
+/// takes none fails the push), and no push options (`push.pushOption`,
+/// which the empty value resets: a host can act on one, and one it doesn't
+/// take fails the push). `--receive-pack` names git's own remote command
+/// over `remote.origin.receivepack`, which could otherwise run another
+/// command on the host, or point the push at another path there. Hooks are
+/// off in the runner already;
+/// `--no-verify` says so again. `core.abbrev=no` makes the porcelain's
+/// summary full object ids. An explicit refspec also passes over
+/// `remote.origin.push` and `push.default`; a `remote.origin.mirror`
+/// makes git refuse it outright.
+const PUSH_ARGS: [&str; 11] = [
+    "-c",
+    "core.abbrev=no",
+    "-c",
+    "push.pushOption=",
+    "push",
+    "--porcelain",
+    "--receive-pack=git-receive-pack",
+    "--no-verify",
+    "--no-follow-tags",
+    "--recurse-submodules=no",
+    "--no-signed",
 ];
 
 impl Step<'_> {
@@ -818,12 +936,129 @@ impl Step<'_> {
     /// Whether `commit` has commits on no remote-tracking ref, a shallow
     /// root aside — fetched, not made here — as the probe counts them.
     fn has_local_work(&self, dir: &Path, commit: &str) -> Result<bool, String> {
+        Ok(self.count_local_work(dir, commit)? > 0)
+    }
+
+    /// `commit`'s commits on no remote-tracking ref, shallow roots aside.
+    fn count_local_work(&self, dir: &Path, commit: &str) -> Result<usize, String> {
         let out = self
             .git
             .output_string(dir, &["rev-list", commit, "--not", "--remotes"], self.opts)
             .map_err(|e| git_message(&e))?;
         let roots = read_shallow_roots(self.common_dir);
-        Ok(out.lines().any(|c| !roots.contains(c)))
+        Ok(out.lines().filter(|c| !roots.contains(*c)).count())
+    }
+
+    /// Pushes `p.oid` through `origin` to `p.target`, once the branch reads
+    /// as classified — the same commit, upstream, and target, no symbolic
+    /// ref — the push URL still names the registry's repo over SSH, and the
+    /// commit is still the counted commits ahead of the remote-tracking ref.
+    /// Git's own refusal of anything but a fast-forward of what the remote
+    /// holds is the last check.
+    fn push(&self, dir: &Path, p: &Push<'_>) -> Result<Done, String> {
+        if !self.reads_as_classified(dir, p)? {
+            return Ok(Done::Held(SyncHold::Changed));
+        }
+        if !push_urls_match(&read_push_urls(self.git, dir, self.opts)?, p.url) {
+            return Ok(Done::Held(SyncHold::PushUrl));
+        }
+        let fetched = self.resolve(dir, self.upstream)?;
+        if fetched == p.oid {
+            return Ok(Done::AlreadyThere);
+        }
+        let ahead = if p.shallow {
+            self.count_local_work(dir, p.oid)?
+        } else {
+            let range = format!("{fetched}..{}", p.oid);
+            self.git
+                .output_string(dir, &["rev-list", "--count", &range], self.opts)
+                .map_err(|e| git_message(&e))?
+                .trim()
+                .parse()
+                .map_err(|_| format!("rev-list --count {range}: not a count"))?
+        };
+        if !self.is_ancestor(dir, &fetched, p.oid)? || ahead != p.commits as usize {
+            return Ok(Done::Held(SyncHold::Changed));
+        }
+        let refspec = format!("{}:{}", p.oid, p.target);
+        let mut args = PUSH_ARGS.to_vec();
+        args.extend(["origin", refspec.as_str()]);
+        let opts = CallOptions {
+            network: Some(NetworkOptions {
+                batch_ssh: p.batch_ssh,
+            }),
+            // the push URL was just read as SSH: a config changed since
+            // can't send the push over another transport
+            allow_protocol: Some("ssh"),
+            ..self.opts
+        };
+        let out = match self.git.run(dir, &args, opts) {
+            Ok(out) => out,
+            Err(e) => {
+                return Ok(Done::PushFailed(RemoteFailure::from_git_error(
+                    e,
+                    RefspecContext::default(),
+                )));
+            }
+        };
+        let stdout = String::from_utf8_lossy(&out.stdout);
+        match pushed_ref(&stdout, p.target) {
+            Some(PushedRef { flag: ' ', summary }) => match summary.split_once("..") {
+                Some((from, to)) if to == p.oid => Ok(Done::Pushed {
+                    from: Some(from.to_owned()),
+                    to: to.to_owned(),
+                }),
+                _ => Err(format!("git pushed {}: {summary}", p.target)),
+            },
+            Some(PushedRef { flag: '*', .. }) => Ok(Done::Pushed {
+                from: None,
+                to: p.oid.to_owned(),
+            }),
+            Some(PushedRef { flag: '=', .. }) => Ok(Done::AlreadyThere),
+            Some(PushedRef { flag: '!', summary }) => Ok(rejected(summary, &out.stderr)),
+            Some(PushedRef { flag, summary }) => Err(format!(
+                "git reported `{flag}` pushing {}: {summary}",
+                p.target
+            )),
+            None if out.status.success() => {
+                Err(format!("git push reported nothing for {}", p.target))
+            }
+            None => Ok(Done::PushFailed(RemoteFailure::from_git_error(
+                GitError::Failed {
+                    args: args.join(" "),
+                    code: out.status.code(),
+                    stderr: out.stderr,
+                },
+                RefspecContext::default(),
+            ))),
+        }
+    }
+
+    /// Whether the branch in `dir` is as classified: the commit `p.oid`, a
+    /// plain ref, its upstream the same remote-tracking ref, on `origin`,
+    /// at `p.target` there. `false` when deleted since.
+    fn reads_as_classified(&self, dir: &Path, p: &Push<'_>) -> Result<bool, String> {
+        let local = self.local();
+        let out = self
+            .git
+            .output_string(
+                dir,
+                &[
+                    "for-each-ref",
+                    "--format=%(refname)%00%(objectname)%00%(symref)%00%(upstream)%00\
+                     %(upstream:remotename)%00%(upstream:remoteref)",
+                    &local,
+                ],
+                self.opts,
+            )
+            .map_err(|e| git_message(&e))?;
+        // the pattern also matches refs under it (`<b>/x`): only the ref
+        let expected = [local.as_str(), p.oid, "", self.upstream, "origin", p.target];
+        Ok(out
+            .lines()
+            .map(|l| l.split('\0').collect::<Vec<_>>())
+            .find(|f| f.first() == Some(&local.as_str()))
+            .is_some_and(|f| f == expected))
     }
 
     /// Runs git in `checkout` to rewrite its working tree, under
@@ -845,6 +1080,76 @@ impl Step<'_> {
             Err(first_message(&out.stderr))
         }
     }
+}
+
+/// One ref's line in `git push --porcelain`'s output, tab-separated:
+/// `<flag>`, `<src>:<dst>`, `<summary>`.
+#[derive(Debug, PartialEq, Eq)]
+struct PushedRef<'a> {
+    /// ` ` a fast-forward, `*` a new ref, `=` up to date, `!` rejected, `+`
+    /// forced, `-` deleted.
+    flag: char,
+    /// `<old>..<new>` for a fast-forward, else git's bracketed status and
+    /// its reason, e.g. `[remote rejected] (pre-receive hook declined)`.
+    summary: &'a str,
+}
+
+/// The porcelain line for the push to `dst`, if git printed one.
+fn pushed_ref<'a>(stdout: &'a str, dst: &str) -> Option<PushedRef<'a>> {
+    stdout.lines().find_map(|l| {
+        let mut f = l.splitn(3, '\t');
+        let (flag, refs, summary) = (f.next()?, f.next()?, f.next()?);
+        let mut chars = flag.chars();
+        let flag = chars.next().filter(|_| chars.next().is_none())?;
+        (refs.rsplit_once(':')?.1 == dst).then_some(PushedRef { flag, summary })
+    })
+}
+
+/// A push git rejected (`!`), by its summary: the remote moved since the
+/// fetch (`fetch first`, `non-fast-forward` — git refuses to overwrite it)
+/// is held, `Changed`, for a rerun to reclassify; the remote's own refusal
+/// (`[remote rejected]`: a ruleset, a hook) fails with its reason and the
+/// remote's first error line; anything else fails with git's summary.
+fn rejected(summary: &str, stderr: &str) -> Done {
+    let reason = |status: &str| {
+        summary
+            .strip_prefix(status)
+            .map(|r| r.trim().trim_start_matches('(').trim_end_matches(')'))
+    };
+    match reason("[rejected]") {
+        Some("fetch first" | "non-fast-forward") => return Done::Held(SyncHold::Changed),
+        Some(_) => {
+            return Done::PushFailed(RemoteFailure::Failed {
+                message: format!("rejected: {summary}"),
+            });
+        }
+        None => {}
+    }
+    if let Some(reason) = reason("[remote rejected]") {
+        return Done::PushFailed(RemoteFailure::Rejected {
+            reason: reason.to_owned(),
+            message: remote_error(stderr),
+        });
+    }
+    Done::PushFailed(RemoteFailure::Failed {
+        message: summary.to_owned(),
+    })
+}
+
+/// The remote's first `error:` line, as git relays it (`remote: error: …`,
+/// padded), else its first line; `None` when it sent none.
+fn remote_error(stderr: &str) -> Option<String> {
+    let remote = || {
+        stderr
+            .lines()
+            .filter_map(|l| l.strip_prefix("remote:"))
+            .map(str::trim)
+            .filter(|l| !l.is_empty())
+    };
+    remote()
+        .find_map(|l| l.strip_prefix("error:").map(str::trim))
+        .or_else(|| remote().next())
+        .map(str::to_owned)
 }
 
 /// A git call's failure as an outcome's message: git's own words when it
@@ -881,6 +1186,132 @@ mod tests {
         );
         assert_eq!(first_message("\n  hint: x\n"), "hint: x");
         assert_eq!(first_message(""), "git failed without a message");
+    }
+
+    #[test]
+    fn a_push_is_read_from_its_porcelain_line() {
+        let dst = "refs/heads/main";
+        let out = "To github.com:me/app\n \tc2:refs/heads/main\tc1..c2\nDone\n";
+        assert_eq!(
+            pushed_ref(out, dst),
+            Some(PushedRef {
+                flag: ' ',
+                summary: "c1..c2"
+            })
+        );
+        // another ref's line, or none, is no answer
+        assert_eq!(pushed_ref(out, "refs/heads/mai"), None);
+        assert_eq!(pushed_ref("To x\nDone\n", dst), None);
+        let rejected_line = "!\tc2:refs/heads/main\t[rejected] (fetch first)\n";
+        assert_eq!(pushed_ref(rejected_line, dst).map(|p| p.flag), Some('!'));
+    }
+
+    #[test]
+    fn a_rejected_push_is_held_or_failed_by_why() {
+        // the remote moved: rerun
+        for why in ["fetch first", "non-fast-forward"] {
+            assert!(matches!(
+                rejected(&format!("[rejected] ({why})"), ""),
+                Done::Held(SyncHold::Changed)
+            ));
+        }
+        // the remote's refusal, with its own words
+        let stderr = "remote: error: GH006: Protected branch update failed for refs/heads/main.   \n\
+                      remote: error: Changes must be made through a pull request.   \n\
+                      error: failed to push some refs to 'github.com:me/app'\n";
+        assert!(matches!(
+            rejected("[remote rejected] (protected branch hook declined)", stderr),
+            Done::PushFailed(RemoteFailure::Rejected { reason, message })
+                if reason == "protected branch hook declined"
+                    && message.as_deref()
+                        == Some("GH006: Protected branch update failed for refs/heads/main.")
+        ));
+        assert!(matches!(
+            rejected("[remote rejected] (hook declined)", "remote: nope\n"),
+            Done::PushFailed(RemoteFailure::Rejected { message: Some(m), .. }) if m == "nope"
+        ));
+        assert!(matches!(
+            rejected("[remote rejected] (hook declined)", ""),
+            Done::PushFailed(RemoteFailure::Rejected { message: None, .. })
+        ));
+        // anything else git refused fails with its words
+        assert!(matches!(
+            rejected("[rejected] (stale info)", ""),
+            Done::PushFailed(RemoteFailure::Failed { message })
+                if message == "rejected: [rejected] (stale info)"
+        ));
+    }
+
+    /// The act-time gateway hold, driven directly: classify holds an
+    /// agent's push before it becomes an `act` (so no run through `sync`
+    /// reaches this guard), and the guard is the second line should that
+    /// ever slip. It holds before anything is read — no facts, no sessions,
+    /// no git.
+    #[test]
+    fn an_agents_push_is_held_at_act_time_whatever_the_verdict() {
+        // a runner with no `PATH`: git can't even start
+        let git = Git::with_clean_env(Vec::new());
+        let read_live = || -> LiveSessions { panic!("the guard reads no sessions") };
+        let actor = Actor {
+            git: &git,
+            root: Path::new("/ws"),
+            entries: &[],
+            checkouts: &[],
+            read_live: &read_live,
+            caller: Caller::Agent,
+        };
+        let facts = RepoFacts {
+            path: "/ws/app".into(),
+            git_dir: PathBuf::from("/ws/app/.git"),
+            common_dir: PathBuf::from("/ws/app/.git"),
+            config: porcelain::ConfigFacts::default(),
+            status: porcelain::StatusFacts {
+                head: Head::Branch {
+                    name: "main".into(),
+                },
+                uncommitted: crate::state::Uncommitted::default(),
+                stashes: 0,
+            },
+            in_progress: None,
+            primary_linked: false,
+            primary_locked: false,
+            locks: Vec::new(),
+            worktrees: Vec::new(),
+            registry_worktrees: std::collections::HashSet::new(),
+            unprobed: Vec::new(),
+            unreadable: Vec::new(),
+            relative_gitdir: None,
+            git_dirs: Vec::new(),
+            bare_main: None,
+            // nothing probed: past the guard, the push would fail on it
+            branches: Vec::new(),
+            layout: crate::state::Layout {
+                shallow: false,
+                sparse: false,
+                partial_filter: None,
+            },
+            fetched_at: None,
+            fetch_failed: false,
+            push_urls: Some(vec!["git@github.com:me/app".into()]),
+        };
+        let action = SyncAction::Push { commits: 1 };
+        let b = BranchStatus {
+            name: "main".into(),
+            upstream: Some("origin/main".into()),
+            worktree: Some("/ws/app".into()),
+            symref: None,
+            unique_commits: 1,
+            newest_commit_at: 0,
+            relation: crate::state::Relation::Ahead { commits: 1 },
+            verdict: Verdict::Act { action },
+        };
+        assert_eq!(
+            actor.act(0, &facts, &b, action),
+            BranchOutcome::Held {
+                action,
+                by: SyncHold::Gateway
+            }
+        );
     }
 
     // the checks after the fact, driven from just past the re-checks: the

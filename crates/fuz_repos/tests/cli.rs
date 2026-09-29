@@ -1198,6 +1198,8 @@ fn sync_workspace() -> FixtureWorkspace {
 fn sync_json_is_the_versioned_outcome_report() {
     let ws = sync_workspace();
     let tip = ws.git(&ws.bare("app"), &["rev-parse", "main"]);
+    let blog_was = ws.git(&ws.bare("blog"), &["rev-parse", "main"]);
+    let blog_tip = ws.git(&ws.dir("blog"), &["rev-parse", "main"]);
     let report = parse(&repos(&ws, &ws.root(), &["sync", "--json"]));
     assert_eq!(report["version"], SYNC_FORMAT_VERSION);
     assert_eq!(report["status"]["version"], STATUS_FORMAT_VERSION);
@@ -1215,9 +1217,9 @@ fn sync_json_is_the_versioned_outcome_report() {
         entries[1]["branches"][0],
         serde_json::json!({
             "name": "main",
-            "kind": "held",
-            "action": {"kind": "push", "commits": 1},
-            "by": "not_pushed",
+            "kind": "pushed",
+            "from": blog_was,
+            "to": blog_tip,
             "repeats": null,
         })
     );
@@ -1226,6 +1228,71 @@ fn sync_json_is_the_versioned_outcome_report() {
         serde_json::json!({"key": "gone", "fetch": {"kind": "not_fetched"}, "branches": []})
     );
     assert_eq!(ws.git(&ws.dir("app"), &["rev-parse", "main"]), tip);
+    assert_eq!(ws.git(&ws.bare("blog"), &["rev-parse", "main"]), blog_tip);
+}
+
+#[test]
+fn an_agents_sync_holds_its_pushes_for_the_gateway() {
+    let ws = sync_workspace();
+    let blog_was = ws.git(&ws.bare("blog"), &["rev-parse", "main"]);
+    let agent = |args: &[&str]| {
+        ws.command(REPOS, &ws.root())
+            .env("CLAUDECODE", "1")
+            .args(args)
+            .output()
+            .unwrap()
+    };
+    // the preview says so
+    let text = stdout(&agent(&["status"]));
+    assert!(
+        text.starts_with(
+            "sync would    clone gone\nheld          push blog +1 (gateway)\n              \
+             hint: an agent's pushes wait for the gateway; the user's own repos sync pushes \
+             them\n"
+        ),
+        "{text}"
+    );
+    let out = agent(&["sync"]);
+    assert_eq!(out.status.code(), Some(0), "stderr: {}", stderr(&out));
+    let text = stdout(&out);
+    let lines: Vec<&str> = text.lines().collect();
+    assert_eq!(
+        lines[..lines.len() - 1],
+        [
+            "synced        ff app −1",
+            "held          push blog +1 (gateway) · clone gone",
+            "              hint: an agent's pushes wait for the gateway; the user's own repos \
+             sync pushes them",
+            "              hint: sync never clones — each missing entry is yours to clone",
+        ],
+        "{text}"
+    );
+    assert_eq!(ws.git(&ws.bare("blog"), &["rev-parse", "main"]), blog_was);
+    let report = parse(&agent(&["sync", "--json"]));
+    assert_eq!(
+        report["entries"][1]["branches"][0],
+        serde_json::json!({
+            "name": "main",
+            "kind": "held",
+            "action": {"kind": "push", "commits": 1},
+            "by": "gateway",
+            "repeats": null,
+        })
+    );
+    assert_eq!(ws.git(&ws.bare("blog"), &["rev-parse", "main"]), blog_was);
+    // an empty value is no agent's
+    let out = ws
+        .command(REPOS, &ws.root())
+        .env("CLAUDECODE", "")
+        .args(["sync"])
+        .output()
+        .unwrap();
+    assert!(
+        stdout(&out).starts_with("synced        push blog +1\n"),
+        "{}",
+        stdout(&out)
+    );
+    assert_ne!(ws.git(&ws.bare("blog"), &["rev-parse", "main"]), blog_was);
 }
 
 #[test]
@@ -1238,9 +1305,8 @@ fn sync_text_is_the_summary_with_what_it_did() {
     assert_eq!(
         lines[..lines.len() - 1],
         [
-            "synced        ff app −1",
-            "held          push blog +1 · clone gone",
-            "              hint: sync never pushes — each push held is yours to make",
+            "synced        push blog +1 · ff app −1",
+            "held          clone gone",
             "              hint: sync never clones — each missing entry is yours to clone",
         ],
         "{text}"
@@ -1250,18 +1316,12 @@ fn sync_text_is_the_summary_with_what_it_did() {
         "{text}"
     );
 
-    // again: nothing left to fast-forward
+    // again: nothing left to push or fast-forward
     let text = stdout(&repos(&ws, &ws.root(), &["sync"]));
-    assert!(
-        text.starts_with("held          push blog +1 · clone gone\n"),
-        "{text}"
-    );
+    assert!(text.starts_with("held          clone gone\n"), "{text}");
     // status agrees
     let text = stdout(&repos(&ws, &ws.root(), &["status"]));
-    assert!(
-        text.starts_with("sync would    push blog +1 · clone gone\n"),
-        "{text}"
-    );
+    assert!(text.starts_with("sync would    clone gone\n"), "{text}");
 }
 
 #[test]
@@ -1358,5 +1418,56 @@ fn sync_caller_errors_exit_two_with_a_sync_document() {
     assert_eq!(
         ws.git(&ws.dir("app"), &["rev-parse", "origin/main"]),
         ws.git(&ws.dir("app"), &["rev-parse", "main"])
+    );
+}
+
+#[test]
+fn push_refusals_read_in_the_summary() {
+    // `app` pushes to another repo; `blog`'s remote refuses the push
+    let mut ws = FixtureWorkspace::new();
+    ws.remote("other", &[]);
+    let app = ws.owned_repo("app", &[]);
+    ws.commit(&app, "local");
+    ws.git(
+        &app,
+        &["config", "remote.origin.pushurl", "git@github.com:me/other"],
+    );
+    let blog = ws.owned_repo("blog", &[]);
+    ws.commit(&blog, "local");
+    support::write_executable(
+        &ws.bare("blog"),
+        "hooks/pre-receive",
+        "#!/bin/sh\necho 'error: GH006: Protected branch update failed.' >&2\nexit 1\n",
+    );
+    ws.write_registry();
+
+    let text = stdout(&repos(&ws, &ws.root(), &["status"]));
+    assert!(
+        text.starts_with(
+            "needs human   app (push goes to git@github.com:me/other)\n\
+             sync would    push blog +1\n\
+             held          push app +1 (push URL)\n"
+        ),
+        "{text}"
+    );
+    let text = stdout(&repos(&ws, &ws.root(), &["status", "--verbose", "app"]));
+    assert!(
+        text.contains(
+            "  needs     push goes to git@github.com:me/other — sync pushes only to \
+             git@github.com:me/app: see git -C "
+        ),
+        "{text}"
+    );
+
+    let out = repos(&ws, &ws.root(), &["sync"]);
+    assert_eq!(out.status.code(), Some(1), "stderr: {}", stderr(&out));
+    let text = stdout(&out);
+    assert!(
+        text.starts_with(
+            "failed        blog (push: rejected: GH006: Protected branch update failed.)\n\
+             needs human   app (push goes to git@github.com:me/other)\n\
+             held          push app +1 (push URL)\n"
+        ),
+        "{text}"
     );
 }

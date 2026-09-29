@@ -334,11 +334,17 @@ pub enum HeldBy {
     Pinned,
     /// An entry-level `needs_human` reason stops sync on the whole entry.
     Entry,
+    /// A push through `origin` would reach somewhere other than the
+    /// registry's repo over SSH (the entry's `push_url_mismatch` reason):
+    /// pushes only.
+    PushUrl,
     /// The entry's fetch failed or was refused (its `fetch_error`), so its
     /// remote-tracking refs weren't refreshed and may not be origin's: no
-    /// branch fast-forwards or moves to them. Pushes aren't held: the remote
-    /// checks those itself. Only a run that fetches (`sync`, `status
-    /// --fetch`) holds on it.
+    /// branch fast-forwards or moves to them, and none is pushed — its
+    /// ahead count is unverified, a push's own remote-tracking update goes
+    /// through the refspecs a refusal found unconfinable, and a host that
+    /// just failed a fetch fails the push too. Only a run that fetches
+    /// (`sync`, `status --fetch`) holds on it.
     FetchFailed,
     /// The branch is checked out in a checkout with uncommitted changes, and
     /// sync never touches a dirty working tree. Pushes aren't held: they only
@@ -366,6 +372,11 @@ pub enum HeldBy {
     /// through a git dir sharing the repo's refs that no worktree list names
     /// (an `unlisted_git_dir` reason), whose HEAD is on it or unknown.
     BusyUnknown,
+    /// A push, with an agent running the tool (`Caller::Agent`): an agent's
+    /// pushes wait for the gateway, and a person runs sync to push them.
+    /// Named only when nothing else holds the push, so it says the person's
+    /// sync would push it.
+    Gateway,
 }
 
 /// A move `sync` makes on a branch.
@@ -394,6 +405,10 @@ pub enum BranchNeedsHuman {
     ArchivedAhead,
     /// A shallow branch with local commits off the fetched tip.
     ShallowLocalWork,
+    /// Ahead, but its upstream's ref on origin isn't a branch a push can
+    /// name: outside `refs/heads/`, or `refs/heads/HEAD` (an upstream set to
+    /// `origin/HEAD` would create a branch named `HEAD` on the remote).
+    UpstreamNotABranch,
 }
 
 /// Why a branch reads as deletable.

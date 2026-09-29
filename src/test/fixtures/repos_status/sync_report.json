@@ -1,7 +1,7 @@
 {
-	"version": 1,
+	"version": 2,
 	"status": {
-		"version": 8,
+		"version": 9,
 		"workspace": "/home/me/dev",
 		"registry": "/home/me/dev/repos.toml",
 		"fetched": true,
@@ -142,6 +142,83 @@
 								"kind": "push",
 								"commits": 3
 							}
+						}
+					},
+					{
+						"name": "fresh",
+						"upstream": "origin/fresh",
+						"worktree": null,
+						"symref": null,
+						"unique_commits": 0,
+						"newest_commit_at": 1799827200,
+						"relation": {
+							"kind": "ahead",
+							"commits": 1
+						},
+						"verdict": {
+							"kind": "act",
+							"action": {
+								"kind": "push",
+								"commits": 1
+							}
+						}
+					},
+					{
+						"name": "guarded",
+						"upstream": "origin/guarded",
+						"worktree": null,
+						"symref": null,
+						"unique_commits": 0,
+						"newest_commit_at": 1799827200,
+						"relation": {
+							"kind": "ahead",
+							"commits": 1
+						},
+						"verdict": {
+							"kind": "act",
+							"action": {
+								"kind": "push",
+								"commits": 1
+							}
+						}
+					},
+					{
+						"name": "rerouted",
+						"upstream": "origin/rerouted",
+						"worktree": null,
+						"symref": null,
+						"unique_commits": 0,
+						"newest_commit_at": 1799827200,
+						"relation": {
+							"kind": "ahead",
+							"commits": 1
+						},
+						"verdict": {
+							"kind": "act",
+							"action": {
+								"kind": "push",
+								"commits": 1
+							}
+						}
+					},
+					{
+						"name": "agent",
+						"upstream": "origin/agent",
+						"worktree": null,
+						"symref": null,
+						"unique_commits": 0,
+						"newest_commit_at": 1799827200,
+						"relation": {
+							"kind": "ahead",
+							"commits": 2
+						},
+						"verdict": {
+							"kind": "held",
+							"action": {
+								"kind": "push",
+								"commits": 2
+							},
+							"by": "gateway"
 						}
 					},
 					{
@@ -721,12 +798,46 @@
 				},
 				{
 					"name": "ahead",
+					"kind": "pushed",
+					"from": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+					"to": "ffffffffffffffffffffffffffffffffffffffff",
+					"repeats": null
+				},
+				{
+					"name": "fresh",
+					"kind": "pushed",
+					"from": null,
+					"to": "9999999999999999999999999999999999999999",
+					"repeats": null
+				},
+				{
+					"name": "guarded",
+					"kind": "push_failed",
+					"failure": {
+						"kind": "rejected",
+						"reason": "protected branch hook declined",
+						"message": "GH006: Protected branch update failed for refs/heads/guarded."
+					},
+					"repeats": null
+				},
+				{
+					"name": "rerouted",
 					"kind": "held",
 					"action": {
 						"kind": "push",
-						"commits": 3
+						"commits": 1
 					},
-					"by": "not_pushed",
+					"by": "push_url",
+					"repeats": null
+				},
+				{
+					"name": "agent",
+					"kind": "held",
+					"action": {
+						"kind": "push",
+						"commits": 2
+					},
+					"by": "gateway",
 					"repeats": null
 				},
 				{

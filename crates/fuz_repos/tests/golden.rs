@@ -170,7 +170,9 @@ fn assert_sync_coverage(doc: &SyncReport) {
         BranchOutcome::Held { .. } => 2,
         BranchOutcome::FastForwarded { .. } => 3,
         BranchOutcome::Moved { .. } => 4,
-        BranchOutcome::Failed { .. } => 5,
+        BranchOutcome::Pushed { .. } => 5,
+        BranchOutcome::PushFailed { .. } => 6,
+        BranchOutcome::Failed { .. } => 7,
     };
     let fetch = |f: &FetchOutcome| match f {
         FetchOutcome::Fetched => 0,
@@ -180,20 +182,21 @@ fn assert_sync_coverage(doc: &SyncReport) {
     let hold = |h: SyncHold| match h {
         SyncHold::Pinned => 0,
         SyncHold::Entry => 1,
-        SyncHold::FetchFailed => 2,
-        SyncHold::DirtyCheckout => 3,
-        SyncHold::UnprobedWorktree => 4,
-        SyncHold::SeveralCheckouts => 5,
-        SyncHold::Busy => 6,
-        SyncHold::BusyUnknown => 7,
-        SyncHold::Changed => 8,
-        SyncHold::NotPushed => 9,
+        SyncHold::PushUrl => 2,
+        SyncHold::FetchFailed => 3,
+        SyncHold::DirtyCheckout => 4,
+        SyncHold::UnprobedWorktree => 5,
+        SyncHold::SeveralCheckouts => 6,
+        SyncHold::Busy => 7,
+        SyncHold::BusyUnknown => 8,
+        SyncHold::Gateway => 9,
+        SyncHold::Changed => 10,
     };
     let branches = || doc.entries.iter().flat_map(|e| &e.branches);
     let seen = |ids: Vec<usize>| ids.into_iter().collect::<std::collections::BTreeSet<_>>();
     assert_eq!(
         seen(branches().map(|b| outcome(&b.outcome)).collect()),
-        (0..6).collect()
+        (0..8).collect()
     );
     assert_eq!(
         seen(doc.entries.iter().map(|e| fetch(&e.fetch)).collect()),
@@ -208,7 +211,7 @@ fn assert_sync_coverage(doc: &SyncReport) {
                 })
                 .collect()
         ),
-        (0..10).collect()
+        (0..11).collect()
     );
 }
 
@@ -288,6 +291,8 @@ fn status_report_doc() -> StatusReport {
             fuz_css(),
             fuz_ui(),
             uz(),
+            pushy(),
+            agent_run(),
         ],
     );
     report.unregistered = Some(unregistered());
@@ -393,6 +398,7 @@ fn unscoped_sessions() -> Vec<Session> {
 /// verdict the one the outcome carries out.
 fn sync_report_doc() -> SyncReport {
     let ff = |commits| SyncAction::FastForward { commits };
+    let push = |commits| SyncAction::Push { commits };
     let act = |action| Verdict::Act { action };
     let held_by = |action, by| Verdict::Held { action, by };
     let behind = |commits| Relation::Behind { commits };
@@ -439,10 +445,52 @@ fn sync_report_doc() -> SyncReport {
         (
             "ahead",
             Relation::Ahead { commits: 3 },
-            act(SyncAction::Push { commits: 3 }),
+            act(push(3)),
+            BranchOutcome::Pushed {
+                from: Some(oid('e')),
+                to: oid('f'),
+            },
+        ),
+        // deleted on the remote after the fetch: the push made it anew
+        (
+            "fresh",
+            Relation::Ahead { commits: 1 },
+            act(push(1)),
+            BranchOutcome::Pushed {
+                from: None,
+                to: oid('9'),
+            },
+        ),
+        (
+            "guarded",
+            Relation::Ahead { commits: 1 },
+            act(push(1)),
+            BranchOutcome::PushFailed {
+                failure: RemoteFailure::Rejected {
+                    reason: "protected branch hook declined".into(),
+                    message: Some(
+                        "GH006: Protected branch update failed for refs/heads/guarded.".into(),
+                    ),
+                },
+            },
+        ),
+        // a push URL set between classifying and pushing
+        (
+            "rerouted",
+            Relation::Ahead { commits: 1 },
+            act(push(1)),
             BranchOutcome::Held {
-                action: SyncAction::Push { commits: 3 },
-                by: SyncHold::NotPushed,
+                action: push(1),
+                by: SyncHold::PushUrl,
+            },
+        ),
+        (
+            "agent",
+            Relation::Ahead { commits: 2 },
+            held_by(push(2), HeldBy::Gateway),
+            BranchOutcome::Held {
+                action: push(2),
+                by: SyncHold::Gateway,
             },
         ),
         (
@@ -1468,6 +1516,67 @@ fn uz() -> EntryStatus {
             fix: RefGoneFix::ByHand,
         }),
         ..entry("uz", Some("main"))
+    }
+}
+
+/// Pushes that can't go through origin: a push URL rewritten to another
+/// repo, holding the one ahead (`PushUrl`), and a branch ahead of
+/// `origin/HEAD`, whose ref on origin isn't a branch.
+fn pushy() -> EntryStatus {
+    let push = SyncAction::Push { commits: 1 };
+    EntryStatus {
+        branches: vec![
+            BranchStatus {
+                unique_commits: 1,
+                ..branch(
+                    "main",
+                    Some("origin/main"),
+                    Relation::Ahead { commits: 1 },
+                    Verdict::Held {
+                        action: push,
+                        by: HeldBy::PushUrl,
+                    },
+                )
+            },
+            BranchStatus {
+                unique_commits: 1,
+                ..branch(
+                    "tip",
+                    Some("origin/HEAD"),
+                    Relation::Ahead { commits: 1 },
+                    Verdict::NeedsHuman {
+                        reason: BranchNeedsHuman::UpstreamNotABranch,
+                    },
+                )
+            },
+        ],
+        needs_human: vec![NeedsHuman::PushUrlMismatch {
+            push_urls: vec![
+                "git@github.com:me/pushy".into(),
+                "https://***@mirror.example.com/me/pushy".into(),
+            ],
+            expected: "git@github.com:me/pushy".into(),
+        }],
+        ..entry("pushy", Some("main"))
+    }
+}
+
+/// An agent's run: a push nothing else holds waits for the gateway.
+fn agent_run() -> EntryStatus {
+    EntryStatus {
+        branches: vec![BranchStatus {
+            unique_commits: 2,
+            ..branch(
+                "main",
+                Some("origin/main"),
+                Relation::Ahead { commits: 2 },
+                Verdict::Held {
+                    action: SyncAction::Push { commits: 2 },
+                    by: HeldBy::Gateway,
+                },
+            )
+        }],
+        ..entry("agent_run", Some("main"))
     }
 }
 

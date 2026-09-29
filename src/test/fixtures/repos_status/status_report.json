@@ -1,5 +1,5 @@
 {
-	"version": 8,
+	"version": 9,
 	"workspace": "/home/me/dev",
 	"registry": "/home/me/dev/repos.toml",
 	"fetched": true,
@@ -1703,6 +1703,171 @@
 					"kind": "by_hand"
 				}
 			},
+			"visibility_check": null
+		},
+		{
+			"key": "pushy",
+			"kind": "repo",
+			"dir": "pushy",
+			"url": "https://github.com/me/pushy",
+			"writable": true,
+			"archived": false,
+			"visibility": "public",
+			"ci": true,
+			"branch": "main",
+			"pinned": false,
+			"presence": {
+				"kind": "present"
+			},
+			"layout": {
+				"shallow": false,
+				"sparse": false,
+				"partial_filter": null
+			},
+			"checkouts": [
+				{
+					"path": "/home/me/dev/pushy",
+					"primary": true,
+					"head": {
+						"kind": "branch",
+						"name": "main"
+					},
+					"uncommitted": {
+						"staged": 0,
+						"unstaged": 0,
+						"untracked": 0,
+						"conflicted": 0
+					},
+					"in_progress": null,
+					"locked": false,
+					"linked": false,
+					"submodules": null,
+					"busy": []
+				}
+			],
+			"branches": [
+				{
+					"name": "main",
+					"upstream": "origin/main",
+					"worktree": null,
+					"symref": null,
+					"unique_commits": 1,
+					"newest_commit_at": 1799827200,
+					"relation": {
+						"kind": "ahead",
+						"commits": 1
+					},
+					"verdict": {
+						"kind": "held",
+						"action": {
+							"kind": "push",
+							"commits": 1
+						},
+						"by": "push_url"
+					}
+				},
+				{
+					"name": "tip",
+					"upstream": "origin/HEAD",
+					"worktree": null,
+					"symref": null,
+					"unique_commits": 1,
+					"newest_commit_at": 1799827200,
+					"relation": {
+						"kind": "ahead",
+						"commits": 1
+					},
+					"verdict": {
+						"kind": "needs_human",
+						"reason": "upstream_not_a_branch"
+					}
+				}
+			],
+			"stashes": 0,
+			"fetched_at": 1799913600,
+			"needs_human": [
+				{
+					"kind": "push_url_mismatch",
+					"push_urls": [
+						"git@github.com:me/pushy",
+						"https://***@mirror.example.com/me/pushy"
+					],
+					"expected": "git@github.com:me/pushy"
+				}
+			],
+			"probe_error": null,
+			"unprobed_worktrees": [],
+			"fetch_error": null,
+			"visibility_check": null
+		},
+		{
+			"key": "agent_run",
+			"kind": "repo",
+			"dir": "agent_run",
+			"url": "https://github.com/me/agent_run",
+			"writable": true,
+			"archived": false,
+			"visibility": "public",
+			"ci": true,
+			"branch": "main",
+			"pinned": false,
+			"presence": {
+				"kind": "present"
+			},
+			"layout": {
+				"shallow": false,
+				"sparse": false,
+				"partial_filter": null
+			},
+			"checkouts": [
+				{
+					"path": "/home/me/dev/agent_run",
+					"primary": true,
+					"head": {
+						"kind": "branch",
+						"name": "main"
+					},
+					"uncommitted": {
+						"staged": 0,
+						"unstaged": 0,
+						"untracked": 0,
+						"conflicted": 0
+					},
+					"in_progress": null,
+					"locked": false,
+					"linked": false,
+					"submodules": null,
+					"busy": []
+				}
+			],
+			"branches": [
+				{
+					"name": "main",
+					"upstream": "origin/main",
+					"worktree": null,
+					"symref": null,
+					"unique_commits": 2,
+					"newest_commit_at": 1799827200,
+					"relation": {
+						"kind": "ahead",
+						"commits": 2
+					},
+					"verdict": {
+						"kind": "held",
+						"action": {
+							"kind": "push",
+							"commits": 2
+						},
+						"by": "gateway"
+					}
+				}
+			],
+			"stashes": 0,
+			"fetched_at": 1799913600,
+			"needs_human": [],
+			"probe_error": null,
+			"unprobed_worktrees": [],
+			"fetch_error": null,
 			"visibility_check": null
 		}
 	],

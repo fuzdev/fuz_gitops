@@ -134,13 +134,7 @@ impl TryFrom<String> for RepoUrl {
                 "it must have exactly a host, an account, and a name",
             ));
         };
-        let is_host = |h: &str| {
-            h.starts_with(|c: char| c.is_ascii_alphanumeric())
-                && h.ends_with(|c: char| c.is_ascii_alphanumeric())
-                && h.chars()
-                    .all(|c| c.is_ascii_alphanumeric() || ".-".contains(c))
-        };
-        if !is_host(host) {
+        if !crate::url::is_plain_host(host) {
             return Err(invalid(
                 "the host must be a plain DNS name (no port, credentials, or brackets)",
             ));

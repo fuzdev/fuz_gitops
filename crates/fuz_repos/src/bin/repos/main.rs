@@ -16,7 +16,8 @@
 //!
 //! Busy detection reads the live Claude Code sessions recorded under
 //! `CLAUDE_CONFIG_DIR` and `~/.claude`, excluding the calling one
-//! (`CLAUDE_PID`, when it's an ancestor of this process).
+//! (`CLAUDE_PID`, when it's an ancestor of this process). Under
+//! `CLAUDECODE` (an agent's shell) every push is held for the gateway.
 //!
 //! The text summary wraps at `COLUMNS` (100 when unset or under 40), piped
 //! or not, and colors its group labels only when stdout is a terminal and
@@ -38,7 +39,7 @@ use fuz_repos::probe::RegistryDirs;
 use fuz_repos::registry::{Entry, ValidRegistry};
 use fuz_repos::report::{ErrorReport, StatusReport, SyncReport};
 use fuz_repos::scan::scan_unregistered;
-use fuz_repos::sessions::{SessionsSource, read_live_sessions};
+use fuz_repos::sessions::{Caller, SessionsSource, read_live_sessions};
 use fuz_repos::status::{EntryTiming, StatusOptions, mark_moved_worktrees, status};
 use fuz_repos::sync::{SyncOptions, sync};
 use fuz_repos::{STATUS_FORMAT_VERSION, SYNC_FORMAT_VERSION};
@@ -108,9 +109,10 @@ struct StatusArgs {
     timings: bool,
 }
 
-/// Fetch, then fast-forward each branch behind and move each stale shallow
-/// one, where safe; report what was done and what was held. Never pushes,
-/// merges, rebases, deletes, or clones.
+/// Fetch, then fast-forward each branch behind, move each stale shallow one,
+/// and push each one ahead, where safe; report what was done and what was
+/// held. Never force-pushes, merges, rebases, deletes, or clones; an agent's
+/// pushes are held.
 #[derive(FromArgs, Debug)]
 #[argh(subcommand, name = "sync")]
 struct SyncArgs {
@@ -330,6 +332,7 @@ fn run_sync(locate: Locate<'_>, args: &SyncArgs) -> Result<Printed> {
             jobs: args.jobs,
             visibility_base: None,
             read_live: &read_live,
+            caller: Caller::from_env(),
         },
     );
     let status = StatusReport::new(
@@ -402,6 +405,7 @@ fn run_status(locate: Locate<'_>, args: &StatusArgs) -> Result<Printed> {
             jobs: args.jobs,
             visibility_base: None,
             live: &live,
+            caller: Caller::from_env(),
         },
     );
     let mut report = StatusReport::new(

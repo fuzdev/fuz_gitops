@@ -11,7 +11,7 @@ use std::path::Path;
 
 use fuz_repos::classify::NeedsHuman;
 use fuz_repos::probe::RegistryDirs;
-use fuz_repos::sessions::LiveSessions;
+use fuz_repos::sessions::{Caller, LiveSessions};
 use fuz_repos::state::{
     Checkout, CleanupReason, GitDirHolds, Head, HeldBy, InProgressOp, Prune, PruneLoss, SyncAction,
     Uncommitted, UnprobedHead, UnprobedWhy, UnprobedWorktree, Verdict,
@@ -675,6 +675,7 @@ fn worktrees_are_listed_only_when_the_repo_has_some() {
                 jobs: 1,
                 visibility_base: None,
                 live: &LiveSessions::Known(vec![]),
+                caller: Caller::Person,
             },
         );
         assert_eq!(run.entries[0].probe_error, None);
@@ -1771,6 +1772,7 @@ fn the_index_is_read_only_for_a_worktree_on_a_gone_branch() {
             jobs: 1,
             visibility_base: None,
             live: &LiveSessions::Known(vec![]),
+            caller: Caller::Person,
         },
     );
     let e = &run.entries[0];

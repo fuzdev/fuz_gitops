@@ -115,13 +115,14 @@ pub fn scan_unregistered(
     let mut found = Vec::with_capacity(strays.len());
     for (i, f) in strays.iter().enumerate() {
         let origin = read_origin(git, f.stray.config_dir.as_deref().unwrap_or(&f.path));
+        // read as git connects for it, then redacted for show
         let owned = origin
             .as_deref()
             .and_then(remote_account)
             .is_some_and(|account| is_owner(owners, &account));
         found.push(UnregisteredClone {
             dir: f.name.to_string_lossy().into_owned(),
-            origin,
+            origin: origin.map(|o| without_userinfo(&o).into_owned()),
             owned,
             kind: settled.kind(i),
         });
@@ -745,8 +746,8 @@ fn uses_git_dir(path: &Path, git_dir: &Path) -> bool {
 }
 
 /// `remote.origin.url` as git reads it in `dir` — the first value after the
-/// last empty one (which resets the list), the one a fetch uses, with a
-/// credential in its userinfo redacted as `***`; `None` when unset, reset,
+/// last empty one (which resets the list), the one a fetch uses, as git
+/// holds it — a credential in its userinfo included; `None` when unset, reset,
 /// or git fails. Discovery stops at `dir`'s parent, so a `.git` git can't
 /// use never resolves to an enclosing repo.
 fn read_origin(git: &Git, dir: &Path) -> Option<String> {
@@ -770,5 +771,5 @@ fn read_origin(git: &Git, dir: &Path) -> Option<String> {
         .rposition(|v| v.is_empty())
         .map_or(0, |i| i + 1);
     let origin = values.get(start)?;
-    Some(without_userinfo(origin).into_owned())
+    Some((*origin).to_owned())
 }
