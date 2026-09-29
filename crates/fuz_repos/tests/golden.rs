@@ -27,14 +27,15 @@ use fuz_repos::error::Error;
 use fuz_repos::registry::{CheckoutList, EntryKind, EntryName, RegistryIssue, Visibility};
 use fuz_repos::remote::{RefGoneFix, RemoteFailure, UnreachableCause, VisibilityCheck};
 use fuz_repos::report::{
-    BranchOutcome, BranchSync, EntryStatus, EntrySync, ErrorReport, FetchOutcome, RepairBlock,
-    StatusReport, SyncHold, SyncReport, UnregisteredClone, UnregisteredKind,
+    BranchOutcome, BranchSync, CloneOutcome, EntryStatus, EntrySync, ErrorReport, FetchOutcome,
+    RepairBlock, StatusReport, SyncHold, SyncReport, UnregisteredClone, UnregisteredKind,
 };
 use fuz_repos::sessions::{Session, SessionSource, Unavailable};
 use fuz_repos::state::{
-    BranchNeedsHuman, BranchStatus, Checkout, CleanupReason, GitDirHolds, Head, HeldBy,
-    InProgressOp, Layout, Presence, Prune, PruneLoss, Relation, SyncAction, Uncommitted,
-    UnprobedHead, UnprobedWhy, UnprobedWorktree, UnprobedWorktreeStatus, Verdict,
+    BranchNeedsHuman, BranchStatus, Checkout, CleanupReason, CloneRecipe, CloneVerdict,
+    GitDirHolds, Head, HeldBy, InProgressOp, Layout, Presence, Prune, PruneLoss, Relation,
+    SyncAction, Uncommitted, UnprobedHead, UnprobedWhy, UnprobedWorktree, UnprobedWorktreeStatus,
+    Verdict,
 };
 use fuz_repos::{STATUS_FORMAT_VERSION, SYNC_FORMAT_VERSION};
 use serde::Serialize;
@@ -111,6 +112,23 @@ fn status_report() {
     let doc = status_report_doc();
     assert_eq!(doc.version, STATUS_FORMAT_VERSION);
     assert!(doc.fetched);
+    // every clone verdict: exhaustive, so a new one fails to compile here
+    let kinds: std::collections::BTreeSet<usize> = doc
+        .entries
+        .iter()
+        .filter_map(|e| e.clone.as_ref())
+        .map(|c| match c {
+            CloneVerdict::Act { .. } => 0,
+            CloneVerdict::Held { .. } => 1,
+        })
+        .collect();
+    assert_eq!(kinds, (0..2).collect());
+    // a verdict exactly when missing
+    assert!(
+        doc.entries
+            .iter()
+            .all(|e| e.clone.is_some() == (e.presence == Presence::Missing))
+    );
     assert_golden("status_report.json", &doc);
 }
 
@@ -145,6 +163,8 @@ fn sync_report() {
     assert_eq!(doc.entries.len(), doc.status.entries.len());
     for (e, s) in doc.status.entries.iter().zip(&doc.entries) {
         assert_eq!(e.key, s.key);
+        // a clone outcome exactly for a clone verdict
+        assert_eq!(e.clone.is_some(), s.clone.is_some(), "{}", e.key);
         let names = |b: &[BranchStatus]| b.iter().map(|b| b.name.clone()).collect::<Vec<_>>();
         assert_eq!(
             names(&e.branches),
@@ -192,8 +212,23 @@ fn assert_sync_coverage(doc: &SyncReport) {
         SyncHold::Gateway => 9,
         SyncHold::Changed => 10,
     };
+    let clone = |c: &CloneOutcome| match c {
+        CloneOutcome::Cloned { .. } => 0,
+        CloneOutcome::Held { .. } => 1,
+        CloneOutcome::CloneFailed { .. } => 2,
+        CloneOutcome::Failed { .. } => 3,
+    };
     let branches = || doc.entries.iter().flat_map(|e| &e.branches);
     let seen = |ids: Vec<usize>| ids.into_iter().collect::<std::collections::BTreeSet<_>>();
+    assert_eq!(
+        seen(
+            doc.entries
+                .iter()
+                .filter_map(|e| e.clone.as_ref().map(clone))
+                .collect()
+        ),
+        (0..4).collect()
+    );
     assert_eq!(
         seen(branches().map(|b| outcome(&b.outcome)).collect()),
         (0..8).collect()
@@ -279,6 +314,9 @@ fn status_report_doc() -> StatusReport {
             spec(),
             zzz(),
             missing(),
+            // a session works where its dir was deleted
+            missing_reference("wpt", Some(HeldBy::Busy)),
+            twin(),
             not_a_repo(),
             partial(),
             forge(),
@@ -655,17 +693,58 @@ fn sync_report_doc() -> SyncReport {
         checkouts: vec![],
         ..entry("broken", Some("main"))
     };
+    // missing: cloned, held as classified or at the moment of cloning,
+    // failed at the remote, failed placing it
+    let stray = EntryStatus {
+        clone: Some(CloneVerdict::Held {
+            recipe: CloneRecipe {
+                url: "git@github.com:me/stray".into(),
+                branch: Some("main".into()),
+                shallow: false,
+                sparse: None,
+            },
+            by: HeldBy::UnprobedWorktree,
+        }),
+        ..missing()
+    };
+    let stray = EntryStatus {
+        key: "stray".into(),
+        dir: "stray".into(),
+        url: "https://github.com/me/stray".into(),
+        ..stray
+    };
     let status = StatusReport::new(
         WORKSPACE.into(),
         format!("{WORKSPACE}/repos.toml"),
         true,
         Sessions::Available { unscoped: vec![] },
-        vec![app, app_wt, blog, forge, spec, lib, missing(), broken],
+        vec![
+            app,
+            app_wt,
+            blog,
+            forge,
+            spec,
+            lib,
+            missing(),
+            stray,
+            twin(),
+            missing_reference("wpt", None),
+            missing_reference("html", None),
+            missing_reference("dom", None),
+            broken,
+        ],
     );
     let sync = |key: &str, fetch, branches| EntrySync {
         key: key.into(),
         fetch,
+        clone: None,
         branches,
+    };
+    let cloned = |key: &str, clone| EntrySync {
+        key: key.into(),
+        fetch: FetchOutcome::NotFetched,
+        clone: Some(clone),
+        branches: vec![],
     };
     SyncReport::new(
         status,
@@ -682,7 +761,49 @@ fn sync_report_doc() -> SyncReport {
             ),
             sync("spec", FetchOutcome::NotFetched, spec_sync),
             sync("lib", FetchOutcome::NotFetched, vec![]),
-            sync("blake3", FetchOutcome::NotFetched, vec![]),
+            cloned(
+                "blake3",
+                CloneOutcome::Cloned {
+                    branch: "main".into(),
+                    head: oid('c'),
+                },
+            ),
+            cloned(
+                "stray",
+                CloneOutcome::Held {
+                    by: SyncHold::UnprobedWorktree,
+                },
+            ),
+            cloned(
+                "twin",
+                CloneOutcome::Held {
+                    by: SyncHold::Entry,
+                },
+            ),
+            // a dir made at the path since the probe
+            cloned(
+                "wpt",
+                CloneOutcome::Held {
+                    by: SyncHold::Changed,
+                },
+            ),
+            cloned(
+                "html",
+                CloneOutcome::CloneFailed {
+                    failure: RemoteFailure::RepoNotFound {
+                        message: "remote: Repository not found.".into(),
+                    },
+                },
+            ),
+            cloned(
+                "dom",
+                CloneOutcome::Failed {
+                    message: format!(
+                        "can't move the clone into {WORKSPACE}/dom: Permission denied (os \
+                         error 13)"
+                    ),
+                },
+            ),
             sync("broken", FetchOutcome::Fetched, vec![]),
         ],
     )
@@ -746,6 +867,7 @@ fn entry(key: &str, branch: Option<&str>) -> EntryStatus {
         branch: branch.map(str::to_owned),
         pinned: false,
         presence: Presence::Present,
+        clone: None,
         layout: Some(plain_layout()),
         checkouts: vec![primary(key, on("main"))],
         branches: vec![],
@@ -1321,14 +1443,73 @@ fn zzz() -> EntryStatus {
     e
 }
 
-/// Not cloned yet: sync would clone it.
+/// Not cloned yet: sync would clone it, over SSH on its branch.
 fn missing() -> EntryStatus {
     EntryStatus {
         presence: Presence::Missing,
+        clone: Some(CloneVerdict::Act {
+            recipe: CloneRecipe {
+                url: "git@github.com:me/blake3".into(),
+                branch: Some("main".into()),
+                shallow: false,
+                sparse: None,
+            },
+        }),
         layout: None,
         checkouts: vec![],
         fetched_at: None,
         ..entry("blake3", Some("main"))
+    }
+}
+
+/// A missing third-party reference, `key`, cloned over HTTPS from the
+/// remote's default branch, shallow and sparse — its clone `held` or not.
+fn missing_reference(key: &str, held: Option<HeldBy>) -> EntryStatus {
+    let recipe = CloneRecipe {
+        url: format!("https://github.com/them/{key}"),
+        branch: None,
+        shallow: true,
+        sparse: Some("css".into()),
+    };
+    EntryStatus {
+        kind: EntryKind::Reference,
+        url: format!("https://github.com/them/{key}"),
+        writable: false,
+        visibility: None,
+        ci: false,
+        branch: None,
+        presence: Presence::Missing,
+        clone: Some(match held {
+            Some(by) => CloneVerdict::Held { recipe, by },
+            None => CloneVerdict::Act { recipe },
+        }),
+        layout: None,
+        checkouts: vec![],
+        fetched_at: None,
+        ..entry(key, None)
+    }
+}
+
+/// A missing entry naming app's repo, held for a person: its dir may have
+/// been a worktree of app's.
+fn twin() -> EntryStatus {
+    EntryStatus {
+        url: "https://github.com/me/app".into(),
+        clone: Some(CloneVerdict::Held {
+            recipe: CloneRecipe {
+                url: "git@github.com:me/app".into(),
+                branch: Some("main".into()),
+                shallow: false,
+                sparse: None,
+            },
+            by: HeldBy::Entry,
+        }),
+        needs_human: vec![NeedsHuman::CloneSharesRepo { with: "app".into() }],
+        ..EntryStatus {
+            key: "twin".into(),
+            dir: "twin".into(),
+            ..missing()
+        }
     }
 }
 
@@ -1629,6 +1810,12 @@ fn moved(blocked_by: Option<RepairBlock>, exit_noise: Option<&str>) -> Unregiste
 fn unregistered() -> Vec<UnregisteredClone> {
     let app_origin = Some("git@github.com:me/app");
     vec![
+        stray(
+            ".blake3.repos-clone-4242-0123456789abcdef",
+            Some("git@github.com:me/blake3"),
+            true,
+            UnregisteredKind::UnfinishedClone,
+        ),
         stray(
             "b-copy",
             app_origin,

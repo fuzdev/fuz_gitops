@@ -32,6 +32,7 @@ use std::process::ExitCode;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use argh::{EarlyExit, FromArgs};
+use fuz_repos::clone::CLONE_TIMEOUT;
 use fuz_repos::discover::{RegistryLocation, find_registry, resolve_targets};
 use fuz_repos::error::{Error, Result};
 use fuz_repos::git::Git;
@@ -110,9 +111,9 @@ struct StatusArgs {
 }
 
 /// Fetch, then fast-forward each branch behind, move each stale shallow one,
-/// and push each one ahead, where safe; report what was done and what was
-/// held. Never force-pushes, merges, rebases, deletes, or clones; an agent's
-/// pushes are held.
+/// push each one ahead, and clone each missing entry, where safe; report
+/// what was done and what was held. Never force-pushes, merges, rebases, or
+/// deletes; an agent's pushes are held.
 #[derive(FromArgs, Debug)]
 #[argh(subcommand, name = "sync")]
 struct SyncArgs {
@@ -333,6 +334,7 @@ fn run_sync(locate: Locate<'_>, args: &SyncArgs) -> Result<Printed> {
             visibility_base: None,
             read_live: &read_live,
             caller: Caller::from_env(),
+            clone_timeout: CLONE_TIMEOUT,
         },
     );
     let status = StatusReport::new(

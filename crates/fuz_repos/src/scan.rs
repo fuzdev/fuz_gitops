@@ -1,22 +1,23 @@
 //! The unregistered scan: the workspace root's children holding a `.git`
 //! that no registry entry claims.
 //!
-//! Direct children only, never recursing. A child is skipped when it's a
-//! registry dir — by canonical path, so a symlink to a registered dir isn't a
-//! stray — or when it's a live checkout of a registered repo git itself
-//! knows: a linked worktree whose `.git` file names a git dir under that
-//! repo's `<common>/worktrees/` whose `gitdir` names this path back, or the
-//! main checkout of a repo whose registry dir is one of its linked
+//! Direct children only, never recursing. A clone's temp dir
+//! (`.<dir>.repos-clone-<pid>-<nonce>`) is reported as the tool's own, `.git`
+//! or not: a clone a sync didn't finish, or one still running. A child is
+//! skipped when it's a registry dir — by canonical path, so a symlink to a
+//! registered dir isn't a stray — or when it's a live checkout of a registered
+//! repo git itself knows: a linked worktree whose `.git` file names a git dir
+//! under that repo's `<common>/worktrees/` whose `gitdir` names this path back,
+//! or the main checkout of a repo whose registry dir is one of its linked
 //! worktrees. Anything else of a registered repo is reported, never skipped:
-//! moved by hand (`git worktree repair` reconnects it, offered only when
-//! the repair — which also walks every other worktree git dir of the repo —
-//! would rewrite no other checkout, and no git dir of the repo names its
-//! worktree relatively, which git versions resolve differently, or has a
-//! `gitdir` the tool can't read), orphaned
-//! (its git dir is gone or holds no `HEAD`), or sharing a git dir another
-//! checkout uses or may use — a copy, a locked worktree's absent original, a
-//! second copy of a moved worktree — where a repair would take the git dir
-//! from that checkout, so none is offered.
+//! moved by hand (`git worktree repair` reconnects it, offered only when the
+//! repair — which also walks every other worktree git dir of the repo — would
+//! rewrite no other checkout, and no git dir of the repo names its worktree
+//! relatively, which git versions resolve differently, or has a `gitdir` the
+//! tool can't read), orphaned (its git dir is gone or holds no `HEAD`), or
+//! sharing a git dir another checkout uses or may use — a copy, a locked
+//! worktree's absent original, a second copy of a moved worktree — where a
+//! repair would take the git dir from that checkout, so none is offered.
 //!
 //! A `.git`, a git dir's `commondir`, and a worktree git dir's `gitdir` are
 //! read as git reads them (`gitdir`) — raw bytes, UTF-8 or not — so a child
@@ -38,6 +39,7 @@ use std::io;
 use std::path::{Path, PathBuf};
 
 use crate::classify::remote_account;
+use crate::clone::is_temp_dir_name;
 use crate::git::{CallOptions, Git};
 use crate::gitdir::{dot_git_target, read_commondir, read_worktree_gitdir};
 use crate::probe::{AdminGitdir, admin_dirs, canonical, read_admin_gitdir};
@@ -93,15 +95,22 @@ pub fn scan_unregistered(
             std::fs::symlink_metadata(&dot_git),
             Err(e) if e.kind() == io::ErrorKind::NotFound
         );
-        if absent {
+        // a clone's temp dir is the tool's leftover, `.git` or not
+        let unfinished = name.to_str().is_some_and(is_temp_dir_name);
+        if absent && !unfinished {
             continue;
         }
         let real = canonical(&path);
         if registered.iter().any(|r| r.claims(real.as_deref())) {
             continue;
         }
-        let Some(stray) = stray_kind(real.as_deref(), &dot_git, &registered) else {
-            continue;
+        let stray = if unfinished {
+            Stray::at(UnregisteredKind::UnfinishedClone)
+        } else {
+            let Some(stray) = stray_kind(real.as_deref(), &dot_git, &registered) else {
+                continue;
+            };
+            stray
         };
         strays.push(Found {
             name,

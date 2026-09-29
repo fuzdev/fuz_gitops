@@ -1,5 +1,5 @@
 //! Probe facts → each branch's relation and verdict, and the entry's
-//! `needs_human` reasons. Pure.
+//! `needs_human` reasons; a missing entry → its clone verdict. Pure.
 //!
 //! The verdict is the one place sync's per-branch decision is made: `status`
 //! previews it, `sync` executes it, and JSON consumers read it rather than
@@ -14,9 +14,9 @@ use crate::probe::{BranchFacts, RepoFacts};
 use crate::registry::{Entry, RepoUrl};
 use crate::sessions::{Caller, Session};
 use crate::state::{
-    BranchNeedsHuman, BranchStatus, CleanupReason, Head, HeldBy, InProgressOp, Prune, PruneLoss,
-    Relation, SyncAction, UnprobedHead, UnprobedWhy, UnprobedWorktree, UnprobedWorktreeStatus,
-    Verdict,
+    BranchNeedsHuman, BranchStatus, CleanupReason, CloneRecipe, CloneVerdict, Head, HeldBy,
+    InProgressOp, Prune, PruneLoss, Relation, SyncAction, UnprobedHead, UnprobedWhy,
+    UnprobedWorktree, UnprobedWorktreeStatus, Verdict,
 };
 use crate::url::{RemoteParts, remote_parts, without_userinfo};
 
@@ -89,6 +89,15 @@ pub enum NeedsHuman {
         push_urls: Vec<String>,
         expected: String,
     },
+    /// A missing entry whose `url` names the same repo as another entry's,
+    /// `with` (`Entry::same_repo_as`): its dir may have been a linked
+    /// worktree of that repo (its record since pruned), and a clone would
+    /// make a second, independent copy — the tool never guesses which is
+    /// meant. Its clone is held (`HeldBy::Entry`); a person clones it, or
+    /// adds the worktree, by hand.
+    CloneSharesRepo {
+        with: String,
+    },
 }
 
 impl NeedsHuman {
@@ -104,7 +113,8 @@ impl NeedsHuman {
             Self::NotARepo { .. }
             | Self::OperationInProgress { .. }
             | Self::OriginMismatch { .. }
-            | Self::WorktreeUnreadable { .. } => true,
+            | Self::WorktreeUnreadable { .. }
+            | Self::CloneSharesRepo { .. } => true,
             Self::DefaultBranchMissing { .. }
             | Self::DefaultBranchNoUpstream { .. }
             | Self::UnexpectedDetached { .. }
@@ -343,6 +353,64 @@ pub fn classify(
         branches,
         needs_human,
         unprobed,
+    }
+}
+
+/// A missing entry's clone verdict, and the reason a person decides it,
+/// when one does.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ClassifiedMissing {
+    pub clone: CloneVerdict,
+    pub needs_human: Vec<NeedsHuman>,
+}
+
+/// Classifies an entry whose dir is missing: sync clones it
+/// (`clone_recipe`), unless something at that path, or the registry, holds
+/// it.
+///
+/// Another entry naming the same repo holds it for a person
+/// (`clone_shares_repo`, `HeldBy::Entry`): the missing dir may have been a
+/// worktree of that repo, and a second clone would be a guess. A live
+/// session working at or under the missing path holds it (`busy`: its dir
+/// was deleted from under it, and the clone would land where it works), as
+/// does another entry's gone worktree recorded there (`recorded_worktree`:
+/// that repo would take the clone for its worktree's files) — named in
+/// that order. Nothing else holds a clone: it creates a dir and overwrites
+/// nothing, so neither an agent running the tool, a pin (cloned, then held
+/// for good), an archived repo, nor busy detection that's unavailable
+/// holds it.
+pub fn classify_missing(entry: &Entry, busy: bool, recorded_worktree: bool) -> ClassifiedMissing {
+    let recipe = clone_recipe(entry);
+    let needs_human: Vec<NeedsHuman> = entry
+        .same_repo_as
+        .iter()
+        .map(|with| NeedsHuman::CloneSharesRepo { with: with.clone() })
+        .collect();
+    let held = if !needs_human.is_empty() {
+        Some(HeldBy::Entry)
+    } else if busy {
+        Some(HeldBy::Busy)
+    } else if recorded_worktree {
+        Some(HeldBy::UnprobedWorktree)
+    } else {
+        None
+    };
+    let clone = match held {
+        Some(by) => CloneVerdict::Held { recipe, by },
+        None => CloneVerdict::Act { recipe },
+    };
+    ClassifiedMissing { clone, needs_human }
+}
+
+/// How a missing entry is cloned: from `Entry::remote_url` (transport
+/// follows write authority), on its branch when it names one, shallow and
+/// sparse as a reference declares.
+pub fn clone_recipe(entry: &Entry) -> CloneRecipe {
+    CloneRecipe {
+        url: entry.remote_url(),
+        branch: entry.branch.clone(),
+        shallow: entry.shallow,
+        sparse: entry.sparse.clone(),
     }
 }
 
@@ -865,6 +933,9 @@ mod tests {
             ci: false,
             branch,
             pinned,
+            shallow: false,
+            sparse: None,
+            same_repo_as: None,
         }
     }
 
@@ -2391,6 +2462,99 @@ mod tests {
         assert_eq!(
             verdicts(&archived, &f)[1].1,
             needs(BranchNeedsHuman::ArchivedAhead)
+        );
+    }
+
+    #[test]
+    fn a_missing_entry_is_cloned_by_its_recipe() {
+        let act = |recipe| CloneVerdict::Act { recipe };
+        // owned: over SSH, on its branch
+        let owned_recipe = CloneRecipe {
+            url: "git@github.com:me/app".into(),
+            branch: Some("main".into()),
+            shallow: false,
+            sparse: None,
+        };
+        assert_eq!(
+            classify_missing(&owned(Mode::Follow("main")), false, false).clone,
+            act(owned_recipe.clone())
+        );
+        // third-party: over HTTPS, shallow and sparse as declared, the
+        // remote's default branch without one
+        let lib = Entry {
+            shallow: true,
+            sparse: Some("css".into()),
+            ..third_party(Mode::Head)
+        };
+        assert_eq!(
+            classify_missing(&lib, false, false).clone,
+            act(CloneRecipe {
+                url: "https://github.com/them/lib".into(),
+                branch: None,
+                shallow: true,
+                sparse: Some("css".into()),
+            })
+        );
+        // a pin and an archived repo are cloned all the same
+        for e in [
+            owned(Mode::PinnedOn("fork")),
+            Entry {
+                archived: true,
+                ..owned(Mode::Follow("main"))
+            },
+        ] {
+            assert!(
+                matches!(
+                    classify_missing(&e, false, false).clone,
+                    CloneVerdict::Act { .. }
+                ),
+                "{e:?}"
+            );
+        }
+        // a session at the path holds it, named before a recorded worktree
+        let e = owned(Mode::Follow("main"));
+        for (busy, recorded, by) in [
+            (true, false, HeldBy::Busy),
+            (true, true, HeldBy::Busy),
+            (false, true, HeldBy::UnprobedWorktree),
+        ] {
+            assert_eq!(
+                classify_missing(&e, busy, recorded),
+                ClassifiedMissing {
+                    clone: CloneVerdict::Held {
+                        recipe: owned_recipe.clone(),
+                        by
+                    },
+                    needs_human: vec![],
+                }
+            );
+        }
+        // another entry naming its repo holds it for a person, named before
+        // anything else
+        let shared = Entry {
+            same_repo_as: Some("app_wt".into()),
+            ..owned(Mode::Follow("main"))
+        };
+        for (busy, recorded) in [(false, false), (true, false), (false, true), (true, true)] {
+            assert_eq!(
+                classify_missing(&shared, busy, recorded),
+                ClassifiedMissing {
+                    clone: CloneVerdict::Held {
+                        recipe: owned_recipe.clone(),
+                        by: HeldBy::Entry
+                    },
+                    needs_human: vec![NeedsHuman::CloneSharesRepo {
+                        with: "app_wt".into()
+                    }],
+                },
+                "{busy} {recorded}"
+            );
+        }
+        assert!(
+            NeedsHuman::CloneSharesRepo {
+                with: "app_wt".into()
+            }
+            .holds_entry()
         );
     }
 

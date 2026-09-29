@@ -1,5 +1,5 @@
 {
-	"version": 9,
+	"version": 10,
 	"workspace": "/home/me/dev",
 	"registry": "/home/me/dev/repos.toml",
 	"fetched": false,
@@ -27,6 +27,7 @@
 			"presence": {
 				"kind": "present"
 			},
+			"clone": null,
 			"layout": {
 				"shallow": false,
 				"sparse": false,
@@ -87,6 +88,7 @@
 			"presence": {
 				"kind": "present"
 			},
+			"clone": null,
 			"layout": {
 				"shallow": false,
 				"sparse": false,

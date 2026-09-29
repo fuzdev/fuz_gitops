@@ -9,7 +9,7 @@ use crate::error::{Error, ErrorKind};
 use crate::registry::{EntryKind, Visibility};
 use crate::remote::{RemoteFailure, VisibilityCheck};
 use crate::state::{
-    BranchNeedsHuman, BranchStatus, Checkout, HeldBy, Layout, Presence, SyncAction,
+    BranchNeedsHuman, BranchStatus, Checkout, CloneVerdict, HeldBy, Layout, Presence, SyncAction,
     UnprobedWorktreeStatus,
 };
 use crate::{STATUS_FORMAT_VERSION, SYNC_FORMAT_VERSION};
@@ -165,6 +165,13 @@ pub enum UnregisteredKind {
     /// worktree repair` here would take the git dir from it — so no fix is
     /// offered.
     SharedGitDir { entry: String, with: Option<String> },
+    /// A clone's temp dir, named `.<dir>.repos-clone-<pid>-<nonce>`
+    /// (`clone::is_temp_dir_name`), with a `.git` or without one: a clone a
+    /// sync didn't finish or clean up — killed mid-clone, or unable to
+    /// remove it — or one a sync is still running, which the scan can't
+    /// tell apart. The tool's own, never a repo to keep: remove it once no
+    /// `repos sync` is running.
+    UnfinishedClone,
 }
 
 /// One registry entry's state.
@@ -190,6 +197,9 @@ pub struct EntryStatus {
     /// fast-forward and move in it `HeldBy::Pinned`.
     pub pinned: bool,
     pub presence: Presence,
+    /// What sync does about a missing dir — clone it, or why not yet
+    /// (`classify_missing`); `Some` exactly when `presence` is missing.
+    pub clone: Option<CloneVerdict>,
     /// `None` when the repo isn't present, or its probe failed before the
     /// config was read; with `probe_error` set it's what was read first.
     pub layout: Option<Layout>,
@@ -320,6 +330,7 @@ impl SyncReport {
     pub fn failed(&self) -> bool {
         self.entries.iter().any(|e| {
             matches!(e.fetch, FetchOutcome::Failed { .. })
+                || e.clone.as_ref().is_some_and(CloneOutcome::failed)
                 || e.branches.iter().any(|b| b.outcome.failed())
         }) || self.status.entries.iter().any(|e| e.probe_error.is_some())
     }
@@ -330,11 +341,45 @@ impl SyncReport {
 pub struct EntrySync {
     pub key: String,
     pub fetch: FetchOutcome,
+    /// What sync did about a missing dir: `Some` exactly when the status
+    /// entry has a `clone` verdict.
+    pub clone: Option<CloneOutcome>,
     /// One per branch of the status entry, in its order. Empty when there
-    /// are none: the repo is missing, isn't one, or its probe failed — sync
-    /// refuses an entry it couldn't read whole, and that counts as failed
-    /// (the status entry's `probe_error`).
+    /// are none: the repo is missing (a clone's branch is in its `clone`
+    /// outcome), isn't one, or its probe failed — sync refuses an entry it
+    /// couldn't read whole, and that counts as failed (the status entry's
+    /// `probe_error`).
     pub branches: Vec<BranchSync>,
+}
+
+/// What sync did about a missing entry: its `clone` verdict, carried out.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum CloneOutcome {
+    /// Cloned into place and read back there: HEAD on `branch` (the
+    /// recipe's, else the remote's default) at `head`, its upstream
+    /// origin's branch of the name, the checkout clean.
+    Cloned { branch: String, head: String },
+    /// Not cloned: the verdict's hold, or one found right before cloning —
+    /// `busy`, a live session now at or under the path, or `changed`,
+    /// something now at the path.
+    Held { by: SyncHold },
+    /// Git's clone (or its sparse checkout) failed reaching for the remote
+    /// or at it, classified as a fetch failure is; nothing is left at the
+    /// path. The run exits `1`.
+    CloneFailed { failure: RemoteFailure },
+    /// The clone couldn't be made or placed (`message` says why; nothing is
+    /// left at the path), or read back in place as the recipe says it
+    /// should be — the clone stays there, and `repos status` shows it.
+    /// The run exits `1`.
+    Failed { message: String },
+}
+
+impl CloneOutcome {
+    /// Whether the clone failed, so the run exits `1`.
+    pub const fn failed(&self) -> bool {
+        matches!(self, Self::CloneFailed { .. } | Self::Failed { .. })
+    }
 }
 
 /// How sync's fetch of an entry went.
@@ -348,7 +393,7 @@ pub enum FetchOutcome {
         failure: RemoteFailure,
     },
     /// Not attempted: an entry sync doesn't fetch (a third-party reference,
-    /// a pin), a repo that's missing or isn't one, one whose `origin` has
+    /// a pin), a repo that's missing (cloned instead) or isn't one, one whose `origin` has
     /// no URL, or a probe that failed before its fetch.
     NotFetched,
 }
@@ -443,7 +488,8 @@ pub enum SyncHold {
     /// checked out now, a branch to update in place became a symbolic ref,
     /// a branch to push holds another commit or upstream than classified or
     /// is no longer ahead of it — or the remote moved since the fetch, so
-    /// git rejected the push as no fast-forward. Rerun to reclassify.
+    /// git rejected the push as no fast-forward; or a missing dir to clone
+    /// into is there now. Rerun to reclassify.
     Changed,
 }
 

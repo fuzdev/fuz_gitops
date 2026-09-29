@@ -12,13 +12,13 @@ use fuz_repos::classify::{NeedsHuman, OriginByHand, OriginFix, OriginRemote};
 use fuz_repos::registry::{EntryKind, Visibility};
 use fuz_repos::remote::{RefGoneFix, RemoteFailure, UnreachableCause, VisibilityCheck};
 use fuz_repos::report::{
-    BranchOutcome, EntryStatus, EntrySync, RepairBlock, StatusReport, SyncHold, SyncReport,
-    UnregisteredClone, UnregisteredKind,
+    BranchOutcome, CloneOutcome, EntryStatus, EntrySync, RepairBlock, StatusReport, SyncHold,
+    SyncReport, UnregisteredClone, UnregisteredKind,
 };
 use fuz_repos::sessions::{Session, SessionSource, Unavailable};
 use fuz_repos::state::{
-    BranchNeedsHuman, BranchStatus, CleanupReason, Head, HeldBy, Presence, Prune, PruneLoss,
-    Relation, SyncAction, Uncommitted, UnprobedHead, UnprobedWhy, Verdict,
+    BranchNeedsHuman, BranchStatus, CleanupReason, CloneVerdict, Head, HeldBy, Presence, Prune,
+    PruneLoss, Relation, SyncAction, Uncommitted, UnprobedHead, UnprobedWhy, Verdict,
 };
 
 /// The label column's width.
@@ -283,17 +283,18 @@ fn summary(
     if report.entries.iter().any(EntryStatus::probe_failed_partial) {
         hints.push(format!("{} (each under --verbose)", partial_hint("<dir>")));
     }
-    // a fetch's failure, or under sync a push's
+    // a fetch's failure, or under sync a push's or a clone's
     let fetch_failed = |pick: fn(&RemoteFailure) -> bool| {
         report
             .entries
             .iter()
             .any(|e| e.fetch_error.as_ref().is_some_and(pick))
             || synced.into_iter().flatten().any(|e| {
-                e.branches.iter().any(|b| match &b.outcome {
-                    BranchOutcome::PushFailed { failure } => pick(failure),
-                    _ => false,
-                })
+                matches!(&e.clone, Some(CloneOutcome::CloneFailed { failure }) if pick(failure))
+                    || e.branches.iter().any(|b| match &b.outcome {
+                        BranchOutcome::PushFailed { failure } => pick(failure),
+                        _ => false,
+                    })
             })
     };
     if fetch_failed(|f| matches!(f, RemoteFailure::RefGone { .. })) {
@@ -346,27 +347,15 @@ fn summary(
         line("", Tone::Plain, Items::Singles(vec![hint]));
     }
     let gateway = g.gateway.then(|| GATEWAY_HINT.to_owned());
-    if synced.is_some() {
-        let uncloned = !g.clone.is_empty();
-        line("synced", Tone::Green, Items::Runs(g.act.verbs(), " · "));
-        let mut held = g.held.verbs();
-        held.extend(prefixed("clone ", g.clone));
-        line("held", Tone::Yellow, Items::Runs(held, " · "));
-        let mut hints: Vec<String> = gateway.into_iter().collect();
-        if uncloned {
-            hints.push("hint: sync never clones — each missing entry is yours to clone".to_owned());
-        }
-        for hint in hints {
-            line("", Tone::Plain, Items::Singles(vec![hint]));
-        }
+    let act_label = if synced.is_some() {
+        "synced"
     } else {
-        let mut sync = g.act.verbs();
-        sync.extend(prefixed("clone ", g.clone));
-        line("sync would", Tone::Green, Items::Runs(sync, " · "));
-        line("held", Tone::Yellow, Items::Runs(g.held.verbs(), " · "));
-        if let Some(hint) = gateway {
-            line("", Tone::Plain, Items::Singles(vec![hint]));
-        }
+        "sync would"
+    };
+    line(act_label, Tone::Green, Items::Runs(g.act.verbs(), " · "));
+    line("held", Tone::Yellow, Items::Runs(g.held.verbs(), " · "));
+    if let Some(hint) = gateway {
+        line("", Tone::Plain, Items::Singles(vec![hint]));
     }
     line("local-only", Tone::Plain, Items::Singles(g.local_only));
     line("uncommitted", Tone::Plain, Items::Singles(g.uncommitted));
@@ -488,12 +477,14 @@ fn render_group(label: &str, tone: Tone, items: &Items, view: View<'_>) -> Strin
     out
 }
 
-/// Sync actions by verb, each item a labeled branch.
+/// Sync actions by verb, each item a labeled branch — or, for a clone, an
+/// entry's key.
 #[derive(Debug, Default)]
 struct Actions {
     push: Vec<String>,
     ff: Vec<String>,
     moves: Vec<String>,
+    clones: Vec<String>,
 }
 
 impl Actions {
@@ -508,13 +499,19 @@ impl Actions {
         }
     }
 
-    /// A run per verb — `push a +1, b +2`, `ff …`, `move …` — omitting empty
-    /// verbs.
+    /// Adds a missing entry's clone, by its key; `note` as for `add`.
+    fn add_clone(&mut self, key: &str, note: &str) {
+        self.clones.push(format!("{key}{note}"));
+    }
+
+    /// A run per verb — `push a +1, b +2`, `ff …`, `move …`, `clone …` —
+    /// omitting empty verbs.
     fn verbs(&self) -> Vec<Vec<String>> {
         [
             ("push ", &self.push),
             ("ff ", &self.ff),
             ("move ", &self.moves),
+            ("clone ", &self.clones),
         ]
         .into_iter()
         .filter_map(|(verb, items)| prefixed(verb, items.clone()))
@@ -522,7 +519,7 @@ impl Actions {
     }
 
     const fn len(&self) -> usize {
-        self.push.len() + self.ff.len() + self.moves.len()
+        self.push.len() + self.ff.len() + self.moves.len() + self.clones.len()
     }
 }
 
@@ -538,7 +535,6 @@ struct Groups {
     origin_drift: Vec<String>,
     act: Actions,
     held: Actions,
-    clone: Vec<String>,
     local_only: Vec<String>,
     uncommitted: Vec<String>,
     cleanup: Vec<String>,
@@ -603,8 +599,15 @@ impl Groups {
                     .push(format!("{key} ({})", needs_human_label(reason, e, view))),
             }
         }
-        if e.presence == Presence::Missing {
-            self.clone.push(key.clone());
+        match (&e.clone, self.synced) {
+            (Some(_), true) => {
+                self.add_clone_outcome(key, sync.and_then(|s| s.clone.as_ref()));
+            }
+            (Some(CloneVerdict::Act { .. }), false) => self.act.add_clone(key, ""),
+            (Some(CloneVerdict::Held { by, .. }), false) => {
+                self.held.add_clone(key, held_note(*by));
+            }
+            (None, _) => {}
         }
         for (bi, b) in e.branches.iter().enumerate() {
             if self.synced && matches!(b.verdict, Verdict::Act { .. } | Verdict::Held { .. }) {
@@ -735,6 +738,23 @@ impl Groups {
         said
     }
 
+    /// A missing entry's clone, as what sync did: `outcome` is `None` when
+    /// the report carries none for it.
+    fn add_clone_outcome(&mut self, key: &str, outcome: Option<&CloneOutcome>) {
+        match outcome {
+            Some(CloneOutcome::Cloned { .. }) => self.act.add_clone(key, ""),
+            Some(CloneOutcome::Held { by }) => self.held.add_clone(key, hold_note(*by)),
+            Some(CloneOutcome::CloneFailed { failure }) => self.failed.push(format!(
+                "{key} (clone: {})",
+                remote_failure_label(failure, false)
+            )),
+            Some(CloneOutcome::Failed { message }) => self
+                .failed
+                .push(format!("{key} (clone: {})", first_line(message))),
+            None => self.failed.push(format!("{key} (clone: no outcome)")),
+        }
+    }
+
     /// A branch sync would act on, as what it did: `outcome` is `None`
     /// when the report carries none for it.
     fn add_outcome(&mut self, b: &BranchStatus, outcome: Option<&BranchOutcome>, label: &str) {
@@ -791,7 +811,6 @@ impl Groups {
             + self.origin_drift.len()
             + self.act.len()
             + self.held.len()
-            + self.clone.len()
             + self.local_only.len()
             + self.uncommitted.len()
             + self.cleanup.len()
@@ -889,6 +908,7 @@ fn needs_human_label(reason: &NeedsHuman, e: &EntryStatus, view: View<'_>) -> St
             unprobed_head_label(head),
             sessions_label(busy, view)
         ),
+        NeedsHuman::CloneSharesRepo { with } => format!("same repo as {with}, not cloned"),
         NeedsHuman::PushUrlMismatch { push_urls, .. } => match &push_urls[..] {
             [] => "push goes nowhere".into(),
             [one] => format!("push goes to {one}"),
@@ -969,6 +989,9 @@ pub fn render_entry(e: &EntryStatus, workspace: &Path, view: View<'_>) -> String
     match e.presence {
         Presence::Missing => {
             let _ = writeln!(out, "  {:<10}missing: {}", "dir", e.dir);
+            if let Some(verdict) = &e.clone {
+                let _ = writeln!(out, "  {:<10}{}", "clone", clone_label(verdict));
+            }
         }
         Presence::NotARepo => {
             let _ = writeln!(out, "  {:<10}not a repo: {}", "dir", e.dir);
@@ -1126,6 +1149,11 @@ pub fn render_entry(e: &EntryStatus, workspace: &Path, view: View<'_>) -> String
                  --all origin (remote.origin.pushurl, url.*.pushInsteadOf)",
                 needs_human_label(reason, e, view)
             ),
+            NeedsHuman::CloneSharesRepo { with } => format!(
+                "{} — sync never makes a second copy of a repo: clone {dir} by hand, or add it \
+                 as a worktree of {with}",
+                needs_human_label(reason, e, view)
+            ),
             reason => needs_human_label(reason, e, view),
         };
         let _ = writeln!(out, "  {:<10}{detail}", "needs");
@@ -1235,6 +1263,13 @@ fn unregistered_groups(report: &StatusReport, view: View<'_>) -> Vec<Vec<String>
                 u.dir,
                 shared_with(with.as_deref(), view)
             ),
+            UnregisteredKind::UnfinishedClone => {
+                format!(
+                    "{} (a clone repos didn't finish, or one still running — remove it once \
+                     no repos sync is running)",
+                    u.dir
+                )
+            }
         };
         match (u.owned, &u.origin) {
             (true, _) => owned.push(label),
@@ -1503,6 +1538,15 @@ pub fn render_unregistered(u: &UnregisteredClone, report: &StatusReport, view: V
                 ),
             )],
         ),
+        UnregisteredKind::UnfinishedClone => (
+            "unfinished clone".to_owned(),
+            vec![(
+                "note",
+                "a clone repos didn't finish, or one still running, in its temp dir — nothing \
+                 to keep: remove it once no repos sync is running"
+                    .to_owned(),
+            )],
+        ),
     };
     let mut out = format!("{}  unregistered · {owner} · {kind}\n", u.dir);
     let _ = writeln!(out, "  {:<10}{at}", "dir");
@@ -1566,6 +1610,27 @@ fn verdict_label(v: &Verdict) -> Option<String> {
         } => "cleanup, worktree removable (ignored files go with it)".to_owned(),
         Verdict::Cleanup { .. } => "cleanup".to_owned(),
     })
+}
+
+/// A clone verdict as `--verbose`'s entry block words it: the recipe's
+/// URL and its flags, and what holds it.
+fn clone_label(verdict: &CloneVerdict) -> String {
+    let recipe = verdict.recipe();
+    let mut parts = vec![recipe.url.clone()];
+    parts.push(recipe.branch.as_ref().map_or_else(
+        || "the remote's default branch".to_owned(),
+        |b| format!("branch {b}"),
+    ));
+    if recipe.shallow {
+        parts.push("depth 1".into());
+    }
+    if let Some(path) = &recipe.sparse {
+        parts.push(format!("sparse {path}"));
+    }
+    if let CloneVerdict::Held { by, .. } = verdict {
+        parts.push(format!("held{}", held_note(*by)));
+    }
+    parts.join(" · ")
 }
 
 /// An action's verb, as the summary's runs name it.
@@ -1770,8 +1835,9 @@ pub fn format_age(secs: u64) -> String {
 #[cfg(test)]
 mod tests {
     use fuz_repos::registry::{EntryKind, Visibility};
+    use fuz_repos::report::FetchOutcome;
     use fuz_repos::state::{
-        Checkout, InProgressOp, Layout, UnprobedWorktree, UnprobedWorktreeStatus,
+        Checkout, CloneRecipe, InProgressOp, Layout, UnprobedWorktree, UnprobedWorktreeStatus,
     };
 
     use super::*;
@@ -1805,6 +1871,7 @@ mod tests {
             branch,
             pinned,
             presence: Presence::Present,
+            clone: None,
             layout: Some(Layout {
                 shallow: false,
                 sparse: false,
@@ -1830,6 +1897,23 @@ mod tests {
             fetch_error: None,
             visibility_check: None,
         }
+    }
+
+    /// A missing owned repo on `main`, which sync would clone.
+    fn missing(key: &str) -> EntryStatus {
+        let mut e = entry(key, main(), "main");
+        e.presence = Presence::Missing;
+        e.layout = None;
+        e.checkouts.clear();
+        e.clone = Some(CloneVerdict::Act {
+            recipe: CloneRecipe {
+                url: format!("git@github.com:me/{key}"),
+                branch: Some("main".into()),
+                shallow: false,
+                sparse: None,
+            },
+        });
+        e
     }
 
     const fn main() -> Mode<'static> {
@@ -1932,6 +2016,115 @@ mod tests {
         width: DEFAULT_WIDTH,
         color: false,
     };
+
+    /// A clone's verdict in the preview, and its outcome in sync's summary.
+    #[test]
+    fn clones_read_as_what_sync_would_do_and_did() {
+        let held = |key: &str, by| {
+            let mut e = missing(key);
+            let recipe = e.clone.take().unwrap().recipe().clone();
+            e.clone = Some(CloneVerdict::Held { recipe, by });
+            e
+        };
+        let r = report(vec![
+            missing("a"),
+            held("b", HeldBy::Busy),
+            missing("c"),
+            missing("d"),
+            missing("e"),
+        ]);
+        let text = render_summary(&r, VIEW, false);
+        assert!(
+            text.starts_with(
+                "sync would    clone a, c, d, e\nheld          clone b (busy)\nclean 0 · \
+                 on branches 0 · pinned 0"
+            ),
+            "{text}"
+        );
+        let outcome = |key: &str, clone| EntrySync {
+            key: key.into(),
+            fetch: FetchOutcome::NotFetched,
+            clone: Some(clone),
+            branches: vec![],
+        };
+        let synced = SyncReport::new(
+            r,
+            vec![
+                outcome(
+                    "a",
+                    CloneOutcome::Cloned {
+                        branch: "main".into(),
+                        head: "c".repeat(40),
+                    },
+                ),
+                outcome("b", CloneOutcome::Held { by: SyncHold::Busy }),
+                outcome(
+                    "c",
+                    CloneOutcome::Held {
+                        by: SyncHold::Changed,
+                    },
+                ),
+                outcome(
+                    "d",
+                    CloneOutcome::CloneFailed {
+                        failure: RemoteFailure::Unreachable {
+                            cause: UnreachableCause::Auth,
+                            message: "git@github.com: Permission denied (publickey).".into(),
+                        },
+                    },
+                ),
+                outcome(
+                    "e",
+                    CloneOutcome::Failed {
+                        message: "cloned into /home/me/dev/e, but its HEAD is detached".into(),
+                    },
+                ),
+            ],
+        );
+        let text = render_sync_summary(&synced, VIEW, false);
+        let lines: Vec<&str> = text.lines().collect();
+        assert_eq!(
+            lines[..lines.len() - 1],
+            [
+                "failed        d (clone: access denied)",
+                "              e (clone: cloned into /home/me/dev/e, but its HEAD is detached)",
+                format!("              hint: {AUTH_HINT}").as_str(),
+                "synced        clone a",
+                "held          clone b (busy), c (changed since read, rerun)",
+            ],
+            "{text}"
+        );
+    }
+
+    /// A missing entry naming another's repo waits for a person: its
+    /// reason in the summary, the clone held with it, and the way out in
+    /// its block.
+    #[test]
+    fn a_missing_entry_sharing_a_repo_needs_a_person() {
+        let mut e = missing("twin");
+        let recipe = e.clone.take().unwrap().recipe().clone();
+        e.clone = Some(CloneVerdict::Held {
+            recipe,
+            by: HeldBy::Entry,
+        });
+        e.needs_human = vec![NeedsHuman::CloneSharesRepo { with: "app".into() }];
+        let r = report(vec![entry("app", main(), "main"), e]);
+        let text = render_summary(&r, VIEW, false);
+        assert!(
+            text.starts_with(
+                "needs human   twin (same repo as app, not cloned)\nheld          clone twin\n"
+            ),
+            "{text}"
+        );
+        let block = render_entry(&r.entries[1], Path::new("/home/me/dev"), VIEW);
+        assert!(
+            block.contains(
+                "  needs     same repo as app, not cloned — sync never makes a second copy of a \
+                 repo: clone ~/dev/twin by hand, or add it as a worktree of app\n"
+            ),
+            "{block}"
+        );
+    }
 
     #[test]
     fn a_clean_workspace_is_one_line() {
@@ -2074,9 +2267,7 @@ clean 0 · on branches 0 · pinned 0      ~/dev/repos.toml
             act(SyncAction::FastForward { commits: 3 }),
         )];
         zzz.fetched_at = None;
-        let mut blake3 = entry("blake3", main(), "main");
-        blake3.presence = Presence::Missing;
-        blake3.checkouts.clear();
+        let blake3 = missing("blake3");
         let mut old = entry("old", main(), "main");
         old.archived = true;
         old.branches = vec![branch(
@@ -3198,6 +3389,48 @@ clean 1 · on branches 0 · pinned 0      ~/dev/repos.toml · fetched 3h ago
         }
     }
 
+    /// A clone's temp dir is named as the tool's own, a leftover or a
+    /// clone still running, with or without an origin.
+    #[test]
+    fn an_unfinished_clone_is_the_tools_leftover() {
+        let strays = vec![
+            unregistered(
+                ".app.repos-clone-41-0123456789abcdef",
+                Some("git@github.com:me/app"),
+                true,
+                UnregisteredKind::UnfinishedClone,
+            ),
+            unregistered(
+                ".lib.repos-clone-42-0123456789abcdef",
+                None,
+                false,
+                UnregisteredKind::UnfinishedClone,
+            ),
+        ];
+        let mut r = report(vec![entry("app", main(), "main")]);
+        r.unregistered = Some(strays.clone());
+        assert_eq!(
+            render_summary(&r, VIEW, false),
+            "\
+unregistered  owned: .app.repos-clone-41-0123456789abcdef (a clone repos didn't finish, or one \
+still running — remove it once no repos sync is running)
+              no origin: .lib.repos-clone-42-0123456789abcdef (a clone repos didn't finish, or \
+one still running — remove it once no repos sync is running)
+clean 1 · on branches 0 · pinned 0      ~/dev/repos.toml · fetched 3h ago
+"
+        );
+        assert_eq!(
+            render_unregistered(&strays[1], &r, VIEW),
+            "\
+.lib.repos-clone-42-0123456789abcdef  unregistered · no origin · unfinished clone
+  dir       ~/dev/.lib.repos-clone-42-0123456789abcdef
+  origin    none
+  note      a clone repos didn't finish, or one still running, in its temp dir — nothing to keep: \
+remove it once no repos sync is running
+"
+        );
+    }
+
     #[test]
     fn a_shared_git_dir_git_cannot_name() {
         let u = unregistered(
@@ -3772,10 +4005,7 @@ sync would    push a +1, bb +2, ccc +3,
         )];
         entries.push(zzz);
         for key in ["blake3", "corpora"] {
-            let mut e = entry(key, main(), "main");
-            e.presence = Presence::Missing;
-            e.checkouts.clear();
-            entries.push(e);
+            entries.push(missing(key));
         }
         let r = report(entries);
         assert!(render_summary(&r, VIEW, false).starts_with(

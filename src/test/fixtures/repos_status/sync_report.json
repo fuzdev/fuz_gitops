@@ -1,7 +1,7 @@
 {
-	"version": 2,
+	"version": 3,
 	"status": {
-		"version": 9,
+		"version": 10,
 		"workspace": "/home/me/dev",
 		"registry": "/home/me/dev/repos.toml",
 		"fetched": true,
@@ -24,6 +24,7 @@
 				"presence": {
 					"kind": "present"
 				},
+				"clone": null,
 				"layout": {
 					"shallow": false,
 					"sparse": false,
@@ -374,6 +375,7 @@
 				"presence": {
 					"kind": "present"
 				},
+				"clone": null,
 				"layout": {
 					"shallow": false,
 					"sparse": false,
@@ -443,6 +445,7 @@
 				"presence": {
 					"kind": "present"
 				},
+				"clone": null,
 				"layout": {
 					"shallow": false,
 					"sparse": false,
@@ -519,6 +522,7 @@
 				"presence": {
 					"kind": "present"
 				},
+				"clone": null,
 				"layout": {
 					"shallow": false,
 					"sparse": false,
@@ -593,6 +597,7 @@
 				"presence": {
 					"kind": "present"
 				},
+				"clone": null,
 				"layout": {
 					"shallow": false,
 					"sparse": false,
@@ -663,6 +668,7 @@
 				"presence": {
 					"kind": "present"
 				},
+				"clone": null,
 				"layout": {
 					"shallow": false,
 					"sparse": false,
@@ -712,6 +718,192 @@
 				"presence": {
 					"kind": "missing"
 				},
+				"clone": {
+					"kind": "act",
+					"recipe": {
+						"url": "git@github.com:me/blake3",
+						"branch": "main",
+						"shallow": false,
+						"sparse": null
+					}
+				},
+				"layout": null,
+				"checkouts": [],
+				"branches": [],
+				"stashes": 0,
+				"fetched_at": null,
+				"needs_human": [],
+				"probe_error": null,
+				"unprobed_worktrees": [],
+				"fetch_error": null,
+				"visibility_check": null
+			},
+			{
+				"key": "stray",
+				"kind": "repo",
+				"dir": "stray",
+				"url": "https://github.com/me/stray",
+				"writable": true,
+				"archived": false,
+				"visibility": "public",
+				"ci": true,
+				"branch": "main",
+				"pinned": false,
+				"presence": {
+					"kind": "missing"
+				},
+				"clone": {
+					"kind": "held",
+					"recipe": {
+						"url": "git@github.com:me/stray",
+						"branch": "main",
+						"shallow": false,
+						"sparse": null
+					},
+					"by": "unprobed_worktree"
+				},
+				"layout": null,
+				"checkouts": [],
+				"branches": [],
+				"stashes": 0,
+				"fetched_at": null,
+				"needs_human": [],
+				"probe_error": null,
+				"unprobed_worktrees": [],
+				"fetch_error": null,
+				"visibility_check": null
+			},
+			{
+				"key": "twin",
+				"kind": "repo",
+				"dir": "twin",
+				"url": "https://github.com/me/app",
+				"writable": true,
+				"archived": false,
+				"visibility": "public",
+				"ci": true,
+				"branch": "main",
+				"pinned": false,
+				"presence": {
+					"kind": "missing"
+				},
+				"clone": {
+					"kind": "held",
+					"recipe": {
+						"url": "git@github.com:me/app",
+						"branch": "main",
+						"shallow": false,
+						"sparse": null
+					},
+					"by": "entry"
+				},
+				"layout": null,
+				"checkouts": [],
+				"branches": [],
+				"stashes": 0,
+				"fetched_at": null,
+				"needs_human": [
+					{
+						"kind": "clone_shares_repo",
+						"with": "app"
+					}
+				],
+				"probe_error": null,
+				"unprobed_worktrees": [],
+				"fetch_error": null,
+				"visibility_check": null
+			},
+			{
+				"key": "wpt",
+				"kind": "reference",
+				"dir": "wpt",
+				"url": "https://github.com/them/wpt",
+				"writable": false,
+				"archived": false,
+				"visibility": null,
+				"ci": false,
+				"branch": null,
+				"pinned": false,
+				"presence": {
+					"kind": "missing"
+				},
+				"clone": {
+					"kind": "act",
+					"recipe": {
+						"url": "https://github.com/them/wpt",
+						"branch": null,
+						"shallow": true,
+						"sparse": "css"
+					}
+				},
+				"layout": null,
+				"checkouts": [],
+				"branches": [],
+				"stashes": 0,
+				"fetched_at": null,
+				"needs_human": [],
+				"probe_error": null,
+				"unprobed_worktrees": [],
+				"fetch_error": null,
+				"visibility_check": null
+			},
+			{
+				"key": "html",
+				"kind": "reference",
+				"dir": "html",
+				"url": "https://github.com/them/html",
+				"writable": false,
+				"archived": false,
+				"visibility": null,
+				"ci": false,
+				"branch": null,
+				"pinned": false,
+				"presence": {
+					"kind": "missing"
+				},
+				"clone": {
+					"kind": "act",
+					"recipe": {
+						"url": "https://github.com/them/html",
+						"branch": null,
+						"shallow": true,
+						"sparse": "css"
+					}
+				},
+				"layout": null,
+				"checkouts": [],
+				"branches": [],
+				"stashes": 0,
+				"fetched_at": null,
+				"needs_human": [],
+				"probe_error": null,
+				"unprobed_worktrees": [],
+				"fetch_error": null,
+				"visibility_check": null
+			},
+			{
+				"key": "dom",
+				"kind": "reference",
+				"dir": "dom",
+				"url": "https://github.com/them/dom",
+				"writable": false,
+				"archived": false,
+				"visibility": null,
+				"ci": false,
+				"branch": null,
+				"pinned": false,
+				"presence": {
+					"kind": "missing"
+				},
+				"clone": {
+					"kind": "act",
+					"recipe": {
+						"url": "https://github.com/them/dom",
+						"branch": null,
+						"shallow": true,
+						"sparse": "css"
+					}
+				},
 				"layout": null,
 				"checkouts": [],
 				"branches": [],
@@ -737,6 +929,7 @@
 				"presence": {
 					"kind": "present"
 				},
+				"clone": null,
 				"layout": {
 					"shallow": false,
 					"sparse": false,
@@ -761,6 +954,7 @@
 			"fetch": {
 				"kind": "fetched"
 			},
+			"clone": null,
 			"branches": [
 				{
 					"name": "main",
@@ -908,6 +1102,7 @@
 			"fetch": {
 				"kind": "fetched"
 			},
+			"clone": null,
 			"branches": [
 				{
 					"name": "main",
@@ -923,6 +1118,7 @@
 			"fetch": {
 				"kind": "fetched"
 			},
+			"clone": null,
 			"branches": [
 				{
 					"name": "main",
@@ -946,6 +1142,7 @@
 					"message": "git@github.com: Permission denied (publickey)."
 				}
 			},
+			"clone": null,
 			"branches": [
 				{
 					"name": "main",
@@ -964,6 +1161,7 @@
 			"fetch": {
 				"kind": "not_fetched"
 			},
+			"clone": null,
 			"branches": [
 				{
 					"name": "main",
@@ -982,12 +1180,76 @@
 			"fetch": {
 				"kind": "not_fetched"
 			},
+			"clone": null,
 			"branches": []
 		},
 		{
 			"key": "blake3",
 			"fetch": {
 				"kind": "not_fetched"
+			},
+			"clone": {
+				"kind": "cloned",
+				"branch": "main",
+				"head": "cccccccccccccccccccccccccccccccccccccccc"
+			},
+			"branches": []
+		},
+		{
+			"key": "stray",
+			"fetch": {
+				"kind": "not_fetched"
+			},
+			"clone": {
+				"kind": "held",
+				"by": "unprobed_worktree"
+			},
+			"branches": []
+		},
+		{
+			"key": "twin",
+			"fetch": {
+				"kind": "not_fetched"
+			},
+			"clone": {
+				"kind": "held",
+				"by": "entry"
+			},
+			"branches": []
+		},
+		{
+			"key": "wpt",
+			"fetch": {
+				"kind": "not_fetched"
+			},
+			"clone": {
+				"kind": "held",
+				"by": "changed"
+			},
+			"branches": []
+		},
+		{
+			"key": "html",
+			"fetch": {
+				"kind": "not_fetched"
+			},
+			"clone": {
+				"kind": "clone_failed",
+				"failure": {
+					"kind": "repo_not_found",
+					"message": "remote: Repository not found."
+				}
+			},
+			"branches": []
+		},
+		{
+			"key": "dom",
+			"fetch": {
+				"kind": "not_fetched"
+			},
+			"clone": {
+				"kind": "failed",
+				"message": "can't move the clone into /home/me/dev/dom: Permission denied (os error 13)"
 			},
 			"branches": []
 		},
@@ -996,6 +1258,7 @@
 			"fetch": {
 				"kind": "fetched"
 			},
+			"clone": null,
 			"branches": []
 		}
 	]

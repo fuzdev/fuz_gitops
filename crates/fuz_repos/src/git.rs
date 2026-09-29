@@ -24,7 +24,8 @@
 //!
 //! Optional locks are off too, so observing never rewrites another
 //! session's index, and lazy fetching is off, so a local call on a partial
-//! clone never touches the network.
+//! clone never touches the network — but for the clone that makes one,
+//! whose checkout fills it (`CallOptions::lazy_fetch`).
 
 use std::ffi::OsString;
 use std::io::{self, Read};
@@ -197,6 +198,11 @@ pub struct CallOptions<'a> {
     /// A timeout in place of `LOCAL_TIMEOUT` or `NETWORK_TIMEOUT`, for a
     /// call that may run long by nature — one rewriting a working tree.
     pub timeout: Option<Duration>,
+    /// Let a partial clone fetch missing objects from its promisor remote on
+    /// demand (`GIT_NO_LAZY_FETCH=0`), for a call that must fill one: the
+    /// checkout of a clone made `--filter=blob:none`. Off everywhere else,
+    /// so a local call never touches the network.
+    pub lazy_fetch: bool,
 }
 
 /// Options for a call that reaches a remote.
@@ -343,6 +349,7 @@ impl Git {
                 // set below, narrowed to the caller's list
                 allow_protocol: None,
                 timeout: None,
+                lazy_fetch: false,
             },
         );
         let allowed = match self.env_var("GIT_ALLOW_PROTOCOL") {
@@ -385,7 +392,7 @@ impl Git {
         .env("GIT_TERMINAL_PROMPT", "0")
         .env("LC_ALL", "C")
         .env("GIT_OPTIONAL_LOCKS", "0")
-        .env("GIT_NO_LAZY_FETCH", "1")
+        .env("GIT_NO_LAZY_FETCH", if opts.lazy_fetch { "0" } else { "1" })
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());

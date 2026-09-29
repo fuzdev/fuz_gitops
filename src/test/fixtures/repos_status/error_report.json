@@ -1,5 +1,5 @@
 {
-	"version": 9,
+	"version": 10,
 	"error": {
 		"kind": "registry_invalid",
 		"issues": [

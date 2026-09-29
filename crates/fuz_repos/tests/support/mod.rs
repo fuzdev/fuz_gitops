@@ -20,8 +20,14 @@
 //! the owner's repos from the local bare remotes and refuses anything else,
 //! so no push ever leaves the tempdir. `GIT_ALLOW_PROTOCOL=file:ssh` makes
 //! any other transport an error (unless a test widens it,
-//! `allow_transport`). The visibility check reads under
-//! `visibility_base`, a `file://` dir, so it stays local too.
+//! `allow_transport`). A call that sets its own allowlist — a third-party
+//! clone allows `https` alone — still reaches no host: `GIT_EXEC_PATH` is
+//! the fixture's, git's own programs linked but the curl helpers for
+//! `https`, `ftp`, and `ftps`, and its `git-remote-https` refuses every URL
+//! (`https_refused_log`) until a test swaps in one serving the bare
+//! remotes (`serve_https`). The visibility check reads under
+//! `visibility_base`, a `file://` dir or a loopback `http` server, so it
+//! stays local too.
 //!
 //! Setups assert the git state they build (`assert_track` and kin) before the
 //! tool reads it: a setup that silently builds the wrong state tests nothing.
@@ -46,8 +52,9 @@ use std::fmt::Write as _;
 use std::os::unix::fs::{MetadataExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
-use std::time::SystemTime;
+use std::time::{Duration, SystemTime};
 
+use fuz_repos::clone::CLONE_TIMEOUT;
 use fuz_repos::discover::{REGISTRY_FILE, find_registry};
 use fuz_repos::git::Git;
 use fuz_repos::probe::RegistryDirs;
@@ -73,8 +80,9 @@ const TICK: u64 = 60;
 /// `git@github.com:<OWNER>/<name>` from the local bare remote `<name>.git`
 /// under `@REMOTES@` — as a real host would, without the client's
 /// `GIT_CONFIG_PARAMETERS` (the runner's hardening), so the bare remote's
-/// own hooks run — and refuses any other host, command, or path. Each call's
-/// arguments are appended to `@LOG@`.
+/// own hooks run — and refuses any other host, command, or path. A remote
+/// holding a `fixture-stall` file answers only after five seconds
+/// (`stall_remote`). Each call's arguments are appended to `@LOG@`.
 const FIXTURE_SSH: &str = r#"#!/bin/sh
 printf '%s\n' "$*" >> '@LOG@'
 host=; cmd=
@@ -95,10 +103,77 @@ esac
 if [ ! -d '@REMOTES@'/"$name.git" ]; then
 	echo "ERROR: Repository not found." >&2; exit 1
 fi
+if [ -e '@REMOTES@'/"$name.git/fixture-stall" ]; then sleep 5; fi
 unset GIT_CONFIG_PARAMETERS GIT_CONFIG_COUNT GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE \
 	GIT_OBJECT_DIRECTORY GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_COMMON_DIR GIT_NAMESPACE
 exec git "$verb" '@REMOTES@'/"$name.git"
 "#;
+
+/// The fixture's `git-remote-https` by default: refuses every URL, so no
+/// test reaches the network over HTTPS, whatever `GIT_ALLOW_PROTOCOL` a
+/// call sets — the clone of a third-party entry allows `https` alone,
+/// replacing the fixture's `file:ssh`. Each URL it refuses is appended to
+/// `@LOG@`. `serve_https` swaps in `FIXTURE_HTTPS`.
+const FIXTURE_HTTPS_REFUSED: &str = r#"#!/bin/sh
+printf '%s\n' "$2" >> '@LOG@'
+echo "fixture https: refused $2 (no network in tests; serve_https serves the remotes)" >&2
+exit 128
+"#;
+
+/// The fixture's `git-remote-https` once `serve_https` swaps it in: serves
+/// `https://github.com/<THIRD_PARTY>/<name>` from the local bare remote
+/// `<name>.git` under `@REMOTES@` over the remote-helper protocol's
+/// `connect` (protocol v2, as a real host speaks it, without the client's
+/// `GIT_CONFIG_PARAMETERS` or repo variables), answers a repo it doesn't
+/// have as GitHub does, and refuses any other URL. Each call's URL is
+/// appended to `@LOG@`.
+const FIXTURE_HTTPS: &str = r#"#!/bin/sh
+printf '%s\n' "$2" >> '@LOG@'
+case $2 in
+https://github.com/@THIRD_PARTY@/*) name=${2#https://github.com/@THIRD_PARTY@/} ;;
+*) echo "fixture https: refused $2" >&2; exit 128 ;;
+esac
+name=${name%.git}
+case $name in
+''|*/*) echo "fixture https: refused $2" >&2; exit 128 ;;
+esac
+if [ ! -d '@REMOTES@'/"$name.git" ]; then
+	echo "remote: Repository not found." >&2
+	echo "fatal: repository '$2/' not found" >&2
+	exit 128
+fi
+while read -r line; do
+	case $line in
+	capabilities) printf 'connect\n\n' ;;
+	'connect git-upload-pack')
+		printf '\n'
+		unset GIT_CONFIG_PARAMETERS GIT_CONFIG_COUNT GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE \
+			GIT_OBJECT_DIRECTORY GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_COMMON_DIR GIT_NAMESPACE
+		GIT_PROTOCOL=version=2 exec git upload-pack '@REMOTES@'/"$name.git" ;;
+	'') exit 0 ;;
+	*) echo "fixture https: unexpected $line" >&2; exit 128 ;;
+	esac
+done
+"#;
+
+/// The programs in git's own exec path the fixture's never links: the
+/// curl helpers for the transports that would reach a real host (`http`
+/// stays, for the loopback server the visibility tests read).
+const UNLINKED_EXEC: [&str; 3] = ["git-remote-https", "git-remote-ftp", "git-remote-ftps"];
+
+/// Git's own exec path, as the environment the tests run in has it.
+fn real_exec_path() -> &'static Path {
+    static EXEC_PATH: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
+    EXEC_PATH.get_or_init(|| {
+        let out = Command::new("git")
+            .arg("--exec-path")
+            .env_remove("GIT_EXEC_PATH")
+            .output()
+            .unwrap();
+        assert!(out.status.success(), "git --exec-path failed");
+        PathBuf::from(String::from_utf8(out.stdout).unwrap().trim())
+    })
+}
 
 /// A workspace of fixture repos under one tempdir.
 #[derive(Debug)]
@@ -113,6 +188,8 @@ pub struct FixtureWorkspace {
     tables: Vec<String>,
     /// `GIT_ALLOW_PROTOCOL`: `file:ssh`, unless a test widens it.
     allowed_protocols: String,
+    /// More variables every call sees (`set_env`).
+    extra_env: Vec<(OsString, OsString)>,
 }
 
 impl Default for FixtureWorkspace {
@@ -133,12 +210,26 @@ impl FixtureWorkspace {
             .replace("@REMOTES@", base.join("remotes").to_str().unwrap())
             .replace("@OWNER@", OWNER);
         write_executable(&base.join("ssh-bin"), "ssh", &ssh);
+        // git's exec path, every program linked but the helpers that would
+        // reach a real host, and the refusing `git-remote-https`
+        let exec = base.join("git-exec");
+        std::fs::create_dir(&exec).unwrap();
+        for program in std::fs::read_dir(real_exec_path()).unwrap() {
+            let name = program.unwrap().file_name();
+            if !UNLINKED_EXEC.iter().any(|u| name == *u) {
+                std::os::unix::fs::symlink(real_exec_path().join(&name), exec.join(&name)).unwrap();
+            }
+        }
+        let refused = FIXTURE_HTTPS_REFUSED
+            .replace("@LOG@", base.join("https-refused.log").to_str().unwrap());
+        write_executable(&exec, "git-remote-https", &refused);
         Self {
             _tmp: tmp,
             base,
             clock: Cell::new(CLOCK_START),
             tables: Vec::new(),
             allowed_protocols: "file:ssh".into(),
+            extra_env: Vec::new(),
         }
     }
 
@@ -210,7 +301,43 @@ impl FixtureWorkspace {
         ))
         .unwrap();
         env.push(("PATH".into(), path));
+        // git's own programs, `git-remote-https` the fixture's
+        env.push(("GIT_EXEC_PATH".into(), self.base.join("git-exec").into()));
+        env.extend(self.extra_env.iter().cloned());
         env
+    }
+
+    /// Serves third-party repos over the fixture's `https` for every later
+    /// call (`FIXTURE_HTTPS`), from the bare remotes, in place of the one
+    /// that refuses every URL; each URL it's asked for is on `https_log`.
+    pub fn serve_https(&self) {
+        let helper = FIXTURE_HTTPS
+            .replace("@LOG@", self.base.join("https.log").to_str().unwrap())
+            .replace("@REMOTES@", self.base.join("remotes").to_str().unwrap())
+            .replace("@THIRD_PARTY@", THIRD_PARTY);
+        write_executable(&self.base.join("git-exec"), "git-remote-https", &helper);
+    }
+
+    /// Every URL the fixture's serving `https` was asked for.
+    pub fn https_log(&self) -> Vec<String> {
+        read_lines(&self.base.join("https.log"))
+    }
+
+    /// Every URL the fixture's refusing `https` refused: asked for without
+    /// `serve_https`.
+    pub fn https_refused_log(&self) -> Vec<String> {
+        read_lines(&self.base.join("https-refused.log"))
+    }
+
+    /// Makes `name`'s bare remote answer the fixture's `ssh` only after five
+    /// seconds.
+    pub fn stall_remote(&self, name: &str) {
+        std::fs::write(self.bare(name).join("fixture-stall"), "").unwrap();
+    }
+
+    /// Sets `name` for every later call, the library's included.
+    pub fn set_env(&mut self, name: &str, value: impl Into<OsString>) {
+        self.extra_env.push((name.into(), value.into()));
     }
 
     /// Widens `GIT_ALLOW_PROTOCOL` by `transport` for every later call, the
@@ -229,9 +356,7 @@ impl FixtureWorkspace {
     /// Every call the fixture's `ssh` served or refused, its arguments one
     /// line each.
     pub fn ssh_log(&self) -> Vec<String> {
-        std::fs::read_to_string(self.base.join("ssh.log"))
-            .map(|s| s.lines().map(str::to_owned).collect())
-            .unwrap_or_default()
+        read_lines(&self.base.join("ssh.log"))
     }
 
     /// The library's runner, under the hermetic environment.
@@ -584,6 +709,17 @@ impl FixtureWorkspace {
         jobs: usize,
         read_live: &(dyn Fn() -> LiveSessions + Sync),
     ) -> SyncRun {
+        self.sync_timed(caller, jobs, read_live, CLONE_TIMEOUT)
+    }
+
+    /// `sync_as`, each clone under `clone_timeout`.
+    pub fn sync_timed(
+        &self,
+        caller: Caller,
+        jobs: usize,
+        read_live: &(dyn Fn() -> LiveSessions + Sync),
+        clone_timeout: Duration,
+    ) -> SyncRun {
         let entries = self.entries();
         let root = self.root();
         sync(
@@ -596,6 +732,7 @@ impl FixtureWorkspace {
                 visibility_base: Some(&self.visibility_base()),
                 read_live: &read_live,
                 caller,
+                clone_timeout,
             },
         )
     }
@@ -798,6 +935,13 @@ pub fn write(dir: &Path, path: &str, content: &str) {
         std::fs::create_dir_all(parent).unwrap();
     }
     std::fs::write(path, content).unwrap();
+}
+
+/// A log file's lines; none when it doesn't exist.
+fn read_lines(path: &Path) -> Vec<String> {
+    std::fs::read_to_string(path)
+        .map(|s| s.lines().map(str::to_owned).collect())
+        .unwrap_or_default()
 }
 
 /// Writes an executable file.

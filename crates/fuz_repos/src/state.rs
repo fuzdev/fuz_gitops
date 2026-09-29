@@ -320,6 +320,48 @@ pub enum Verdict {
     },
 }
 
+/// What `sync` does with an entry whose dir is missing: clone it, by
+/// `recipe` — decided in `classify`, as a branch's verdict is.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum CloneVerdict {
+    /// Sync clones it.
+    Act { recipe: CloneRecipe },
+    /// Sync would clone it, but `by` holds it: `Entry`, another entry
+    /// naming the same repo (the entry's `clone_shares_repo` reason);
+    /// `Busy`, a live session working at the missing path (its dir deleted
+    /// from under it); or `UnprobedWorktree`, another entry's gone worktree
+    /// recorded there.
+    /// Busy detection that's unavailable holds no clone: a missing dir
+    /// holds no work to lose, and the clone never replaces anything.
+    Held { recipe: CloneRecipe, by: HeldBy },
+}
+
+impl CloneVerdict {
+    pub const fn recipe(&self) -> &CloneRecipe {
+        match self {
+            Self::Act { recipe } | Self::Held { recipe, .. } => recipe,
+        }
+    }
+}
+
+/// How `sync` clones a missing entry, from its registry entry.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct CloneRecipe {
+    /// Where the clone comes from, and what `origin` holds after:
+    /// `Entry::remote_url` — SSH for an owned entry, HTTPS for a
+    /// third-party one, the only transport the clone may use.
+    pub url: String,
+    /// The branch the clone checks out (`--branch`), its upstream origin's
+    /// branch of the name; `None` takes the remote's default branch.
+    pub branch: Option<String>,
+    /// `--depth 1`, which maps only the cloned branch.
+    pub shallow: bool,
+    /// The one subtree checked out, in cone mode, cloned
+    /// `--filter=blob:none`.
+    pub sparse: Option<String>,
+}
+
 /// What holds a branch's action back.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -332,7 +374,8 @@ pub enum HeldBy {
     /// tool leaves a pin alone, pushes included, so a branch ahead reads
     /// `LocalOnly` when it has commits on no remote ref, else `Quiet`.)
     Pinned,
-    /// An entry-level `needs_human` reason stops sync on the whole entry.
+    /// An entry-level `needs_human` reason stops sync on the whole entry —
+    /// a missing entry's clone included (`clone_shares_repo`).
     Entry,
     /// A push through `origin` would reach somewhere other than the
     /// registry's repo over SSH (the entry's `push_url_mismatch` reason):
@@ -352,7 +395,10 @@ pub enum HeldBy {
     DirtyCheckout,
     /// The branch is checked out in a worktree that couldn't be probed (one
     /// of the entry's `unprobed_worktrees`), so whether it's clean is
-    /// unknown. Pushes aren't held.
+    /// unknown. Pushes aren't held. A clone is held when its missing path is
+    /// one of another entry's unprobed worktrees: git still records a
+    /// worktree there, which would take the clone for its own files —
+    /// remove that record first.
     UnprobedWorktree,
     /// The branch is checked out in more than one checkout (`worktree add
     /// -f`): moving it in one would leave the others' HEAD on a commit their
@@ -360,7 +406,9 @@ pub enum HeldBy {
     SeveralCheckouts,
     /// The branch is checked out in a checkout a live session works in
     /// (its `busy`): sync leaves another session's branch alone, pushes
-    /// included.
+    /// included. A clone is held when a live session works at or under
+    /// its missing path — its dir deleted from under it — where the clone
+    /// would land in its place.
     Busy,
     /// A live session may work in a checkout, unseen, so every action is
     /// held, pushes included: busy detection is unavailable (the report's

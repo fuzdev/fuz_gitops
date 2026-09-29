@@ -111,6 +111,7 @@ pub struct ProbeRun {
 /// What the probe found.
 #[derive(Debug)]
 pub enum Probed {
+    /// Nothing is at the entry's path, not even a dangling symlink.
     Missing,
     /// The dir exists but holds no repo; `detail` says why.
     NotARepo {
@@ -274,9 +275,29 @@ fn probe_present(
     cx: ProbeContext<'_>,
     early: &mut Recorded,
 ) -> Result<Probed, String> {
-    // 1. presence
-    if !dir.exists() {
-        return Ok(Probed::Missing);
+    // 1. presence: missing only when nothing at all is at the path — a
+    // dangling symlink is there (sync would clone through it), and a path
+    // that can't be looked up is unknown, never missing
+    match std::fs::symlink_metadata(dir) {
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Probed::Missing),
+        Err(e) => return Err(format!("can't look up {}: {e}", dir.display())),
+        Ok(meta) if meta.file_type().is_symlink() => {
+            if let Err(e) = std::fs::metadata(dir) {
+                let to = std::fs::read_link(dir).map_or_else(
+                    |_| "an unreadable target".to_owned(),
+                    |t| t.display().to_string(),
+                );
+                let why = if e.kind() == std::io::ErrorKind::NotFound {
+                    "which doesn't exist".to_owned()
+                } else {
+                    format!("which can't be followed: {e}")
+                };
+                return Ok(Probed::NotARepo {
+                    detail: format!("a symlink to {to}, {why}"),
+                });
+            }
+        }
+        Ok(_) => {}
     }
     let path = dir
         .to_str()

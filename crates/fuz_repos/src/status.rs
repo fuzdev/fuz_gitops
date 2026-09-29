@@ -7,8 +7,10 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use crate::busy::{EntryCheckouts, EntrySessions, Sessions, scope_sessions};
-use crate::classify::{NeedsHuman, classify};
+use crate::busy::{
+    EntryCheckouts, EntrySessions, Sessions, same_path, scope_sessions, sessions_under,
+};
+use crate::classify::{ClassifiedMissing, NeedsHuman, classify, classify_missing};
 use crate::git::Git;
 use crate::probe::{ProbeContext, ProbeRun, Probed, RegistryDirs, RepoFacts, RepoFetches, probe};
 use crate::registry::Entry;
@@ -98,7 +100,7 @@ pub fn status(
         opts.jobs,
         opts.visibility_base,
     );
-    let assessed = assess(entries, probes, opts.live, opts.caller);
+    let assessed = assess(entries, probes, root, opts.live, opts.caller);
     StatusRun {
         entries: assessed.entries,
         sessions: assessed.sessions,
@@ -214,10 +216,13 @@ pub(crate) struct Assessed {
 }
 
 /// Scopes `live` to the probed checkouts, so a session lands in the deepest
-/// of them all, and classifies each entry for `caller`.
+/// of them all, and classifies each entry for `caller` — a missing one's
+/// clone against the sessions at its path under `root` and the gone
+/// worktrees the probed entries record (`classify_missing_at`).
 pub(crate) fn assess(
     entries: &[Entry],
     probes: Probes,
+    root: &Path,
     live: &LiveSessions,
     caller: Caller,
 ) -> Assessed {
@@ -250,7 +255,38 @@ pub(crate) fn assess(
         assessed.entries[i].visibility_check = Some(check);
         assessed.timings[i].visibility = time;
     }
+    let recorded: Vec<&str> = assessed
+        .facts
+        .iter()
+        .flatten()
+        .flat_map(|f| f.unprobed.iter().map(|u| u.path.as_str()))
+        .collect();
+    for (entry, status) in entries.iter().zip(&mut assessed.entries) {
+        if status.presence == Presence::Missing {
+            let missing = classify_missing_at(entry, root, live, &recorded);
+            status.clone = Some(missing.clone);
+            status.needs_human.extend(missing.needs_human);
+        }
+    }
     assessed
+}
+
+/// Classifies a missing entry (`classify_missing`): its clone held when
+/// another entry names its repo, when a live session works at or under its
+/// path, or when one of `recorded` — the paths of every probed entry's
+/// unprobed worktrees, gone ones among them — is that path.
+fn classify_missing_at(
+    entry: &Entry,
+    root: &Path,
+    live: &LiveSessions,
+    recorded: &[&str],
+) -> ClassifiedMissing {
+    let path = root.join(&entry.dir);
+    classify_missing(
+        entry,
+        !sessions_under(live, &path).is_empty(),
+        recorded.iter().any(|r| same_path(Path::new(r), &path)),
+    )
 }
 
 /// A probed repo's checkouts: their paths as its facts spell them — the
@@ -292,6 +328,7 @@ pub fn entry_status(
         branch: entry.branch.clone(),
         pinned: entry.pinned,
         presence: Presence::Present,
+        clone: None,
         layout: None,
         checkouts: Vec::new(),
         branches: Vec::new(),

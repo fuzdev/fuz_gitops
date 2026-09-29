@@ -71,7 +71,9 @@ pub struct ReferenceEntry {
     /// A clone recipe (`--depth 1`); an existing full clone is left as is.
     #[serde(default)]
     pub shallow: bool,
-    /// The only subtree checked out (cone mode).
+    /// The only subtree checked out (cone mode): a relative path of plain
+    /// components, checked at parse (`parse_sparse`).
+    #[serde(default, deserialize_with = "parse_sparse")]
     pub sparse: Option<String>,
     /// Where the checkout lives: the branch a clone takes, whose history
     /// holds the commits the checkout sits on. Absent leaves HEAD alone.
@@ -166,6 +168,40 @@ impl RepoUrl {
     pub fn ssh(&self) -> String {
         format!("git@{}:{}/{}", self.host, self.account, self.name)
     }
+
+    /// Whether `other` names the same repo, ignoring ASCII case: host
+    /// names and GitHub's account and repo paths are case-insensitive.
+    pub fn same_repo(&self, other: &Self) -> bool {
+        self.host.eq_ignore_ascii_case(&other.host)
+            && self.account.eq_ignore_ascii_case(&other.account)
+            && self.name.eq_ignore_ascii_case(&other.name)
+    }
+}
+
+/// A reference's `sparse`, checked as it's parsed: a relative path of plain
+/// components, each a directory name `git sparse-checkout set --cone` takes
+/// literally — no empty component (so no leading or trailing `/`, and not
+/// `""`), no `.` or `..`, no glob character (`*`, `?`, `[`), backslash, or
+/// control character. The error names the value, with its position.
+fn parse_sparse<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> std::result::Result<Option<String>, D::Error> {
+    let path = String::deserialize(deserializer)?;
+    let plain = |c: &str| {
+        !matches!(c, "" | "." | "..")
+            && !c.contains(['*', '?', '[', '\\'])
+            && !c.chars().any(char::is_control)
+    };
+    if path.split('/').all(plain) {
+        Ok(Some(path))
+    } else {
+        Err(serde::de::Error::custom(format!(
+            "sparse `{}` isn't a relative path of plain directory names (no empty, `.`, or \
+             `..` component, no leading or trailing `/`, no `*`, `?`, `[`, `\\`, or control \
+             character)",
+            path.escape_debug()
+        )))
+    }
 }
 
 impl From<RepoUrl> for String {
@@ -220,6 +256,17 @@ pub struct Entry {
     /// permanent hold, whether HEAD is detached or on a branch. It's never
     /// fetched, and every fast-forward and move in it is `HeldBy::Pinned`.
     pub pinned: bool,
+    /// A reference cloned `--depth 1` when missing; an existing full clone
+    /// is left as is. Repos are never shallow.
+    pub shallow: bool,
+    /// The one subtree a reference's clone checks out (cone mode, cloned
+    /// `--filter=blob:none`); `None` checks out the whole tree.
+    pub sparse: Option<String>,
+    /// The first other entry, in registry order, whose `url` names the same
+    /// repo (`RepoUrl::same_repo`): one entry's dir may be a linked worktree
+    /// of the other's repo, so a missing one is never cloned
+    /// (`NeedsHuman::CloneSharesRepo`). `None` when no other entry does.
+    pub same_repo_as: Option<String>,
 }
 
 impl Entry {
@@ -439,6 +486,9 @@ impl ValidRegistry {
                     .unwrap_or_else(|| DEFAULT_BRANCH.to_owned()),
             ),
             pinned: false,
+            shallow: false,
+            sparse: None,
+            same_repo_as: None,
         });
         let references = registry.references.iter().map(|(key, r)| Entry {
             key: key.clone(),
@@ -451,8 +501,26 @@ impl ValidRegistry {
             ci: false,
             branch: r.branch.clone(),
             pinned: r.pinned,
+            shallow: r.shallow,
+            sparse: r.sparse.clone(),
+            same_repo_as: None,
         });
-        repos.chain(references).collect()
+        let mut entries: Vec<Entry> = repos.chain(references).collect();
+        let same: Vec<Option<String>> = entries
+            .iter()
+            .enumerate()
+            .map(|(i, e)| {
+                entries
+                    .iter()
+                    .enumerate()
+                    .find(|(j, o)| *j != i && o.url.same_repo(&e.url))
+                    .map(|(_, o)| o.key.clone())
+            })
+            .collect();
+        for (e, same) in entries.iter_mut().zip(same) {
+            e.same_repo_as = same;
+        }
+        entries
     }
 }
 
@@ -999,6 +1067,91 @@ purpose = "a third-party clone, no fork"
             let e = Registry::parse(&src).unwrap_err().to_string();
             assert!(e.contains("the account and name must be"), "{e}");
         }
+    }
+
+    #[test]
+    fn sparse_is_a_relative_path_of_plain_names_checked_at_parse() {
+        let parse = |sparse: &str| {
+            let src = format!(
+                "owners = [\"me\"]\n[references.r]\nurl = \"https://github.com/them/r\"\n\
+                 purpose = \"x\"\nsparse = {}\n",
+                // a JSON string is a valid TOML basic string
+                serde_json::to_string(sparse).unwrap()
+            );
+            Registry::parse(&src).map(|r| r.references["r"].sparse.clone())
+        };
+        for bad in [
+            "",
+            ".",
+            "..",
+            "/css",
+            "css/",
+            "a//b",
+            "./css",
+            "css/.",
+            "../css",
+            "a/../b",
+            "*",
+            "css/*.css",
+            "c?s",
+            "[a]",
+            "a\\b",
+            "a\tb",
+            "a\nb",
+            "a\u{1b}b",
+        ] {
+            let e = parse(bad).unwrap_err();
+            let message = e.to_string();
+            assert!(
+                message.contains("isn't a relative path of plain directory names"),
+                "{bad:?}: {message}"
+            );
+            // positioned at the value
+            assert!(e.span().is_some(), "{bad:?}");
+        }
+        for good in [
+            "css",
+            "css/deep",
+            "a.b",
+            "..x",
+            "x..",
+            ".hidden/y",
+            "sp ace",
+            "é",
+        ] {
+            assert_eq!(parse(good).unwrap(), Some(good.to_owned()), "{good:?}");
+        }
+        // absent is none
+        let src = "owners = [\"me\"]\n[references.r]\nurl = \"https://github.com/them/r\"\n\
+                   purpose = \"x\"\n";
+        assert_eq!(Registry::parse(src).unwrap().references["r"].sparse, None);
+    }
+
+    #[test]
+    fn entries_naming_one_repo_name_each_other() {
+        let src = "owners = [\"me\"]\n\
+            [repos.app]\nurl = \"https://github.com/me/app\"\nvisibility = \"public\"\n\
+            purpose = \"x\"\n\
+            [repos.app_wt]\nurl = \"https://GitHub.com/Me/App.git\"\nvisibility = \"public\"\n\
+            purpose = \"x\"\n\
+            [repos.other]\nurl = \"https://github.com/me/other\"\nvisibility = \"public\"\n\
+            purpose = \"x\"\n\
+            [references.app_ref]\nurl = \"https://github.com/me/app\"\npurpose = \"x\"\n\
+            dir = \"app-ref\"\n";
+        let entries = Registry::parse(src).unwrap().validate().unwrap().entries();
+        let same: Vec<(&str, Option<&str>)> = entries
+            .iter()
+            .map(|e| (e.key.as_str(), e.same_repo_as.as_deref()))
+            .collect();
+        assert_eq!(
+            same,
+            [
+                ("app", Some("app_wt")),
+                ("app_wt", Some("app")),
+                ("other", None),
+                ("app_ref", Some("app")),
+            ]
+        );
     }
 
     #[test]

@@ -1,5 +1,5 @@
 {
-	"version": 9,
+	"version": 10,
 	"workspace": "/home/me/dev",
 	"registry": "/home/me/dev/repos.toml",
 	"fetched": true,
@@ -33,6 +33,7 @@
 			"presence": {
 				"kind": "present"
 			},
+			"clone": null,
 			"layout": {
 				"shallow": false,
 				"sparse": false,
@@ -540,6 +541,7 @@
 			"presence": {
 				"kind": "present"
 			},
+			"clone": null,
 			"layout": {
 				"shallow": false,
 				"sparse": false,
@@ -640,6 +642,7 @@
 			"presence": {
 				"kind": "present"
 			},
+			"clone": null,
 			"layout": {
 				"shallow": false,
 				"sparse": false,
@@ -719,6 +722,7 @@
 			"presence": {
 				"kind": "present"
 			},
+			"clone": null,
 			"layout": {
 				"shallow": true,
 				"sparse": true,
@@ -832,6 +836,7 @@
 			"presence": {
 				"kind": "present"
 			},
+			"clone": null,
 			"layout": {
 				"shallow": false,
 				"sparse": false,
@@ -919,6 +924,7 @@
 			"presence": {
 				"kind": "present"
 			},
+			"clone": null,
 			"layout": {
 				"shallow": false,
 				"sparse": false,
@@ -1005,12 +1011,96 @@
 			"presence": {
 				"kind": "missing"
 			},
+			"clone": {
+				"kind": "act",
+				"recipe": {
+					"url": "git@github.com:me/blake3",
+					"branch": "main",
+					"shallow": false,
+					"sparse": null
+				}
+			},
 			"layout": null,
 			"checkouts": [],
 			"branches": [],
 			"stashes": 0,
 			"fetched_at": null,
 			"needs_human": [],
+			"probe_error": null,
+			"unprobed_worktrees": [],
+			"fetch_error": null,
+			"visibility_check": null
+		},
+		{
+			"key": "wpt",
+			"kind": "reference",
+			"dir": "wpt",
+			"url": "https://github.com/them/wpt",
+			"writable": false,
+			"archived": false,
+			"visibility": null,
+			"ci": false,
+			"branch": null,
+			"pinned": false,
+			"presence": {
+				"kind": "missing"
+			},
+			"clone": {
+				"kind": "held",
+				"recipe": {
+					"url": "https://github.com/them/wpt",
+					"branch": null,
+					"shallow": true,
+					"sparse": "css"
+				},
+				"by": "busy"
+			},
+			"layout": null,
+			"checkouts": [],
+			"branches": [],
+			"stashes": 0,
+			"fetched_at": null,
+			"needs_human": [],
+			"probe_error": null,
+			"unprobed_worktrees": [],
+			"fetch_error": null,
+			"visibility_check": null
+		},
+		{
+			"key": "twin",
+			"kind": "repo",
+			"dir": "twin",
+			"url": "https://github.com/me/app",
+			"writable": true,
+			"archived": false,
+			"visibility": "public",
+			"ci": true,
+			"branch": "main",
+			"pinned": false,
+			"presence": {
+				"kind": "missing"
+			},
+			"clone": {
+				"kind": "held",
+				"recipe": {
+					"url": "git@github.com:me/app",
+					"branch": "main",
+					"shallow": false,
+					"sparse": null
+				},
+				"by": "entry"
+			},
+			"layout": null,
+			"checkouts": [],
+			"branches": [],
+			"stashes": 0,
+			"fetched_at": null,
+			"needs_human": [
+				{
+					"kind": "clone_shares_repo",
+					"with": "app"
+				}
+			],
 			"probe_error": null,
 			"unprobed_worktrees": [],
 			"fetch_error": null,
@@ -1030,6 +1120,7 @@
 			"presence": {
 				"kind": "not_a_repo"
 			},
+			"clone": null,
 			"layout": null,
 			"checkouts": [],
 			"branches": [],
@@ -1060,6 +1151,7 @@
 			"presence": {
 				"kind": "present"
 			},
+			"clone": null,
 			"layout": {
 				"shallow": false,
 				"sparse": false,
@@ -1092,6 +1184,7 @@
 			"presence": {
 				"kind": "present"
 			},
+			"clone": null,
 			"layout": {
 				"shallow": false,
 				"sparse": false,
@@ -1168,6 +1261,7 @@
 			"presence": {
 				"kind": "present"
 			},
+			"clone": null,
 			"layout": {
 				"shallow": false,
 				"sparse": false,
@@ -1257,6 +1351,7 @@
 			"presence": {
 				"kind": "present"
 			},
+			"clone": null,
 			"layout": {
 				"shallow": false,
 				"sparse": false,
@@ -1316,6 +1411,7 @@
 			"presence": {
 				"kind": "present"
 			},
+			"clone": null,
 			"layout": {
 				"shallow": false,
 				"sparse": false,
@@ -1382,6 +1478,7 @@
 			"presence": {
 				"kind": "present"
 			},
+			"clone": null,
 			"layout": {
 				"shallow": false,
 				"sparse": false,
@@ -1451,6 +1548,7 @@
 			"presence": {
 				"kind": "present"
 			},
+			"clone": null,
 			"layout": {
 				"shallow": false,
 				"sparse": false,
@@ -1507,6 +1605,7 @@
 			"presence": {
 				"kind": "present"
 			},
+			"clone": null,
 			"layout": {
 				"shallow": false,
 				"sparse": false,
@@ -1559,6 +1658,7 @@
 			"presence": {
 				"kind": "present"
 			},
+			"clone": null,
 			"layout": {
 				"shallow": false,
 				"sparse": false,
@@ -1612,6 +1712,7 @@
 			"presence": {
 				"kind": "present"
 			},
+			"clone": null,
 			"layout": {
 				"shallow": false,
 				"sparse": false,
@@ -1664,6 +1765,7 @@
 			"presence": {
 				"kind": "present"
 			},
+			"clone": null,
 			"layout": {
 				"shallow": false,
 				"sparse": false,
@@ -1719,6 +1821,7 @@
 			"presence": {
 				"kind": "present"
 			},
+			"clone": null,
 			"layout": {
 				"shallow": false,
 				"sparse": false,
@@ -1814,6 +1917,7 @@
 			"presence": {
 				"kind": "present"
 			},
+			"clone": null,
 			"layout": {
 				"shallow": false,
 				"sparse": false,
@@ -1872,6 +1976,12 @@
 		}
 	],
 	"unregistered": [
+		{
+			"dir": ".blake3.repos-clone-4242-0123456789abcdef",
+			"origin": "git@github.com:me/blake3",
+			"owned": true,
+			"kind": "unfinished_clone"
+		},
 		{
 			"dir": "b-copy",
 			"origin": "git@github.com:me/app",

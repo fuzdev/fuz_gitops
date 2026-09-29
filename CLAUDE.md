@@ -101,8 +101,9 @@ by hand).
 
 It's **being built** as the Rust `repos` tool, not by growing `GitOperations`:
 a read-only `repos status` works today, linked worktrees and the scan for
-unregistered clones included, and `repos sync` fetches, fast-forwards, and
-pushes; cloning and the `repos push` gateway are still to come. Its
+unregistered clones included, and `repos sync` fetches, fast-forwards,
+pushes, and clones what's missing; the `repos push` gateway is still to
+come. Its
 invariants are settled: never `pull` across a set of repos (fetch, classify,
 then fast-forward or report); never rebase, merge, or auto-resolve conflicts —
 anything history-changing stops and reports, so host repo rules never need
@@ -126,13 +127,13 @@ the clones at the workspace root the registry doesn't name,
 grouped by what to do next, from local refs (`--fetch` refreshes them
 first and checks that repos declared private aren't anonymously readable),
 and `repos sync`, which fetches and carries out the fast-forwards, shallow
-moves, and pushes `status` previews. Cloning and the gateway aren't built. TS
+moves, pushes, and clones `status` previews. The gateway isn't built. TS
 keeps everything
 else: the dashboard, its data step (GitHub metadata and svelte-docinfo library
-analysis), and the publish cascade. Once `repos sync` clones too, the TS tasks
-stop cloning and pulling and read repo state from `repos status --json`, and a
-project's `gitops.config.ts` shrinks to a list of registry keys. Nothing is
-deprecated until its Rust replacement ships.
+analysis), and the publish cascade. Next, the TS tasks stop cloning and
+pulling and read repo state from `repos status --json`, and a project's
+`gitops.config.ts` shrinks to a list of registry keys. Nothing is deprecated
+until its Rust replacement ships.
 
 ## Core functionality
 
@@ -535,7 +536,7 @@ repos status --json          # the versioned report
 COLUMNS=80 repos status      # text wraps at COLUMNS (else 100); color only on a terminal without NO_COLOR
 repos status --fetch         # fetch owned entries from origin first (writes remote-tracking refs), and check private repos
 repos status --jobs 4 --timings # parallelism (default 16), and per-phase timings on stderr
-repos sync                   # fetch as status --fetch does, then fast-forward, move, and push what's safe; report outcomes
+repos sync                   # fetch as status --fetch does, then fast-forward, move, push, and clone what's safe; report outcomes
 repos sync gro --json        # narrowed to targets; --json prints the versioned outcome report
 repos --version              # the crate version and the commit the binary was built from
 repos --registry <file> --root <dir> status # a registry kept outside the workspace
@@ -636,13 +637,37 @@ host is `push_failed`, exit `1`. **An agent's pushes are held**: under
 `CLAUDECODE` (Claude Code's agent shells) every push reads `held (gateway)`
 in `status` and `sync` alike, and the person runs `repos sync` to push —
 until the `repos push` gateway lands, when this lifts. A branch that's a
-symbolic ref never acts. It never clones, rebases, merges anything but a
+symbolic ref never acts. It never rebases, merges anything but a
 fast-forward, deletes a branch, or prunes a worktree (the fetch prunes only
-remote-tracking refs gone upstream), and never touches third-party references
-or pins. A failed fetch holds that entry's moves and pushes (its
+remote-tracking refs gone upstream), and never touches existing third-party
+references or pins. A failed fetch holds that entry's moves and pushes (its
 remote-tracking refs weren't refreshed), and a branch on HEAD in several
 checkouts holds its fast-forward or move. The rustdoc of `sync.rs` has the
 details.
+
+**Each missing entry is cloned** — agents' runs included, and whether or
+not busy detection can vouch for every session, since a clone only creates
+a dir. Owned entries clone over SSH, third-party ones over HTTPS, each
+allowed that transport alone; on the entry's `branch` (`--branch`, else the
+remote's default), `--depth 1` when `shallow`, cone-mode `sparse` with
+`--filter=blob:none`, with `--no-tags` and no submodules or hooks — the
+`tagOpt` that records is then unset, so the user's own `git fetch` there
+follows tags as in any clone. The clone
+is made in a temp dir beside the entry's (`.<dir>.repos-clone-<pid>-<nonce>`,
+the nonce random per process, so runs in separate pid namespaces never share
+one) and moved into place only when whole, claiming the path so nothing there
+is ever cloned over; a failure or timeout deletes the temp dir, and the
+unregistered scan names any it finds as an unfinished clone — one a killed run
+left, or one still running, to remove once no `repos sync` is. Anything at the path
+— a file, an empty dir, a dangling symlink — reads as not a repo, never
+missing; a live session at or under the path, or another entry's gone
+worktree recorded there, holds the clone, and an entry whose `url` another
+entry shares is never cloned (its dir may have been a worktree of that
+repo) — a `needs_human` reason. A `sparse` path is checked at parse: plain
+relative directory names, no globs. The clone is read back in place
+(on its branch, tracking origin's, clean) and reported `cloned`, or
+`clone_failed` (classified as a fetch failure is) or `failed`, exit `1`. The
+rustdoc of `clone.rs` has the recipe.
 
 `cargo test --workspace` runs integration tests over hermetic fixture
 workspaces (`crates/fuz_repos/tests/support`): real repos in a tempdir, each
@@ -650,8 +675,10 @@ cloned from a local bare remote, with git's environment cleared (no global or
 system config, fixed identities and dates) and no network — the `ssh` on
 `PATH` is the fixture's own, serving pushes to the registry's SSH URLs from
 the local bare remotes and refusing anything else, SSH failures come from
-fakes too, and the visibility check reads `file://` repos and a loopback HTTP
-server. Busy detection reads fixture config dirs whose session
+fakes too, `GIT_EXEC_PATH` is the fixture's — git's own programs, but a
+`git-remote-https` that refuses every URL unless a test serves the bare
+remotes through it (`serve_https`) — and the visibility check reads
+`file://` repos and a loopback HTTP server. Busy detection reads fixture config dirs whose session
 files name the tests' own child processes. They need git 2.44 or newer on
 `PATH`, and Linux (`/proc`, `/etc/machine-id`). CI runs these
 fmt, clippy, and test commands (with `--locked`, and `--no-fail-fast` on

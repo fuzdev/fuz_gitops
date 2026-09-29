@@ -1,5 +1,6 @@
 //! `repos sync`: fetch, classify, and act on each branch's verdict — the
-//! fast-forwards, shallow moves, and pushes `status` previews.
+//! fast-forwards, shallow moves, and pushes `status` previews — and on each
+//! missing entry's, cloning it.
 //!
 //! **The pipeline.** Sync is `status --fetch` (the same probe pool, the same
 //! hardened fetch writing remote-tracking refs alone, the same visibility
@@ -13,13 +14,16 @@
 //! 3. Act on each branch's verdict: an `act` fast-forward, move, or push is
 //!    made; everything else is reported as it stands. Entries sharing a repo
 //!    act together, one after another, each branch once; repos act in
-//!    parallel.
+//!    parallel, and so do clones (`clone`), each its own entry's — entry
+//!    dirs are plain names under the root, no two alike, so no clone lands
+//!    in another's.
 //!
 //! **Never** a force-push, a tag pushed, a remote branch created on
-//! purpose, a rebase, a merge that isn't a fast-forward, a clone, a deleted
-//! branch, or a pruned worktree (the origin fetch's `--prune` deletes only
-//! remote-tracking refs gone upstream); a third-party reference or a pin is
-//! never touched (their verdicts never act). An entry whose probe failed
+//! purpose, a rebase, a merge that isn't a fast-forward, a clone over
+//! anything at an entry's path, a deleted branch, or a pruned worktree (the
+//! origin fetch's `--prune` deletes only remote-tracking refs gone
+//! upstream); a third-party reference or a pin, once there, is never
+//! touched (their verdicts never act). An entry whose probe failed
 //! has no verdicts, so nothing in it acts. An agent's pushes are held
 //! (`Caller::Agent`, `HeldBy::Gateway`) until the gateway lands: a person
 //! runs sync to push.
@@ -108,6 +112,14 @@
 //!   of the commit is fast-forwarded: the one race a lease would refuse and a
 //!   plain push can't.
 //!
+//! - **A clone** of a missing entry (the `clone` module doc has the recipe)
+//!   is made in a temp dir beside the entry's and moved into place only
+//!   when whole, never over anything there. Right before, sync re-reads the
+//!   live sessions — one now working at or under the path holds it (`busy`)
+//!   — and re-checks that nothing is at the path (`changed`). Busy
+//!   detection that's unavailable holds no clone, and neither does an agent
+//!   running the tool: a clone writes a new dir, and no remote.
+//!
 //! A branch deleted since classifying is held (`changed`) wherever the
 //! action reads it.
 //!
@@ -130,8 +142,9 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
-use crate::busy::{Detection, EntryCheckouts, Sessions, scope_sessions};
+use crate::busy::{Detection, EntryCheckouts, Sessions, scope_sessions, sessions_under};
 use crate::classify::{push_target, push_urls_match};
+use crate::clone::Cloner;
 use crate::git::{CallOptions, Git, GitError, NetworkOptions};
 use crate::porcelain;
 use crate::probe::{
@@ -140,9 +153,11 @@ use crate::probe::{
 };
 use crate::registry::{Entry, RepoUrl};
 use crate::remote::{RefspecContext, RemoteFailure};
-use crate::report::{BranchOutcome, BranchSync, EntryStatus, EntrySync, FetchOutcome, SyncHold};
+use crate::report::{
+    BranchOutcome, BranchSync, CloneOutcome, EntryStatus, EntrySync, FetchOutcome, SyncHold,
+};
 use crate::sessions::{Caller, LiveSessions};
-use crate::state::{BranchStatus, Head, SyncAction, Verdict};
+use crate::state::{BranchStatus, CloneRecipe, CloneVerdict, Head, SyncAction, Verdict};
 use crate::status::{EntryTiming, assess, probe_all, run_pool};
 
 /// The timeout for an action that rewrites a working tree (`merge
@@ -169,6 +184,8 @@ pub struct SyncOptions<'a> {
     /// Who runs the tool (`Caller::from_env`): an agent's pushes are held
     /// for the gateway.
     pub caller: Caller,
+    /// A clone's timeout: `CLONE_TIMEOUT`, but in tests.
+    pub clone_timeout: Duration,
 }
 
 impl std::fmt::Debug for SyncOptions<'_> {
@@ -177,6 +194,7 @@ impl std::fmt::Debug for SyncOptions<'_> {
             .field("jobs", &self.jobs)
             .field("visibility_base", &self.visibility_base)
             .field("caller", &self.caller)
+            .field("clone_timeout", &self.clone_timeout)
             .finish_non_exhaustive()
     }
 }
@@ -225,7 +243,7 @@ pub fn sync(
     );
     let probe_elapsed = start.elapsed();
     // after the fetches, never before: a session started while they ran holds
-    let assessed = assess(entries, probes, &(opts.read_live)(), opts.caller);
+    let assessed = assess(entries, probes, root, &(opts.read_live)(), opts.caller);
 
     let start = Instant::now();
     let actor = Actor {
@@ -236,22 +254,58 @@ pub fn sync(
         read_live: opts.read_live,
         caller: opts.caller,
     };
+    let cloner = Cloner {
+        git,
+        root,
+        registry_dirs,
+        timeout: opts.clone_timeout,
+    };
+    // the clones first: the longest tasks, each its own entry's
+    let clones: Vec<(usize, &CloneRecipe)> = assessed
+        .entries
+        .iter()
+        .enumerate()
+        .filter_map(|(i, e)| match &e.clone {
+            Some(CloneVerdict::Act { recipe }) => Some((i, recipe)),
+            _ => None,
+        })
+        .collect();
     let groups = repo_groups(&assessed.facts);
-    let acted = run_pool(groups.len(), opts.jobs, |g| {
-        actor.act_on_repo(&groups[g], &assessed.entries, &assessed.facts)
+    let acted = run_pool(clones.len() + groups.len(), opts.jobs, |task| {
+        if let Some(&(i, recipe)) = clones.get(task) {
+            let busy = |path: &Path| !sessions_under(&(opts.read_live)(), path).is_empty();
+            return Acted::Clone(i, cloner.clone_entry(&entries[i], recipe, busy));
+        }
+        let group = &groups[task - clones.len()];
+        Acted::Repo(actor.act_on_repo(group, &assessed.entries, &assessed.facts))
     });
     let mut branches: Vec<Vec<BranchSync>> = vec![Vec::new(); entries.len()];
-    for (i, outcomes) in acted.into_iter().flatten() {
-        branches[i] = outcomes;
+    let mut cloned: Vec<Option<CloneOutcome>> = vec![None; entries.len()];
+    for acted in acted {
+        match acted {
+            Acted::Clone(i, outcome) => cloned[i] = Some(outcome),
+            Acted::Repo(outcomes) => {
+                for (i, outcomes) in outcomes {
+                    branches[i] = outcomes;
+                }
+            }
+        }
     }
     let outcomes = assessed
         .entries
         .iter()
         .zip(&assessed.fetches)
-        .zip(branches)
-        .map(|((e, fetch), branches)| EntrySync {
+        .zip(branches.into_iter().zip(cloned))
+        .map(|((e, fetch), (branches, cloned))| EntrySync {
             key: e.key.clone(),
             fetch: fetch_outcome(fetch.as_ref()),
+            clone: e.clone.as_ref().map(|verdict| match verdict {
+                CloneVerdict::Held { by, .. } => CloneOutcome::Held { by: (*by).into() },
+                // never a guess that it was cloned
+                CloneVerdict::Act { .. } => cloned.unwrap_or_else(|| CloneOutcome::Failed {
+                    message: "sync didn't carry out the clone".to_owned(),
+                }),
+            }),
             branches,
         })
         .collect();
@@ -263,6 +317,12 @@ pub fn sync(
         probe_elapsed,
         act_elapsed: start.elapsed(),
     }
+}
+
+/// A pool task's outcomes: a clone's, by entry, or a repo's entries'.
+enum Acted {
+    Clone(usize, CloneOutcome),
+    Repo(Vec<(usize, Vec<BranchSync>)>),
 }
 
 fn fetch_outcome(fetch: Option<&Result<(), RemoteFailure>>) -> FetchOutcome {

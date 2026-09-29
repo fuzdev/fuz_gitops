@@ -68,6 +68,19 @@ fn status_json_is_the_versioned_report() {
         serde_json::json!({"kind": "push", "commits": 1})
     );
     assert_eq!(entries[1]["presence"]["kind"], "missing");
+    assert_eq!(
+        entries[1]["clone"],
+        serde_json::json!({
+            "kind": "act",
+            "recipe": {
+                "url": "git@github.com:me/gone",
+                "branch": "main",
+                "shallow": false,
+                "sparse": null,
+            },
+        })
+    );
+    assert_eq!(entries[0]["clone"], Value::Null);
 }
 
 #[test]
@@ -1180,7 +1193,8 @@ fn version_and_help_exit_zero() {
     assert!(stdout(&out).contains("status"));
 }
 
-/// `app` behind by one, `blog` ahead by one, `gone` missing.
+/// `app` behind by one, `blog` ahead by one, `gone` missing, its remote
+/// there to clone.
 fn sync_workspace() -> FixtureWorkspace {
     let mut ws = FixtureWorkspace::new();
     let app = ws.owned_repo("app", &[]);
@@ -1188,9 +1202,11 @@ fn sync_workspace() -> FixtureWorkspace {
     let blog = ws.owned_repo("blog", &[]);
     ws.commit(&blog, "local");
     ws.assert_track(&blog, "main", "[ahead 1]");
+    ws.remote("gone", &[]);
     ws.declare_repo("gone", "gone", "");
     ws.write_registry();
     ws.assert_track(&app, "main", "");
+    assert!(!ws.dir("gone").exists());
     ws
 }
 
@@ -1223,10 +1239,17 @@ fn sync_json_is_the_versioned_outcome_report() {
             "repeats": null,
         })
     );
+    let gone_tip = ws.git(&ws.bare("gone"), &["rev-parse", "main"]);
     assert_eq!(
         entries[2],
-        serde_json::json!({"key": "gone", "fetch": {"kind": "not_fetched"}, "branches": []})
+        serde_json::json!({
+            "key": "gone",
+            "fetch": {"kind": "not_fetched"},
+            "clone": {"kind": "cloned", "branch": "main", "head": gone_tip},
+            "branches": [],
+        })
     );
+    assert_eq!(ws.git(&ws.dir("gone"), &["rev-parse", "HEAD"]), gone_tip);
     assert_eq!(ws.git(&ws.dir("app"), &["rev-parse", "main"]), tip);
     assert_eq!(ws.git(&ws.bare("blog"), &["rev-parse", "main"]), blog_tip);
 }
@@ -1256,17 +1279,18 @@ fn an_agents_sync_holds_its_pushes_for_the_gateway() {
     assert_eq!(out.status.code(), Some(0), "stderr: {}", stderr(&out));
     let text = stdout(&out);
     let lines: Vec<&str> = text.lines().collect();
+    // an agent clones: a clone writes a new dir, never a remote
     assert_eq!(
         lines[..lines.len() - 1],
         [
-            "synced        ff app −1",
-            "held          push blog +1 (gateway) · clone gone",
+            "synced        ff app −1 · clone gone",
+            "held          push blog +1 (gateway)",
             "              hint: an agent's pushes wait for the gateway; the user's own repos \
              sync pushes them",
-            "              hint: sync never clones — each missing entry is yours to clone",
         ],
         "{text}"
     );
+    ws.assert_head(&ws.dir("gone"), Some("main"));
     assert_eq!(ws.git(&ws.bare("blog"), &["rev-parse", "main"]), blog_was);
     let report = parse(&agent(&["sync", "--json"]));
     assert_eq!(
@@ -1304,11 +1328,7 @@ fn sync_text_is_the_summary_with_what_it_did() {
     let lines: Vec<&str> = text.lines().collect();
     assert_eq!(
         lines[..lines.len() - 1],
-        [
-            "synced        push blog +1 · ff app −1",
-            "held          clone gone",
-            "              hint: sync never clones — each missing entry is yours to clone",
-        ],
+        ["synced        push blog +1 · ff app −1 · clone gone"],
         "{text}"
     );
     assert!(
@@ -1316,12 +1336,42 @@ fn sync_text_is_the_summary_with_what_it_did() {
         "{text}"
     );
 
-    // again: nothing left to push or fast-forward
+    // again: nothing left to push, fast-forward, or clone
     let text = stdout(&repos(&ws, &ws.root(), &["sync"]));
-    assert!(text.starts_with("held          clone gone\n"), "{text}");
+    assert!(
+        text.starts_with("clean 3 · on branches 0 · pinned 0"),
+        "{text}"
+    );
     // status agrees
     let text = stdout(&repos(&ws, &ws.root(), &["status"]));
-    assert!(text.starts_with("sync would    clone gone\n"), "{text}");
+    assert!(
+        text.starts_with("clean 3 · on branches 0 · pinned 0"),
+        "{text}"
+    );
+}
+
+#[test]
+fn a_failed_clone_fails_the_run() {
+    // `gone` has no remote to clone
+    let ws = workspace();
+    let text = stdout(&repos(&ws, &ws.root(), &["status", "--verbose"]));
+    assert!(
+        text.contains(
+            "gone  repo · owned · public · ci · follow main\n  \
+             url       https://github.com/me/gone\n  \
+             dir       missing: gone\n  \
+             clone     git@github.com:me/gone · branch main\n"
+        ),
+        "{text}"
+    );
+    let out = repos(&ws, &ws.root(), &["sync"]);
+    assert_eq!(out.status.code(), Some(1), "stderr: {}", stderr(&out));
+    let text = stdout(&out);
+    assert!(
+        text.starts_with("failed        gone (clone: repo not found)\nsynced        push app +1\n"),
+        "{text}"
+    );
+    assert!(!ws.dir("gone").exists());
 }
 
 #[test]
