@@ -120,7 +120,8 @@ crate, `crates/fuz_repos` (a library plus the `repos` binary), and it owns git:
 repo state, sync, and the agent push path — git only, no API calls. So far it
 has `repos status`: every registry entry's branches and their relation to
 origin, uncommitted work in each checkout (linked worktrees too), what needs
-a human, and the clones at the workspace root the registry doesn't name,
+a human, which checkouts another live Claude Code session is working in, and
+the clones at the workspace root the registry doesn't name,
 grouped by what to do next, from local refs (`--fetch` refreshes them
 first and checks that repos declared private aren't anonymously readable).
 Sync and push aren't built. TS keeps everything else:
@@ -157,7 +158,8 @@ gitops.config.ts -> local repos -> GitHub API -> repos.ts -> UI components
 - `src/lib/fetch_repo_data.ts` - fetches remote repo metadata
 - `src/routes/repos.ts` - generated data file with all repo info
 - `crates/fuz_repos/` - the Rust `repos` tool: registry, git runner, probe,
-  unregistered scan, classification (library) and the `repos` binary
+  unregistered scan, busy detection, classification (library) and the `repos`
+  binary
 - `crates/fuz_repos/tests/` - its integration tests over fixture workspaces
   (`tests/support`)
 
@@ -525,7 +527,7 @@ SvelteKit app; gro never invokes cargo):
 cargo install --path crates/fuz_repos --locked # install the `repos` binary
 repos status                 # git state of every repos.toml entry, local refs only, plus unregistered clones
 repos status gro .           # narrow to targets: a key, a dir name, or a path (no unregistered scan)
-repos status --verbose       # plus stash counts and a block per entry and unregistered dir
+repos status --verbose       # plus stash counts, unscoped sessions, and a block per entry and unregistered dir
 repos status --json          # the versioned report
 COLUMNS=80 repos status      # text wraps at COLUMNS (else 100); color only on a terminal without NO_COLOR
 repos status --fetch         # fetch owned entries from origin first (writes remote-tracking refs), and check private repos
@@ -562,12 +564,51 @@ are redacted wherever shown, and registry URLs are strict (a plain DNS host, no
 userinfo or port). The details live in the rustdoc of `remote.rs` and
 `probe.rs`.
 
+Busy detection reads the live Claude Code sessions under `$CLAUDE_CONFIG_DIR`
+and `~/.claude` — `sessions/<pid>.json` and the daemon roster's workers, each
+verified against `/proc/<pid>/stat`'s start time — excluding the caller
+(`CLAUDE_PID`, honored only when it's an ancestor of the process). A session
+works at its recorded cwd (Claude Code's `originalCwd`, which entering or
+exiting a worktree rewrites), a roster worker's `worktreePath`, and its
+process's current cwd (`/proc/<pid>/cwd`). It marks busy the checkout each of
+those sits in, the checkout whose git dir the nearest `.git` above it names (so
+a worktree moved or copied by hand is busy wherever its files are), every
+checkout under the repo's main checkout's `.claude/worktrees/` (Claude Code's
+subagent worktrees, whose sessions keep the parent's cwd; for a bare or
+`--separate-git-dir` repo, the common dir's too, and for a moved worktree, its
+own), and every checkout whose lock names it — Claude Code locks each worktree
+it creates with the reason `claude <agent|session> <name> (pid <pid> start
+<start>)`, matched against the session's pid and start time. A busy checkout
+holds every action on its branches, pushes included. Claude Code roots agent
+worktrees at its tracked cwd, which the Bash tool's `cd` moves without moving
+the process or the session file, so such a worktree is caught by its lock
+alone; one Claude Code doesn't lock (a `WorktreeCreate` hook's, another
+tool's), and work through `GIT_DIR` or `git -C`, are placed by those paths
+alone. A Claude process that writes no session file (an agent-team teammate,
+a session started inside another's environment) or runs under a
+`CLAUDE_CONFIG_DIR` the tool doesn't read is invisible, its locks with it, and
+a change to Claude Code's lock format silently drops the lock signal.
+
+It fails closed: a live session it can't vouch for (a file that won't parse,
+another machine's or pid namespace's, no `/proc`, a path it can't resolve), a
+file or dir it can't read, a relative `CLAUDE_CONFIG_DIR` or `HOME`, or `HOME`
+unset makes detection unavailable, which holds every action and prints on the
+`failed` line. A checkout whose path can't be resolved may be busy: it holds
+the branches checked out there and shows as a `needs_human` reason. So does a
+git dir no worktree list names that shares the repo's refs (a hand-made
+`commondir`, or `git-new-workdir`) with a session in it, and a branch git says
+is checked out in a worktree the probe didn't find. Sessions in no checkout
+show only under `--verbose` and in the JSON. The details live in the rustdoc
+of `sessions.rs` (the reader) and `busy.rs` (the scoping).
+
 `cargo test --workspace` runs integration tests over hermetic fixture
 workspaces (`crates/fuz_repos/tests/support`): real repos in a tempdir, each
 cloned from a local bare remote, with git's environment cleared (no global or
 system config, fixed identities and dates) and no network — SSH failures come
 from a fake `ssh`, and the visibility check reads `file://` repos and a
-loopback HTTP server. They need git 2.44 or newer on `PATH`. CI runs these
+loopback HTTP server. Busy detection reads fixture config dirs whose session
+files name the tests' own child processes. They need git 2.44 or newer on
+`PATH`, and Linux (`/proc`, `/etc/machine-id`). CI runs these
 fmt, clippy, and test commands (with `--locked`, and `--no-fail-fast` on
 tests) in the `rust` job of `.github/workflows/check.yml`, beside the gro
 check.
@@ -785,9 +826,10 @@ Test repos are isolated from real workspace repos and can run in CI without
 cloning.
 
 `src/test/fixtures/repos_status/*.json` are the Rust `repos status --json`
-golden documents (report, narrowed report, error document), written by
-`crates/fuz_repos/tests/golden.rs` as the contract TS consumers parse against — regenerate them
-with `UPDATE_GOLDEN=1 cargo test --test golden`, never by hand.
+golden documents (report, narrowed report, busy-detection states, error
+document), written by `crates/fuz_repos/tests/golden.rs` as the contract TS
+consumers parse against — regenerate them with
+`UPDATE_GOLDEN=1 cargo test --test golden`, never by hand.
 
 ## Generated Files & Caches
 

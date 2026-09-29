@@ -11,6 +11,7 @@ use std::path::Path;
 
 use fuz_repos::classify::NeedsHuman;
 use fuz_repos::probe::RegistryDirs;
+use fuz_repos::sessions::LiveSessions;
 use fuz_repos::state::{
     Checkout, CleanupReason, GitDirHolds, Head, HeldBy, InProgressOp, Prune, PruneLoss, SyncAction,
     Uncommitted, UnprobedHead, UnprobedWhy, UnprobedWorktree, Verdict,
@@ -96,6 +97,7 @@ fn a_clean_linked_worktree_leaves_its_branch_to_sync() {
             linked: true,
             // not on a branch whose upstream is gone: not checked
             submodules: None,
+            busy: vec![],
         }
     );
     let feat = branch(&e, "feat");
@@ -672,6 +674,7 @@ fn worktrees_are_listed_only_when_the_repo_has_some() {
                 fetch: false,
                 jobs: 1,
                 visibility_base: None,
+                live: &LiveSessions::Known(vec![]),
             },
         );
         assert_eq!(run.entries[0].probe_error, None);
@@ -908,10 +911,17 @@ fn a_worktree_that_cannot_be_looked_at_is_a_failure_not_gone() {
     let mut ws = FixtureWorkspace::new();
     let app = app(&mut ws);
     behind_branch(&ws, &app, "feat");
+    pushed_branch(&ws, &app, "wip");
+    ws.commit(&app, "local");
+    ws.assert_track(&app, "main", "[ahead 1]");
     let sealed = ws.outside("sealed");
     std::fs::create_dir(&sealed).unwrap();
     let wt = sealed.join("app-feat");
     ws.add_worktree(&app, &wt, &["feat"]);
+    let wip = sealed.join("app-wip");
+    ws.add_worktree(&app, &wip, &["wip"]);
+    ws.commit(&wip, "wip");
+    ws.assert_track(&app, "wip", "[ahead 1]");
     std::fs::set_permissions(&sealed, std::fs::Permissions::from_mode(0o000)).unwrap();
     let _unseal = Unseal(sealed.clone());
     if std::fs::read_dir(&sealed).is_ok() {
@@ -926,20 +936,47 @@ fn a_worktree_that_cannot_be_looked_at_is_a_failure_not_gone() {
     );
 
     let e = ws.entry("app");
-    assert_eq!(e.unprobed_worktrees.len(), 1, "{:?}", e.unprobed_worktrees);
-    let u = &e.unprobed_worktrees[0].worktree;
-    assert_eq!(u.path, path(&wt));
-    match &u.why {
-        UnprobedWhy::Failed { error } => {
-            assert!(error.contains("Permission denied"), "{error}");
+    let paths: Vec<&str> = e
+        .unprobed_worktrees
+        .iter()
+        .map(|u| u.worktree.path.as_str())
+        .collect();
+    assert_eq!(paths, [path(&wt), path(&wip)]);
+    for u in &e.unprobed_worktrees {
+        match &u.worktree.why {
+            UnprobedWhy::Failed { error } => {
+                assert!(error.contains("Permission denied"), "{error}");
+            }
+            why => panic!("{why:?}"),
         }
-        why => panic!("{why:?}"),
     }
+    // nor can whether a live session works in them be told: each holds its
+    // own branch, pushes included, and the entry's other branches act
+    let unresolvable = |p: &Path| NeedsHuman::CheckoutUnresolvable {
+        checkout: path(p),
+        path: path(p),
+        error: "Permission denied (os error 13)".into(),
+    };
+    assert_eq!(e.needs_human, [unresolvable(&wt), unresolvable(&wip)]);
+    // unprobed, as before busy detection: the fast-forward's hold
     assert_eq!(
         branch(&e, "feat").verdict,
         Verdict::Held {
             action: ff(1),
             by: HeldBy::UnprobedWorktree
+        }
+    );
+    assert_eq!(
+        branch(&e, "wip").verdict,
+        Verdict::Held {
+            action: SyncAction::Push { commits: 1 },
+            by: HeldBy::BusyUnknown
+        }
+    );
+    assert_eq!(
+        branch(&e, "main").verdict,
+        Verdict::Act {
+            action: SyncAction::Push { commits: 1 }
         }
     );
 }
@@ -1733,6 +1770,7 @@ fn the_index_is_read_only_for_a_worktree_on_a_gone_branch() {
             fetch: false,
             jobs: 1,
             visibility_base: None,
+            live: &LiveSessions::Known(vec![]),
         },
     );
     let e = &run.entries[0];

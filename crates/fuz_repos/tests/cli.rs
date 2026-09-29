@@ -53,6 +53,11 @@ fn status_json_is_the_versioned_report() {
     assert_eq!(report["workspace"], ws.root().to_str().unwrap());
     // the scan ran and found nothing
     assert_eq!(report["unregistered"], serde_json::json!([]));
+    // the fixture's HOME records no Claude Code session: nothing live
+    assert_eq!(
+        report["sessions"],
+        serde_json::json!({"kind": "available", "unscoped": []})
+    );
     let entries = report["entries"].as_array().unwrap();
     let keys: Vec<&str> = entries.iter().map(|e| e["key"].as_str().unwrap()).collect();
     assert_eq!(keys, ["app", "gone"]);
@@ -236,6 +241,7 @@ fn status_from_a_linked_worktree_outside_the_workspace() {
             "in_progress": null,
             "why": {"kind": "prunable"},
             "prune": {"kind": "safe"},
+            "busy": [],
         }])
     );
     let checkouts = e["checkouts"].as_array().unwrap();

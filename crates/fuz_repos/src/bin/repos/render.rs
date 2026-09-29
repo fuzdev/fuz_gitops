@@ -6,12 +6,14 @@ use std::ffi::OsStr;
 use std::fmt::Write as _;
 use std::path::Path;
 
+use fuz_repos::busy::Sessions;
 use fuz_repos::classify::{NeedsHuman, OriginByHand, OriginFix, OriginRemote};
 use fuz_repos::registry::{CheckoutMode, EntryKind, Visibility};
 use fuz_repos::remote::{RefGoneFix, RemoteFailure, UnreachableCause, VisibilityCheck};
 use fuz_repos::report::{
     EntryStatus, RepairBlock, StatusReport, UnregisteredClone, UnregisteredKind,
 };
+use fuz_repos::sessions::{Session, SessionSource, Unavailable};
 use fuz_repos::state::{
     BranchNeedsHuman, BranchStatus, CleanupReason, Head, HeldBy, Presence, Prune, PruneLoss,
     Relation, SyncAction, Uncommitted, UnprobedHead, UnprobedWhy, Verdict,
@@ -226,6 +228,21 @@ pub fn render_summary(report: &StatusReport, view: View<'_>, verbose: bool) -> S
         }
     }
 
+    // the guard itself failed: said once, first among the failures
+    if let Sessions::Unavailable { reason } = &report.sessions {
+        g.failed.insert(
+            0,
+            format!(
+                "busy detection ({}; every push, ff, and move held)",
+                unavailable_label(reason, view)
+            ),
+        );
+    }
+    let mut unscoped = Vec::new();
+    if let (true, Sessions::Available { unscoped: sessions }) = (verbose, &report.sessions) {
+        unscoped.extend(sessions.iter().map(|s| session_label(s, view)));
+    }
+
     let mut out = String::new();
     let mut line = |label: &str, tone: Tone, items: Items| {
         out.push_str(&render_group(label, tone, &items, view));
@@ -304,6 +321,7 @@ pub fn render_summary(report: &StatusReport, view: View<'_>, verbose: bool) -> S
         Items::Runs(unregistered_groups(report, view), "  "),
     );
     line("stashes", Tone::Plain, Items::Singles(g.stashes));
+    line("unscoped", Tone::Plain, Items::Singles(unscoped));
 
     let counts = format!(
         "clean {} · on branches {} · pinned {}",
@@ -616,7 +634,9 @@ impl Groups {
                     ));
                 }
                 // intentional, as on unmounted media: `--verbose` shows it,
-                // and it still holds its branch
+                // and it still holds its branch's fast-forward and move (its
+                // push too, when a session works in its files wherever
+                // they're mounted)
                 (UnprobedWhy::Missing, _) => {}
             }
         }
@@ -657,8 +677,19 @@ impl Groups {
     }
 }
 
+/// An unprobed checkout's HEAD, after its path.
+fn unprobed_head_label(head: &UnprobedHead) -> String {
+    match head {
+        UnprobedHead::Branch { name } => format!(" on {name}"),
+        UnprobedHead::Detached { commit } => {
+            format!(" detached at {}", commit.get(..12).unwrap_or(commit))
+        }
+        UnprobedHead::Unknown => " HEAD unreadable".to_owned(),
+    }
+}
+
 /// A reason's label; an operation outside the primary checkout names the
-/// worktree it's in.
+/// worktree it's in, and an unresolvable checkout says which kind it is.
 fn needs_human_label(reason: &NeedsHuman, e: &EntryStatus, view: View<'_>) -> String {
     match reason {
         NeedsHuman::NotARepo { .. } => "not a repo".into(),
@@ -688,6 +719,34 @@ fn needs_human_label(reason: &NeedsHuman, e: &EntryStatus, view: View<'_>) -> St
         }
         NeedsHuman::UnexpectedDetached { .. } => "detached".into(),
         NeedsHuman::PinnedOnBranch { branch } => format!("pinned, on {branch}"),
+        NeedsHuman::CheckoutUnresolvable {
+            checkout,
+            path,
+            error,
+        } => {
+            let at = if path == checkout {
+                String::new()
+            } else {
+                format!(" at {}", view.show(path))
+            };
+            let primary = e.checkouts.iter().find(|c| c.primary);
+            let kind = if primary.is_some_and(|c| c.path == *checkout) {
+                "checkout"
+            } else {
+                "worktree"
+            };
+            format!("{kind} {} unresolvable{at}: {error}", view.show(checkout))
+        }
+        NeedsHuman::UnlistedGitDir {
+            git_dir,
+            head,
+            busy,
+        } => format!(
+            "unlisted git dir {}{} shares its refs · busy: {}",
+            view.show(git_dir),
+            unprobed_head_label(head),
+            sessions_label(busy, view)
+        ),
     }
 }
 
@@ -807,34 +866,39 @@ pub fn render_entry(e: &EntryStatus, workspace: &Path, view: View<'_>) -> String
             (false, true, false) => " (worktree)",
             (false, true, true) => " (worktree, locked)",
         };
+        let busy = if c.busy.is_empty() {
+            String::new()
+        } else {
+            format!(" · busy: {}", sessions_label(&c.busy, view))
+        };
         let _ = writeln!(
             out,
-            "  {:<10}{}{mark} {head} · {dirt}{op}",
+            "  {:<10}{}{mark} {head} · {dirt}{op}{busy}",
             "checkout",
             view.show(&c.path)
         );
     }
-    for u in e.unprobed_worktrees.iter().map(|u| &u.worktree) {
+    for status in &e.unprobed_worktrees {
+        let u = &status.worktree;
         let why = match u.why {
             UnprobedWhy::Prunable => "prunable",
             UnprobedWhy::Missing => "missing",
             UnprobedWhy::Failed { .. } => "probe failed",
         };
         let locked = if u.locked { ", locked" } else { "" };
-        let head = match &u.head {
-            UnprobedHead::Branch { name } => format!(" on {name}"),
-            UnprobedHead::Detached { commit } => {
-                format!(" detached at {}", commit.get(..12).unwrap_or(commit))
-            }
-            UnprobedHead::Unknown => " HEAD unreadable".to_owned(),
-        };
+        let head = unprobed_head_label(&u.head);
         let op = u
             .in_progress
             .map(|op| format!(" · {} in progress", op.label()))
             .unwrap_or_default();
+        let busy = if status.busy.is_empty() {
+            String::new()
+        } else {
+            format!(" · busy: {}", sessions_label(&status.busy, view))
+        };
         let _ = writeln!(
             out,
-            "  {:<10}{} (worktree, {why}{locked}){head}{op}",
+            "  {:<10}{} (worktree, {why}{locked}){head}{op}{busy}",
             "checkout",
             view.show(&u.path)
         );
@@ -1286,7 +1350,63 @@ const fn held_note(by: HeldBy) -> &'static str {
         HeldBy::Entry => "",
         HeldBy::DirtyCheckout => " (dirty)",
         HeldBy::UnprobedWorktree => " (unprobed worktree)",
+        HeldBy::Busy => " (busy)",
+        HeldBy::BusyUnknown => " (busy unknown)",
     }
+}
+
+/// Why busy detection is unavailable, as the `failed` line words it.
+fn unavailable_label(reason: &Unavailable, view: View<'_>) -> String {
+    match reason {
+        Unavailable::HomeUnknown => "HOME isn't set, so ~/.claude can't be found".into(),
+        Unavailable::RelativeConfigDir { path } => {
+            format!("config dir {path} isn't an absolute path")
+        }
+        Unavailable::Unreadable { path, error } => {
+            format!("can't read {}: {error}", view.show(path))
+        }
+        Unavailable::Unparseable { path, error } => {
+            format!("can't parse {}: {error}", view.show(path))
+        }
+        Unavailable::ForeignPidDomain {
+            path,
+            pid_domain,
+            source,
+        } => {
+            // a session file names one session; the roster isn't one to remove
+            let hint = match source {
+                SessionSource::SessionFile => " — remove it if that session is gone",
+                SessionSource::RosterWorker => "",
+            };
+            format!(
+                "{} is from another machine or pid namespace ({pid_domain}){hint}",
+                view.show(path)
+            )
+        }
+    }
+}
+
+/// A session as `--verbose` lists it: pid, and cwd — and its worktree and
+/// its process's cwd, when it has them.
+fn session_label(s: &Session, view: View<'_>) -> String {
+    let mut label = format!("pid {} ({}", s.pid, view.show(&s.cwd));
+    if let Some(worktree) = &s.worktree {
+        let _ = write!(label, ", worktree {}", view.show(worktree));
+    }
+    if let Some(now) = &s.process_cwd {
+        let _ = write!(label, ", now {}", view.show(now));
+    }
+    label.push(')');
+    label
+}
+
+/// A checkout's sessions, for `--verbose`'s entry block.
+fn sessions_label(sessions: &[Session], view: View<'_>) -> String {
+    sessions
+        .iter()
+        .map(|s| session_label(s, view))
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 /// What removing a gone worktree would discard, as the cleanup line words
@@ -1431,6 +1551,7 @@ mod tests {
                 locked: false,
                 linked: false,
                 submodules: None,
+                busy: vec![],
             }],
             branches: vec![],
             stashes: 0,
@@ -1493,6 +1614,7 @@ mod tests {
             locked: false,
             linked: true,
             submodules: Some(false),
+            busy: vec![],
         }
     }
 
@@ -1518,7 +1640,11 @@ mod tests {
 
     /// An unprobed worktree as the report carries it.
     const fn status(worktree: UnprobedWorktree, prune: Option<Prune>) -> UnprobedWorktreeStatus {
-        UnprobedWorktreeStatus { worktree, prune }
+        UnprobedWorktreeStatus {
+            worktree,
+            prune,
+            busy: Vec::new(),
+        }
     }
 
     fn report(entries: Vec<EntryStatus>) -> StatusReport {
@@ -1526,6 +1652,7 @@ mod tests {
             "/home/me/dev".into(),
             "/home/me/dev/repos.toml".into(),
             false,
+            Sessions::Available { unscoped: vec![] },
             entries,
         )
     }
@@ -2189,6 +2316,141 @@ clean 1 · on branches 0 · pinned 0      ~/dev/repos.toml · fetched 3h ago
     }
 
     #[test]
+    fn busy_holds_and_sessions() {
+        let s = |pid, cwd: &str| Session::at(pid, 0, cwd.into(), SessionSource::SessionFile);
+        let mut app = entry("app", main(), "main");
+        app.branches = vec![branch(
+            "main",
+            Some("origin/main"),
+            Relation::Ahead { commits: 1 },
+            1,
+            Verdict::Held {
+                action: SyncAction::Push { commits: 1 },
+                by: HeldBy::Busy,
+            },
+        )];
+        app.checkouts[0].busy = vec![
+            s(41, "/home/me/dev/app/src"),
+            Session {
+                worktree: Some("/home/me/dev/app/.claude/worktrees/w".into()),
+                process_cwd: Some("/home/me/dev/app/src".into()),
+                ..s(42, "/home/me/dev")
+            },
+        ];
+        let mut r = report(vec![app]);
+        r.sessions = Sessions::Available {
+            unscoped: vec![s(7, "/home/me/dev"), s(8, "/srv/x")],
+        };
+        // unscoped sessions never print by default: one usually sits at the root
+        assert_eq!(
+            render_summary(&r, VIEW, false),
+            "\
+held          push app +1 (busy)
+clean 0 · on branches 0 · pinned 0      ~/dev/repos.toml · fetched 3h ago
+"
+        );
+        assert_eq!(
+            render_summary(&r, VIEW, true),
+            "\
+held          push app +1 (busy)
+unscoped      pid 7 (~/dev)  pid 8 (/srv/x)
+clean 0 · on branches 0 · pinned 0      ~/dev/repos.toml · fetched 3h ago
+"
+        );
+        let block = render_entry(&r.entries[0], Path::new("/home/me/dev"), VIEW);
+        assert!(
+            block.contains(
+                "  checkout  ~/dev/app on main · clean · busy: pid 41 (~/dev/app/src), \
+                 pid 42 (~/dev, worktree ~/dev/app/.claude/worktrees/w, now ~/dev/app/src)\n"
+            ),
+            "{block}"
+        );
+        assert!(block.contains("→ held push (busy)\n"), "{block}");
+
+        // unavailable: said once, first among the failures, and every hold
+        // marked
+        r.entries[0].checkouts[0].busy.clear();
+        r.entries[0].branches[0].verdict = Verdict::Held {
+            action: SyncAction::Push { commits: 1 },
+            by: HeldBy::BusyUnknown,
+        };
+        r.entries[0].probe_error = Some("fatal: bad object".into());
+        r.sessions = Sessions::Unavailable {
+            reason: Unavailable::ForeignPidDomain {
+                path: "/home/me/.claude/sessions/9.json".into(),
+                pid_domain: "linux:abc:pid:[1]".into(),
+                source: SessionSource::SessionFile,
+            },
+        };
+        assert_eq!(
+            render_summary(&r, VIEW, false),
+            "\
+failed        busy detection (~/.claude/sessions/9.json is from another machine or pid namespace (linux:abc:pid:[1]) — remove it if that session is gone; every push, ff, and move held)
+              app (probe: fatal: bad object)
+held          push app +1 (busy unknown)
+clean 0 · on branches 0 · pinned 0      ~/dev/repos.toml
+"
+        );
+        let labels = [
+            (
+                Unavailable::HomeUnknown,
+                "HOME isn't set, so ~/.claude can't be found",
+            ),
+            (
+                Unavailable::Unreadable {
+                    path: "/proc/self/stat".into(),
+                    error: "No such file or directory (os error 2)".into(),
+                },
+                "can't read /proc/self/stat: No such file or directory (os error 2)",
+            ),
+            (
+                Unavailable::Unparseable {
+                    path: "/home/me/.claude/daemon/roster.json".into(),
+                    error: "missing field `workers`".into(),
+                },
+                "can't parse ~/.claude/daemon/roster.json: missing field `workers`",
+            ),
+            (
+                Unavailable::RelativeConfigDir {
+                    path: "claude".into(),
+                },
+                "config dir claude isn't an absolute path",
+            ),
+            (
+                Unavailable::ForeignPidDomain {
+                    path: "/home/me/.claude/daemon/roster.json".into(),
+                    pid_domain: "linux:abc:pid:[1]".into(),
+                    source: SessionSource::RosterWorker,
+                },
+                "~/.claude/daemon/roster.json is from another machine or pid namespace \
+                 (linux:abc:pid:[1])",
+            ),
+            // the hint follows what recorded it, wherever the file sits
+            (
+                Unavailable::ForeignPidDomain {
+                    path: "/srv/sessions/roster.json".into(),
+                    pid_domain: "linux:abc:pid:[1]".into(),
+                    source: SessionSource::RosterWorker,
+                },
+                "/srv/sessions/roster.json is from another machine or pid namespace \
+                 (linux:abc:pid:[1])",
+            ),
+            (
+                Unavailable::ForeignPidDomain {
+                    path: "/srv/9.json".into(),
+                    pid_domain: "linux:abc:pid:[1]".into(),
+                    source: SessionSource::SessionFile,
+                },
+                "/srv/9.json is from another machine or pid namespace \
+                 (linux:abc:pid:[1]) — remove it if that session is gone",
+            ),
+        ];
+        for (reason, label) in labels {
+            assert_eq!(unavailable_label(&reason, VIEW), label);
+        }
+    }
+
+    #[test]
     fn entry_block() {
         let mut e = entry("gro", main(), "main");
         e.branches = vec![
@@ -2457,6 +2719,43 @@ clean 0 · on branches 0 · pinned 0      ~/dev/repos.toml · fetched 3h ago
             NeedsHuman::WorktreeUnreadable {
                 path: "/home/me/dev/app/.git/worktrees/x".into(),
             },
+            NeedsHuman::CheckoutUnresolvable {
+                checkout: "/home/me/sealed/app-wt".into(),
+                path: "/home/me/sealed/app-wt".into(),
+                error: "Permission denied (os error 13)".into(),
+            },
+            NeedsHuman::CheckoutUnresolvable {
+                checkout: "/home/me/loop/app-wt".into(),
+                path: "/home/me/loop".into(),
+                error: "Too many levels of symbolic links (os error 40)".into(),
+            },
+            NeedsHuman::CheckoutUnresolvable {
+                checkout: "/home/me/dev/app".into(),
+                path: "/home/me/dev/app".into(),
+                error: "Permission denied (os error 13)".into(),
+            },
+            NeedsHuman::UnlistedGitDir {
+                git_dir: "/home/me/hand/.git".into(),
+                head: UnprobedHead::Branch {
+                    name: "other".into(),
+                },
+                busy: vec![Session::at(
+                    41,
+                    0,
+                    "/home/me/hand/src".into(),
+                    SessionSource::SessionFile,
+                )],
+            },
+            NeedsHuman::UnlistedGitDir {
+                git_dir: "/home/me/dev/app-new/.git".into(),
+                head: UnprobedHead::Unknown,
+                busy: vec![Session::at(
+                    42,
+                    0,
+                    "/home/me/dev/app-new".into(),
+                    SessionSource::RosterWorker,
+                )],
+            },
         ];
         assert_eq!(
             render_entry(&e, Path::new("/home/me/dev"), VIEW),
@@ -2478,6 +2777,11 @@ app  repo · owned · public · ci · follow main
   needs     rebase in progress, worktree ~/dev/app-fix
   needs     merge in progress, worktree /media/usb/app
   needs     worktree git dir unreadable: ~/dev/app/.git/worktrees/x
+  needs     worktree ~/sealed/app-wt unresolvable: Permission denied (os error 13)
+  needs     worktree ~/loop/app-wt unresolvable at ~/loop: Too many levels of symbolic links (os error 40)
+  needs     checkout ~/dev/app unresolvable: Permission denied (os error 13)
+  needs     unlisted git dir ~/hand/.git on other shares its refs · busy: pid 41 (~/hand/src)
+  needs     unlisted git dir ~/dev/app-new/.git HEAD unreadable shares its refs · busy: pid 42 (~/dev/app-new)
   error     worktree ~/dev/app-broken: fatal: not a git repository
   error     worktree ~/dev/app/.git/worktrees/x: not listed by git: reading …: Permission denied
 "

@@ -1,8 +1,17 @@
 {
-	"version": 4,
+	"version": 5,
 	"workspace": "/home/me/dev",
 	"registry": "/home/me/dev/repos.toml",
 	"fetched": false,
+	"sessions": {
+		"kind": "unavailable",
+		"reason": {
+			"kind": "foreign_pid_domain",
+			"path": "/home/me/.claude/sessions/77.json",
+			"pid_domain": "linux:0123456789abcdef0123456789abcdef:pid:[4026532001]",
+			"source": "session_file"
+		}
+	},
 	"entries": [
 		{
 			"key": "gro",
@@ -42,7 +51,8 @@
 					"in_progress": null,
 					"locked": false,
 					"linked": false,
-					"submodules": null
+					"submodules": null,
+					"busy": []
 				}
 			],
 			"branches": [],
@@ -60,6 +70,77 @@
 					}
 				}
 			],
+			"probe_error": null,
+			"unprobed_worktrees": [],
+			"fetch_error": null,
+			"visibility_check": null
+		},
+		{
+			"key": "fuz_util",
+			"kind": "repo",
+			"dir": "fuz_util",
+			"url": "https://github.com/me/fuz_util",
+			"writable": true,
+			"archived": false,
+			"visibility": "public",
+			"ci": true,
+			"checkout_mode": {
+				"kind": "follow",
+				"branch": "main"
+			},
+			"presence": {
+				"kind": "present"
+			},
+			"layout": {
+				"shallow": false,
+				"sparse": false,
+				"partial_filter": null
+			},
+			"checkouts": [
+				{
+					"path": "/home/me/dev/fuz_util",
+					"primary": true,
+					"head": {
+						"kind": "branch",
+						"name": "main"
+					},
+					"uncommitted": {
+						"staged": 0,
+						"unstaged": 0,
+						"untracked": 0,
+						"conflicted": 0
+					},
+					"in_progress": null,
+					"locked": false,
+					"linked": false,
+					"submodules": null,
+					"busy": []
+				}
+			],
+			"branches": [
+				{
+					"name": "main",
+					"upstream": "origin/main",
+					"worktree": "/home/me/dev/fuz_util",
+					"unique_commits": 1,
+					"newest_commit_at": 1799827200,
+					"relation": {
+						"kind": "ahead",
+						"commits": 1
+					},
+					"verdict": {
+						"kind": "held",
+						"action": {
+							"kind": "push",
+							"commits": 1
+						},
+						"by": "busy_unknown"
+					}
+				}
+			],
+			"stashes": 0,
+			"fetched_at": 1799913600,
+			"needs_human": [],
 			"probe_error": null,
 			"unprobed_worktrees": [],
 			"fetch_error": null,

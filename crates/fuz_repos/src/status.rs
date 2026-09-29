@@ -1,10 +1,12 @@
-//! `repos status`: probe and classify entries over a bounded thread pool.
+//! `repos status`: probe entries over a bounded thread pool, scope the live
+//! sessions to their checkouts, and classify.
 
 use std::path::Path;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::thread;
 use std::time::{Duration, Instant};
 
+use crate::busy::{EntryCheckouts, EntrySessions, Sessions, scope_sessions};
 use crate::classify::{NeedsHuman, classify};
 use crate::git::Git;
 use crate::probe::{ProbeContext, ProbeRun, Probed, RegistryDirs, probe};
@@ -12,6 +14,7 @@ use crate::registry::Entry;
 use crate::remote::{VisibilityCheck, is_declared_private, read_anonymously, visibility_url};
 use crate::report::EntryStatus;
 use crate::scan::Scan;
+use crate::sessions::LiveSessions;
 use crate::state::{Checkout, Presence, Prune};
 
 /// How to run `status`.
@@ -28,6 +31,9 @@ pub struct StatusOptions<'a> {
     /// tests, which point it at a `file://` dir or a local server. `None`
     /// reads the registry URL.
     pub visibility_base: Option<&'a str>,
+    /// The live sessions the run scopes to checkouts
+    /// (`read_live_sessions`), read by the caller: a seam for tests.
+    pub live: &'a LiveSessions,
 }
 
 /// One entry's time, for `--timings`.
@@ -44,6 +50,8 @@ pub struct EntryTiming {
 #[derive(Debug)]
 pub struct StatusRun {
     pub entries: Vec<EntryStatus>,
+    /// Busy detection over the checkouts probed.
+    pub sessions: Sessions,
     pub timings: Vec<EntryTiming>,
     /// Wall time of the whole pool.
     pub elapsed: Duration,
@@ -52,11 +60,12 @@ pub struct StatusRun {
 /// A pool's unit of work.
 #[derive(Debug)]
 enum Done {
-    Entry(usize, Box<EntryStatus>, EntryTiming),
+    Entry(usize, Box<ProbeRun>, EntryTiming),
     Visibility(usize, VisibilityCheck, Duration),
 }
 
-/// Probes and classifies `entries` over a pool of `opts.jobs` threads;
+/// Probes `entries` over a pool of `opts.jobs` threads, then scopes
+/// `opts.live` to the checkouts found and classifies each entry;
 /// `registry_dirs` are the whole registry's dirs, whatever `entries` holds.
 ///
 /// Under `opts.fetch` the visibility checks share the pool, queued ahead of
@@ -110,7 +119,7 @@ pub fn status(
                             probe: run.probe_time,
                             visibility: Duration::ZERO,
                         };
-                        out.push(Done::Entry(i, Box::new(entry_status(entry, run)), timing));
+                        out.push(Done::Entry(i, Box::new(run), timing));
                     }
                     out
                 })
@@ -126,27 +135,59 @@ pub fn status(
     let mut checked = Vec::with_capacity(checks.len());
     for d in done {
         match d {
-            Done::Entry(i, status, timing) => probed.push((i, status, timing)),
+            Done::Entry(i, run, timing) => probed.push((i, run, timing)),
             Done::Visibility(i, check, time) => checked.push((i, check, time)),
         }
     }
     probed.sort_by_key(|(i, ..)| *i);
+    // every checkout probed, so a session lands in the deepest of them all
+    let checkouts: Vec<EntryCheckouts> = probed
+        .iter()
+        .map(|(_, run, _)| entry_checkouts(&run.probed))
+        .collect();
+    let (sessions, per_entry) = scope_sessions(opts.live, &checkouts);
+    let mut statuses: Vec<(usize, EntryStatus, EntryTiming)> = probed
+        .into_iter()
+        .zip(&per_entry)
+        .map(|((i, run, timing), busy)| (i, entry_status(&entries[i], *run, busy), timing))
+        .collect();
     for (i, check, time) in checked {
-        if let Some((_, status, timing)) = probed.iter_mut().find(|(j, ..)| *j == i) {
+        if let Some((_, status, timing)) = statuses.iter_mut().find(|(j, ..)| *j == i) {
             status.visibility_check = Some(check);
             timing.visibility = time;
         }
     }
-    let (entries, timings) = probed.into_iter().map(|(_, e, t)| (*e, t)).unzip();
+    let (entries, timings) = statuses.into_iter().map(|(_, e, t)| (e, t)).unzip();
     StatusRun {
         entries,
+        sessions,
         timings,
         elapsed: start.elapsed(),
     }
 }
 
-/// Assembles an entry's report from its probe.
-pub fn entry_status(entry: &Entry, run: ProbeRun) -> EntryStatus {
+/// A probed repo's checkouts: their paths as its facts spell them — the
+/// primary's, each probed worktree's, each unprobed one's — their own git
+/// dirs, and their locks. None when the probe found no repo or failed.
+fn entry_checkouts(probed: &Probed) -> EntryCheckouts {
+    let Probed::Present(facts) = probed else {
+        return EntryCheckouts::default();
+    };
+    EntryCheckouts {
+        paths: std::iter::once(&facts.path)
+            .chain(facts.worktrees.iter().map(|c| &c.path))
+            .chain(facts.unprobed.iter().map(|u| &u.path))
+            .cloned()
+            .collect(),
+        git_dirs: facts.git_dirs.clone(),
+        common_dir: Some(facts.common_dir.clone()),
+        locks: facts.locks.clone(),
+    }
+}
+
+/// Assembles an entry's report from its probe and the live sessions in its
+/// checkouts.
+pub fn entry_status(entry: &Entry, run: ProbeRun, sessions: &EntrySessions) -> EntryStatus {
     let mut status = EntryStatus {
         key: entry.key.clone(),
         kind: entry.kind,
@@ -180,11 +221,12 @@ pub fn entry_status(entry: &Entry, run: ProbeRun) -> EntryStatus {
             status.layout = layout;
         }
         Probed::Present(facts) => {
-            let classified = classify(entry, &facts);
+            let classified = classify(entry, &facts, sessions);
             status.branches = classified.branches;
             status.needs_human = classified.needs_human;
             status.stashes = facts.status.stashes;
             status.fetched_at = facts.fetched_at;
+            let primary_busy = sessions.at(&facts.path).to_vec();
             status.checkouts.push(Checkout {
                 path: facts.path,
                 primary: true,
@@ -195,8 +237,14 @@ pub fn entry_status(entry: &Entry, run: ProbeRun) -> EntryStatus {
                 linked: facts.primary_linked,
                 // never removed: not checked
                 submodules: None,
+                busy: primary_busy,
             });
-            status.checkouts.extend(facts.worktrees);
+            status
+                .checkouts
+                .extend(facts.worktrees.into_iter().map(|mut c| {
+                    c.busy = sessions.at(&c.path).to_vec();
+                    c
+                }));
             status.unprobed_worktrees = classified.unprobed;
             status.layout = Some(facts.layout);
         }

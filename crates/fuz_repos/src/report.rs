@@ -4,6 +4,7 @@
 use serde::Serialize;
 
 use crate::STATUS_FORMAT_VERSION;
+use crate::busy::Sessions;
 use crate::classify::NeedsHuman;
 use crate::error::{Error, ErrorKind};
 use crate::registry::{CheckoutMode, EntryKind, Visibility};
@@ -26,6 +27,10 @@ pub struct StatusReport {
     /// pinned, or with no `origin` URL) weren't fetched either way. The
     /// visibility check ran exactly when this is true.
     pub fetched: bool,
+    /// Busy detection: the live Claude Code sessions in no checkout, or why
+    /// they couldn't be vouched for (every push, fast-forward, and move is
+    /// then held). Those in a checkout are on it, as its `busy`.
+    pub sessions: Sessions,
     pub entries: Vec<EntryStatus>,
     /// The workspace root's children holding a `.git` that no registry
     /// entry claims, by dir name; `None` when the scan didn't run (it runs
@@ -38,6 +43,7 @@ impl StatusReport {
         workspace: String,
         registry: String,
         fetched: bool,
+        sessions: Sessions,
         entries: Vec<EntryStatus>,
     ) -> Self {
         Self {
@@ -45,6 +51,7 @@ impl StatusReport {
             workspace,
             registry,
             fetched,
+            sessions,
             entries,
             unregistered: None,
         }

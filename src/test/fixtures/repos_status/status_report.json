@@ -1,8 +1,23 @@
 {
-	"version": 4,
+	"version": 5,
 	"workspace": "/home/me/dev",
 	"registry": "/home/me/dev/repos.toml",
 	"fetched": true,
+	"sessions": {
+		"kind": "available",
+		"unscoped": [
+			{
+				"pid": 1200,
+				"cwd": "/home/me/dev",
+				"source": "session_file"
+			},
+			{
+				"pid": 1300,
+				"cwd": "/home/me/notes",
+				"source": "roster_worker"
+			}
+		]
+	},
 	"entries": [
 		{
 			"key": "app",
@@ -42,7 +57,8 @@
 					"in_progress": null,
 					"locked": false,
 					"linked": false,
-					"submodules": null
+					"submodules": null,
+					"busy": []
 				},
 				{
 					"path": "/home/me/dev/app-feat",
@@ -60,7 +76,34 @@
 					"in_progress": null,
 					"locked": false,
 					"linked": true,
-					"submodules": null
+					"submodules": null,
+					"busy": []
+				},
+				{
+					"path": "/home/me/dev/app/.claude/worktrees/agent",
+					"primary": false,
+					"head": {
+						"kind": "branch",
+						"name": "agent"
+					},
+					"uncommitted": {
+						"staged": 0,
+						"unstaged": 0,
+						"untracked": 0,
+						"conflicted": 0
+					},
+					"in_progress": null,
+					"locked": false,
+					"linked": true,
+					"submodules": null,
+					"busy": [
+						{
+							"pid": 4242,
+							"cwd": "/home/me/dev",
+							"process_cwd": "/home/me/dev/app/.claude/worktrees/agent/src",
+							"source": "session_file"
+						}
+					]
 				},
 				{
 					"path": "/home/me/wt/app-old",
@@ -78,7 +121,8 @@
 					"in_progress": null,
 					"locked": false,
 					"linked": true,
-					"submodules": false
+					"submodules": false,
+					"busy": []
 				},
 				{
 					"path": "/home/me/dev/app-fix",
@@ -96,7 +140,8 @@
 					"in_progress": "cherry_pick",
 					"locked": true,
 					"linked": true,
-					"submodules": true
+					"submodules": true,
+					"busy": []
 				}
 			],
 			"branches": [
@@ -135,6 +180,25 @@
 							"commits": 1
 						},
 						"by": "dirty_checkout"
+					}
+				},
+				{
+					"name": "agent",
+					"upstream": "origin/agent",
+					"worktree": "/home/me/dev/app/.claude/worktrees/agent",
+					"unique_commits": 1,
+					"newest_commit_at": 1799827200,
+					"relation": {
+						"kind": "ahead",
+						"commits": 1
+					},
+					"verdict": {
+						"kind": "held",
+						"action": {
+							"kind": "push",
+							"commits": 1
+						},
+						"by": "busy"
 					}
 				},
 				{
@@ -272,6 +336,21 @@
 				{
 					"kind": "worktree_unreadable",
 					"path": "/home/me/dev/app/.git/worktrees/x"
+				},
+				{
+					"kind": "unlisted_git_dir",
+					"git_dir": "/home/me/hand/.git",
+					"head": {
+						"kind": "branch",
+						"name": "other"
+					},
+					"busy": [
+						{
+							"pid": 1400,
+							"cwd": "/home/me/hand",
+							"source": "session_file"
+						}
+					]
 				}
 			],
 			"probe_error": null,
@@ -295,7 +374,15 @@
 					},
 					"prune": {
 						"kind": "safe"
-					}
+					},
+					"busy": [
+						{
+							"pid": 4343,
+							"cwd": "/home/me/dev/app-gone/src",
+							"worktree": "/home/me/dev/app-gone",
+							"source": "roster_worker"
+						}
+					]
 				},
 				{
 					"path": "/home/me/dev/app-spike",
@@ -348,7 +435,8 @@
 								"git_dir": "/home/me/dev/app/.git/worktrees/k"
 							}
 						]
-					}
+					},
+					"busy": []
 				},
 				{
 					"path": "/home/me/dev/app-b",
@@ -373,7 +461,8 @@
 							"b-copy",
 							"b-moved"
 						]
-					}
+					},
+					"busy": []
 				},
 				{
 					"path": "/media/usb/app",
@@ -388,7 +477,8 @@
 						"kind": "missing"
 					},
 					"holds": null,
-					"prune": null
+					"prune": null,
+					"busy": []
 				},
 				{
 					"path": "/home/me/dev/app/.git/worktrees/x",
@@ -403,7 +493,8 @@
 						"error": "not listed by git: reading HEAD: Permission denied"
 					},
 					"holds": null,
-					"prune": null
+					"prune": null,
+					"busy": []
 				}
 			],
 			"fetch_error": {
@@ -450,7 +541,8 @@
 					"in_progress": "merge",
 					"locked": false,
 					"linked": false,
-					"submodules": null
+					"submodules": null,
+					"busy": []
 				}
 			],
 			"branches": [
@@ -492,6 +584,12 @@
 					"kind": "operation_in_progress",
 					"checkout": "/home/me/dev/fuz_blog",
 					"op": "merge"
+				},
+				{
+					"kind": "checkout_unresolvable",
+					"checkout": "/home/me/sealed/fuz_blog-wt",
+					"path": "/home/me/sealed/fuz_blog-wt",
+					"error": "Permission denied (os error 13)"
 				}
 			],
 			"probe_error": null,
@@ -544,7 +642,8 @@
 					"in_progress": null,
 					"locked": false,
 					"linked": false,
-					"submodules": null
+					"submodules": null,
+					"busy": []
 				}
 			],
 			"branches": [
@@ -622,7 +721,8 @@
 					"in_progress": "rebase",
 					"locked": false,
 					"linked": false,
-					"submodules": null
+					"submodules": null,
+					"busy": []
 				}
 			],
 			"branches": [
@@ -732,7 +832,8 @@
 					"in_progress": "am",
 					"locked": false,
 					"linked": false,
-					"submodules": null
+					"submodules": null,
+					"busy": []
 				}
 			],
 			"branches": [],
@@ -803,7 +904,8 @@
 					"in_progress": "sequencer",
 					"locked": false,
 					"linked": false,
-					"submodules": null
+					"submodules": null,
+					"busy": []
 				}
 			],
 			"branches": [
@@ -982,7 +1084,8 @@
 					"in_progress": null,
 					"locked": false,
 					"linked": false,
-					"submodules": null
+					"submodules": null,
+					"busy": []
 				}
 			],
 			"branches": [],
@@ -1038,7 +1141,8 @@
 					"in_progress": null,
 					"locked": false,
 					"linked": false,
-					"submodules": null
+					"submodules": null,
+					"busy": []
 				}
 			],
 			"branches": [],
@@ -1098,7 +1202,8 @@
 					"in_progress": null,
 					"locked": false,
 					"linked": false,
-					"submodules": null
+					"submodules": null,
+					"busy": []
 				}
 			],
 			"branches": [],
@@ -1165,7 +1270,8 @@
 					"in_progress": null,
 					"locked": false,
 					"linked": false,
-					"submodules": null
+					"submodules": null,
+					"busy": []
 				}
 			],
 			"branches": [],
@@ -1235,7 +1341,8 @@
 					"in_progress": null,
 					"locked": false,
 					"linked": false,
-					"submodules": null
+					"submodules": null,
+					"busy": []
 				}
 			],
 			"branches": [],
@@ -1292,7 +1399,8 @@
 					"in_progress": null,
 					"locked": false,
 					"linked": false,
-					"submodules": null
+					"submodules": null,
+					"busy": []
 				}
 			],
 			"branches": [],
@@ -1345,7 +1453,8 @@
 					"in_progress": null,
 					"locked": false,
 					"linked": false,
-					"submodules": null
+					"submodules": null,
+					"busy": []
 				}
 			],
 			"branches": [],
@@ -1399,7 +1508,8 @@
 					"in_progress": null,
 					"locked": false,
 					"linked": false,
-					"submodules": null
+					"submodules": null,
+					"busy": []
 				}
 			],
 			"branches": [],
@@ -1452,7 +1562,8 @@
 					"in_progress": null,
 					"locked": false,
 					"linked": false,
-					"submodules": null
+					"submodules": null,
+					"busy": []
 				}
 			],
 			"branches": [],

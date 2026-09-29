@@ -22,6 +22,11 @@
 //! tool reads it: a setup that silently builds the wrong state tests nothing.
 //! `snapshot_git_dir` and `assert_git_dir_unchanged` pin that a tool call
 //! wrote nothing to a git dir.
+//!
+//! Busy detection reads Claude Code's config dir: the binary finds none
+//! under the throwaway `HOME`, and the library runs are handed no live
+//! session, unless a test builds a `ClaudeDir` — session files naming real
+//! live pids, its own `LiveChild` processes — and points the tool at it.
 
 // each test binary uses a subset of the helpers
 #![allow(dead_code)]
@@ -44,8 +49,9 @@ use fuz_repos::probe::RegistryDirs;
 use fuz_repos::registry::{Entry, ValidRegistry};
 use fuz_repos::report::{EntryStatus, UnregisteredClone};
 use fuz_repos::scan::scan_unregistered;
+use fuz_repos::sessions::{LiveSessions, stat_starttime};
 use fuz_repos::state::{BranchStatus, UnprobedWorktree};
-use fuz_repos::status::{StatusOptions, status};
+use fuz_repos::status::{StatusOptions, StatusRun, status};
 use tempfile::TempDir;
 
 /// The registry's owner account: its repos are writable.
@@ -454,9 +460,33 @@ impl FixtureWorkspace {
                 fetch,
                 jobs: 4,
                 visibility_base: Some(visibility_base),
+                live: &LiveSessions::Known(vec![]),
             },
         );
         run.entries
+    }
+
+    /// `status` over every entry, local refs only, with `live` as the live
+    /// sessions the reader found.
+    pub fn status_live(&self, live: &LiveSessions) -> StatusRun {
+        self.status_live_at(&self.root(), live)
+    }
+
+    /// `status_live` with `root` as the workspace root.
+    pub fn status_live_at(&self, root: &Path, live: &LiveSessions) -> StatusRun {
+        let entries = self.entries();
+        status(
+            &entries,
+            &RegistryDirs::new(root, &entries),
+            root,
+            &self.runner(),
+            StatusOptions {
+                fetch: false,
+                jobs: 4,
+                visibility_base: Some(&self.visibility_base()),
+                live,
+            },
+        )
     }
 
     /// Where the visibility check reads repos by default: a `file://` dir
@@ -713,6 +743,148 @@ pub fn seal(path: &Path, mode: u32) -> Option<Unseal> {
         eprintln!("skipped: permissions don't bind this user (root)");
         None
     }
+}
+
+// --- live sessions ---
+
+/// A child process of the test, alive until dropped: a real pid a session
+/// file can name.
+#[derive(Debug)]
+pub struct LiveChild(std::process::Child);
+
+impl LiveChild {
+    /// A child where the test runs.
+    pub fn spawn() -> Self {
+        Self::spawn_in(&std::env::current_dir().unwrap())
+    }
+
+    /// A child whose cwd is `dir`: what `/proc/<pid>/cwd` names.
+    pub fn spawn_in(dir: &Path) -> Self {
+        let child = Command::new("sleep")
+            .arg("600")
+            .current_dir(dir)
+            .stdin(Stdio::null())
+            .spawn()
+            .unwrap();
+        let live = Self(child);
+        assert!(Path::new(&format!("/proc/{}", live.pid())).exists());
+        live
+    }
+
+    pub fn pid(&self) -> u32 {
+        self.0.id()
+    }
+
+    /// Its `starttime`, from `/proc/<pid>/stat`, as a session file records
+    /// it (`procStart`).
+    pub fn proc_start(&self) -> String {
+        proc_start(self.pid())
+    }
+}
+
+impl Drop for LiveChild {
+    fn drop(&mut self) {
+        let _ = self.0.kill();
+        let _ = self.0.wait();
+    }
+}
+
+/// A pid no process has: a child's, once it's been reaped.
+pub fn dead_pid() -> u32 {
+    let mut child = Command::new("true").stdin(Stdio::null()).spawn().unwrap();
+    let pid = child.id();
+    child.wait().unwrap();
+    assert!(
+        !Path::new(&format!("/proc/{pid}")).exists(),
+        "pid {pid} reused"
+    );
+    pid
+}
+
+/// A live pid's `starttime`.
+pub fn proc_start(pid: u32) -> String {
+    let stat = std::fs::read_to_string(format!("/proc/{pid}/stat")).unwrap();
+    stat_starttime(&stat).unwrap().to_string()
+}
+
+/// This machine's pid domain as Claude Code records it:
+/// `linux:<machine id>:pid:[<pid namespace inode>]`.
+pub fn own_pid_domain() -> String {
+    let id = std::fs::read_to_string("/etc/machine-id").unwrap();
+    let ns = std::fs::read_link("/proc/self/ns/pid").unwrap();
+    format!("linux:{}:{}", id.trim(), ns.display())
+}
+
+/// A Claude Code config dir: `sessions/<pid>.json` files and a
+/// `daemon/roster.json`.
+#[derive(Debug)]
+pub struct ClaudeDir(pub PathBuf);
+
+impl ClaudeDir {
+    /// An empty config dir at `dir` (no `sessions/` yet).
+    pub fn new(dir: PathBuf) -> Self {
+        std::fs::create_dir_all(&dir).unwrap();
+        Self(dir)
+    }
+
+    /// Writes `sessions/<name>` as given.
+    pub fn write_raw(&self, name: &str, content: &str) -> PathBuf {
+        let dir = self.0.join("sessions");
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join(name);
+        std::fs::write(&path, content).unwrap();
+        path
+    }
+
+    /// Writes a session file as Claude Code does, in this machine's pid
+    /// domain, with the fields the reader ignores beside the ones it reads.
+    pub fn session(&self, pid: u32, proc_start: &str, cwd: &Path) -> PathBuf {
+        self.session_in(pid, proc_start, cwd, &own_pid_domain())
+    }
+
+    /// Writes a session file recorded in `pid_domain`.
+    pub fn session_in(&self, pid: u32, proc_start: &str, cwd: &Path, pid_domain: &str) -> PathBuf {
+        let doc = serde_json::json!({
+            "pid": pid,
+            "sessionId": "00000000-0000-0000-0000-000000000000",
+            "cwd": cwd.to_str().unwrap(),
+            "startedAt": 1_790_000_000_000_u64,
+            "procStart": proc_start,
+            "version": "2.1.284",
+            "kind": "interactive",
+            "pidDomain": pid_domain,
+            "status": "idle",
+        });
+        self.write_raw(&format!("{pid}.json"), &doc.to_string())
+    }
+
+    /// Writes `daemon/roster.json` as given.
+    pub fn roster(&self, doc: &serde_json::Value) -> PathBuf {
+        let dir = self.0.join("daemon");
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("roster.json");
+        std::fs::write(&path, doc.to_string()).unwrap();
+        path
+    }
+}
+
+/// A roster worker as the daemon records it (no pid domain), its session
+/// process `repl`: a pid and its `starttime`.
+pub fn roster_worker(
+    pid: u32,
+    proc_start: &str,
+    cwd: &Path,
+    (repl_pid, repl_proc_start): (u32, &str),
+) -> serde_json::Value {
+    serde_json::json!({
+        "pid": pid,
+        "procStart": proc_start,
+        "sessionId": "00000000-0000-0000-0000-000000000001",
+        "cliVersion": "2.1.284",
+        "cwd": cwd.to_str().unwrap(),
+        "replPid": repl_pid,
+        "replProcStart": repl_proc_start,
+    })
 }
 
 /// Sets a file's mtime, so its stat info no longer matches the index.

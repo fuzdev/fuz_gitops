@@ -11,6 +11,10 @@
 //! known, so it stays argh's text on stderr (exit 2) under `--json` too; so
 //! does a non-UTF-8 argument.
 //!
+//! Busy detection reads the live Claude Code sessions recorded under
+//! `CLAUDE_CONFIG_DIR` and `~/.claude`, excluding the calling one
+//! (`CLAUDE_PID`, when it's an ancestor of this process).
+//!
 //! The text summary wraps at `COLUMNS` (100 when unset or under 40), piped
 //! or not, and colors its group labels only when stdout is a terminal and
 //! `NO_COLOR` is unset or empty.
@@ -31,6 +35,7 @@ use fuz_repos::probe::RegistryDirs;
 use fuz_repos::registry::ValidRegistry;
 use fuz_repos::report::{ErrorReport, StatusReport};
 use fuz_repos::scan::scan_unregistered;
+use fuz_repos::sessions::{SessionsSource, read_live_sessions};
 use fuz_repos::status::{EntryTiming, StatusOptions, mark_moved_worktrees, status};
 
 use crate::render::{
@@ -215,6 +220,7 @@ fn run_status(locate: Locate<'_>, args: &StatusArgs) -> Result<Printed> {
     let entries = resolve_targets(&all, &loc.root, &cwd, &args.targets, &git)?;
     let load_time = start.elapsed();
 
+    let live = read_live_sessions(&SessionsSource::from_env());
     let run = status(
         &entries,
         &RegistryDirs::new(&loc.root, &all),
@@ -224,12 +230,14 @@ fn run_status(locate: Locate<'_>, args: &StatusArgs) -> Result<Printed> {
             fetch: args.fetch,
             jobs: args.jobs,
             visibility_base: None,
+            live: &live,
         },
     );
     let mut report = StatusReport::new(
         loc.root.to_string_lossy().into_owned(),
         loc.path.to_string_lossy().into_owned(),
         args.fetch,
+        run.sessions,
         run.entries,
     );
     // the whole workspace only: with targets the report is about the named

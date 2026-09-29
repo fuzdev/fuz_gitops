@@ -2,10 +2,17 @@
 //! registry declares.
 //!
 //! The library holds the registry types, the hardened git runner, the probe,
-//! the unregistered scan, the pure classification, and what a remote's
-//! answers mean (fetch failures, the visibility check); the `repos` binary
-//! parses arguments, renders reports, and owns exit codes.
+//! the unregistered scan, the pure classification, what a remote's answers
+//! mean (fetch failures, the visibility check), and busy detection — the
+//! live Claude Code sessions (`sessions`) and the checkouts they sit in
+//! (`busy`); the `repos` binary parses arguments, renders reports, and owns
+//! exit codes.
+//!
+//! Unix-only: it takes git's paths as raw bytes, as git does. Busy
+//! detection reads `/proc`, so it works on Linux alone; elsewhere, with any
+//! session recorded, it fails closed.
 
+pub mod busy;
 pub mod classify;
 pub mod discover;
 pub mod error;
@@ -16,6 +23,7 @@ pub mod registry;
 pub mod remote;
 pub mod report;
 pub mod scan;
+pub mod sessions;
 pub mod state;
 pub mod status;
 pub mod url;
@@ -23,4 +31,4 @@ pub mod url;
 /// The version of the `repos status --json` document. Bumped on any breaking
 /// change to its shape (a removal, a rename, a changed meaning); additions
 /// don't bump it.
-pub const STATUS_FORMAT_VERSION: u32 = 4;
+pub const STATUS_FORMAT_VERSION: u32 = 5;

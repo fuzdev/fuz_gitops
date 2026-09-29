@@ -3,6 +3,8 @@
 
 use serde::Serialize;
 
+use crate::sessions::Session;
+
 /// Whether an entry's dir holds a repo.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
@@ -37,6 +39,17 @@ pub struct Checkout {
     /// that could otherwise be removed with its branch (linked, unlocked, no
     /// operation, clean, on a branch whose upstream is gone).
     pub submodules: Option<bool>,
+    /// The live sessions working in it, by pid: each with a place (its
+    /// recorded cwd, worktree, or process's cwd) that sits in it (deepest
+    /// over every checkout probed), or whose `.git` — the one git finds
+    /// walking up from that place — names its git dir, or in whose repo's
+    /// `.claude/worktrees/` it is, where Claude Code would root theirs
+    /// (subagent worktrees, whose sessions keep the parent's cwd; the
+    /// `busy` module doc says where that is), or whose pid its lock names,
+    /// a lock Claude Code wrote. Empty when none is, or when busy detection
+    /// is unavailable, which the report's `sessions` says. A busy checkout
+    /// holds every action on its branch, pushes included.
+    pub busy: Vec<Session>,
 }
 
 /// A worktree that couldn't be probed as a checkout.
@@ -44,7 +57,8 @@ pub struct Checkout {
 /// One `git worktree list` names that's gone or failing, or a git dir under
 /// `<commondir>/worktrees/` the list leaves out. It's still a fact: an
 /// operation in progress in it is a reason, and a branch checked out in it
-/// is `HeldBy::UnprobedWorktree`.
+/// is `HeldBy::UnprobedWorktree` — `HeldBy::Busy`, pushes included, when a
+/// live session works in it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct UnprobedWorktree {
     /// The worktree's path as git's worktree list prints it, or as its
@@ -98,6 +112,13 @@ pub struct UnprobedWorktreeStatus {
     /// worktree of the repo) — or, once the unregistered scan has run, that
     /// it moved to the workspace root; `Some` exactly when it's `Prunable`.
     pub prune: Option<Prune>,
+    /// The live sessions working in it, as on a `Checkout`: they hold every
+    /// action on its branch — on every branch, when its HEAD is unknown. A
+    /// session in its files where they really are — moved by hand, copied,
+    /// or on media mounted elsewhere — is here by the `.git` its place finds,
+    /// which names this worktree's git dir, whatever `path` says; and a
+    /// session a lock Claude Code wrote names, by its lock.
+    pub busy: Vec<Session>,
 }
 
 /// What dropping one gone worktree's git dir would do, that worktree's
@@ -283,7 +304,9 @@ pub enum Verdict {
     /// Deletable by hand; sync never deletes. `removable_worktree` is the
     /// clean linked worktree it's checked out in, removable along with it;
     /// `None` when it's in none, the one it's in is dirty (and its dirt
-    /// shows as uncommitted), or that one is a registry entry's dir.
+    /// shows as uncommitted), is a registry entry's dir, or is busy (a live
+    /// session works in it) — or when busy detection is unavailable, so any
+    /// checkout may be.
     Cleanup {
         reason: CleanupReason,
         removable_worktree: Option<String>,
@@ -304,6 +327,20 @@ pub enum HeldBy {
     /// of the entry's `unprobed_worktrees`), so whether it's clean is
     /// unknown. Pushes aren't held.
     UnprobedWorktree,
+    /// The branch is checked out in a checkout a live session works in
+    /// (its `busy`): sync leaves another session's branch alone, pushes
+    /// included.
+    Busy,
+    /// A live session may work in a checkout, unseen, so every action is
+    /// held, pushes included: busy detection is unavailable (the report's
+    /// `sessions` says why), so any checkout may be busy; or the branch is
+    /// checked out in a checkout whose path can't be resolved (a
+    /// `checkout_unresolvable` reason); or git says it's checked out in a
+    /// worktree its worktree list doesn't name (a race with a worktree added
+    /// mid-probe), so no session was scoped there; or a live session works
+    /// through a git dir sharing the repo's refs that no worktree list names
+    /// (an `unlisted_git_dir` reason), whose HEAD is on it or unknown.
+    BusyUnknown,
 }
 
 /// A move `sync` makes on a branch.

@@ -1,0 +1,59 @@
+[
+	{
+		"kind": "available",
+		"unscoped": [
+			{
+				"pid": 1200,
+				"cwd": "/home/me/dev",
+				"source": "session_file"
+			},
+			{
+				"pid": 1300,
+				"cwd": "/home/me/notes",
+				"source": "roster_worker"
+			}
+		]
+	},
+	{
+		"kind": "available",
+		"unscoped": []
+	},
+	{
+		"kind": "unavailable",
+		"reason": {
+			"kind": "home_unknown"
+		}
+	},
+	{
+		"kind": "unavailable",
+		"reason": {
+			"kind": "relative_config_dir",
+			"path": "claude"
+		}
+	},
+	{
+		"kind": "unavailable",
+		"reason": {
+			"kind": "unreadable",
+			"path": "/home/me/.claude/sessions",
+			"error": "Permission denied (os error 13)"
+		}
+	},
+	{
+		"kind": "unavailable",
+		"reason": {
+			"kind": "unparseable",
+			"path": "/home/me/.claude/sessions/4242.json",
+			"error": "missing field `procStart` at line 1 column 80"
+		}
+	},
+	{
+		"kind": "unavailable",
+		"reason": {
+			"kind": "foreign_pid_domain",
+			"path": "/home/me/.claude/sessions/77.json",
+			"pid_domain": "linux:0123456789abcdef0123456789abcdef:pid:[4026532001]",
+			"source": "session_file"
+		}
+	}
+]

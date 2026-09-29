@@ -7,7 +7,9 @@
 //! `UPDATE_GOLDEN=1 cargo test --test golden`, and bump
 //! `STATUS_FORMAT_VERSION` when the change breaks the shape.
 //!
-//! Between them the documents cover every variant of the report's enums,
+//! Between them the documents cover every variant of the report's enums
+//! (`sessions.json` lists every state of busy detection, which a report
+//! carries one of),
 //! each domain's built in its own function so that an every-variant coverage
 //! floor (an exhaustive `match` per enum that fails to compile when a
 //! variant lands uncovered) can attach beside it to keep it so.
@@ -18,6 +20,7 @@
 use std::path::{Path, PathBuf};
 
 use fuz_repos::STATUS_FORMAT_VERSION;
+use fuz_repos::busy::Sessions;
 use fuz_repos::classify::{NeedsHuman, OriginByHand, OriginFix, OriginRemote};
 use fuz_repos::error::Error;
 use fuz_repos::registry::{
@@ -27,6 +30,7 @@ use fuz_repos::remote::{RefGoneFix, RemoteFailure, UnreachableCause, VisibilityC
 use fuz_repos::report::{
     EntryStatus, ErrorReport, RepairBlock, StatusReport, UnregisteredClone, UnregisteredKind,
 };
+use fuz_repos::sessions::{Session, SessionSource, Unavailable};
 use fuz_repos::state::{
     BranchNeedsHuman, BranchStatus, Checkout, CleanupReason, GitDirHolds, Head, HeldBy,
     InProgressOp, Layout, Presence, Prune, PruneLoss, Relation, SyncAction, Uncommitted,
@@ -126,6 +130,11 @@ fn status_report_targeted() {
 }
 
 #[test]
+fn sessions_states() {
+    assert_golden("sessions.json", &sessions_doc());
+}
+
+#[test]
 fn error_report() {
     let doc = error_doc();
     assert_eq!(doc.version, STATUS_FORMAT_VERSION);
@@ -162,6 +171,9 @@ fn status_report_doc() -> StatusReport {
         WORKSPACE.into(),
         format!("{WORKSPACE}/repos.toml"),
         true,
+        Sessions::Available {
+            unscoped: unscoped_sessions(),
+        },
         vec![
             app(),
             blog(),
@@ -188,21 +200,98 @@ fn status_report_doc() -> StatusReport {
 }
 
 /// A run narrowed by targets, local refs only: the scan, the fetch, and
-/// the visibility check didn't run.
+/// the visibility check didn't run; busy detection was unavailable, so
+/// every action is held.
 fn targeted_doc() -> StatusReport {
     StatusReport::new(
         WORKSPACE.into(),
         format!("{WORKSPACE}/repos.toml"),
         false,
-        vec![EntryStatus {
-            needs_human: vec![NeedsHuman::OriginMismatch {
-                origin: OriginRemote::Missing,
-                expected: "git@github.com:me/gro".into(),
-                fix: OriginFix::Add,
-            }],
-            ..entry("gro", follow("main"))
-        }],
+        Sessions::Unavailable {
+            reason: foreign_domain(),
+        },
+        vec![
+            EntryStatus {
+                needs_human: vec![NeedsHuman::OriginMismatch {
+                    origin: OriginRemote::Missing,
+                    expected: "git@github.com:me/gro".into(),
+                    fix: OriginFix::Add,
+                }],
+                ..entry("gro", follow("main"))
+            },
+            EntryStatus {
+                branches: vec![BranchStatus {
+                    unique_commits: 1,
+                    worktree: Some(path("fuz_util")),
+                    ..branch(
+                        "main",
+                        Some("origin/main"),
+                        Relation::Ahead { commits: 1 },
+                        Verdict::Held {
+                            action: SyncAction::Push { commits: 1 },
+                            by: HeldBy::BusyUnknown,
+                        },
+                    )
+                }],
+                ..entry("fuz_util", follow("main"))
+            },
+        ],
     )
+}
+
+/// Every state of busy detection, one per report.
+fn sessions_doc() -> Vec<Sessions> {
+    vec![
+        Sessions::Available {
+            unscoped: unscoped_sessions(),
+        },
+        Sessions::Available { unscoped: vec![] },
+        Sessions::Unavailable {
+            reason: Unavailable::HomeUnknown,
+        },
+        Sessions::Unavailable {
+            reason: Unavailable::RelativeConfigDir {
+                path: "claude".into(),
+            },
+        },
+        Sessions::Unavailable {
+            reason: Unavailable::Unreadable {
+                path: "/home/me/.claude/sessions".into(),
+                error: "Permission denied (os error 13)".into(),
+            },
+        },
+        Sessions::Unavailable {
+            reason: Unavailable::Unparseable {
+                path: "/home/me/.claude/sessions/4242.json".into(),
+                error: "missing field `procStart` at line 1 column 80".into(),
+            },
+        },
+        Sessions::Unavailable {
+            reason: foreign_domain(),
+        },
+    ]
+}
+
+fn foreign_domain() -> Unavailable {
+    Unavailable::ForeignPidDomain {
+        path: "/home/me/.claude/sessions/77.json".into(),
+        pid_domain: "linux:0123456789abcdef0123456789abcdef:pid:[4026532001]".into(),
+        source: SessionSource::SessionFile,
+    }
+}
+
+/// Live sessions in no checkout: one at the workspace root, a background
+/// worker outside it.
+fn unscoped_sessions() -> Vec<Session> {
+    vec![
+        Session::at(1200, 0, WORKSPACE.into(), SessionSource::SessionFile),
+        Session::at(
+            1300,
+            0,
+            "/home/me/notes".into(),
+            SessionSource::RosterWorker,
+        ),
+    ]
 }
 
 /// A fatal error under `--json`, the kind with the richest payload.
@@ -243,6 +332,7 @@ fn primary(dir: &str, head: Head) -> Checkout {
         locked: false,
         linked: false,
         submodules: None,
+        busy: vec![],
     }
 }
 
@@ -294,9 +384,10 @@ fn branch(
     }
 }
 
-/// The busy repo: every relation but `Shallow` (`test262()`), every verdict
-/// kind, every `HeldBy` but `Entry` (`blog()`), linked worktrees, and every
-/// way a worktree goes unprobed.
+/// The busiest repo: every relation but `Shallow` (`test262()`), every
+/// verdict kind, every `HeldBy` but `Entry` (`blog()`) and `BusyUnknown`
+/// (the targeted document), linked worktrees — one a live session works in
+/// — and every way a worktree goes unprobed, one busy too.
 fn app() -> EntryStatus {
     let mut e = entry("app", follow("main"));
     e.fetch_error = Some(RemoteFailure::Failed {
@@ -323,6 +414,22 @@ fn app() -> EntryStatus {
         locked: false,
         linked: true,
         submodules: None,
+        busy: vec![],
+    });
+    e.checkouts.push(Checkout {
+        path: path("app/.claude/worktrees/agent"),
+        primary: false,
+        head: on("agent"),
+        uncommitted: Uncommitted::default(),
+        in_progress: None,
+        locked: false,
+        linked: true,
+        submodules: None,
+        // launched at the workspace root, its process since moved in
+        busy: vec![Session {
+            process_cwd: Some(path("app/.claude/worktrees/agent/src")),
+            ..Session::at(4242, 0, WORKSPACE.into(), SessionSource::SessionFile)
+        }],
     });
     e.checkouts.push(Checkout {
         path: "/home/me/wt/app-old".into(),
@@ -333,6 +440,7 @@ fn app() -> EntryStatus {
         locked: false,
         linked: true,
         submodules: Some(false),
+        busy: vec![],
     });
     e.checkouts.push(Checkout {
         path: path("app-fix"),
@@ -350,6 +458,7 @@ fn app() -> EntryStatus {
         locked: true,
         linked: true,
         submodules: Some(true),
+        busy: vec![],
     });
     e.branches = vec![
         BranchStatus {
@@ -373,6 +482,19 @@ fn app() -> EntryStatus {
                 Verdict::Held {
                     action: SyncAction::FastForward { commits: 1 },
                     by: HeldBy::DirtyCheckout,
+                },
+            )
+        },
+        BranchStatus {
+            unique_commits: 1,
+            worktree: Some(path("app/.claude/worktrees/agent")),
+            ..branch(
+                "agent",
+                Some("origin/agent"),
+                Relation::Ahead { commits: 1 },
+                Verdict::Held {
+                    action: SyncAction::Push { commits: 1 },
+                    by: HeldBy::Busy,
                 },
             )
         },
@@ -461,6 +583,18 @@ fn app() -> EntryStatus {
         NeedsHuman::WorktreeUnreadable {
             path: path("app/.git/worktrees/x"),
         },
+        NeedsHuman::UnlistedGitDir {
+            git_dir: "/home/me/hand/.git".into(),
+            head: UnprobedHead::Branch {
+                name: "other".into(),
+            },
+            busy: vec![Session::at(
+                1400,
+                0,
+                "/home/me/hand".into(),
+                SessionSource::SessionFile,
+            )],
+        },
     ];
     e.unprobed_worktrees = unprobed_worktrees();
     e
@@ -487,7 +621,7 @@ fn unprobed_on(name: &str) -> UnprobedHead {
 }
 
 /// Every `UnprobedWhy`, every `UnprobedHead`, every `Prune`, and every
-/// `PruneLoss`.
+/// `PruneLoss` — and one a live session works in.
 fn unprobed_worktrees() -> Vec<UnprobedWorktreeStatus> {
     let nothing_held = GitDirHolds {
         submodules: false,
@@ -501,6 +635,11 @@ fn unprobed_worktrees() -> Vec<UnprobedWorktreeStatus> {
                 ..unprobed("app-gone", unprobed_on("gone"), UnprobedWhy::Prunable)
             },
             prune: Some(Prune::Safe),
+            // a session still in its deleted dir
+            busy: vec![Session {
+                worktree: Some(path("app-gone")),
+                ..Session::at(4343, 0, path("app-gone/src"), SessionSource::RosterWorker)
+            }],
         },
         UnprobedWorktreeStatus {
             worktree: UnprobedWorktree {
@@ -521,6 +660,7 @@ fn unprobed_worktrees() -> Vec<UnprobedWorktreeStatus> {
             prune: Some(Prune::Loses {
                 losses: prune_losses(),
             }),
+            busy: vec![],
         },
         UnprobedWorktreeStatus {
             worktree: UnprobedWorktree {
@@ -530,6 +670,7 @@ fn unprobed_worktrees() -> Vec<UnprobedWorktreeStatus> {
             prune: Some(Prune::Moved {
                 to: vec!["b-copy".into(), "b-moved".into()],
             }),
+            busy: vec![],
         },
         UnprobedWorktreeStatus {
             worktree: UnprobedWorktree {
@@ -539,6 +680,7 @@ fn unprobed_worktrees() -> Vec<UnprobedWorktreeStatus> {
                 ..unprobed("usb", unprobed_on("usb"), UnprobedWhy::Missing)
             },
             prune: None,
+            busy: vec![],
         },
         UnprobedWorktreeStatus {
             worktree: UnprobedWorktree {
@@ -553,6 +695,7 @@ fn unprobed_worktrees() -> Vec<UnprobedWorktreeStatus> {
                 )
             },
             prune: None,
+            busy: vec![],
         },
     ]
 }
@@ -577,8 +720,8 @@ fn prune_losses() -> Vec<PruneLoss> {
     ]
 }
 
-/// Origin drift, holding the entry's push; a merge in its primary; the
-/// fetch failed.
+/// Origin drift, holding the entry's push; a merge in its primary; a
+/// worktree whose path can't be resolved; the fetch failed.
 fn blog() -> EntryStatus {
     let mut e = entry("fuz_blog", follow("main"));
     e.url = "https://github.com/fuzdev/fuz_blog".into();
@@ -607,6 +750,11 @@ fn blog() -> EntryStatus {
         NeedsHuman::OperationInProgress {
             checkout: path("fuz_blog"),
             op: InProgressOp::Merge,
+        },
+        NeedsHuman::CheckoutUnresolvable {
+            checkout: "/home/me/sealed/fuz_blog-wt".into(),
+            path: "/home/me/sealed/fuz_blog-wt".into(),
+            error: "Permission denied (os error 13)".into(),
         },
     ];
     e.fetch_error = Some(RemoteFailure::RefGone {

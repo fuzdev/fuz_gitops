@@ -105,6 +105,13 @@ pub struct RepoFacts {
     pub primary_linked: bool,
     /// Whether the primary is a locked linked worktree.
     pub primary_locked: bool,
+    /// Each locked checkout's lock reason as git lists it (empty when none
+    /// was given), with its path as `path`, `worktrees`, and `unprobed`
+    /// spell it: the primary's when it's a locked linked worktree. A
+    /// worktree git doesn't list has none here, its reason unread. Busy
+    /// detection reads the ones Claude Code writes, which name the session
+    /// working there.
+    pub locks: Vec<(String, String)>,
     /// The repo's other worktrees probed — linked ones, and the main one
     /// when the primary is linked — in `git worktree list` order.
     pub worktrees: Vec<Checkout>,
@@ -122,6 +129,16 @@ pub struct RepoFacts {
     /// relative path. Git 2.48+ resolves one against the git dir, older gits
     /// against the cwd, so every worktree path of the repo is uncertain.
     pub relative_gitdir: Option<PathBuf>,
+    /// Each checkout's own git dir, canonicalized when it can be, with the
+    /// checkout's path as `path`, `worktrees`, and `unprobed` spell it: the
+    /// primary's, and every other worktree's the probe found (not one git
+    /// lists that no admin dir matches). Busy detection attributes a live
+    /// session to the checkout whose git dir its `.git` names.
+    pub git_dirs: Vec<(PathBuf, String)>,
+    /// The main worktree's path as git lists it, when the repo is bare. It
+    /// has no files, so it's never probed, yet `%(worktreepath)` names it
+    /// for the branch its HEAD is on.
+    pub bare_main: Option<String>,
     pub branches: Vec<BranchFacts>,
     pub layout: Layout,
     /// The newest `FETCH_HEAD` mtime across the repo's worktrees (each keeps
@@ -382,6 +399,15 @@ fn probe_present(
         .filter(|c| cx.registry_dirs.contains(Path::new(&c.path)))
         .map(|c| c.path.clone())
         .collect();
+    let mut git_dirs = vec![(own_git_dir(&git_dir), path.clone())];
+    git_dirs.append(&mut worktrees.git_dirs);
+    let primary_locked = worktrees.primary_lock.is_some();
+    let mut locks: Vec<(String, String)> = worktrees
+        .primary_lock
+        .map(|reason| (path.clone(), reason))
+        .into_iter()
+        .collect();
+    locks.append(&mut worktrees.locks);
 
     Ok(Probed::Present(Box::new(RepoFacts {
         path,
@@ -391,12 +417,15 @@ fn probe_present(
         status,
         in_progress,
         primary_linked,
-        primary_locked: worktrees.primary_locked,
+        primary_locked,
+        locks,
         worktrees: worktrees.probed,
         registry_worktrees,
         unprobed: worktrees.unprobed,
         unreadable: worktrees.unreadable,
         relative_gitdir: worktrees.relative_gitdir,
+        git_dirs,
+        bare_main: worktrees.bare_main,
         branches,
         layout,
         fetched_at,
@@ -583,13 +612,22 @@ struct Worktrees {
     unprobed: Vec<UnprobedWorktree>,
     /// Git dirs whose in-progress markers couldn't be read.
     unreadable: Vec<String>,
-    /// Whether the primary is locked (only a linked worktree can be).
-    primary_locked: bool,
+    /// The primary's lock reason, when it's locked (only a linked
+    /// worktree can be).
+    primary_lock: Option<String>,
+    /// Each other listed worktree's lock reason, with its path as `probed`
+    /// or `unprobed` spells it.
+    locks: Vec<(String, String)>,
     /// Every admin dir under `<commondir>/worktrees/`, each worktree's own
     /// git dir (where it keeps its `FETCH_HEAD`).
     admins: Vec<PathBuf>,
     /// The first admin dir whose `gitdir` is relative.
     relative_gitdir: Option<PathBuf>,
+    /// Each worktree's own git dir that was found, canonicalized when it can
+    /// be, with its path as `probed` or `unprobed` spells it.
+    git_dirs: Vec<(PathBuf, String)>,
+    /// The main worktree's path as git lists it, when the repo is bare.
+    bare_main: Option<String>,
 }
 
 /// Probes every worktree of the repo but the primary: each one `git worktree
@@ -627,6 +665,7 @@ fn probe_worktrees(
     let primary_is_main = primary_git_dir.is_some() && primary_git_dir == canonical(common_dir);
     for (i, record) in records.into_iter().enumerate() {
         if record.head == WorktreeHead::Bare {
+            w.bare_main = Some(record.path);
             continue;
         }
         // git lists the main worktree first, and its git dir is the common
@@ -642,7 +681,7 @@ fn probe_worktrees(
             i > 0 && record_git_dir.as_deref().and_then(canonical) == primary_git_dir
         };
         if is_primary {
-            w.primary_locked = record.locked.is_some();
+            w.primary_lock = record.locked;
             continue;
         }
         let linked = i > 0;
@@ -662,6 +701,8 @@ fn probe_worktrees(
             continue;
         }
         let unlisted = unlisted_worktree(admin, &mut w.unreadable);
+        w.git_dirs
+            .push((own_git_dir(&admin.dir), unlisted.path.clone()));
         w.unprobed.push(unlisted);
     }
     Ok(w)
@@ -700,8 +741,14 @@ fn probe_record(
     w: &mut Worktrees,
 ) {
     let path = PathBuf::from(&record.path);
+    if let Some(d) = git_dir {
+        w.git_dirs.push((own_git_dir(d), record.path.clone()));
+    }
     let in_progress = git_dir.and_then(|d| markers(d, &mut w.unreadable));
     let locked = record.locked.is_some();
+    if let Some(reason) = &record.locked {
+        w.locks.push((record.path.clone(), reason.clone()));
+    }
     let probed = gone(&path, record.prunable.is_some()).and_then(|()| {
         probe_worktree(git, &path, git_dir).map_err(|error| UnprobedWhy::Failed { error })
     });
@@ -729,6 +776,8 @@ fn probe_record(
                 in_progress,
                 locked,
                 submodules,
+                // filled once the live sessions are scoped (`status`)
+                busy: Vec::new(),
             });
         }
         Err(why) => {
@@ -890,14 +939,16 @@ pub(crate) fn canonical(path: &Path) -> Option<PathBuf> {
     path.canonicalize().ok()
 }
 
+/// A checkout's own git dir as busy detection matches it: canonicalized
+/// when it can be.
+fn own_git_dir(git_dir: &Path) -> PathBuf {
+    canonical(git_dir).unwrap_or_else(|| git_dir.to_owned())
+}
+
 /// A worktree's own git dir as the report carries it: canonicalized when it
 /// can be, so it compares equal to the one a stray's `.git` names.
 fn shown_git_dir(git_dir: &Path) -> String {
-    canonical(git_dir)
-        .as_deref()
-        .unwrap_or(git_dir)
-        .to_string_lossy()
-        .into_owned()
+    own_git_dir(git_dir).to_string_lossy().into_owned()
 }
 
 /// A worktree's HEAD, from its git dir: `Unknown` when it can't be read or
