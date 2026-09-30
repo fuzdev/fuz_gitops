@@ -31,15 +31,6 @@ const create_trackable_git_ops = (): GitOperations & {
 		commit: async (options) => {
 			commits.push(options.message);
 			return { ok: true };
-		},
-		add_and_commit: async (options) => {
-			if (Array.isArray(options.files)) {
-				added_files.push(...options.files);
-			} else {
-				added_files.push(options.files);
-			}
-			commits.push(options.message);
-			return { ok: true };
 		}
 	});
 

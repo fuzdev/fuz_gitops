@@ -207,22 +207,9 @@ export const create_mock_changeset_ops = (
  * Creates mock GitOperations for testing
  */
 export const create_mock_git_ops = (overrides: Partial<GitOperations> = {}): GitOperations => ({
-	current_branch_name: async () => ({ ok: true, value: 'main' }),
 	current_commit_hash: async () => ({ ok: true, value: 'abc123' }),
-	check_clean_workspace: async () => ({ ok: true, value: true }),
-	checkout: async () => ({ ok: true }),
-	pull: async () => ({ ok: true }),
-	switch_branch: async () => ({ ok: true }),
-	has_remote: async () => ({ ok: true, value: false }),
 	add: async () => ({ ok: true }),
 	commit: async () => ({ ok: true }),
-	add_and_commit: async () => ({ ok: true }),
-	has_changes: async () => ({ ok: true, value: false }),
-	tag: async () => ({ ok: true }),
-	push_tag: async () => ({ ok: true }),
-	stash: async () => ({ ok: true }),
-	stash_pop: async () => ({ ok: true }),
-	has_file_changed: async () => ({ ok: true, value: false }),
 	...overrides
 });
 
@@ -233,7 +220,6 @@ export const create_mock_npm_ops = (overrides: Partial<NpmOperations> = {}): Npm
 	wait_for_package: async () => ({ ok: true }),
 	check_auth: async () => ({ ok: true, username: 'testuser' }),
 	check_registry: async () => ({ ok: true }),
-	install: async () => ({ ok: true }),
 	...overrides
 });
 

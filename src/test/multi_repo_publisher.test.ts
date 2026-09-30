@@ -342,8 +342,7 @@ test('waits for npm propagation after each publish', async () => {
 				return { ok: true };
 			},
 			check_auth: async () => ({ ok: true, username: 'testuser' }),
-			check_registry: async () => ({ ok: true }),
-			install: async () => ({ ok: true })
+			check_registry: async () => ({ ok: true })
 		},
 		fs: mock_fs_ops
 	});
@@ -368,7 +367,7 @@ test('updates prod dependencies after publishing (Phase 1)', async () => {
 	const mock_ops = create_mock_gitops_ops({
 		preflight: create_preflight_mock(['lib'], ['app']),
 		git: create_mock_git_ops({
-			add_and_commit: async (options) => {
+			commit: async (options) => {
 				git_commits.push({ cwd: options.cwd || '', message: options.message });
 				return { ok: true };
 			}
@@ -378,9 +377,8 @@ test('updates prod dependencies after publishing (Phase 1)', async () => {
 
 	await publish_repos(repos, { wetrun: true, ops: mock_ops });
 
-	// lib has changesets, so publishing cascades a dependency update to its dependent
-	// (Actual behavior depends on implementation - tests document expected outcome)
-	assert.ok(git_commits.length >= 0);
+	// lib publishes, so its dependent's range is rewritten and committed in the dependent
+	assert.ok(git_commits.some((c) => c.cwd === '/test/app'));
 });
 
 test('updates dev dependencies without republishing (Phase 2)', async () => {
@@ -737,8 +735,7 @@ test('handles npm propagation failure gracefully', async () => {
 				throw new Error('Timeout waiting for package');
 			},
 			check_auth: async () => ({ ok: true, username: 'testuser' }),
-			check_registry: async () => ({ ok: true }),
-			install: async () => ({ ok: true })
+			check_registry: async () => ({ ok: true })
 		},
 		fs: mock_fs_ops
 	});

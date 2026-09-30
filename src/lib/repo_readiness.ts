@@ -20,6 +20,11 @@
  *   origin's current word), no other live Claude Code session in the primary
  *   checkout (the executor commits there), and nothing the entry leaves to a
  *   person (`needs_human`).
+ * - **ready to generate** (`repo_readiness_for_gen`) — what `gitops_sync`
+ *   needs before it writes the dashboard's site data: the primary checkout
+ *   on its branch, clean, and idle, since the site pairs each repo's local
+ *   tree with origin's CI. The followed branch's relation to origin and a
+ *   failed fetch only warn.
  *
  * @module
  */
@@ -177,7 +182,7 @@ export const format_repo_readiness_problem = (
 		case 'dirty':
 			return {
 				what: `uncommitted changes (${format_uncommitted(problem.uncommitted)})`,
-				fix: 'commit, stash, or discard them (untracked files count) — after a failed publish, see the troubleshooting doc first'
+				fix: 'commit, stash, or discard them (untracked files count)'
 			};
 		case 'in_progress':
 			return {
@@ -259,7 +264,12 @@ export const check_publish_readiness = (
 		not_ready.push({ key, entry, problems });
 		for (const problem of problems) {
 			const { what, fix } = format_repo_readiness_problem(key, problem, options);
-			lines.push(`${key}: ${what} — ${fix}`);
+			// a failed publish leaves dirt whose changesets committing or discarding would lose
+			const after_failure =
+				problem.kind === 'dirty'
+					? ' — after a failed publish, see the troubleshooting doc first'
+					: '';
+			lines.push(`${key}: ${what} — ${fix}${after_failure}`);
 		}
 	}
 
@@ -268,6 +278,100 @@ export const check_publish_readiness = (
 		'not publishing, and nothing was changed: the plan reads every npm repo as it sits, ' +
 		`and publishing commits and pushes there, so each must be ready:\n  ${lines.join('\n  ')}`;
 	return { ok: false, message, lines, not_ready, ahead };
+};
+
+/**
+ * An entry's problems for `gitops_sync`, split by what they do to the run:
+ * `refused` stops it, `warned` is logged. Off its branch, dirty, or mid-operation
+ * refuses, since the site would show that working tree's modules beside origin's
+ * CI — unless `allow_dirty`, which reads the repo as it sits and warns instead.
+ * A checkout that can't be read always refuses. The followed branch not in sync
+ * with origin (behind, say: CI is origin's tip, the modules the local tree) and
+ * a failed fetch (the last fetch's view stands) warn. Busy sessions and
+ * `needs_human` reasons don't matter: generating writes nothing in the repo.
+ *
+ * @param entry - the entry as `repos status --json` reported it
+ * @param allow_dirty - read a repo off its branch, dirty, or mid-operation as it sits
+ */
+export const repo_readiness_for_gen = (
+	entry: ReposEntryStatus,
+	allow_dirty = false
+): { refused: Array<RepoReadinessProblem>; warned: Array<RepoReadinessProblem> } => {
+	const refused: Array<RepoReadinessProblem> = [];
+	const warned: Array<RepoReadinessProblem> = [];
+	for (const problem of repo_readiness_at_rest(entry)) {
+		switch (problem.kind) {
+			case 'unprobed':
+				refused.push(problem);
+				break;
+			case 'off_branch':
+			case 'dirty':
+			case 'in_progress':
+				(allow_dirty ? warned : refused).push(problem);
+				break;
+			default:
+				warned.push(problem);
+		}
+	}
+	if (entry.fetch_error !== null) {
+		warned.push({ kind: 'fetch_failed', failure: entry.fetch_error });
+	}
+	return { refused, warned };
+};
+
+/**
+ * Checks a `repos status --json` report on the repos `gitops_sync` generates
+ * the site data from (`repo_readiness_for_gen`).
+ *
+ * @param options.report - the report
+ * @param options.keys - the registry keys whose repos the site data reads
+ * @param options.allow_dirty - read repos off their branch, dirty, or mid-operation as they sit
+ * @param options.now - the current time in unix seconds, for how long ago each repo was fetched (defaults to the clock)
+ * @returns `warnings`, a line per problem that doesn't refuse; and on failure also a message naming each refused repo, what's wrong, and the fix, and its `lines`
+ */
+export const check_gen_readiness = (
+	options: {
+		report: ReposStatusReport;
+		keys: ReadonlyArray<string>;
+		allow_dirty?: boolean;
+		now?: number;
+	} & RepoReadinessFormatOptions
+): Result<
+	{ warnings: Array<string> },
+	{ message: string; lines: Array<string>; warnings: Array<string> }
+> => {
+	const { report, keys, allow_dirty = false, now = Math.floor(Date.now() / 1000) } = options;
+	const by_key = new Map(report.entries.map((e) => [e.key, e] as const));
+
+	const lines: Array<string> = [];
+	const warnings: Array<string> = [];
+	for (const key of keys) {
+		const entry = by_key.get(key);
+		const { refused, warned } = entry
+			? repo_readiness_for_gen(entry, allow_dirty)
+			: {
+					refused: [{ kind: 'unprobed', detail: 'not in the `repos status` report' } as const],
+					warned: []
+				};
+		for (const problem of refused) {
+			const { what, fix } = format_repo_readiness_problem(key, problem, options);
+			lines.push(`${key}: ${what} — ${fix}`);
+		}
+		for (const problem of warned) {
+			const { what, fix } = format_repo_readiness_problem(key, problem, options);
+			// relations are as of the remote-tracking refs, so say how old they are
+			const as_of =
+				problem.kind === 'followed' && entry ? ` (${format_fetched_at(entry, now)})` : '';
+			warnings.push(`${key}: ${what}${as_of} — ${fix}`);
+		}
+	}
+
+	if (lines.length === 0) return { ok: true, warnings };
+	const message =
+		"not generating the site data: it pairs each repo's working tree with origin's CI, " +
+		'so each must be on its registry branch, clean, and idle — or pass `--allow_dirty` ' +
+		`to read them as they sit:\n  ${lines.join('\n  ')}`;
+	return { ok: false, message, lines, warnings };
 };
 
 /** A ready repo whose followed branch is ahead of origin: commits a publish pushes. */
@@ -324,9 +428,7 @@ export const format_readiness_block = (
 			const { what } = format_repo_readiness_problem(key, problem);
 			// relations are as of the remote-tracking refs, so say how old they are
 			const as_of =
-				problem.kind === 'followed' && entry
-					? ` (${entry.fetched_at === null ? 'never fetched' : `fetched ${format_age(now - entry.fetched_at)} ago`})`
-					: '';
+				problem.kind === 'followed' && entry ? ` (${format_fetched_at(entry, now)})` : '';
 			lines.push(`  ${key}: ${what}${as_of}`);
 		}
 	}
@@ -503,6 +605,9 @@ const format_uncommitted = (u: ReposUncommitted): string =>
 		.join(', ');
 
 const plural = (n: number, noun: string): string => `${n} ${noun}${n === 1 ? '' : 's'}`;
+
+const format_fetched_at = (entry: ReposEntryStatus, now: number): string =>
+	entry.fetched_at === null ? 'never fetched' : `fetched ${format_age(now - entry.fetched_at)} ago`;
 
 const format_age = (seconds: number): string => {
 	const s = Math.max(0, seconds);

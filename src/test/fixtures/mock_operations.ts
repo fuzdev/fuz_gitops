@@ -23,18 +23,11 @@ import { create_mock_fs_ops, create_ready_repos_ops } from '../test_helpers.ts';
  */
 export interface MockOperationsConfig {
 	git?: {
-		workspace_clean?: boolean;
-		current_branch?: string;
-		has_remote?: boolean;
-		has_changes?: boolean;
 		commit_hash?: string;
-		checkout_fails?: boolean;
-		pull_fails?: boolean;
 	};
 	npm?: {
 		authenticated?: boolean;
 		registry_available?: boolean;
-		install_fails?: boolean;
 		wait_timeout?: boolean;
 	};
 	build?: {
@@ -53,48 +46,18 @@ export interface MockOperationsConfig {
  * Used for testing normal flow without errors.
  */
 export const create_mock_git_ops = (): GitOperations => ({
-	// Branch info - fixtures always on main
-	current_branch_name: async () => ({ ok: true, value: 'main' }),
-
 	// Commit info - return stable hash
 	current_commit_hash: async () => ({ ok: true, value: 'fixture-commit-hash-001' }),
 
-	// Workspace state - fixtures always clean
-	check_clean_workspace: async () => ({ ok: true, value: true }),
-
-	// Branch operations - no-op for fixtures
-	checkout: async () => ({ ok: true }),
-	pull: async () => ({ ok: true }), // No-op - fixtures have no remotes
-	switch_branch: async () => ({ ok: true }),
-
-	// Remote operations - fixtures have no remotes
-	has_remote: async () => ({ ok: true, value: false }),
-
 	// Staging/commit - no-op for read-only fixtures
 	add: async () => ({ ok: true }),
-	commit: async () => ({ ok: true }),
-	add_and_commit: async () => ({ ok: true }),
-
-	// Change detection - fixtures never change
-	has_changes: async () => ({ ok: true, value: false }),
-	has_file_changed: async () => ({ ok: true, value: false }),
-
-	// Tags - no-op for fixtures
-	tag: async () => ({ ok: true }),
-	push_tag: async () => ({ ok: true }),
-
-	// Stash - no-op for clean fixtures
-	stash: async () => ({ ok: true }),
-	stash_pop: async () => ({ ok: true })
+	commit: async () => ({ ok: true })
 });
 
 /**
  * Create basic npm operations that always succeed.
  */
 export const create_mock_npm_ops = (): NpmOperations => ({
-	// Install - no-op, fixtures don't need deps installed
-	install: async () => ({ ok: true }),
-
 	// Auth check - always authenticated for tests
 	check_auth: async () => ({ ok: true, username: 'test-user' }),
 
@@ -198,75 +161,15 @@ export const create_mock_gitops_ops = (fixture: RepoFixtureSet): GitopsOperation
 export const create_configurable_git_ops = (
 	config: MockOperationsConfig['git'] = {}
 ): GitOperations => ({
-	// Branch info
-	current_branch_name: async () => ({
-		ok: true,
-		value: config.current_branch || 'main'
-	}),
-
 	// Commit info
 	current_commit_hash: async () => ({
 		ok: true,
 		value: config.commit_hash || 'fixture-commit-hash-001'
 	}),
 
-	// Workspace state
-	check_clean_workspace: async () => ({
-		ok: true,
-		value: config.workspace_clean !== false // Default to true
-	}),
-
-	// Branch operations
-	checkout: async () => {
-		if (config.checkout_fails) {
-			return {
-				ok: false,
-				message: "error: pathspec 'main' did not match any file(s) known to git"
-			};
-		}
-		return { ok: true };
-	},
-
-	pull: async () => {
-		if (config.pull_fails) {
-			return {
-				ok: false,
-				message: 'cannot pull with rebase: You have unstaged changes.\nPlease commit or stash them.'
-			};
-		}
-		return { ok: true };
-	},
-
-	switch_branch: async () => ({ ok: true }),
-
-	// Remote operations
-	has_remote: async () => ({
-		ok: true,
-		value: config.has_remote !== false // Default to false for fixtures
-	}),
-
 	// Staging/commit
 	add: async () => ({ ok: true }),
-	commit: async () => ({ ok: true }),
-	add_and_commit: async () => ({ ok: true }),
-
-	// Change detection
-	has_changes: async () => ({
-		ok: true,
-		value: config.has_changes || false
-	}),
-	has_file_changed: async () => ({
-		ok: true,
-		value: config.has_changes || false
-	}),
-
-	// Tags
-	tag: async () => ({ ok: true }),
-	push_tag: async () => ({ ok: true }),
-
-	// Stash
-	stash: async () => ({ ok: true }),
-	stash_pop: async () => ({ ok: true })
+	commit: async () => ({ ok: true })
 });
 
 /**
@@ -275,14 +178,6 @@ export const create_configurable_git_ops = (
 export const create_configurable_npm_ops = (
 	config: MockOperationsConfig['npm'] = {}
 ): NpmOperations => ({
-	// Install
-	install: async () => {
-		if (config.install_fails) {
-			return { ok: false, message: 'npm install failed', stderr: 'npm ERR! install failed' };
-		}
-		return { ok: true };
-	},
-
 	// Auth check
 	check_auth: async () => {
 		if (config.authenticated === false) {

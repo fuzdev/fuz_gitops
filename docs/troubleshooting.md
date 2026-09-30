@@ -80,6 +80,25 @@ could make it wrong. The diagnostics (`gitops_plan`, `gitops_analyze`,
 `gitops_validate`, the dry run) print the same problems as warnings, from
 local refs, before you try.
 
+### "not generating the site data: … on its registry branch, clean, and idle"
+
+`gro gitops_sync` writes the dashboard's `repos.json` from each repo's working
+tree beside origin's CI, so it refuses a repo that would show something else:
+off the branch its registry entry follows, dirty (untracked files count), or
+mid-operation — each line names the repo, what's wrong, and the fix, as the
+publish refusal above does. It refuses before any fetch and changes nothing.
+Move the repo back, or pass `--allow_dirty` to generate from the repos as they
+sit, with each problem logged as a warning. `gro gitops_sync --check` prints
+the same report from local refs, without a token, and exits non-zero when a
+run would refuse.
+
+It only warns on a branch behind or ahead of origin (the modules are the
+local tree's, the CI origin's tip — `repos sync` lines them up), on a failed
+fetch (the last fetch's view stands), and on an npm repo with no
+`node_modules` or no `.svelte-kit/tsconfig.json` its tsconfig extends: the
+library analysis then reads external types as `any`, and `gitops_sync`
+installs nothing — run `npm install` and `gro sync` in that repo.
+
 ### "npm authentication failed"
 
 Log in to npm:
@@ -163,7 +182,7 @@ Note: Dev dependency cycles are normal and allowed.
 
 NPM propagation can be slow. Either:
 
-- Increase timeout with `--max-wait` (default is 10 minutes / 600000ms)
+- Increase timeout with `--max_wait` (default is 10 minutes / 600000ms)
 - Check NPM registry status
 - Verify package was actually published
 - If verified published, re-run `gro gitops_publish --wetrun` to continue

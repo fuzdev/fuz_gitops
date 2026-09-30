@@ -93,7 +93,7 @@ export const task: Task<Args> = {
  * @nodocs
  */
 export interface GitopsPublishDeps {
-	/** Loads the configured repos as they sit; `get_gitops_ready` without syncing. */
+	/** Loads the configured repos as they sit (`get_gitops_ready`). */
 	load_repos: (options: GetGitopsReadyOptions) => Promise<{ local_repos: Array<LocalRepo> }>;
 	/** Runs `repos status` for the readiness gate. */
 	repos_ops: ReposOperations;
@@ -114,7 +114,7 @@ const default_gitops_publish_deps: GitopsPublishDeps = {
 };
 
 /**
- * Runs `gro gitops_publish`, in order: load the repos as they sit (no sync),
+ * Runs `gro gitops_publish`, in order: load the repos as they sit,
  * generate the plan, and — for `--wetrun` — run the readiness gate
  * (`gate_publish_readiness`, read-only: `repos status --fetch`) before
  * printing the plan and asking to confirm, so a refusal or a "no" changes
@@ -146,9 +146,8 @@ export const run_gitops_publish = async (
 		preview
 	} = args;
 
-	// Load repos as they sit: nothing switches branches or pulls. A real publish gates on their
-	// state below rather than moving them.
-	const { local_repos: repos } = await load_repos({ config, registry, sync: false, log });
+	// Load repos as they sit; a real publish gates on their state below rather than moving them
+	const { local_repos: repos } = await load_repos({ config, registry, log });
 
 	// Generate the plan once; the executor consumes this exact plan (no second pass).
 	const publishing_plan = await generate_publishing_plan(repos, { verbose, ops: ops.changeset });

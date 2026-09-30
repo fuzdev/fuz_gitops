@@ -14,11 +14,11 @@
  * **Production usage:**
  * ```typescript
  * import {default_gitops_operations} from './operations_defaults.js';
- * const result = await ops.git.current_branch_name({cwd: '/path'});
+ * const result = await ops.git.current_commit_hash({cwd: '/path'});
  * if (!result.ok) {
  *   throw new TaskError(result.message);
  * }
- * const branch = result.value;
+ * const commit = result.value;
  * ```
  *
  * **Test usage:**
@@ -76,17 +76,12 @@ export interface ChangesetOperations {
 }
 
 /**
- * Git operations for branch management, commits, tags, and workspace state.
- * All operations return `Result` instead of throwing errors.
+ * Git operations the publishing executor authors with: staging and committing
+ * dependency updates and auto-changesets, and reading the commit it published.
+ * All operations return `Result` instead of throwing errors. Where each repo
+ * sits (branch, dirt, relation to origin) is `ReposOperations`'s to report.
  */
 export interface GitOperations {
-	/**
-	 * Gets the current branch name.
-	 */
-	current_branch_name: (options?: {
-		cwd?: string;
-	}) => Promise<Result<{ value: string }, { message: string }>>;
-
 	/**
 	 * Gets the current commit hash.
 	 */
@@ -94,47 +89,6 @@ export interface GitOperations {
 		branch?: string;
 		cwd?: string;
 	}) => Promise<Result<{ value: string }, { message: string }>>;
-
-	/**
-	 * Checks if the workspace is clean (no uncommitted changes).
-	 */
-	check_clean_workspace: (options?: {
-		cwd?: string;
-	}) => Promise<Result<{ value: boolean }, { message: string }>>;
-
-	/**
-	 * Checks out a branch.
-	 */
-	checkout: (options: {
-		branch: string;
-		cwd?: string;
-	}) => Promise<Result<object, { message: string }>>;
-
-	/**
-	 * Pulls changes from remote.
-	 */
-	pull: (options?: {
-		origin?: string;
-		branch?: string;
-		cwd?: string;
-	}) => Promise<Result<object, { message: string }>>;
-
-	/**
-	 * Switches to a branch, optionally pulling.
-	 */
-	switch_branch: (options: {
-		branch: string;
-		pull?: boolean;
-		cwd?: string;
-	}) => Promise<Result<object, { message: string }>>;
-
-	/**
-	 * Checks if a remote exists.
-	 */
-	has_remote: (options?: {
-		remote?: string;
-		cwd?: string;
-	}) => Promise<Result<{ value: boolean }, { message: string }>>;
 
 	/**
 	 * Stages files for commit.
@@ -151,64 +105,6 @@ export interface GitOperations {
 		message: string;
 		cwd?: string;
 	}) => Promise<Result<object, { message: string }>>;
-
-	/**
-	 * Stages files and creates a commit.
-	 */
-	add_and_commit: (options: {
-		files: string | Array<string>;
-		message: string;
-		cwd?: string;
-	}) => Promise<Result<object, { message: string }>>;
-
-	/**
-	 * Checks whether the working tree has any changes — staged, unstaged, or
-	 * untracked (`git status --porcelain`).
-	 */
-	has_changes: (options?: {
-		cwd?: string;
-	}) => Promise<Result<{ value: boolean }, { message: string }>>;
-
-	/**
-	 * Creates a git tag.
-	 */
-	tag: (options: {
-		tag_name: string;
-		message?: string;
-		cwd?: string;
-	}) => Promise<Result<object, { message: string }>>;
-
-	/**
-	 * Pushes a tag to remote.
-	 */
-	push_tag: (options: {
-		tag_name: string;
-		origin?: string;
-		cwd?: string;
-	}) => Promise<Result<object, { message: string }>>;
-
-	/**
-	 * Stashes uncommitted changes.
-	 */
-	stash: (options?: {
-		message?: string;
-		cwd?: string;
-	}) => Promise<Result<object, { message: string }>>;
-
-	/**
-	 * Pops the most recent stash.
-	 */
-	stash_pop: (options?: { cwd?: string }) => Promise<Result<object, { message: string }>>;
-
-	/**
-	 * Checks if a specific file changed between two commits.
-	 */
-	has_file_changed: (options: {
-		from_commit: string;
-		to_commit: string;
-		file_path: string;
-		cwd?: string;
-	}) => Promise<Result<{ value: boolean }, { message: string }>>;
 }
 
 /**
@@ -294,13 +190,6 @@ export interface NpmOperations {
 	 * Checks if npm registry is reachable.
 	 */
 	check_registry: () => Promise<Result<object, { message: string }>>;
-
-	/**
-	 * Installs npm dependencies.
-	 */
-	install: (options?: {
-		cwd?: string;
-	}) => Promise<Result<object, { message: string; stderr?: string }>>;
 }
 
 /**

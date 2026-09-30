@@ -54,7 +54,7 @@ export const task: Task<Args> = {
 		log.info(st('cyan', 'Generating multi-repo publishing plan...'));
 
 		// Load local repos as they sit, and say which aren't at rest
-		const { local_repos } = await get_gitops_ready({ config, registry, sync: false, log });
+		const { local_repos } = await get_gitops_ready({ config, registry, log });
 		log_readiness_block(local_repos, log);
 
 		if (local_repos.length === 0) {

@@ -136,8 +136,9 @@ missing or not a repo, or its probe failed (`probe_error`). A pin's facts are
 decided as any entry's; that it's pinned is its own field. The text
 summary's `clean · on branches · pinned` counts read `on_branch`. The gitops
 tasks read readiness from these facts: `gro gitops_publish --wetrun` refuses
-a repo not at rest (see [Publishing](publishing.md#readiness)), and the
-diagnostics list them.
+a repo not at rest (see [Publishing](publishing.md#readiness)),
+`gro gitops_sync` refuses one off its branch, dirty, or mid-operation (see
+[Troubleshooting](troubleshooting.md)), and the diagnostics list them.
 
 Readiness wants `followed` too: a followed branch that's unborn (no commit
 yet) reads `on_branch` true, clean, idle, and `followed` `null`, beside a

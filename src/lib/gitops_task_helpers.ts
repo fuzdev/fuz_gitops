@@ -3,17 +3,16 @@
  *
  * `resolve_gitops_repos()` loads the config's registry keys, runs
  * `repos status <keys…> --json`, and resolves each key to its checkout.
- * `get_gitops_ready()` then loads each repo's library, optionally syncing its
- * working tree first (switch branch, pull, install) — only `gitops_sync` does.
- * `gate_publish_readiness()` is the read-only gate a real publish runs before
- * its prompt, and `log_readiness_block()` the diagnostics' report of repos not
- * at rest (both over `repo_readiness.ts`).
+ * `get_gitops_ready()` then loads each repo's library as its working tree
+ * sits. `gate_publish_readiness()` is the read-only gate a real publish runs
+ * before its prompt, and `log_readiness_block()` the diagnostics' report of
+ * repos not at rest (both over `repo_readiness.ts`).
  *
  * Used by: `gitops_sync.task.ts`, `gitops_analyze.task.ts`, `gitops_plan.task.ts`,
  * `gitops_publish.task.ts`, `gitops_validate.task.ts`, and `gitops_run.task.ts`.
  *
- * Accepts `repos_ops`, `git_ops`, and `npm_ops` to support testing via the
- * operations pattern (see `operations.ts` for dependency injection details).
+ * Accepts `repos_ops` to support testing via the operations pattern (see
+ * `operations.ts` for dependency injection details).
  *
  * @module
  */
@@ -40,7 +39,7 @@ import {
 	repos_not_at_rest
 } from './repo_readiness.ts';
 import type { ReposStatusReport } from './repos_status.ts';
-import type { GitOperations, NpmOperations, ReposOperations } from './operations.ts';
+import type { ReposOperations } from './operations.ts';
 import { default_repos_operations } from './operations_defaults.ts';
 
 export interface ResolveGitopsReposOptions {
@@ -101,40 +100,19 @@ export const resolve_gitops_repos = async (
 };
 
 export interface GetGitopsReadyOptions extends ResolveGitopsReposOptions {
-	git_ops?: GitOperations;
-	npm_ops?: NpmOperations;
 	parallel?: boolean;
 	concurrency?: number;
-	/**
-	 * Sync each repo's working tree to its entry's branch before loading
-	 * (switch branch, pull, install). When `false`, repos load exactly as they
-	 * sit on disk — the safe default for read-only diagnostics. Defaults to `true`.
-	 */
-	sync?: boolean;
-	/** When syncing, tolerate uncommitted changes instead of throwing. Defaults to `false`. */
-	allow_dirty?: boolean;
 }
 
 /**
- * Central initialization function for the gitops tasks that load libraries.
+ * Central initialization function for the gitops tasks that load libraries:
+ * resolves the config's repos through `repos status` (`resolve_gitops_repos`),
+ * then loads each repo's library as its working tree sits (`local_repos_load`).
+ * Changes nothing.
  *
- * Initialization sequence:
- * 1. Resolves the config's repos through `repos status` (`resolve_gitops_repos`)
- * 2. If `sync`, switches branches and pulls latest changes (in parallel by default)
- * 3. If `sync`, auto-installs deps if `package.json` changed during pull
- * 4. Loads each repo's library
- *
- * With `sync: false` (the default for read-only diagnostics), steps 2-3 are
- * skipped and repos are loaded exactly as checked out — no branch switch, pull,
- * install, or clean-workspace check.
- *
- * @param options.git_ops - for testing (defaults to real git operations)
- * @param options.npm_ops - for testing (defaults to real npm operations)
  * @param options.repos_ops - for testing (defaults to running the `repos` binary)
  * @param options.parallel - whether to load repos in parallel (default: true)
  * @param options.concurrency - max concurrent repo loads (default: 5)
- * @param options.sync - sync working trees before loading (default: true)
- * @param options.allow_dirty - when syncing, tolerate uncommitted changes (default: false)
  * @returns initialized config and fully loaded repos ready for operations
  * @throws {TaskError} if resolving the repos or loading them fails
  */
@@ -145,20 +123,9 @@ export const get_gitops_ready = async (
 	gitops_config: GitopsConfig;
 	local_repos: Array<LocalRepo>;
 }> => {
-	const { log, git_ops, npm_ops, parallel, concurrency, sync, allow_dirty } = options;
+	const { log, parallel, concurrency } = options;
 	const { config_path, gitops_config, local_repo_paths } = await resolve_gitops_repos(options);
-
-	const local_repos = await local_repos_load({
-		local_repo_paths,
-		log,
-		git_ops,
-		npm_ops,
-		parallel,
-		concurrency,
-		sync,
-		allow_dirty
-	});
-
+	const local_repos = await local_repos_load({ local_repo_paths, log, parallel, concurrency });
 	return { config_path, gitops_config, local_repos };
 };
 

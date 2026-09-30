@@ -2,46 +2,6 @@ import { test, assert, describe } from 'vitest';
 
 import { create_mock_npm_ops } from './test_helpers.ts';
 
-describe('install operation', () => {
-	test('returns ok:true on success', async () => {
-		const mock_ops = create_mock_npm_ops();
-		const result = await mock_ops.install({ cwd: '/some/path' });
-		assert.ok(result.ok);
-	});
-
-	test('returns ok:false with error on failure', async () => {
-		const mock_ops = create_mock_npm_ops({
-			install: async () => ({ ok: false, message: 'Network error' })
-		});
-		const result = await mock_ops.install({ cwd: '/some/path' });
-		assert.ok(!result.ok);
-	});
-
-	test('accepts optional cwd parameter', async () => {
-		const mock_ops = create_mock_npm_ops();
-		const result = await mock_ops.install();
-		assert.ok(result.ok);
-	});
-
-	test('can override install behavior in mock', async () => {
-		let install_called = false;
-		let install_cwd: string | undefined;
-
-		const mock_ops = create_mock_npm_ops({
-			install: async (options) => {
-				install_called = true;
-				install_cwd = options?.cwd;
-				return { ok: true };
-			}
-		});
-
-		await mock_ops.install({ cwd: '/test/directory' });
-
-		assert.ok(install_called, 'install should have been called');
-		assert.equal(install_cwd, '/test/directory');
-	});
-});
-
 describe('check_auth operation', () => {
 	test('returns ok:true with username on success', async () => {
 		const mock_ops = create_mock_npm_ops();

@@ -57,7 +57,7 @@ export const task: Task<Args> = {
 
 		// Load repos once (shared by all commands), as they sit, and say which aren't at rest
 		log.info(st('dim', 'Loading repositories...'));
-		const { local_repos } = await get_gitops_ready({ config, registry, sync: false, log });
+		const { local_repos } = await get_gitops_ready({ config, registry, log });
 		log.info(st('dim', `   Found ${local_repos.length} local repos`));
 		log_readiness_block(local_repos, log);
 

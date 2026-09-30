@@ -88,7 +88,7 @@ npm i -D @fuzdev/fuz_gitops
   export * from '@fuzdev/fuz_gitops/gitops_validate.task.ts';
   ```
 
-- run `gro gitops_sync` to sync repos and update the local data
+- run `gro gitops_sync` to generate the dashboard's data from the repos
 
 ## Architecture
 
@@ -120,11 +120,18 @@ gro gitops_run "git status" --format json  # JSON output for scripting
 - Uses lightweight repo path resolution through `repos status` (no full sync needed); a
   configured repo that's missing fails the run, naming it
 
-### Syncing repo metadata
+### Generating the dashboard's data
 
 ```bash
-gro gitops_sync               # sync repos and generate UI data
+gro gitops_sync               # fetch, check each repo, then write repos.json + repos.ts
+gro gitops_sync --check       # the readiness report alone: no fetch, no token, nothing written
+gro gitops_sync --allow_dirty # read repos off their branch, dirty, or mid-operation as they sit, warning instead
 ```
+
+It reads each repo as it sits and never moves one (`repos sync` does), so it
+refuses a repo off its registry branch, dirty, or mid-operation — the site
+would show that tree's modules beside origin's CI — and warns on one behind
+origin or missing its `node_modules`.
 
 ### Diagnostic commands (read-only)
 

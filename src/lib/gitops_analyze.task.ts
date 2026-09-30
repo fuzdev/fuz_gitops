@@ -44,7 +44,7 @@ export const task: Task<Args> = {
 		const { config, registry, format, outfile } = args;
 
 		// Read the working trees as they sit, and say which aren't at rest
-		const { local_repos } = await get_gitops_ready({ config, registry, sync: false, log });
+		const { local_repos } = await get_gitops_ready({ config, registry, log });
 		log_readiness_block(local_repos, log);
 
 		// Only npm packages form the dependency graph; note any non-npm repos (e.g. cargo)

@@ -9,29 +9,13 @@
 
 import { spawn_out } from '@fuzdev/fuz_util/process.ts';
 import { readFile, writeFile, mkdir, stat } from 'node:fs/promises';
-import { git_checkout, type GitBranch, type GitOrigin } from '@fuzdev/fuz_util/git.ts';
 import { fs_classify_error } from '@fuzdev/fuz_util/fs.ts';
 import { EMPTY_OBJECT } from '@fuzdev/fuz_util/object.ts';
 
 import { has_changesets, read_changesets, predict_next_version } from './changeset_reader.ts';
 import { wait_for_package } from './npm_registry.ts';
 import { run_preflight_checks } from './preflight_checks.ts';
-import {
-	git_add,
-	git_commit,
-	git_add_and_commit,
-	git_tag,
-	git_push_tag,
-	git_has_changes,
-	git_has_file_changed,
-	git_stash,
-	git_stash_pop,
-	git_switch_branch,
-	git_current_branch_name_required,
-	git_current_commit_hash_required,
-	git_check_clean_workspace_as_boolean,
-	git_has_remote
-} from './git_operations.ts';
+import { git_add, git_commit, git_current_commit_hash_required } from './git_operations.ts';
 import type {
 	ChangesetOperations,
 	GitOperations,
@@ -94,12 +78,6 @@ export const default_changeset_operations: ChangesetOperations = {
 };
 
 export const default_git_operations: GitOperations = {
-	// Core git info
-	current_branch_name: async (options) => {
-		const { cwd } = options ?? EMPTY_OBJECT;
-		return wrap_with_value(() => git_current_branch_name_required(cwd ? { cwd } : undefined));
-	},
-
 	current_commit_hash: async (options) => {
 		const { branch, cwd } = options ?? EMPTY_OBJECT;
 		return wrap_with_value(() =>
@@ -107,48 +85,6 @@ export const default_git_operations: GitOperations = {
 		);
 	},
 
-	check_clean_workspace: async (options) => {
-		const { cwd } = options ?? EMPTY_OBJECT;
-		return wrap_with_value(() => git_check_clean_workspace_as_boolean(cwd ? { cwd } : undefined));
-	},
-
-	// Branch operations
-	checkout: async (options) => {
-		const { branch, cwd } = options;
-		return wrap_void(() => git_checkout(branch, cwd ? { cwd } : undefined));
-	},
-
-	pull: async (options) => {
-		const { origin, branch, cwd } = options ?? EMPTY_OBJECT;
-		try {
-			// Omit the branch arg when absent: a trailing `''` makes git pull the remote's
-			// default branch (origin/HEAD) instead of the current branch's upstream.
-			const spawned = await spawn_out(
-				'git',
-				['pull', origin || 'origin', ...(branch ? [branch] : [])],
-				cwd ? { cwd } : undefined
-			);
-			if (spawned.result.ok) {
-				return { ok: true };
-			} else {
-				return { ok: false, message: spawned.stderr || 'Pull failed' };
-			}
-		} catch (error) {
-			return { ok: false, message: String(error) };
-		}
-	},
-
-	switch_branch: async (options) => {
-		const { branch, pull, cwd } = options;
-		return wrap_void(() => git_switch_branch(branch as GitBranch, pull, cwd ? { cwd } : undefined));
-	},
-
-	has_remote: async (options) => {
-		const { remote, cwd } = options ?? EMPTY_OBJECT;
-		return wrap_with_value(() => git_has_remote(remote, cwd ? { cwd } : undefined));
-	},
-
-	// Staging and committing
 	add: async (options) => {
 		const { files, cwd } = options;
 		return wrap_void(() => git_add(files, cwd ? { cwd } : undefined));
@@ -157,46 +93,6 @@ export const default_git_operations: GitOperations = {
 	commit: async (options) => {
 		const { message, cwd } = options;
 		return wrap_void(() => git_commit(message, cwd ? { cwd } : undefined));
-	},
-
-	add_and_commit: async (options) => {
-		const { files, message, cwd } = options;
-		return wrap_void(() => git_add_and_commit(files, message, cwd ? { cwd } : undefined));
-	},
-
-	has_changes: async (options) => {
-		const { cwd } = options ?? EMPTY_OBJECT;
-		return wrap_with_value(() => git_has_changes(cwd ? { cwd } : undefined));
-	},
-
-	// Tagging
-	tag: async (options) => {
-		const { tag_name, message, cwd } = options;
-		return wrap_void(() => git_tag(tag_name, message, cwd ? { cwd } : undefined));
-	},
-
-	push_tag: async (options) => {
-		const { tag_name, origin, cwd } = options;
-		return wrap_void(() => git_push_tag(tag_name, origin as GitOrigin, cwd ? { cwd } : undefined));
-	},
-
-	// Stashing
-	stash: async (options) => {
-		const { message, cwd } = options ?? EMPTY_OBJECT;
-		return wrap_void(() => git_stash(message, cwd ? { cwd } : undefined));
-	},
-
-	stash_pop: async (options) => {
-		const { cwd } = options ?? EMPTY_OBJECT;
-		return wrap_void(() => git_stash_pop(cwd ? { cwd } : undefined));
-	},
-
-	// File change detection
-	has_file_changed: async (options) => {
-		const { from_commit, to_commit, file_path, cwd } = options;
-		return wrap_with_value(() =>
-			git_has_file_changed(from_commit, to_commit, file_path, cwd ? { cwd } : undefined)
-		);
 	}
 };
 
@@ -288,20 +184,6 @@ export const default_npm_operations: NpmOperations = {
 				return { ok: true };
 			}
 			return { ok: false, message: 'Failed to ping npm registry' };
-		} catch (error) {
-			return { ok: false, message: String(error) };
-		}
-	},
-
-	install: async (options) => {
-		const { cwd } = options ?? EMPTY_OBJECT;
-		try {
-			const spawned = await spawn_out('npm', ['install'], cwd ? { cwd } : undefined);
-			if (spawned.result.ok) {
-				return { ok: true };
-			} else {
-				return { ok: false, message: 'Install failed', stderr: spawned.stderr || undefined };
-			}
 		} catch (error) {
 			return { ok: false, message: String(error) };
 		}

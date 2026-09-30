@@ -69,8 +69,8 @@ const create_recording_deps = (options: {
 	return {
 		steps,
 		deps: {
-			load_repos: async (load_options) => {
-				steps.push(`load sync=${load_options.sync}`);
+			load_repos: async () => {
+				steps.push('load');
 				return { local_repos: repos };
 			},
 			repos_ops: {
@@ -134,7 +134,7 @@ describe('run_gitops_publish --wetrun', () => {
 		assert.include(err.message, 'b: on `feature`, not `main`');
 		assert.include(err.message, 'nothing was changed');
 		// fetched the npm repos alone, then stopped: no prompt, preflight, spawn, or commit
-		assert.deepEqual(steps, ['load sync=false', 'repos status a b --fetch']);
+		assert.deepEqual(steps, ['load', 'repos status a b --fetch']);
 	});
 
 	test('a ready set passes the gate, then prompts, then publishes', async () => {
@@ -153,7 +153,7 @@ describe('run_gitops_publish --wetrun', () => {
 		);
 		assert.strictEqual(outcome, 'done');
 		assert.deepEqual(steps.slice(0, 6), [
-			'load sync=false',
+			'load',
 			'repos status a b --fetch',
 			'confirm',
 			'preflight',
@@ -200,7 +200,7 @@ describe('run_gitops_publish --wetrun', () => {
 		await assert_rejects(() =>
 			run_gitops_publish(Args.parse({ wetrun: true }), create_capturing_log(), shown.deps)
 		);
-		assert.deepEqual(shown.steps, ['load sync=false']);
+		assert.deepEqual(shown.steps, ['load']);
 
 		const unshown = create_recording_deps({ repos: [a, b], fetched_entries: [] });
 		const outcome = await run_gitops_publish(
@@ -209,7 +209,7 @@ describe('run_gitops_publish --wetrun', () => {
 			unshown.deps
 		);
 		assert.strictEqual(outcome, 'failed');
-		assert.deepEqual(unshown.steps, ['load sync=false']);
+		assert.deepEqual(unshown.steps, ['load']);
 	});
 
 	test('declining the prompt changes nothing', async () => {
@@ -228,7 +228,7 @@ describe('run_gitops_publish --wetrun', () => {
 			deps
 		);
 		assert.strictEqual(outcome, 'cancelled');
-		assert.deepEqual(steps, ['load sync=false', 'repos status a b --fetch', 'confirm']);
+		assert.deepEqual(steps, ['load', 'repos status a b --fetch', 'confirm']);
 	});
 
 	test('--no-plan skips the prompt but not the gate', async () => {
@@ -245,7 +245,7 @@ describe('run_gitops_publish --wetrun', () => {
 				run_gitops_publish(Args.parse({ wetrun: true, plan: false }), create_capturing_log(), deps),
 			/a: fetching origin failed \(timed out after 60s\)/
 		);
-		assert.deepEqual(steps, ['load sync=false', 'repos status a b --fetch']);
+		assert.deepEqual(steps, ['load', 'repos status a b --fetch']);
 	});
 });
 
@@ -256,7 +256,7 @@ describe('run_gitops_publish dry run', () => {
 		const log = create_capturing_log();
 		const outcome = await run_gitops_publish(Args.parse({}), log, deps);
 		assert.strictEqual(outcome, 'done');
-		assert.deepEqual(steps, ['load sync=false']);
+		assert.deepEqual(steps, ['load']);
 		const block = log.warned.join('\n');
 		assert.include(block, 'not at rest, so read as they sit');
 		assert.include(block, 'b: on `feature`, not `main`');
