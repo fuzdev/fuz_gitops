@@ -527,8 +527,12 @@ pub enum SyncHold {
     /// checked out now, a branch to update in place became a symbolic ref,
     /// a branch to push holds another commit or upstream than classified or
     /// is no longer ahead of it — or the remote's branch moved or was
-    /// deleted since the fetch, so the push's lease refused it; or a missing
-    /// dir to clone into is there now. Rerun to reclassify.
+    /// deleted since the fetch, so the push's lease refused it (or, for a
+    /// branch `repos push --new-branch` creates, created there since); or a
+    /// partial clone's origin, read again as git resolves it right before
+    /// the checkout, no longer names the registry's repo over the transport
+    /// its lazy fetch was decided on; or a missing dir to clone into is
+    /// there now. Rerun to reclassify.
     Changed,
 }
 
@@ -579,10 +583,10 @@ impl PushReport {
     }
 
     /// Whether every target's branch ended in sync with its upstream —
-    /// pushed, or already there — so the run exits `0`; anything else
-    /// (held, not ahead, left to a person, no upstream, a detached HEAD, a
-    /// checkout not read, a push that failed) exits `1`, as `git push`
-    /// does on a rejected ref.
+    /// pushed, created, or already there — so the run exits `0`; anything
+    /// else (held, not ahead, left to a person, no upstream, a remote
+    /// branch found in the way, a detached HEAD, a checkout not read, a
+    /// push that failed) exits `1`, as `git push` does on a rejected ref.
     pub fn in_sync(&self) -> bool {
         self.pushes.iter().all(|p| p.outcome.in_sync())
     }
@@ -615,6 +619,12 @@ pub enum PushOutcome {
     /// Pushed to its upstream on the registry's repo, as `sync` pushes:
     /// the remote's branch moved from `from`, the fetched tip, to `to`.
     Pushed { from: String, to: String },
+    /// Under `--new-branch`: created on the registry's repo at `to`, under
+    /// its own name, and made the branch's upstream as `git push -u` does
+    /// — or found there already at `to` (another hand's, or an earlier
+    /// run's that stopped before setting the upstream), its upstream set
+    /// all the same.
+    Created { to: String },
     /// Nothing to push: the branch is at its upstream's tip, as just
     /// fetched from the registry's repo, or found already there when pushed
     /// (another hand's push since the fetch).
@@ -632,9 +642,14 @@ pub enum PushOutcome {
     /// Left to a person (diverged, archived, …): never pushed.
     NeedsHuman { reason: BranchNeedsHuman },
     /// No upstream on origin to push to — none set, another remote's, or
-    /// one deleted on origin (`gone`) — and a push never creates a remote
-    /// branch: that's the user's.
+    /// one deleted on origin (`gone`) — and a push creates a remote branch
+    /// only under `--new-branch`, the user's: none set, or a same-named one
+    /// gone.
     NoUpstream,
+    /// Under `--new-branch`, a branch with no upstream whose name the fetch
+    /// found on origin, at `at`: `--new-branch` creates a branch, never
+    /// overwrites or adopts one — its upstream is a person's to set.
+    RemoteBranchExists { at: String },
     /// HEAD is detached: no branch to push.
     Detached,
     /// The checkout wasn't read: the entry is missing or not a repo, its
@@ -646,6 +661,9 @@ pub enum PushOutcome {
 impl PushOutcome {
     /// Whether the branch ends in sync with its upstream.
     pub const fn in_sync(&self) -> bool {
-        matches!(self, Self::Pushed { .. } | Self::InSync)
+        matches!(
+            self,
+            Self::Pushed { .. } | Self::Created { .. } | Self::InSync
+        )
     }
 }

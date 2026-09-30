@@ -348,6 +348,8 @@ fn assert_push_coverage(doc: &PushReport) {
         PushOutcome::NoUpstream => 7,
         PushOutcome::Detached => 8,
         PushOutcome::Unread => 9,
+        PushOutcome::Created { .. } => 10,
+        PushOutcome::RemoteBranchExists { .. } => 11,
     };
     let fetch = |f: &FetchOutcome| match f {
         FetchOutcome::Fetched => 0,
@@ -357,7 +359,7 @@ fn assert_push_coverage(doc: &PushReport) {
     let seen = |ids: Vec<usize>| ids.into_iter().collect::<std::collections::BTreeSet<_>>();
     assert_eq!(
         seen(doc.pushes.iter().map(|p| outcome(&p.outcome)).collect()),
-        (0..10).collect()
+        (0..12).collect()
     );
     assert_eq!(
         seen(doc.pushes.iter().map(|p| fetch(&p.fetch)).collect()),
@@ -556,9 +558,9 @@ fn targeted_doc() -> StatusReport {
     )
 }
 
-/// A `repos push` of several targets: every outcome and fetch outcome,
-/// each branch's verdict the one the outcome follows from — a linked
-/// worktree's branch among them, beside its primary's.
+/// A `repos push --new-branch` of several targets: every outcome and fetch
+/// outcome, each branch's verdict the one the outcome follows from — a
+/// linked worktree's branch among them, beside its primary's.
 fn push_report_doc() -> PushReport {
     let oid = |c: char| c.to_string().repeat(40);
     let push = |commits| SyncAction::Push { commits };
@@ -701,6 +703,25 @@ fn push_report_doc() -> PushReport {
         checkouts: vec![primary("uz", on("main"))],
         ..entry("uz", Some("main"))
     };
+    let topic = |key: &str| EntryStatus {
+        checkouts: vec![primary(key, on("topic"))],
+        branches: vec![
+            branch(
+                "main",
+                Some("origin/main"),
+                Relation::InSync,
+                Verdict::Quiet,
+            ),
+            BranchStatus {
+                unique_commits: 1,
+                ..branch("topic", None, Relation::Untracked, Verdict::LocalOnly)
+            },
+        ],
+        ..entry(key, Some("main"))
+    };
+    // no upstream: created on origin, and found there at another commit
+    let created = topic("fuz_ui");
+    let exists = topic("fuz_css");
     let status = StatusReport::new(
         WORKSPACE.into(),
         format!("{WORKSPACE}/repos.toml"),
@@ -717,6 +738,8 @@ fn push_report_doc() -> PushReport {
             fetch_failed,
             refused,
             unborn,
+            created,
+            exists,
         ],
     );
     PushReport::new(
@@ -810,10 +833,24 @@ fn push_report_doc() -> PushReport {
                 "uz",
                 path("uz"),
                 Some("main"),
-                fetched,
+                fetched.clone(),
                 PushOutcome::Failed {
                     message: "main has no commit to push".into(),
                 },
+            ),
+            target(
+                "fuz_ui",
+                path("fuz_ui"),
+                Some("topic"),
+                fetched.clone(),
+                PushOutcome::Created { to: oid('c') },
+            ),
+            target(
+                "fuz_css",
+                path("fuz_css"),
+                Some("topic"),
+                fetched,
+                PushOutcome::RemoteBranchExists { at: oid('e') },
             ),
         ],
     )

@@ -113,15 +113,30 @@
 //!   fetch — forward, back, or deleted, and deleted and recreated anywhere
 //!   but the fetched tip — fails the lease and is held (`changed`) for a
 //!   rerun, which reclassifies it: a deleted branch reads `gone`, so no
-//!   push ever recreates one. The push sends nothing but the one ref — no
+//!   push recreates one (the user's `repos push --new-branch` alone does,
+//!   and only while it has commits on no remote). The push sends nothing but the one ref — no
 //!   tags, no push options, no push certificate — with git's own remote
 //!   command, over SSH only (`GIT_ALLOW_PROTOCOL=ssh`), batch-mode as the
 //!   fetch. The remote's own refusal (a ruleset, a hook) or a host
-//!   unreachable fails (`push_failed`, classified). Once pushed, the
-//!   remote-tracking ref moves to the commit by compare-and-swap on the
-//!   fetched tip (`record_push`), so `status` reads the branch in sync
-//!   without a refetch; a fetch that moved it meanwhile wins. A failed or
-//!   refused fetch holds every push, so that ref is one the fetch confined.
+//!   unreachable fails (`push_failed`, classified). Once pushed — or
+//!   found there already, another hand's push of the very commit since the
+//!   fetch — the remote-tracking ref moves to the commit by compare-and-swap
+//!   on the fetched tip (`record_push`), so `status` reads the branch in
+//!   sync without a refetch; a fetch that moved it meanwhile wins. A failed
+//!   or refused fetch holds every push, so that ref is one the fetch
+//!   confined.
+//!
+//! - **A new remote branch** is `repos push --new-branch`'s alone (sync
+//!   never creates one): the same send-pack to the registry's URL, of the
+//!   commit classified to `refs/heads/<b>` under the branch's own name,
+//!   under a lease that no such ref exists (`--force-with-lease=<ref>:`),
+//!   so a branch created there since the fetch is never overwritten
+//!   (`changed`). Right before, the same re-checks as a push's, and the
+//!   remote-tracking ref origin's fetch refspec maps it to: none holds it
+//!   for a person, and one the fetch wrote, at another commit, is a branch
+//!   origin has, never adopted. Then, as `git push -u`, that ref by
+//!   compare-and-swap on none, and the upstream config (`Step::create`
+//!   says what a run stopped partway leaves, and how the next finishes it).
 //!
 //! - **A clone** of a missing entry (the `clone` module doc has the recipe)
 //!   is made in a temp dir beside the entry's and moved into place only
@@ -138,7 +153,10 @@
 //! lacks the blobs a new tip's checkout needs: the two actions that
 //! rewrite a working tree fetch them on demand (`LazyFetch`), from origin
 //! alone over the transport its URL names (`lazy_transport`), writing
-//! objects and no ref. Every other call keeps lazy fetching off.
+//! objects and no ref. Right before the checkout, origin's URL is read
+//! again as git resolves it — the URL the fetch connects to — and a URL
+//! that no longer names the registry's repo over that transport holds the
+//! action (`changed`). Every other call keeps lazy fetching off.
 //!
 //! Each action moves one branch and touches at most the one checkout it's on
 //! (classify holds a fast-forward or move on several; a push touches none),
@@ -161,7 +179,7 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 use crate::busy::{Detection, EntryCheckouts, Sessions, scope_sessions, sessions_under};
-use crate::classify::{Refresh, push_target, push_urls_match};
+use crate::classify::{Refresh, origin_matches, push_target, push_urls_match};
 use crate::clone::Cloner;
 use crate::git::{CallOptions, Git, GitError, NetworkOptions};
 use crate::porcelain::{self, ConfigFacts};
@@ -172,11 +190,13 @@ use crate::probe::{
 use crate::registry::{Entry, RepoUrl};
 use crate::remote::{RefspecContext, RemoteFailure};
 use crate::report::{
-    BranchOutcome, BranchSync, CloneOutcome, EntryStatus, EntrySync, FetchOutcome, SyncHold,
-    UnregisteredClone,
+    BranchOutcome, BranchSync, CloneOutcome, EntryStatus, EntrySync, FetchOutcome, PushOutcome,
+    SyncHold, UnregisteredClone,
 };
 use crate::sessions::{Caller, LiveSessions};
-use crate::state::{BranchStatus, CloneRecipe, CloneVerdict, Head, SyncAction, Verdict};
+use crate::state::{
+    BranchNeedsHuman, BranchStatus, CloneRecipe, CloneVerdict, Head, SyncAction, Verdict,
+};
 use crate::status::{Assess, EntryTiming, assess, probe_all, run_pool};
 use crate::url::remote_parts;
 
@@ -504,24 +524,17 @@ impl Actor<'_> {
         // the probed checkouts on it, from the facts classify read: it held
         // a fast-forward or move on several, or on an unprobed one; a push
         // on several goes on, since it moves no files
-        let on_branch = |head: &Head| matches!(head, Head::Branch { name } if *name == b.name);
-        let mut on: Vec<&str> = Vec::new();
-        if on_branch(&facts.status.head) {
-            on.push(&facts.path);
-        }
-        on.extend(
-            facts
-                .worktrees
-                .iter()
-                .filter(|c| on_branch(&c.head))
-                .map(|c| c.path.as_str()),
-        );
+        let on = checkouts_on(facts, &b.name);
         if let Some(by) = self.busy_now(i, &b.name, &on) {
             return held(by);
         }
         // a partial clone lacks the new tip's blobs its checkout needs:
         // fetched on demand from origin alone, over origin's transport
-        let lazy = lazy_fetch(&facts.config, self.git.env_configures_ssh());
+        let lazy = lazy_fetch(
+            &facts.config,
+            self.git.env_configures_ssh(),
+            &self.entries[i].url,
+        );
         let step = Step::new(
             self.git,
             self.root,
@@ -578,6 +591,65 @@ impl Actor<'_> {
         }
     }
 
+    /// Creates branch `b` of entry `i` on the registry's repo and sets its
+    /// upstream (`Step::create`), re-checking first as a push does — the
+    /// one way `repos push --new-branch` creates a remote branch.
+    /// `set_upstream`: the branch has no upstream configured (else its
+    /// same-named upstream on origin is gone).
+    pub(crate) fn create(
+        &self,
+        i: usize,
+        facts: &RepoFacts,
+        b: &BranchStatus,
+        set_upstream: bool,
+    ) -> PushOutcome {
+        let failed = |message: String| PushOutcome::Failed { message };
+        // `repos push` refuses a third-party target before anything runs; a
+        // second line, as `act`'s
+        if !self.entries[i].writable {
+            return failed(format!(
+                "{} is a third-party reference's, which is never pushed",
+                b.name
+            ));
+        }
+        let Some(branch) = facts.branches.iter().find(|f| f.branch.name == b.name) else {
+            return failed(format!("{} isn't among the branches probed", b.name));
+        };
+        if let Some(by) = self.busy_now(i, &b.name, &checkouts_on(facts, &b.name)) {
+            return PushOutcome::Held { by };
+        }
+        let upstream = branch.branch.upstream_ref.as_deref().unwrap_or_default();
+        let step = Step::new(
+            self.git,
+            self.root,
+            &b.name,
+            upstream,
+            &facts.common_dir,
+            None,
+        );
+        let created = step.create(
+            Path::new(&facts.path),
+            &NewBranch {
+                oid: &branch.branch.oid,
+                set_upstream,
+                url: &self.entries[i].url,
+                batch_ssh: !facts.config.ssh_command && !self.git.env_configures_ssh(),
+            },
+        );
+        match created {
+            Ok(Creation::Created(to)) => PushOutcome::Created { to },
+            Ok(Creation::Unmapped) => PushOutcome::NeedsHuman {
+                reason: BranchNeedsHuman::Unmapped,
+            },
+            Ok(Creation::Exists(at)) => PushOutcome::RemoteBranchExists { at },
+            Ok(Creation::Stopped(Done::Held(by))) => PushOutcome::Held { by },
+            Ok(Creation::Stopped(Done::PushFailed(failure))) => PushOutcome::PushFailed { failure },
+            // never a creation's: a bug, reported rather than passed over
+            Ok(Creation::Stopped(done)) => failed(format!("the creation came out as {done:?}")),
+            Err(message) => failed(message),
+        }
+    }
+
     /// What holds an action on `branch` now, from the live sessions re-read:
     /// detection unavailable, or a session that may be on the branch
     /// through a git dir no worktree list names, holds any action; one in a
@@ -598,6 +670,24 @@ impl Actor<'_> {
             None
         }
     }
+}
+
+/// The probed checkouts with `branch` on HEAD, from the facts classify
+/// read.
+fn checkouts_on<'f>(facts: &'f RepoFacts, branch: &str) -> Vec<&'f str> {
+    let on_branch = |head: &Head| matches!(head, Head::Branch { name } if name == branch);
+    let mut on: Vec<&str> = Vec::new();
+    if on_branch(&facts.status.head) {
+        on.push(&facts.path);
+    }
+    on.extend(
+        facts
+            .worktrees
+            .iter()
+            .filter(|c| on_branch(&c.head))
+            .map(|c| c.path.as_str()),
+    );
+    on
 }
 
 /// A verdict that doesn't act, as an outcome. An `act` is `act_on_repo`'s
@@ -643,36 +733,42 @@ struct Step<'a> {
     common_dir: &'a Path,
     /// A partial clone's lazy fetch, for the actions that rewrite a working
     /// tree (`run_checkout`); `None` keeps it off.
-    lazy: Option<LazyFetch>,
+    lazy: Option<LazyFetch<'a>>,
 }
 
 /// How an action that rewrites a partial clone's working tree fetches the
 /// objects it lacks: from its promisor remote, origin — only when no other
 /// remote is one (`ConfigFacts::other_promisor`), since git asks each in
-/// turn — over `transport` alone (`lazy_transport`).
+/// turn — over `transport` alone (`lazy_transport`), and only while origin
+/// still reaches `repo` over it (`Step::lazy_origin_moved`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct LazyFetch {
+struct LazyFetch<'a> {
     transport: &'static str,
     /// Batch-mode SSH, unless the user configures SSH (as the fetch).
     batch_ssh: bool,
+    /// The registry's repo: what origin must name when the fetch runs.
+    repo: &'a RepoUrl,
 }
 
 /// A partial clone's lazy fetch, from its `config`: `None` — lazy fetching
 /// stays off, and a checkout needing a missing blob fails — for a repo
 /// that isn't a partial clone, one with another promisor remote, and one
 /// whose origin URL names no transport the fetch may take
-/// (`lazy_transport`). `env_ssh`: the environment configures SSH.
+/// (`lazy_transport`). `env_ssh`: the environment configures SSH; `repo`:
+/// the entry's.
 ///
 /// Only when classify let the branch act, so with origin naming the
 /// registry's repo (origin drift holds the entry, and a reference's
-/// refresh).
-fn lazy_fetch(config: &ConfigFacts, env_ssh: bool) -> Option<LazyFetch> {
+/// refresh) — as the probe read it: right before the checkout, origin is
+/// read again as git resolves it (`Step::lazy_origin_moved`).
+fn lazy_fetch<'a>(config: &ConfigFacts, env_ssh: bool, repo: &'a RepoUrl) -> Option<LazyFetch<'a>> {
     if config.partial_filter.is_none() || config.other_promisor {
         return None;
     }
     Some(LazyFetch {
         transport: lazy_transport(config.origin_url()?)?,
         batch_ssh: !config.ssh_command && !env_ssh,
+        repo,
     })
 }
 
@@ -729,6 +825,59 @@ struct Push<'a> {
     batch_ssh: bool,
 }
 
+/// What a new branch's creation sends, as classified (`Step::create`).
+struct NewBranch<'a> {
+    /// The commit the branch held when probed: the one the remote branch
+    /// is created at.
+    oid: &'a str,
+    /// The branch has no upstream configured, so creating it sets one;
+    /// else its upstream is origin's same-named branch, gone.
+    set_upstream: bool,
+    /// The registry's repo: where the branch is created (its SSH URL), and
+    /// what origin's push URL must name.
+    url: &'a RepoUrl,
+    /// Batch-mode SSH, unless the user configures SSH (as the fetch).
+    batch_ssh: bool,
+}
+
+/// One `git send-pack` of a commit to a ref on the registry's repo.
+struct SendPack<'a> {
+    oid: &'a str,
+    /// The ref on the registry's repo, named explicitly.
+    target: &'a str,
+    /// What the lease expects the remote's ref to be: the fetched tip, or
+    /// `""` for no such ref.
+    expect: &'a str,
+    url: &'a RepoUrl,
+    batch_ssh: bool,
+}
+
+/// What a send-pack came to, short of failing.
+#[derive(Debug)]
+enum Sent {
+    /// The remote's ref moved to the commit.
+    Pushed,
+    /// The remote's ref already held it.
+    UpToDate,
+    /// Refused or not sent: held, or failed at the remote (`rejected`).
+    Stopped(Done),
+}
+
+/// How creating a branch on the remote went, short of failing.
+#[derive(Debug)]
+enum Creation {
+    /// The remote branch is at the commit, and its upstream set.
+    Created(String),
+    /// Origin's fetch refspec maps the branch to no remote-tracking ref,
+    /// so it couldn't track what it would create.
+    Unmapped,
+    /// The fetch found origin holding a branch by that name, at another
+    /// commit (the one held): never overwritten, or adopted.
+    Exists(String),
+    /// Held, or failed at the remote.
+    Stopped(Done),
+}
+
 /// The push's command and flags before the lease, the URL, and the
 /// refspec.
 ///
@@ -767,7 +916,7 @@ impl<'a> Step<'a> {
         branch: &'a str,
         upstream: &'a str,
         common_dir: &'a Path,
-        lazy: Option<LazyFetch>,
+        lazy: Option<LazyFetch<'a>>,
     ) -> Self {
         Self {
             git,
@@ -931,6 +1080,9 @@ impl Step<'_> {
         if from == to {
             return Ok(Done::AlreadyThere);
         }
+        if self.lazy_origin_moved(checkout)? {
+            return Ok(Done::Held(SyncHold::Changed));
+        }
         self.merge_ff(checkout, from, to)
     }
 
@@ -1032,10 +1184,27 @@ impl Step<'_> {
         if from == to {
             return Ok(Done::AlreadyThere);
         }
-        if self.has_local_work(checkout, &from)? {
+        if self.has_local_work(checkout, &from)? || self.lazy_origin_moved(checkout)? {
             return Ok(Done::Held(SyncHold::Changed));
         }
         self.switch_reset(checkout, from, to)
+    }
+
+    /// Whether the lazy fetch a checkout would make may no longer reach
+    /// the registry's repo over the transport decided: origin's URL, read
+    /// again as git resolves it (`insteadOf` applied) — the URL the fetch
+    /// connects to — names another repo, or another transport. `false`
+    /// with no lazy fetch: nothing reaches a remote.
+    fn lazy_origin_moved(&self, dir: &Path) -> Result<bool, String> {
+        let Some(lazy) = self.lazy else {
+            return Ok(false);
+        };
+        let out = self
+            .git
+            .output_string(dir, &["ls-remote", "--get-url", "origin"], self.opts)
+            .map_err(|e| git_message(&e))?;
+        let url = out.trim_end_matches('\n');
+        Ok(!origin_matches(url, lazy.repo) || lazy_transport(url) != Some(lazy.transport))
     }
 
     /// `switch -C` to `to` in `checkout`, then the check that the branch it
@@ -1177,36 +1346,20 @@ impl Step<'_> {
         if !self.is_ancestor(dir, &fetched, p.oid)? || ahead != p.commits as usize {
             return Ok(Done::Held(SyncHold::Changed));
         }
-        let lease = format!("--force-with-lease={}:{fetched}", p.target);
-        let url = p.url.ssh();
-        let refspec = format!("{}:{}", p.oid, p.target);
-        let mut args = SEND_PACK_ARGS.to_vec();
-        args.extend([lease.as_str(), url.as_str(), refspec.as_str()]);
-        let opts = CallOptions {
-            network: Some(NetworkOptions {
+        let sent = self.send_pack(
+            dir,
+            &SendPack {
+                oid: p.oid,
+                target: p.target,
+                expect: &fetched,
+                url: p.url,
                 batch_ssh: p.batch_ssh,
-            }),
-            // the registry's URL is SSH: nothing else may carry the push
-            allow_protocol: Some("ssh"),
-            ..self.opts
-        };
-        let out = match self.git.run(dir, &args, opts) {
-            Ok(out) => out,
-            Err(e) => {
-                return Ok(Done::PushFailed(RemoteFailure::from_git_error(
-                    e,
-                    RefspecContext::default(),
-                )));
-            }
-        };
-        let stdout = String::from_utf8_lossy(&out.stdout);
-        match pushed_ref(&stdout, p.target) {
-            Some(PushedRef {
-                ok: true,
-                message: None,
-            }) => {
-                // best effort: the push stands whatever the ref says, and
-                // the next fetch writes what origin holds
+            },
+        )?;
+        // best effort, either way: the push stands whatever the ref says,
+        // and the next fetch writes what origin holds
+        match sent {
+            Sent::Pushed => {
                 let _ = self.record_push(dir, &fetched, p.oid);
                 // the lease held the remote at the fetched tip
                 Ok(Done::Pushed {
@@ -1215,30 +1368,247 @@ impl Step<'_> {
                 })
             }
             // the remote holds the commit: the lease would have refused
-            // that, so another hand pushed it in the instant between
+            // that, so another hand pushed it in the instant between — and
+            // the fetched tip was an ancestor of it, so the ref moves as if
+            // this push had put it there
+            Sent::UpToDate => {
+                let _ = self.record_push(dir, &fetched, p.oid);
+                Ok(Done::AlreadyThere)
+            }
+            Sent::Stopped(done) => Ok(done),
+        }
+    }
+
+    /// Creates the branch on the registry's repo — `refs/heads/<b>`, the
+    /// same name — at `n.oid`, under a lease that it doesn't exist there,
+    /// then sets its upstream as `git push -u` does: the remote-tracking ref
+    /// its fetch refspec maps it to, created by compare-and-swap on none,
+    /// then, when it had no upstream, `branch.<b>.remote` and `.merge`.
+    ///
+    /// First, as a push re-checks: the branch reads as classified — the
+    /// same commit, a plain ref, and still no upstream configured (or its
+    /// same-named upstream on origin, gone) — and origin's push URL still
+    /// names the registry's repo over SSH. Then the remote-tracking ref it
+    /// would track: none that origin's fetch refspec maps it to holds it
+    /// for a person (`Unmapped`), and one there already, at another commit,
+    /// is a branch the fetch found on origin, never adopted (`Exists`).
+    ///
+    /// The lease is a compare-and-swap on nothing: a branch created on the
+    /// remote since the fetch fails it (`changed`), never overwritten, and
+    /// one there at this very commit (another hand's, or this tool's own
+    /// before its upstream was set) reads up to date, and the upstream is
+    /// set all the same — so a run stopped between the push and the
+    /// upstream is finished by the next.
+    fn create(&self, dir: &Path, n: &NewBranch<'_>) -> Result<Creation, String> {
+        let target = self.local();
+        let upstream = if n.set_upstream {
+            ["", "", ""]
+        } else {
+            [self.upstream, "origin", target.as_str()]
+        };
+        if !self.reads_as(dir, n.oid, upstream)? {
+            return Ok(Creation::Stopped(Done::Held(SyncHold::Changed)));
+        }
+        if n.set_upstream && self.merge_configured(dir)? {
+            return Ok(Creation::Stopped(Done::Held(SyncHold::Changed)));
+        }
+        if !push_urls_match(&read_push_urls(self.git, dir, self.opts)?, n.url) {
+            return Ok(Creation::Stopped(Done::Held(SyncHold::PushUrl)));
+        }
+        let tracking = if n.set_upstream {
+            match self.mapped_upstream(dir)? {
+                Some(tracking) => tracking,
+                None => return Ok(Creation::Unmapped),
+            }
+        } else {
+            self.upstream.to_owned()
+        };
+        let tracked = self.resolve_ref(dir, &tracking)?;
+        match &tracked {
+            Some(at) if at != n.oid => return Ok(Creation::Exists(at.clone())),
+            _ => {}
+        }
+        let sent = self.send_pack(
+            dir,
+            &SendPack {
+                oid: n.oid,
+                target: &target,
+                expect: "",
+                url: n.url,
+                batch_ssh: n.batch_ssh,
+            },
+        )?;
+        if let Sent::Stopped(done) = sent {
+            return Ok(Creation::Stopped(done));
+        }
+        // as `git push -u`: the remote-tracking ref, then the upstream. The
+        // ref is best effort, as a push's: a fetch that wrote it meanwhile
+        // wrote what origin holds, and the next fetch writes it anyway
+        // (until then, local refs read the upstream gone)
+        if tracked.is_none() {
+            let _ = self.update_tracking(dir, &tracking, n.oid, "");
+        }
+        if n.set_upstream {
+            self.set_upstream(dir).map_err(|e| {
+                format!(
+                    "{target} is on origin at {}, but setting {}'s upstream failed: {e} — \
+                     rerun repos push --new-branch to set it",
+                    n.oid, self.branch
+                )
+            })?;
+        }
+        Ok(Creation::Created(n.oid.to_owned()))
+    }
+
+    /// Sends `s.oid` to `s.target` on the registry's repo, over SSH, under a
+    /// lease that the remote's ref is `s.expect` (`""`: that it doesn't
+    /// exist), and reads what git and the remote made of it.
+    fn send_pack(&self, dir: &Path, s: &SendPack<'_>) -> Result<Sent, String> {
+        let lease = format!("--force-with-lease={}:{}", s.target, s.expect);
+        let url = s.url.ssh();
+        let refspec = format!("{}:{}", s.oid, s.target);
+        let mut args = SEND_PACK_ARGS.to_vec();
+        args.extend([lease.as_str(), url.as_str(), refspec.as_str()]);
+        let opts = CallOptions {
+            network: Some(NetworkOptions {
+                batch_ssh: s.batch_ssh,
+            }),
+            // the registry's URL is SSH: nothing else may carry the push
+            allow_protocol: Some("ssh"),
+            ..self.opts
+        };
+        let out = match self.git.run(dir, &args, opts) {
+            Ok(out) => out,
+            Err(e) => {
+                return Ok(Sent::Stopped(Done::PushFailed(
+                    RemoteFailure::from_git_error(e, RefspecContext::default()),
+                )));
+            }
+        };
+        let stdout = String::from_utf8_lossy(&out.stdout);
+        match pushed_ref(&stdout, s.target) {
+            Some(PushedRef {
+                ok: true,
+                message: None,
+            }) => Ok(Sent::Pushed),
             Some(PushedRef {
                 ok: true,
                 message: Some("up to date"),
-            }) => Ok(Done::AlreadyThere),
+            }) => Ok(Sent::UpToDate),
             Some(PushedRef {
                 ok: true,
                 message: Some(message),
-            }) => Err(format!("git pushed {}: {message}", p.target)),
-            Some(PushedRef { ok: false, message }) => {
-                Ok(rejected(message.unwrap_or_default(), &out.stderr))
-            }
+            }) => Err(format!("git pushed {}: {message}", s.target)),
+            Some(PushedRef { ok: false, message }) => Ok(Sent::Stopped(rejected(
+                message.unwrap_or_default(),
+                &out.stderr,
+            ))),
             None if out.status.success() => {
-                Err(format!("git send-pack reported nothing for {}", p.target))
+                Err(format!("git send-pack reported nothing for {}", s.target))
             }
-            None => Ok(Done::PushFailed(RemoteFailure::from_git_error(
-                GitError::Failed {
-                    args: args.join(" "),
-                    code: out.status.code(),
-                    stderr: out.stderr,
-                },
-                RefspecContext::default(),
+            None => Ok(Sent::Stopped(Done::PushFailed(
+                RemoteFailure::from_git_error(
+                    GitError::Failed {
+                        args: args.join(" "),
+                        code: out.status.code(),
+                        stderr: out.stderr,
+                    },
+                    RefspecContext::default(),
+                ),
             ))),
         }
+    }
+
+    /// The commit `r` holds in `dir`, or `None` when there's no such ref.
+    fn resolve_ref(&self, dir: &Path, r: &str) -> Result<Option<String>, String> {
+        let out = self
+            .git
+            .run(
+                dir,
+                &["rev-parse", "--verify", "--quiet", "--end-of-options", r],
+                self.opts,
+            )
+            .map_err(|e| git_message(&e))?;
+        match out.status.code() {
+            Some(0) => Ok(Some(String::from_utf8_lossy(&out.stdout).trim().to_owned())),
+            // `--quiet`: 1, silently, for a ref that doesn't exist
+            Some(1) => Ok(None),
+            _ => Err(first_message(&out.stderr)),
+        }
+    }
+
+    /// Whether `branch.<b>.merge` is set anywhere git reads config: the
+    /// branch has an upstream (or half of one) someone configured.
+    fn merge_configured(&self, dir: &Path) -> Result<bool, String> {
+        let key = format!("branch.{}.merge", self.branch);
+        let out = self
+            .git
+            .run(dir, &["config", "--get-all", &key], self.opts)
+            .map_err(|e| git_message(&e))?;
+        // 1 for a key that isn't set
+        match out.status.code() {
+            Some(0) => Ok(true),
+            Some(1) => Ok(false),
+            _ => Err(first_message(&out.stderr)),
+        }
+    }
+
+    /// The remote-tracking ref the branch would track as `origin`'s
+    /// `refs/heads/<b>` — what git resolves as its upstream with that
+    /// configured, through origin's fetch refspec — or `None` when the
+    /// refspec maps it nowhere under `refs/remotes/origin/`.
+    ///
+    /// Read with the config passed as `-c`, whose key git splits from its
+    /// value at the first `=`: a branch whose name holds one is refused.
+    fn mapped_upstream(&self, dir: &Path) -> Result<Option<String>, String> {
+        let name = self.branch;
+        if name.contains('=') {
+            return Err(format!(
+                "{name}'s name holds `=`, which repos can't pass to git as config: \
+                 create the branch on origin by hand"
+            ));
+        }
+        let local = self.local();
+        let remote = format!("branch.{name}.remote=origin");
+        let merge = format!("branch.{name}.merge={local}");
+        let out = self
+            .git
+            .output_string(
+                dir,
+                &[
+                    "-c",
+                    &remote,
+                    "-c",
+                    &merge,
+                    "for-each-ref",
+                    "--format=%(refname)%00%(upstream)",
+                    &local,
+                ],
+                self.opts,
+            )
+            .map_err(|e| git_message(&e))?;
+        // the pattern also matches refs under it (`<b>/x`): only the ref
+        let upstream = out
+            .lines()
+            .filter_map(|l| l.split_once('\0'))
+            .find(|(r, _)| *r == local)
+            .map(|(_, upstream)| upstream);
+        Ok(upstream
+            .filter(|u| u.starts_with("refs/remotes/origin/"))
+            .map(str::to_owned))
+    }
+
+    /// Sets the branch's upstream to origin's same-named branch, as `git
+    /// push -u` does: `branch.<b>.remote`, then `.merge` — in that order, so
+    /// a run stopped between leaves the merge unset, which still reads as
+    /// no upstream (and the next `--new-branch` finishes it).
+    fn set_upstream(&self, dir: &Path) -> Result<(), String> {
+        let local = self.local();
+        for (key, value) in [("remote", "origin"), ("merge", local.as_str())] {
+            let key = format!("branch.{}.{key}", self.branch);
+            self.run_in(dir, &["config", "--replace-all", &key, value], self.opts)?;
+        }
+        Ok(())
     }
 
     /// Moves the remote-tracking ref to `pushed`, as `git push` records a
@@ -1247,7 +1617,20 @@ impl Step<'_> {
     /// `refs/remotes/origin/`, which classify's push verdict implies.
     /// Returns whether it moved.
     fn record_push(&self, dir: &Path, fetched: &str, pushed: &str) -> Result<bool, String> {
-        if !self.upstream.starts_with("refs/remotes/origin/") {
+        self.update_tracking(dir, self.upstream, pushed, fetched)
+    }
+
+    /// Moves `tracking`, a remote-tracking ref, to `new` by compare-and-swap
+    /// on `old` (`""`: that it doesn't exist), as `git push` records a push.
+    /// Only a ref under `refs/remotes/origin/`. Returns whether it moved.
+    fn update_tracking(
+        &self,
+        dir: &Path,
+        tracking: &str,
+        new: &str,
+        old: &str,
+    ) -> Result<bool, String> {
+        if !tracking.starts_with("refs/remotes/origin/") {
             return Ok(false);
         }
         let out = self
@@ -1259,9 +1642,9 @@ impl Step<'_> {
                     "--no-deref",
                     "-m",
                     "repos: update by push",
-                    self.upstream,
-                    pushed,
-                    fetched,
+                    tracking,
+                    new,
+                    old,
                 ],
                 self.opts,
             )
@@ -1273,6 +1656,13 @@ impl Step<'_> {
     /// plain ref, its upstream the same remote-tracking ref, on `origin`,
     /// at `p.target` there. `false` when deleted since.
     fn reads_as_classified(&self, dir: &Path, p: &Push<'_>) -> Result<bool, String> {
+        self.reads_as(dir, p.oid, [self.upstream, "origin", p.target])
+    }
+
+    /// Whether the branch in `dir` holds `oid`, is a plain ref, and has
+    /// `upstream` — its resolved remote-tracking ref, the remote, and the
+    /// ref there, each `""` for none. `false` when deleted since.
+    fn reads_as(&self, dir: &Path, oid: &str, upstream: [&str; 3]) -> Result<bool, String> {
         let local = self.local();
         let out = self
             .git
@@ -1288,7 +1678,8 @@ impl Step<'_> {
             )
             .map_err(|e| git_message(&e))?;
         // the pattern also matches refs under it (`<b>/x`): only the ref
-        let expected = [local.as_str(), p.oid, "", self.upstream, "origin", p.target];
+        let [tracking, remote, remote_ref] = upstream;
+        let expected = [local.as_str(), oid, "", tracking, remote, remote_ref];
         Ok(out
             .lines()
             .map(|l| l.split('\0').collect::<Vec<_>>())
@@ -1723,6 +2114,33 @@ mod tests {
         }
     }
 
+    /// Writes an executable at `path` from a child process, so this one
+    /// never holds the file open for writing. Git's own spawns from other
+    /// test threads fork this process: a fork taken while a write fd is
+    /// open here keeps a copy of it until the child execs (`O_CLOEXEC`
+    /// closes it only then), and an exec of the file meanwhile fails with
+    /// `ETXTBSY` ("Text file busy"). The child's fds are its own.
+    fn write_executable(path: &Path, content: &str) {
+        use std::io::Write as _;
+        let mut child = std::process::Command::new("sh")
+            .args(["-c", "cat > \"$1\" && chmod 755 \"$1\"", "sh"])
+            .arg(path)
+            .stdin(std::process::Stdio::piped())
+            .spawn()
+            .unwrap();
+        child
+            .stdin
+            .take()
+            .unwrap()
+            .write_all(content.as_bytes())
+            .unwrap();
+        assert!(
+            child.wait().unwrap().success(),
+            "writing {}",
+            path.display()
+        );
+    }
+
     fn step<'a>(git: &'a Git, branch: &'a str, common_dir: &'a Path) -> Step<'a> {
         Step::new(
             git,
@@ -1909,6 +2327,8 @@ mod tests {
 
     #[test]
     fn a_lazy_fetch_is_a_partial_clones_with_origin_its_one_promisor() {
+        let repo = RepoUrl::try_from("https://github.com/me/wpt".to_owned()).unwrap();
+        let lazy_fetch = |config: &ConfigFacts, env_ssh| lazy_fetch(config, env_ssh, &repo);
         let partial = |origin: Option<&str>| ConfigFacts {
             origin_urls: origin.map(porcelain::OriginUrl::repo).into_iter().collect(),
             partial_filter: Some("blob:none".into()),
@@ -1920,6 +2340,7 @@ mod tests {
             Some(LazyFetch {
                 transport: "https",
                 batch_ssh: true,
+                repo: &repo,
             })
         );
         let ssh = partial(Some("git@github.com:them/lib"));
@@ -1928,6 +2349,7 @@ mod tests {
             Some(LazyFetch {
                 transport: "ssh",
                 batch_ssh: true,
+                repo: &repo,
             })
         );
         // the user's SSH, left alone
@@ -1990,12 +2412,7 @@ mod tests {
              \"${{GIT_ALLOW_PROTOCOL-unset}}\" \"$*\" >> '{}'\nPATH='{real_path}' exec git \"$@\"\n",
             log.display()
         );
-        std::fs::write(bin.join("git"), wrapper).unwrap();
-        std::fs::set_permissions(
-            bin.join("git"),
-            std::os::unix::fs::PermissionsExt::from_mode(0o755),
-        )
-        .unwrap();
+        write_executable(&bin.join("git"), &wrapper);
         let mut env = repo.env.clone();
         env.retain(|(k, _)| k != "PATH");
         env.push((
@@ -2004,9 +2421,12 @@ mod tests {
         ));
         let git = Git::with_clean_env(env);
         let common_dir = repo.dir.join(".git");
+        let url = RepoUrl::try_from("https://github.com/me/app".to_owned()).unwrap();
+        repo.git(&["remote", "add", "origin", "https://github.com/me/app"]);
         let lazy = Some(LazyFetch {
             transport: "https",
             batch_ssh: false,
+            repo: &url,
         });
         let step = |branch, upstream| {
             Step::new(&git, repo.tmp.path(), branch, upstream, &common_dir, lazy)
@@ -2024,7 +2444,6 @@ mod tests {
         ));
         let moved = step("main", "refs/remotes/origin/side").move_in_checkout(&repo.dir);
         assert!(matches!(moved, Ok(Done::Updated { .. })), "{moved:?}");
-        let url = RepoUrl::try_from("https://github.com/me/app".to_owned()).unwrap();
         let oid = repo.git(&["rev-parse", "main"]);
         // held at its re-checks, past its reads
         let pushed = step("main", "refs/remotes/origin/side").push(

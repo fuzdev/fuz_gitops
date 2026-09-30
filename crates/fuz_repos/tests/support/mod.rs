@@ -884,6 +884,18 @@ impl FixtureWorkspace {
         cwd: &Path,
         read_live: &(dyn Fn() -> LiveSessions + Sync),
     ) -> PushRun {
+        self.push_full(targets, cwd, read_live, false)
+    }
+
+    /// `repos push`, as `push_with`, creating a branch with no upstream on
+    /// origin when `new_branch` (`--new-branch`).
+    pub fn push_full(
+        &self,
+        targets: &[&str],
+        cwd: &Path,
+        read_live: &(dyn Fn() -> LiveSessions + Sync),
+        new_branch: bool,
+    ) -> PushRun {
         let entries = self.entries();
         let root = self.root();
         let git = self.runner();
@@ -899,6 +911,7 @@ impl FixtureWorkspace {
                 jobs: 4,
                 visibility_base: Some(&self.visibility_base()),
                 read_live,
+                new_branch,
             },
         )
     }
@@ -907,6 +920,12 @@ impl FixtureWorkspace {
     /// anywhere.
     pub fn push(&self, targets: &[&str]) -> PushRun {
         self.push_with(targets, &self.root(), &|| LiveSessions::Known(vec![]))
+    }
+
+    /// `repos push --new-branch` of `targets` from the workspace root, no
+    /// live session anywhere.
+    pub fn push_new_branch(&self, targets: &[&str]) -> PushRun {
+        self.push_full(targets, &self.root(), &|| LiveSessions::Known(vec![]), true)
     }
 
     /// Every ref of `repo` (`refs/…` by name, with its object), and `HEAD`:
@@ -1129,13 +1148,40 @@ fn read_lines(path: &Path) -> Vec<String> {
         .unwrap_or_default()
 }
 
-/// Writes an executable file.
+/// Writes an executable file, creating parents — from a child process, so
+/// this one never holds it open for writing.
+///
+/// The tests run in threads of one process, and every spawn forks it: a
+/// fork taken while this process holds a write fd on the file keeps a copy
+/// until the child execs (`O_CLOEXEC` closes it only then), and an exec of
+/// the file meanwhile — the test's next git call running it, or git
+/// running it as `ssh` — fails with `ETXTBSY` ("Text file busy"). A
+/// rename can't help (the copy is of the same inode), and a retry would
+/// have to wrap spawns git makes itself. A child's fds are its own, and
+/// all closed once it's waited for.
 pub fn write_executable(dir: &Path, path: &str, content: &str) {
-    write(dir, path, content);
+    use std::io::Write as _;
     let path = dir.join(path);
-    let mut perms = std::fs::metadata(&path).unwrap().permissions();
-    perms.set_mode(0o755);
-    std::fs::set_permissions(&path, perms).unwrap();
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).unwrap();
+    }
+    let mut child = Command::new("sh")
+        .args(["-c", "cat > \"$1\" && chmod 755 \"$1\"", "sh"])
+        .arg(&path)
+        .stdin(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(content.as_bytes())
+        .unwrap();
+    assert!(
+        child.wait().unwrap().success(),
+        "writing {}",
+        path.display()
+    );
 }
 
 /// The entry keyed `key`, from a status run.

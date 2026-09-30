@@ -86,6 +86,13 @@ pub enum Error {
     /// consumer set it, pushes included.
     #[error("`{key}` is pinned, and repos never pushes a pin")]
     PushPinned { key: String },
+    /// `repos push --new-branch` run by an agent (`Caller::Agent`):
+    /// creating a remote branch is the user's.
+    #[error(
+        "creating a remote branch is the user's: repos push --new-branch doesn't run in an \
+         agent's shell (CLAUDECODE is set)"
+    )]
+    NewBranchByAgent,
     /// Local I/O outside any one entry.
     #[error("{context}")]
     Io {
@@ -113,7 +120,8 @@ impl Error {
             | Self::UnknownEntry { .. }
             | Self::NoCheckout { .. }
             | Self::PushThirdParty { .. }
-            | Self::PushPinned { .. } => 2,
+            | Self::PushPinned { .. }
+            | Self::NewBranchByAgent => 2,
             Self::Io { .. } => 1,
         }
     }
@@ -160,6 +168,10 @@ impl Error {
                 "repos push takes the registry's owned repos; a reference's commits stay local"
             }
             Self::PushPinned { .. } => "a pin's consumer moves it; repos leaves it as it is",
+            Self::NewBranchByAgent => {
+                "the user runs repos push --new-branch themselves; an agent pushes a branch \
+                 origin already has with repos push"
+            }
             Self::RegistryRead { .. } | Self::RegistryParse { .. } | Self::Io { .. } => {
                 return None;
             }
@@ -205,6 +217,7 @@ impl Error {
             Self::NoCheckout { .. } => ErrorKind::NoCheckout,
             Self::PushThirdParty { key } => ErrorKind::PushThirdParty { key: key.clone() },
             Self::PushPinned { key } => ErrorKind::PushPinned { key: key.clone() },
+            Self::NewBranchByAgent => ErrorKind::NewBranchByAgent,
             Self::Io { .. } => ErrorKind::Io,
         }
     }
@@ -214,8 +227,8 @@ impl Error {
 ///
 /// Serialized as the `kind` tag — a closed set in snake case, one per `Error`
 /// variant — plus the payload a consumer can act on; the rest is in the
-/// message. `no_checkout`, `push_third_party`, and `push_pinned` are
-/// `repos push`'s alone.
+/// message. `no_checkout`, `push_third_party`, `push_pinned`, and
+/// `new_branch_by_agent` are `repos push`'s alone.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum ErrorKind {
@@ -253,6 +266,7 @@ pub enum ErrorKind {
     PushPinned {
         key: String,
     },
+    NewBranchByAgent,
     Io,
 }
 
@@ -310,6 +324,7 @@ mod tests {
             },
             Error::PushThirdParty { key: "lib".into() },
             Error::PushPinned { key: "wpt".into() },
+            Error::NewBranchByAgent,
         ];
         for e in caller_fixes {
             assert_eq!(e.exit_code(), 2, "{e}");

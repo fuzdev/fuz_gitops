@@ -1,5 +1,5 @@
 {
-	"version": 1,
+	"version": 2,
 	"status": {
 		"version": 12,
 		"workspace": "/home/me/dev",
@@ -715,6 +715,166 @@
 				"unprobed_worktrees": [],
 				"fetch_error": null,
 				"visibility_check": null
+			},
+			{
+				"key": "fuz_ui",
+				"kind": "repo",
+				"dir": "fuz_ui",
+				"url": "https://github.com/me/fuz_ui",
+				"writable": true,
+				"archived": false,
+				"visibility": "public",
+				"ci": true,
+				"branch": "main",
+				"pinned": false,
+				"refresh": null,
+				"presence": {
+					"kind": "present"
+				},
+				"clone": null,
+				"layout": {
+					"shallow": false,
+					"sparse": false,
+					"partial_filter": null
+				},
+				"checkouts": [
+					{
+						"path": "/home/me/dev/fuz_ui",
+						"primary": true,
+						"head": {
+							"kind": "branch",
+							"name": "topic"
+						},
+						"uncommitted": {
+							"staged": 0,
+							"unstaged": 0,
+							"untracked": 0,
+							"conflicted": 0
+						},
+						"in_progress": null,
+						"locked": false,
+						"linked": false,
+						"submodules": null,
+						"busy": []
+					}
+				],
+				"branches": [
+					{
+						"name": "main",
+						"upstream": "origin/main",
+						"worktree": null,
+						"symref": null,
+						"unique_commits": 0,
+						"newest_commit_at": 1799827200,
+						"relation": {
+							"kind": "in_sync"
+						},
+						"verdict": {
+							"kind": "quiet"
+						}
+					},
+					{
+						"name": "topic",
+						"upstream": null,
+						"worktree": null,
+						"symref": null,
+						"unique_commits": 1,
+						"newest_commit_at": 1799827200,
+						"relation": {
+							"kind": "untracked"
+						},
+						"verdict": {
+							"kind": "local_only"
+						}
+					}
+				],
+				"stashes": 0,
+				"fetched_at": 1799913600,
+				"needs_human": [],
+				"probe_error": null,
+				"unprobed_worktrees": [],
+				"fetch_error": null,
+				"visibility_check": null
+			},
+			{
+				"key": "fuz_css",
+				"kind": "repo",
+				"dir": "fuz_css",
+				"url": "https://github.com/me/fuz_css",
+				"writable": true,
+				"archived": false,
+				"visibility": "public",
+				"ci": true,
+				"branch": "main",
+				"pinned": false,
+				"refresh": null,
+				"presence": {
+					"kind": "present"
+				},
+				"clone": null,
+				"layout": {
+					"shallow": false,
+					"sparse": false,
+					"partial_filter": null
+				},
+				"checkouts": [
+					{
+						"path": "/home/me/dev/fuz_css",
+						"primary": true,
+						"head": {
+							"kind": "branch",
+							"name": "topic"
+						},
+						"uncommitted": {
+							"staged": 0,
+							"unstaged": 0,
+							"untracked": 0,
+							"conflicted": 0
+						},
+						"in_progress": null,
+						"locked": false,
+						"linked": false,
+						"submodules": null,
+						"busy": []
+					}
+				],
+				"branches": [
+					{
+						"name": "main",
+						"upstream": "origin/main",
+						"worktree": null,
+						"symref": null,
+						"unique_commits": 0,
+						"newest_commit_at": 1799827200,
+						"relation": {
+							"kind": "in_sync"
+						},
+						"verdict": {
+							"kind": "quiet"
+						}
+					},
+					{
+						"name": "topic",
+						"upstream": null,
+						"worktree": null,
+						"symref": null,
+						"unique_commits": 1,
+						"newest_commit_at": 1799827200,
+						"relation": {
+							"kind": "untracked"
+						},
+						"verdict": {
+							"kind": "local_only"
+						}
+					}
+				],
+				"stashes": 0,
+				"fetched_at": 1799913600,
+				"needs_human": [],
+				"probe_error": null,
+				"unprobed_worktrees": [],
+				"fetch_error": null,
+				"visibility_check": null
 			}
 		],
 		"unregistered": null
@@ -834,6 +994,26 @@
 			},
 			"kind": "failed",
 			"message": "main has no commit to push"
+		},
+		{
+			"key": "fuz_ui",
+			"checkout": "/home/me/dev/fuz_ui",
+			"branch": "topic",
+			"fetch": {
+				"kind": "fetched"
+			},
+			"kind": "created",
+			"to": "cccccccccccccccccccccccccccccccccccccccc"
+		},
+		{
+			"key": "fuz_css",
+			"checkout": "/home/me/dev/fuz_css",
+			"branch": "topic",
+			"fetch": {
+				"kind": "fetched"
+			},
+			"kind": "remote_branch_exists",
+			"at": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
 		}
 	]
 }

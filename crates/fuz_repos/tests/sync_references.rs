@@ -16,9 +16,12 @@ mod support;
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
+use std::process::Command;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use fuz_repos::classify::{NeedsHuman, OriginFix, Refresh};
 use fuz_repos::report::{BranchOutcome, CloneOutcome, EntrySync, FetchOutcome, SyncHold};
+use fuz_repos::sessions::LiveSessions;
 use fuz_repos::state::{
     BranchNeedsHuman, CloneVerdict, HeldBy, Presence, RefreshVerdict, Relation, SyncAction, Verdict,
 };
@@ -757,6 +760,86 @@ fn an_unpinned_sparse_fork_moves_fetching_its_cones_blobs() {
     assert!(
         log[calls..].iter().all(|l| l.contains("git-upload-pack")),
         "{log:?}"
+    );
+}
+
+/// Origin rewritten between classifying and the checkout — an `insteadOf`
+/// sending it to another repo — holds the move before its lazy fetch
+/// reaches anything: origin is read again, as git resolves it, right
+/// before.
+#[test]
+fn origin_rewritten_before_a_partial_checkout_holds_it() {
+    let mut ws = FixtureWorkspace::new();
+    ws.remote("wpt", &[("css/a.css", "a {}\n"), ("html/c.html", "<p>\n")]);
+    ws.upstream_commit("wpt", "fork");
+    ws.declare_reference(
+        "wpt",
+        OWNER,
+        "wpt",
+        "branch = \"fork\"\nshallow = true\nsparse = \"css\"",
+    );
+    ws.write_registry();
+    ws.sync();
+    let wpt = ws.dir("wpt");
+    let up = ws.upstream("wpt");
+    ws.git(&up, &["checkout", "-q", "fork"]);
+    write(&up, "css/a.css", "a { color: red }\n");
+    ws.git(&up, &["commit", "-q", "-am", "css"]);
+    ws.git(&up, &["push", "-q", "origin", "fork"]);
+    let tip = ws.git(&up, &["rev-parse", "HEAD"]);
+    let was = ws.git(&wpt, &["rev-parse", "fork"]);
+    let calls = ws.ssh_log().len();
+    let env = ws.env();
+    let rewrite = "url.git@github.com:me/other.insteadOf";
+    // after the fetch and classifying, right before the move
+    let reads = AtomicUsize::new(0);
+    let read = || {
+        if reads.fetch_add(1, Ordering::SeqCst) == 1 {
+            let out = Command::new("git")
+                .env_clear()
+                .envs(env.iter().map(|(k, v)| (k, v)))
+                .current_dir(&wpt)
+                .args(["config", rewrite, "git@github.com:me/wpt"])
+                .output()
+                .unwrap();
+            assert!(out.status.success());
+        }
+        LiveSessions::Known(vec![])
+    };
+
+    let run = ws.sync_with(4, &read);
+
+    let e = find_entry(&run.entries, "wpt");
+    assert_eq!(
+        branch(e, "fork").verdict,
+        Verdict::Act {
+            action: SyncAction::Move
+        }
+    );
+    assert_eq!(
+        outcome(&run, "wpt", "fork"),
+        &BranchOutcome::Held {
+            action: SyncAction::Move,
+            by: SyncHold::Changed,
+        }
+    );
+    assert_eq!(ws.git(&wpt, &["rev-parse", "fork"]), was);
+    ws.assert_clean(&wpt);
+    assert_eq!(
+        std::fs::read_to_string(wpt.join("css/a.css")).unwrap(),
+        "a {}\n"
+    );
+    // the fetch alone reached a remote
+    let log = ws.ssh_log();
+    assert_eq!(log.len() - calls, 1, "{log:?}");
+    assert!(log.iter().all(|l| !l.contains("me/other")), "{log:?}");
+
+    // the rewrite gone, the move goes on
+    ws.git(&wpt, &["config", "--unset", rewrite]);
+    let run = ws.sync();
+    assert_eq!(
+        outcome(&run, "wpt", "fork"),
+        &BranchOutcome::Moved { from: was, to: tip }
     );
 }
 

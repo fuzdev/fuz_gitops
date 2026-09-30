@@ -6,11 +6,12 @@
 //! refspec it can't confine: the entry went unsynced and a person must
 //! act), a probe, or an action git refused — and under `push` for any
 //! target whose branch didn't end in sync with its upstream (held, not
-//! ahead, a person's, no upstream, detached, unread, or a push that
-//! failed), as `git push` exits on a rejected ref; `2` when the caller must
-//! change something — usage, a missing or invalid registry, git missing or
-//! too old, an unknown target, and under `push` the cwd in no entry's
-//! checkout or a third-party or pinned target.
+//! ahead, a person's, no upstream, a remote branch in the way, detached,
+//! unread, or a push that failed), as `git push` exits on a rejected ref;
+//! `2` when the caller must change something — usage, a missing or invalid
+//! registry, git missing or too old, an unknown target, and under `push`
+//! the cwd in no entry's checkout, a third-party or pinned target, or
+//! `--new-branch` in an agent's shell.
 //!
 //! A fatal error prints `error: …` and `hint: …` on stderr; under `--json`
 //! it also prints one `ErrorReport` document on stdout, in place of the
@@ -23,7 +24,8 @@
 //! (`CLAUDE_PID`, when it's an ancestor of this process). Under
 //! `CLAUDECODE` (an agent's shell) every push `sync` would make is held:
 //! an agent pushes through `push`, the gateway, which runs for it as for a
-//! person.
+//! person — but for `push --new-branch`, creating a remote branch, which is
+//! the user's and refused there.
 //!
 //! The text summary wraps at `COLUMNS` (100 when unset or under 40), piped
 //! or not, and colors its group labels only when stdout is a terminal and
@@ -55,7 +57,7 @@ use fuz_repos::discover::{
 use fuz_repos::error::{Error, Result};
 use fuz_repos::git::Git;
 use fuz_repos::probe::RegistryDirs;
-use fuz_repos::push::{PushOptions, check_pushable, push};
+use fuz_repos::push::{PushOptions, check_new_branch, check_pushable, push};
 use fuz_repos::registry::{Entry, ValidRegistry};
 use fuz_repos::report::{ErrorReport, PushReport, StatusReport, SyncReport};
 use fuz_repos::scan::{Scan, scan_unregistered};
@@ -181,13 +183,14 @@ struct SyncArgs {
 /// Push the branch checked out where you are (or in each target's
 /// checkout) to its upstream on origin: fetch, then push a branch ahead as
 /// a fast-forward of exactly what was fetched, to the registry's repo over
-/// SSH. Never force-pushes, pushes a tag, creates a remote branch, or
-/// touches another branch; a checkout another live session works in, and
-/// origin drift, hold it. Exits 0 when every branch ends in sync with its
-/// upstream (pushed, or already there), 1 when any didn't push (held,
-/// behind, diverged, detached, no upstream, a failed fetch or push), 2 for
+/// SSH. Never force-pushes, pushes a tag, or touches another branch, and
+/// creates a remote branch only under --new-branch (the user's); a checkout
+/// another live session works in, and origin drift, hold it. Exits 0 when
+/// every branch ends in sync with its upstream (pushed, created, or already
+/// there), 1 when any didn't push (held, behind, diverged, detached, no
+/// upstream, a remote branch in the way, a failed fetch or push), 2 for
 /// usage (an unknown target, the cwd in no entry's checkout, a third-party
-/// or pinned target).
+/// or pinned target, --new-branch in an agent's shell).
 #[derive(FromArgs, Debug)]
 #[argh(subcommand, name = "push")]
 struct PushArgs {
@@ -196,6 +199,13 @@ struct PushArgs {
     /// own); default: the checkout holding the cwd
     #[argh(positional)]
     targets: Vec<String>,
+    /// create the branch on origin, under its own name, when it has no
+    /// upstream there (none set, or a same-named one deleted on origin),
+    /// never over a branch origin has, and set its upstream as git push -u
+    /// does; a branch with an upstream on origin pushes as without it. The
+    /// user's: refused in an agent's shell (CLAUDECODE set)
+    #[argh(switch)]
+    new_branch: bool,
     /// print the report as JSON
     #[argh(switch)]
     json: bool,
@@ -545,11 +555,15 @@ fn run_sync(locate: Locate<'_>, args: &SyncArgs) -> Result<Printed> {
     Ok(printed)
 }
 
-/// `repos push`: the targets resolved to checkouts and refused when not
-/// pushable before anything is fetched, then each checkout's branch pushed
-/// (`push`); fails (exit `1`) unless every one ends in sync.
+/// `repos push`: `--new-branch` refused to an agent before anything else,
+/// the targets resolved to checkouts and refused when not pushable before
+/// anything is fetched, then each checkout's branch pushed (`push`); fails
+/// (exit `1`) unless every one ends in sync.
 fn run_push(locate: Locate<'_>, args: &PushArgs) -> Result<Printed> {
     let start = Instant::now();
+    if args.new_branch {
+        check_new_branch(Caller::from_env())?;
+    }
     let Loaded { git, loc, all, .. } = load(locate, &[])?;
     let cwd = std::env::current_dir().map_err(|source| Error::Io {
         context: "failed to read the current directory".into(),
@@ -571,6 +585,7 @@ fn run_push(locate: Locate<'_>, args: &PushArgs) -> Result<Printed> {
             jobs: args.jobs,
             visibility_base: None,
             read_live: &read_live,
+            new_branch: args.new_branch,
         },
     );
     let status = StatusReport::new(

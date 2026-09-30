@@ -176,10 +176,30 @@ const BEHIND_HINT: &str =
 const DIVERGED_HINT: &str =
     "a diverged branch is resolved by hand; repos never force-pushes or rebases";
 
-/// A branch with no upstream on origin: `repos push` never creates a
-/// remote branch, and making one is the user's.
-const NO_UPSTREAM_HINT: &str =
-    "repos push never creates a remote branch; making one is the user's call";
+/// A branch with no upstream on origin that `--new-branch` would create:
+/// none set, or a same-named one gone. The user's, never an agent's.
+const NEW_BRANCH_HINT: &str =
+    "the user creates it on origin with repos push --new-branch (an agent can't)";
+
+/// A branch with no upstream on origin that `--new-branch` doesn't create:
+/// it tracks another remote, or origin's branch under another name, gone.
+const OTHER_UPSTREAM_HINT: &str =
+    "--new-branch creates only a same-named origin branch; set others up by hand";
+
+/// A branch whose upstream origin deleted with nothing of it on no remote
+/// (merged, most often), so `--new-branch` leaves it be.
+const MERGED_HINT: &str = "its commits are all on a remote and origin deleted it: recreating it is by hand, \
+     never --new-branch";
+
+/// A branch `--new-branch` found origin already has, which it never
+/// adopts.
+const EXISTS_HINT: &str =
+    "set its upstream by hand (git branch -u origin/<branch>), then repos push";
+
+/// A branch whose name origin's fetch refspec maps to no remote-tracking
+/// ref, so it can't track a branch created there.
+const UNMAPPED_HINT: &str =
+    "git remote set-branches --add origin <branch> maps it into the fetch refspec";
 
 /// An HTTPS certificate the visibility check couldn't verify.
 const CERTIFICATE_HINT: &str = "the host's HTTPS certificate didn't verify — check it, and the \
@@ -311,7 +331,10 @@ pub fn render_push_summary(report: &PushReport, view: View<'_>) -> String {
             }
         }
     }
-    let (mut behind, mut diverged, mut no_upstream) = (false, false, false);
+    let (mut behind, mut diverged, mut unmapped, mut exists) = (false, false, false, false);
+    // branches with no upstream on origin: ones --new-branch creates, merged
+    // ones, and the rest
+    let (mut new_branch, mut merged, mut other_upstream) = (false, false, false);
     for p in &report.pushes {
         let Some(e) = report.status.entries.iter().find(|e| e.key == p.key) else {
             failed.push(format!("{} (push: no status)", p.key));
@@ -338,6 +361,14 @@ pub fn render_push_summary(report: &PushReport, view: View<'_>) -> String {
         };
         match &p.outcome {
             PushOutcome::Pushed { .. } => pushed.push(format!("{label}{ahead}")),
+            PushOutcome::Created { .. } => pushed.push(format!("{label} (new branch)")),
+            PushOutcome::RemoteBranchExists { at } => {
+                exists = true;
+                needs_human.push(format!(
+                    "{label} (on origin already, at {})",
+                    at.get(..7).unwrap_or(at)
+                ));
+            }
             PushOutcome::InSync => in_sync.push(label),
             PushOutcome::Held { by } => held.push(format!("{label}{ahead}{}", hold_note(*by))),
             PushOutcome::PushFailed { failure } => failed.push(format!(
@@ -355,6 +386,7 @@ pub fn render_push_summary(report: &PushReport, view: View<'_>) -> String {
             }
             PushOutcome::NeedsHuman { reason } => {
                 diverged |= *reason == BranchNeedsHuman::Diverged;
+                unmapped |= *reason == BranchNeedsHuman::Unmapped;
                 let why = b.map_or_else(
                     || format!("{reason:?}"),
                     |b| branch_needs_human_label(*reason, b),
@@ -362,10 +394,19 @@ pub fn render_push_summary(report: &PushReport, view: View<'_>) -> String {
                 needs_human.push(format!("{label} ({why})"));
             }
             PushOutcome::NoUpstream => {
-                no_upstream = true;
-                let why = match b.map(|b| b.relation) {
-                    Some(Relation::Gone) => "upstream gone from origin",
-                    _ => "no upstream on origin",
+                let creatable = b.is_some_and(new_branch_creates);
+                let gone_merged =
+                    b.is_some_and(|b| b.relation == Relation::Gone && b.unique_commits == 0);
+                new_branch |= creatable;
+                merged |= gone_merged;
+                other_upstream |= !creatable && !gone_merged;
+                let why = match b.map(|b| (b.relation, b.upstream.as_deref())) {
+                    Some((Relation::Gone, _)) if gone_merged => {
+                        "nothing unique, upstream gone from origin".to_owned()
+                    }
+                    Some((Relation::Gone, _)) => "upstream gone from origin".to_owned(),
+                    Some((Relation::Untracked, Some(upstream))) => format!("tracks {upstream}"),
+                    _ => "no upstream on origin".to_owned(),
                 };
                 not_pushed.push(format!("{label} ({why})"));
             }
@@ -414,6 +455,12 @@ pub fn render_push_summary(report: &PushReport, view: View<'_>) -> String {
     if diverged {
         line("", Tone::Plain, hint(DIVERGED_HINT));
     }
+    if unmapped {
+        line("", Tone::Plain, hint(UNMAPPED_HINT));
+    }
+    if exists {
+        line("", Tone::Plain, hint(EXISTS_HINT));
+    }
     line("origin drift", Tone::Yellow, origin_drift);
     line("pushed", Tone::Green, pushed);
     line("in sync", Tone::Plain, in_sync);
@@ -422,11 +469,31 @@ pub fn render_push_summary(report: &PushReport, view: View<'_>) -> String {
     if behind {
         line("", Tone::Plain, hint(BEHIND_HINT));
     }
-    if no_upstream {
-        line("", Tone::Plain, hint(NO_UPSTREAM_HINT));
+    if new_branch {
+        line("", Tone::Plain, hint(NEW_BRANCH_HINT));
+    }
+    if merged {
+        line("", Tone::Plain, hint(MERGED_HINT));
+    }
+    if other_upstream {
+        line("", Tone::Plain, hint(OTHER_UPSTREAM_HINT));
     }
     let _ = writeln!(out, "{}", footer(&report.status, view));
     out
+}
+
+/// Whether `repos push --new-branch` would create `b` on origin, as its
+/// status reads: no upstream configured, or origin's same-named branch as
+/// its upstream, gone, with commits on no remote (with none, it was
+/// merged). (The run itself reads the merge ref as git resolves it.)
+fn new_branch_creates(b: &BranchStatus) -> bool {
+    match (b.relation, b.upstream.as_deref()) {
+        (Relation::Untracked, upstream) => upstream.is_none(),
+        (Relation::Gone, Some(upstream)) => {
+            b.unique_commits > 0 && upstream == format!("origin/{}", b.name)
+        }
+        _ => false,
+    }
 }
 
 /// `status --brief`'s one line on the checkout `c` of `e`, for a session
@@ -2596,10 +2663,112 @@ mod tests {
                 "not pushed    site (behind 3)  gro:topic (no upstream on origin)  mdz (detached HEAD)",
                 "              gone (missing)",
                 format!("              hint: {BEHIND_HINT}").as_str(),
-                format!("              hint: {NO_UPSTREAM_HINT}").as_str(),
+                format!("              hint: {NEW_BRANCH_HINT}").as_str(),
                 "~/dev/repos.toml · fetched 3h ago",
             ],
             "{text}"
+        );
+    }
+
+    /// A branch with no upstream on origin: created under `--new-branch`,
+    /// found there already, left out by the refspec, or not one
+    /// `--new-branch` creates — each hint said once.
+    #[test]
+    fn new_branches_read_as_what_the_push_did() {
+        use fuz_repos::report::{CheckoutPush, PushOutcome};
+        let with = |key: &str, b: BranchStatus| {
+            let mut e = entry(key, main(), &b.name);
+            e.branches = vec![b];
+            e
+        };
+        let untracked = |name: &str, upstream| {
+            branch(name, upstream, Relation::Untracked, 1, Verdict::LocalOnly)
+        };
+        let gone = |name: &str, upstream| {
+            branch(
+                name,
+                Some(upstream),
+                Relation::Gone,
+                1,
+                cleanup(CleanupReason::UpstreamGone),
+            )
+        };
+        let r = report(vec![
+            with("app", untracked("topic", None)),
+            with("blog", untracked("topic", None)),
+            with("site", untracked("topic", None)),
+            with("zap", untracked("topic", None)),
+            with("gro", gone("feat", "origin/feat")),
+            with("mdz", untracked("fork", Some("upstream/fork"))),
+            with("uz", gone("feat", "origin/old")),
+            with(
+                "tsv",
+                BranchStatus {
+                    unique_commits: 0,
+                    ..gone("done", "origin/done")
+                },
+            ),
+        ]);
+        let target = |key: &str, branch: &str, outcome| CheckoutPush {
+            key: key.into(),
+            checkout: format!("/home/me/dev/{key}"),
+            branch: Some(branch.to_owned()),
+            fetch: FetchOutcome::Fetched,
+            outcome,
+        };
+        let report = PushReport::new(
+            r,
+            vec![
+                target("app", "topic", PushOutcome::Created { to: "c".repeat(40) }),
+                target(
+                    "blog",
+                    "topic",
+                    PushOutcome::RemoteBranchExists {
+                        at: "0123456789".repeat(4),
+                    },
+                ),
+                target(
+                    "site",
+                    "topic",
+                    PushOutcome::NeedsHuman {
+                        reason: BranchNeedsHuman::Unmapped,
+                    },
+                ),
+                target("zap", "topic", PushOutcome::NoUpstream),
+                target("gro", "feat", PushOutcome::NoUpstream),
+                target("mdz", "fork", PushOutcome::NoUpstream),
+                target("uz", "feat", PushOutcome::NoUpstream),
+                target("tsv", "done", PushOutcome::NoUpstream),
+            ],
+        );
+        assert!(!report.in_sync());
+        let text = render_push_summary(&report, VIEW);
+        let lines: Vec<&str> = text.lines().collect();
+        assert_eq!(
+            lines,
+            [
+                "needs human   blog:topic (on origin already, at 0123456)  site:topic (outside \
+                 refspec)",
+                format!("              hint: {UNMAPPED_HINT}").as_str(),
+                format!("              hint: {EXISTS_HINT}").as_str(),
+                "pushed        app:topic (new branch)",
+                "not pushed    zap:topic (no upstream on origin)  gro:feat (upstream gone from \
+                 origin)",
+                "              mdz:fork (tracks upstream/fork)  uz:feat (upstream gone from origin)",
+                "              tsv:done (nothing unique, upstream gone from origin)",
+                format!("              hint: {NEW_BRANCH_HINT}").as_str(),
+                format!("              hint: {MERGED_HINT}").as_str(),
+                format!("              hint: {OTHER_UPSTREAM_HINT}").as_str(),
+                "~/dev/repos.toml · fetched 3h ago",
+            ],
+            "{text}"
+        );
+        // created alone: in sync, and no hint
+        let created = PushReport::new(report.status.clone(), vec![report.pushes[0].clone()]);
+        assert!(created.in_sync());
+        assert_eq!(
+            render_push_summary(&created, VIEW),
+            "pushed        app:topic (new branch)\n~/dev/repos.toml · fetched 3h ago\n"
         );
     }
 

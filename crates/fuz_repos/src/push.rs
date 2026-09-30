@@ -20,19 +20,33 @@
 //! checked out at a target: a branch behind is `NotAhead` (sync's to
 //! fast-forward), a diverged one a person's. The policy is sync's, and
 //! structural: owned entries only (a third-party reference or a pin named
-//! is refused before anything runs, `check_pushable`), never a force, a
-//! tag, or a remote branch created (a branch with no upstream on origin is
-//! `NoUpstream`, the user's to create); a checkout another live session
-//! works in holds the push (`busy`), and so does origin drift (`entry`, or
-//! `push_url`). A branch's relation the run can't vouch for — its entry
-//! held whole (origin drift among the reasons), or its fetch failed — holds
-//! it whatever it reads, in sync included (`entry`, `fetch_failed`), so the
-//! push never exits `0` on refs that aren't origin's. Dirt doesn't matter:
-//! a push moves refs alone.
+//! is refused before anything runs, `check_pushable`), never a force or a
+//! tag, and a remote branch created only under `--new-branch`, below; a
+//! checkout another live session works in holds the push (`busy`), and so
+//! does origin drift (`entry`, or `push_url`). A branch's relation the run
+//! can't vouch for — its entry held whole (origin drift among the
+//! reasons), or its fetch failed — holds it whatever it reads, in sync
+//! included (`entry`, `fetch_failed`), so the push never exits `0` on refs
+//! that aren't origin's. Dirt doesn't matter: a push moves refs alone.
 //!
-//! **An agent may run it**: it's what `sync`'s hold on an agent's pushes
-//! (`HeldBy::Gateway`) waits for, so its push is classified and made as a
-//! person's sync would make it, whoever runs it (`GATEWAY`).
+//! **`--new-branch`, the user's**: a branch with no upstream on origin —
+//! none configured (`NoUpstream`), or origin's same-named branch as its
+//! upstream, deleted there (`gone`) with commits on no remote (with none,
+//! it was merged, and stays `NoUpstream`) — is created on the registry's repo
+//! under its own name and made its upstream, as `git push -u` does
+//! (`Actor::create`, the `sync` module doc says how). Only such a branch:
+//! one with a live upstream on origin pushes as it would without the flag,
+//! and one tracking another remote, or origin's branch under another name,
+//! stays `NoUpstream`. A branch origin already has at another commit is
+//! never overwritten or adopted (`RemoteBranchExists`), and one the fetch
+//! refspec leaves out can't be tracked (`NeedsHuman`, `unmapped`). Every
+//! hold on a push holds a creation, the failed fetch included. An agent is
+//! refused it before anything runs (`check_new_branch`).
+//!
+//! **An agent may run it** without `--new-branch`: it's what `sync`'s hold
+//! on an agent's pushes (`HeldBy::Gateway`) waits for, so its push is
+//! classified and made as a person's sync would make it, whoever runs it
+//! (`GATEWAY`).
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -49,7 +63,7 @@ use crate::report::{
     BranchOutcome, CheckoutPush, EntryStatus, FetchOutcome, PushOutcome, SyncHold,
 };
 use crate::sessions::{Caller, LiveSessions};
-use crate::state::{Head, Relation, SyncAction, Verdict};
+use crate::state::{BranchNeedsHuman, BranchStatus, Head, Relation, SyncAction, Verdict};
 use crate::status::{Assess, EntryTiming, assess, probe_all};
 use crate::sync::{Actor, fetch_outcome};
 
@@ -69,6 +83,10 @@ pub struct PushOptions<'a> {
     /// done, to classify, and again right before each push. A seam for
     /// tests.
     pub read_live: &'a (dyn Fn() -> LiveSessions + Sync),
+    /// `--new-branch`: create a target's branch on origin when it has no
+    /// upstream there to push to (`new_branch`) — the user's alone
+    /// (`check_new_branch`).
+    pub new_branch: bool,
 }
 
 impl std::fmt::Debug for PushOptions<'_> {
@@ -76,6 +94,7 @@ impl std::fmt::Debug for PushOptions<'_> {
         f.debug_struct("PushOptions")
             .field("jobs", &self.jobs)
             .field("visibility_base", &self.visibility_base)
+            .field("new_branch", &self.new_branch)
             .finish_non_exhaustive()
     }
 }
@@ -117,6 +136,19 @@ pub fn check_pushable(targets: &[PathTarget]) -> Result<()> {
         }
     }
     Ok(())
+}
+
+/// Refuses `--new-branch` to an agent: creating a remote branch is the
+/// user's, run by them (`Caller::from_env`).
+///
+/// # Errors
+///
+/// `NewBranchByAgent` when `caller` is an agent.
+pub const fn check_new_branch(caller: Caller) -> Result<()> {
+    match caller {
+        Caller::Person => Ok(()),
+        Caller::Agent => Err(Error::NewBranchByAgent),
+    }
 }
 
 /// Fetches the targets' entries, classifies them, and pushes the branch
@@ -194,11 +226,14 @@ pub fn push(
             let fetch = fetch_outcome(assessed.fetches[i].as_ref());
             let (branch, outcome) = target_outcome(
                 &actor,
-                i,
-                assessed.facts[i].as_ref(),
-                &assessed.entries[i],
-                &fetch,
-                &t.checkout,
+                &Target {
+                    i,
+                    facts: assessed.facts[i].as_ref(),
+                    status: &assessed.entries[i],
+                    fetch: &fetch,
+                    checkout: &t.checkout,
+                    new_branch: opts.new_branch,
+                },
                 &mut done,
             );
             CheckoutPush {
@@ -220,26 +255,35 @@ pub fn push(
     }
 }
 
-/// The branch checked out at `checkout` in entry `i`, and what pushing it
-/// came to: pushed through `actor` when its verdict is a push, else what
-/// the verdict says of it — unless the entry is held whole or its `fetch`
-/// didn't land, which holds it whatever the verdict. `done` holds the
-/// pushes already made, by repo and branch.
+/// One target, as `target_outcome` reads it: entry `i`'s facts and status
+/// after the fetch, how its `fetch` went, the `checkout` named, and whether
+/// the run creates a branch with no upstream on origin (`new_branch`).
+struct Target<'a> {
+    i: usize,
+    facts: Option<&'a RepoFacts>,
+    status: &'a EntryStatus,
+    fetch: &'a FetchOutcome,
+    checkout: &'a Path,
+    new_branch: bool,
+}
+
+/// The branch checked out at the target's checkout, and what pushing it
+/// came to: pushed through `actor` when its verdict is a push — or, under
+/// `--new-branch`, created on origin when it has no upstream there
+/// (`creatable`) — else what the verdict says of it; unless the entry is
+/// held whole or its fetch didn't land, which holds it whatever the
+/// verdict. `done` holds the pushes already made, by repo and branch.
 fn target_outcome(
     actor: &Actor<'_>,
-    i: usize,
-    facts: Option<&RepoFacts>,
-    status: &EntryStatus,
-    fetch: &FetchOutcome,
-    checkout: &Path,
+    t: &Target<'_>,
     done: &mut HashMap<(PathBuf, String), PushOutcome>,
 ) -> (Option<String>, PushOutcome) {
     // missing, not a repo, or a probe that failed: no verdicts to act on
-    let Some(facts) = facts else {
+    let Some(facts) = t.facts else {
         return (None, PushOutcome::Unread);
     };
     // a worktree the probe couldn't read has no head to go by
-    let Some(c) = status.checkout_at(checkout) else {
+    let Some(c) = t.status.checkout_at(t.checkout) else {
         return (None, PushOutcome::Unread);
     };
     let name = match &c.head {
@@ -247,7 +291,7 @@ fn target_outcome(
         Head::Detached { .. } => return (None, PushOutcome::Detached),
     };
     let branch = Some(name.clone());
-    let Some(b) = status.branches.iter().find(|b| b.name == *name) else {
+    let Some(b) = t.status.branches.iter().find(|b| b.name == *name) else {
         // a branch with no commit yet has no ref to push
         return (
             branch,
@@ -256,7 +300,10 @@ fn target_outcome(
             },
         );
     };
-    // an alias never acts (`BranchStatus::symref`): its target is the branch
+    // an alias never acts (`BranchStatus::symref`): its target is the
+    // branch. A second line: status reads HEAD through every symbolic ref
+    // (and `git switch` to an alias checks out its target), so a checkout
+    // on an alias reads as on its target
     if let Some(target) = &b.symref {
         let message = format!("{name} is a symbolic ref to {target}: push that branch");
         return (branch, PushOutcome::Failed { message });
@@ -267,7 +314,7 @@ fn target_outcome(
     // didn't land — the branch is held as sync holds a push, in sync's
     // order (entry, push URL, fetch), never reported in sync. A push
     // verdict already held names its hold as sync would
-    if status.needs_human.iter().any(NeedsHuman::holds_entry) {
+    if t.status.needs_human.iter().any(NeedsHuman::holds_entry) {
         return (
             branch,
             PushOutcome::Held {
@@ -282,19 +329,42 @@ fn target_outcome(
     {
         return (branch, PushOutcome::Held { by: (*by).into() });
     }
-    if *fetch != FetchOutcome::Fetched {
+    let create = if t.new_branch {
+        creatable(facts, b)
+    } else {
+        None
+    };
+    // no origin upstream configured is the branch's config, not the
+    // fetch's: said whether or not the fetch landed (a gone upstream is
+    // the fetch's to say). Unless the run creates it, which pushes
+    if b.relation == Relation::Untracked && create.is_none() {
+        return (branch, PushOutcome::NoUpstream);
+    }
+    if *t.fetch != FetchOutcome::Fetched {
         let by = SyncHold::FetchFailed;
         return (branch, PushOutcome::Held { by });
+    }
+    let repo = || canonical(&facts.common_dir).unwrap_or_else(|| facts.common_dir.clone());
+    if let Some(set_upstream) = create {
+        let outcome = if t.status.archived {
+            // as a push to an archived repo: a person's
+            PushOutcome::NeedsHuman {
+                reason: BranchNeedsHuman::ArchivedAhead,
+            }
+        } else {
+            done.entry((repo(), name.clone()))
+                .or_insert_with(|| actor.create(t.i, facts, b, set_upstream))
+                .clone()
+        };
+        return (branch, outcome);
     }
     let outcome = match &b.verdict {
         Verdict::Act {
             action: action @ SyncAction::Push { .. },
-        } => {
-            let repo = canonical(&facts.common_dir).unwrap_or_else(|| facts.common_dir.clone());
-            done.entry((repo, name.clone()))
-                .or_insert_with(|| pushed(actor.act(i, facts, b, *action)))
-                .clone()
-        }
+        } => done
+            .entry((repo(), name.clone()))
+            .or_insert_with(|| pushed(actor.act(t.i, facts, b, *action)))
+            .clone(),
         Verdict::Held {
             action: SyncAction::Push { .. },
             by,
@@ -309,6 +379,34 @@ fn target_outcome(
         Verdict::LocalOnly | Verdict::Cleanup { .. } | Verdict::Quiet => PushOutcome::NoUpstream,
     };
     (branch, outcome)
+}
+
+/// Whether `--new-branch` creates branch `b` on origin, and if so whether
+/// it sets the upstream: `Some(true)` for a branch with no upstream
+/// configured (`branch.<b>.merge` unset, whatever `.remote` says — `git
+/// push -u` sets both), `Some(false)` for one whose upstream is origin's
+/// branch of the same name, gone (deleted there, so the fetch pruned it),
+/// with commits on no remote; `None` for anything else — a live upstream
+/// pushes as usual, one on another remote, or origin's under another name,
+/// is a person's to push, and a gone one with nothing on no remote was
+/// merged and deleted there (GitHub deletes a merged PR's branch), so it
+/// reads as it would without the flag: recreating it is by hand. A
+/// squash-merged branch keeps its commits unique, so it's recreated.
+fn creatable(facts: &RepoFacts, b: &BranchStatus) -> Option<bool> {
+    let config = facts.config.branches.get(&b.name);
+    match b.relation {
+        Relation::Untracked => config.is_none_or(|c| c.merge.is_none()).then_some(true),
+        Relation::Gone => {
+            let refs = facts.branches.iter().find(|f| f.branch.name == b.name)?;
+            let same = refs.branch.upstream_ref.as_deref()
+                == Some(format!("refs/remotes/origin/{}", b.name).as_str())
+                && refs.branch.merge_ref.as_deref()
+                    == Some(format!("refs/heads/{}", b.name).as_str());
+            // merged, and deleted on origin: nothing of it to put back
+            (same && b.unique_commits > 0).then_some(false)
+        }
+        _ => None,
+    }
 }
 
 /// A push's outcome as `sync` reports it, as `repos push` does.

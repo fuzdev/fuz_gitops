@@ -27,7 +27,9 @@ use fuz_repos::report::{FetchOutcome, PushOutcome, SyncHold};
 use fuz_repos::sessions::{LiveSessions, Session, SessionSource};
 use fuz_repos::state::{BranchNeedsHuman, HeldBy, Relation, SyncAction, Verdict};
 use serde_json::Value;
-use support::{FixtureWorkspace, LiveChild, THIRD_PARTY, branch, find_entry, write_executable};
+use support::{
+    FixtureWorkspace, LiveChild, THIRD_PARTY, branch, find_entry, owned_origin, write_executable,
+};
 
 const REPOS: &str = env!("CARGO_BIN_EXE_repos");
 
@@ -337,7 +339,7 @@ fn a_detached_head_has_nothing_to_push() {
 }
 
 #[test]
-fn a_remote_branch_is_never_created() {
+fn a_remote_branch_is_never_created_without_new_branch() {
     let mut ws = FixtureWorkspace::new();
     let (app, _) = feat_ahead(&mut ws);
     // no upstream at all
@@ -459,6 +461,478 @@ fn origin_drift_holds_the_push() {
     }
 }
 
+/// A branch with no upstream reads so whatever the fetch: its config says
+/// it, not origin's refs. A gone upstream is the fetch's to say, so a
+/// failed fetch holds it — and a creation, which pushes.
+#[test]
+fn no_upstream_reads_so_when_the_fetch_fails() {
+    let mut ws = FixtureWorkspace::new();
+    let app = ws.owned_repo("app", &[]);
+    ws.git(&app, &["switch", "-q", "-c", "topic"]);
+    ws.commit(&app, "topic");
+    ws.write_registry();
+    std::fs::remove_dir_all(ws.bare("app")).unwrap();
+
+    let run = ws.push(&["app"]);
+    assert!(matches!(run.pushes[0].fetch, FetchOutcome::Failed { .. }));
+    assert_eq!(only(&run), (Some("topic"), &PushOutcome::NoUpstream));
+
+    let run = ws.push_new_branch(&["app"]);
+    assert_eq!(
+        only(&run),
+        (
+            Some("topic"),
+            &PushOutcome::Held {
+                by: SyncHold::FetchFailed
+            }
+        )
+    );
+    ws.assert_upstream(&app, "topic", "");
+    assert_eq!(pushes_served(&ws), Vec::<String>::new());
+}
+
+// --- --new-branch ---
+
+/// `app` with a local `topic` checked out, no upstream, a commit on it;
+/// returns the clone and that commit.
+fn topic(ws: &mut FixtureWorkspace) -> (PathBuf, String) {
+    let app = ws.owned_repo("app", &[]);
+    ws.git(&app, &["switch", "-q", "-c", "topic"]);
+    let tip = ws.commit(&app, "topic");
+    ws.assert_upstream(&app, "topic", "");
+    ws.write_registry();
+    (app, tip)
+}
+
+/// Asserts `topic`'s upstream is origin's `topic` as `git push -u` sets it,
+/// tracking the commit `tip`, in sync.
+fn assert_tracks_origin(ws: &FixtureWorkspace, app: &Path, branch: &str, tip: &str) {
+    let key = |k: &str| format!("branch.{branch}.{k}");
+    assert_eq!(
+        ws.git(app, &["config", "--get-all", &key("remote")]),
+        "origin"
+    );
+    assert_eq!(
+        ws.git(app, &["config", "--get-all", &key("merge")]),
+        format!("refs/heads/{branch}")
+    );
+    ws.assert_upstream(app, branch, &format!("refs/remotes/origin/{branch}"));
+    assert_eq!(
+        ws.git(
+            app,
+            &["rev-parse", &format!("refs/remotes/origin/{branch}")]
+        ),
+        tip
+    );
+    ws.assert_track(app, branch, "");
+}
+
+#[test]
+fn new_branch_creates_a_branch_with_no_upstream_and_tracks_it() {
+    let mut ws = FixtureWorkspace::new();
+    let (app, tip) = topic(&mut ws);
+    ws.git(&app, &["tag", "v1", &tip]);
+    ws.git(&app, &["config", "push.followTags", "true"]);
+    let remote_before = remote_refs(&ws, "app");
+    let local_before = ws.refs(&app);
+
+    let run = ws.push_new_branch(&["app"]);
+
+    assert_eq!(
+        only(&run),
+        (Some("topic"), &PushOutcome::Created { to: tip.clone() })
+    );
+    assert!(run.pushes[0].outcome.in_sync());
+    // the one ref, under its own name, no tag
+    assert_eq!(
+        remote_refs(&ws, "app"),
+        with(&remote_before, &[("refs/heads/topic", &tip)])
+    );
+    assert_eq!(
+        ws.refs(&app),
+        with(&local_before, &[("refs/remotes/origin/topic", &tip)])
+    );
+    assert_tracks_origin(&ws, &app, "topic", &tip);
+    assert_eq!(pushes_served(&ws), ["git-receive-pack 'me/app'"]);
+    // from local refs alone, it reads in sync; and a push has nothing to do
+    let e = find_entry(&ws.status(), "app").clone();
+    assert_eq!(branch(&e, "topic").relation, Relation::InSync);
+    let run = ws.push(&["app"]);
+    assert_eq!(only(&run), (Some("topic"), &PushOutcome::InSync));
+    // then kept pushed as any branch with an upstream
+    let next = ws.commit(&app, "next");
+    let run = ws.push(&["app"]);
+    assert_eq!(only(&run), (Some("topic"), &pushed(&tip, &next)));
+}
+
+#[test]
+fn new_branch_recreates_a_same_named_upstream_gone_from_origin() {
+    let mut ws = FixtureWorkspace::new();
+    let (app, tip) = feat_ahead(&mut ws);
+    ws.upstream_delete_branch("app", "feat");
+    let config_before = ws.git(&app, &["config", "--get-regexp", "^branch\\."]);
+
+    let run = ws.push_new_branch(&["app"]);
+
+    assert_eq!(
+        only(&run),
+        (Some("feat"), &PushOutcome::Created { to: tip.clone() })
+    );
+    assert_eq!(ws.git(&ws.bare("app"), &["rev-parse", "feat"]), tip);
+    assert_tracks_origin(&ws, &app, "feat", &tip);
+    // its upstream was set already: left as it was
+    assert_eq!(
+        ws.git(&app, &["config", "--get-regexp", "^branch\\."]),
+        config_before
+    );
+}
+
+/// Merged into origin's default branch and deleted there, as GitHub does
+/// with a merged PR's branch: nothing of it on no remote, so nothing to put
+/// back — it reads as it does without the flag, and recreating it is by
+/// hand.
+#[test]
+fn new_branch_never_recreates_a_merged_branch_origin_deleted() {
+    let mut ws = FixtureWorkspace::new();
+    let (app, tip) = feat_ahead(&mut ws);
+    assert!(matches!(
+        only(&ws.push(&["app"])).1,
+        PushOutcome::Pushed { .. }
+    ));
+    let bare = ws.bare("app");
+    ws.git(&bare, &["update-ref", "refs/heads/main", &tip]);
+    ws.git(&bare, &["update-ref", "-d", "refs/heads/feat"]);
+    let remote_before = remote_refs(&ws, "app");
+    let config_before = ws.git(&app, &["config", "--get-regexp", "^branch\\."]);
+
+    let run = ws.push_new_branch(&["app"]);
+
+    assert_eq!(only(&run), (Some("feat"), &PushOutcome::NoUpstream));
+    let e = find_entry(&run.entries, "app");
+    assert_eq!(branch(e, "feat").relation, Relation::Gone);
+    assert_eq!(branch(e, "feat").unique_commits, 0);
+    assert_eq!(remote_refs(&ws, "app"), remote_before);
+    assert_eq!(
+        ws.git(&app, &["config", "--get-regexp", "^branch\\."]),
+        config_before
+    );
+    assert_eq!(pushes_served(&ws).len(), 1);
+    // the summary says why
+    let out = repos(&ws, &app, &["push", "--new-branch"]);
+    assert_eq!(out.status.code(), Some(1), "stderr: {}", stderr(&out));
+    let text = stdout(&out);
+    let lines: Vec<&str> = text.lines().collect();
+    // that hint alone, then the footer
+    assert_eq!(
+        lines[..2],
+        [
+            "not pushed    app:feat (nothing unique, upstream gone from origin)",
+            "              hint: its commits are all on a remote and origin deleted it: \
+             recreating it is by hand, never --new-branch",
+        ],
+        "{text}"
+    );
+    assert_eq!(lines.len(), 3, "{text}");
+    assert!(!ws.has_ref(&bare, "refs/heads/feat"));
+}
+
+#[test]
+fn new_branch_leaves_a_branch_with_an_upstream_to_the_push() {
+    let mut ws = FixtureWorkspace::new();
+    let (app, tip) = feat_ahead(&mut ws);
+    let from = remote_refs(&ws, "app")["refs/heads/feat"].clone();
+
+    let run = ws.push_new_branch(&["app"]);
+
+    assert_eq!(only(&run), (Some("feat"), &pushed(&from, &tip)));
+    assert_tracks_origin(&ws, &app, "feat", &tip);
+    // and in sync, nothing to create
+    let run = ws.push_new_branch(&["app"]);
+    assert_eq!(only(&run), (Some("feat"), &PushOutcome::InSync));
+    assert_eq!(pushes_served(&ws).len(), 1);
+}
+
+#[test]
+fn new_branch_creates_only_a_same_named_branch_on_origin() {
+    let mut ws = FixtureWorkspace::new();
+    ws.remote("app", &[]);
+    ws.upstream_commit("app", "old");
+    ws.declare_repo("app", "app", "");
+    let app = ws.clone_owned("app", "app", &[]);
+    ws.write_registry();
+    // tracking origin's `old` under another name, deleted there
+    ws.git(
+        &app,
+        &["switch", "-q", "-c", "renamed", "--track", "origin/old"],
+    );
+    ws.commit(&app, "renamed");
+    ws.upstream_delete_branch("app", "old");
+    // and tracking another remote
+    ws.git(&app, &["remote", "add", "upstream", &owned_origin("app")]);
+    ws.git(&app, &["branch", "-q", "fork"]);
+    ws.git(&app, &["config", "branch.fork.remote", "upstream"]);
+    ws.git(&app, &["config", "branch.fork.merge", "refs/heads/fork"]);
+    let remote_before = remote_refs(&ws, "app");
+    let config_before = ws.git(&app, &["config", "--get-regexp", "^branch\\."]);
+
+    for name in ["renamed", "fork"] {
+        ws.git(&app, &["switch", "-q", name]);
+        let run = ws.push_new_branch(&["app"]);
+        assert_eq!(only(&run), (Some(name), &PushOutcome::NoUpstream), "{name}");
+    }
+    assert_eq!(remote_refs(&ws, "app"), remote_before);
+    assert_eq!(
+        ws.git(&app, &["config", "--get-regexp", "^branch\\."]),
+        config_before
+    );
+    assert_eq!(pushes_served(&ws), Vec::<String>::new());
+}
+
+#[test]
+fn new_branch_never_overwrites_or_adopts_a_branch_origin_has() {
+    let mut ws = FixtureWorkspace::new();
+    let (app, tip) = topic(&mut ws);
+    // origin has a `topic` of its own, which the fetch finds
+    let theirs = ws.upstream_commit("app", "topic");
+    let remote_before = remote_refs(&ws, "app");
+
+    let run = ws.push_new_branch(&["app"]);
+
+    assert_eq!(
+        only(&run),
+        (
+            Some("topic"),
+            &PushOutcome::RemoteBranchExists { at: theirs }
+        )
+    );
+    assert!(!run.pushes[0].outcome.in_sync());
+    assert_eq!(remote_refs(&ws, "app"), remote_before);
+    ws.assert_upstream(&app, "topic", "");
+    assert_eq!(ws.git(&app, &["rev-parse", "topic"]), tip);
+    assert_eq!(pushes_served(&ws), Vec::<String>::new());
+}
+
+/// A run stopped between creating the branch and setting its upstream:
+/// the next finds origin's branch at the very commit, reads it up to date,
+/// and sets the upstream — whether or not the remote-tracking ref, or half
+/// the config, was written.
+#[test]
+fn new_branch_finishes_a_creation_stopped_before_its_upstream() {
+    let mut ws = FixtureWorkspace::new();
+    let (app, tip) = topic(&mut ws);
+    let real_path = ws
+        .env()
+        .into_iter()
+        .rev()
+        .find(|(k, _)| k == "PATH")
+        .unwrap()
+        .1;
+    let real_path = real_path.to_str().unwrap().to_owned();
+    // a `git` first on PATH that fails setting the merge ref, once the
+    // remote branch is created and `branch.topic.remote` set
+    let bin = ws.outside("wrap-bin");
+    write_executable(
+        &bin,
+        "git",
+        &format!(
+            "#!/bin/sh
+case \" $* \" in
+*' config --replace-all branch.topic.merge '*)
+	echo 'error: could not lock config file' >&2; exit 255 ;;
+esac
+PATH='{real_path}' exec git \"$@\"
+"
+        ),
+    );
+    ws.set_env("PATH", format!("{}:{real_path}", bin.display()));
+
+    let run = ws.push_new_branch(&["app"]);
+
+    let (_, outcome) = only(&run);
+    let PushOutcome::Failed { message } = outcome else {
+        panic!("{outcome:?}");
+    };
+    assert!(
+        message.contains(&format!("refs/heads/topic is on origin at {tip}"))
+            && message.contains("could not lock config file")
+            && message.contains("rerun repos push --new-branch"),
+        "{message}"
+    );
+    assert_eq!(ws.git(&ws.bare("app"), &["rev-parse", "topic"]), tip);
+    assert_eq!(
+        ws.git(&app, &["rev-parse", "refs/remotes/origin/topic"]),
+        tip
+    );
+    assert_eq!(ws.git(&app, &["config", "branch.topic.remote"]), "origin");
+    ws.assert_upstream(&app, "topic", "");
+    // no upstream, so the push says so
+    ws.set_env("PATH", real_path);
+    let run = ws.push(&["app"]);
+    assert_eq!(only(&run), (Some("topic"), &PushOutcome::NoUpstream));
+
+    // the rerun: up to date at origin, the upstream set
+    let run = ws.push_new_branch(&["app"]);
+    assert_eq!(
+        only(&run),
+        (Some("topic"), &PushOutcome::Created { to: tip.clone() })
+    );
+    assert_tracks_origin(&ws, &app, "topic", &tip);
+    assert_eq!(pushes_served(&ws).len(), 2);
+
+    // stopped before the remote-tracking ref too: the fetch writes it, and
+    // the same
+    ws.git(&app, &["switch", "-q", "-c", "next"]);
+    let next = ws.commit(&app, "next");
+    let bare = ws.bare("app");
+    let from = app.to_str().unwrap();
+    ws.git(&bare, &["fetch", "-q", from, "next:refs/heads/next"]);
+    assert_eq!(ws.git(&bare, &["rev-parse", "next"]), next);
+    assert!(!ws.has_ref(&app, "refs/remotes/origin/next"));
+    let run = ws.push_new_branch(&["app"]);
+    assert_eq!(
+        only(&run),
+        (Some("next"), &PushOutcome::Created { to: next.clone() })
+    );
+    assert_tracks_origin(&ws, &app, "next", &next);
+}
+
+/// A branch the fetch refspec leaves out would track nothing: never
+/// created, a person's to map.
+#[test]
+fn new_branch_never_creates_a_branch_outside_the_refspec() {
+    let mut ws = FixtureWorkspace::new();
+    let (app, _) = topic(&mut ws);
+    ws.git(
+        &app,
+        &[
+            "config",
+            "--replace-all",
+            "remote.origin.fetch",
+            "+refs/heads/main:refs/remotes/origin/main",
+        ],
+    );
+    let remote_before = remote_refs(&ws, "app");
+
+    let run = ws.push_new_branch(&["app"]);
+
+    assert_eq!(
+        only(&run),
+        (
+            Some("topic"),
+            &PushOutcome::NeedsHuman {
+                reason: BranchNeedsHuman::Unmapped
+            }
+        )
+    );
+    assert_eq!(remote_refs(&ws, "app"), remote_before);
+    ws.assert_upstream(&app, "topic", "");
+    assert!(!ws.has_ref(&app, "refs/remotes/origin/topic"));
+    assert_eq!(pushes_served(&ws), Vec::<String>::new());
+}
+
+/// Never created: in an archived repo (a person's, as a push there is),
+/// or under a name git can't take as config.
+#[test]
+fn new_branch_leaves_an_archived_repo_or_an_unconfigurable_name_alone() {
+    let mut ws = FixtureWorkspace::new();
+    ws.remote("app", &[]);
+    ws.declare_repo("app", "app", "archived = true");
+    let app = ws.clone_owned("app", "app", &[]);
+    ws.write_registry();
+    ws.git(&app, &["switch", "-q", "-c", "topic"]);
+    ws.commit(&app, "topic");
+
+    let run = ws.push_new_branch(&["app"]);
+    assert_eq!(
+        only(&run),
+        (
+            Some("topic"),
+            &PushOutcome::NeedsHuman {
+                reason: BranchNeedsHuman::ArchivedAhead
+            }
+        )
+    );
+
+    let mut ws = FixtureWorkspace::new();
+    let app = ws.owned_repo("app", &[]);
+    ws.write_registry();
+    ws.git(&app, &["switch", "-q", "-c", "a=b"]);
+    ws.commit(&app, "topic");
+    let run = ws.push_new_branch(&["app"]);
+    let (_, outcome) = only(&run);
+    assert!(
+        matches!(outcome, PushOutcome::Failed { message } if message.contains("holds `=`")),
+        "{outcome:?}"
+    );
+    ws.assert_upstream(&app, "a=b", "");
+    assert_eq!(pushes_served(&ws), Vec::<String>::new());
+}
+
+/// What holds a push holds a creation: another live session in the
+/// checkout, origin drift, and a detached HEAD has nothing to create.
+#[test]
+fn new_branch_is_held_as_a_push_is() {
+    let mut ws = FixtureWorkspace::new();
+    let (app, _) = topic(&mut ws);
+    let remote_before = remote_refs(&ws, "app");
+    let child = LiveChild::spawn();
+    let live = LiveSessions::Known(vec![Session::at(
+        child.pid(),
+        child.proc_start().parse().unwrap(),
+        app.to_str().unwrap().to_owned(),
+        SessionSource::SessionFile,
+    )]);
+    // arriving after the fetch, re-read right before the creation
+    let calls = AtomicUsize::new(0);
+    let read = || {
+        if calls.fetch_add(1, Ordering::SeqCst) == 0 {
+            quiet()
+        } else {
+            live.clone()
+        }
+    };
+    let run = ws.push_full(&["app"], &ws.root(), &read, true);
+    assert_eq!(
+        only(&run),
+        (Some("topic"), &PushOutcome::Held { by: SyncHold::Busy })
+    );
+
+    ws.git(
+        &app,
+        &["config", "remote.origin.pushurl", "git@github.com:me/other"],
+    );
+    let run = ws.push_new_branch(&["app"]);
+    assert_eq!(
+        only(&run),
+        (
+            Some("topic"),
+            &PushOutcome::Held {
+                by: SyncHold::PushUrl
+            }
+        )
+    );
+    ws.git(&app, &["config", "--unset", "remote.origin.pushurl"]);
+    ws.set_origin(&app, "other", "git@github.com:me/other");
+    let run = ws.push_new_branch(&["app"]);
+    assert_eq!(
+        only(&run),
+        (
+            Some("topic"),
+            &PushOutcome::Held {
+                by: SyncHold::Entry
+            }
+        )
+    );
+    ws.set_origin(&app, "app", &owned_origin("app"));
+    ws.git(&app, &["switch", "-q", "--detach", "HEAD"]);
+    let run = ws.push_new_branch(&["app"]);
+    assert_eq!(only(&run), (None, &PushOutcome::Detached));
+
+    assert_eq!(remote_refs(&ws, "app"), remote_before);
+    ws.assert_upstream(&app, "topic", "");
+    assert_eq!(pushes_served(&ws), Vec::<String>::new());
+}
+
 // --- the races ---
 
 #[test]
@@ -537,6 +1011,91 @@ fn a_remote_branch_deleted_after_the_fetch_is_never_recreated() {
 }
 
 #[test]
+fn a_branch_created_on_origin_after_the_fetch_is_never_overwritten() {
+    let mut ws = FixtureWorkspace::new();
+    let (app, tip) = topic(&mut ws);
+    let env = ws.env();
+    let bare = ws.bare("app");
+    let main = ws.git(&bare, &["rev-parse", "main"]);
+    let read = reader_then(2, || {
+        git_env(&env, &bare, &["update-ref", "refs/heads/topic", &main]);
+    });
+
+    let run = ws.push_full(&["app"], &ws.root(), &read, true);
+
+    // the lease on no such ref refused it, at the remote
+    assert_eq!(
+        only(&run),
+        (
+            Some("topic"),
+            &PushOutcome::Held {
+                by: SyncHold::Changed
+            }
+        )
+    );
+    assert_eq!(ws.git(&bare, &["rev-parse", "topic"]), main);
+    assert_eq!(pushes_served(&ws).len(), 1);
+    ws.assert_upstream(&app, "topic", "");
+    assert!(!ws.has_ref(&app, "refs/remotes/origin/topic"));
+    // the rerun's fetch finds it: never adopted
+    let run = ws.push_new_branch(&["app"]);
+    assert_eq!(
+        only(&run),
+        (
+            Some("topic"),
+            &PushOutcome::RemoteBranchExists { at: main.clone() }
+        )
+    );
+    assert_eq!(ws.git(&bare, &["rev-parse", "topic"]), main);
+    assert_eq!(ws.git(&app, &["rev-parse", "topic"]), tip);
+    assert_eq!(pushes_served(&ws).len(), 1);
+}
+
+/// The branch re-read right before the creation: a commit made on it, or
+/// an upstream configured for it, since classifying holds it.
+#[test]
+fn a_branch_changed_after_the_fetch_is_never_created() {
+    // (what changes, in the checkout)
+    type Change = fn(&[(OsString, OsString)], &Path);
+    let cases: [(&str, Change); 2] = [
+        ("a commit", |env, app| {
+            git_env(env, app, &["commit", "-q", "--allow-empty", "-m", "late"]);
+        }),
+        // another remote's, which resolves no remote-tracking ref: only the
+        // config says it
+        ("an upstream", |env, app| {
+            git_env(env, app, &["config", "branch.topic.remote", "elsewhere"]);
+            git_env(
+                env,
+                app,
+                &["config", "branch.topic.merge", "refs/heads/topic"],
+            );
+        }),
+    ];
+    for (case, change) in cases {
+        let mut ws = FixtureWorkspace::new();
+        let (app, _) = topic(&mut ws);
+        let env = ws.env();
+        let read = reader_then(2, || change(&env, &app));
+
+        let run = ws.push_full(&["app"], &ws.root(), &read, true);
+
+        assert_eq!(
+            only(&run),
+            (
+                Some("topic"),
+                &PushOutcome::Held {
+                    by: SyncHold::Changed
+                }
+            ),
+            "{case}"
+        );
+        assert!(!ws.has_ref(&ws.bare("app"), "refs/heads/topic"), "{case}");
+        assert_eq!(pushes_served(&ws), Vec::<String>::new(), "{case}");
+    }
+}
+
+#[test]
 fn a_commit_another_hand_pushed_meanwhile_reads_in_sync() {
     let mut ws = FixtureWorkspace::new();
     let (app, tip) = ahead(&mut ws);
@@ -555,6 +1114,15 @@ fn a_commit_another_hand_pushed_meanwhile_reads_in_sync() {
     assert_eq!(only(&run), (Some("main"), &PushOutcome::InSync));
     assert_eq!(ws.git(&bare, &["rev-parse", "main"]), tip);
     assert_eq!(pushes_served(&ws).len(), 1);
+    // the remote-tracking ref moved to it as a push of its own would: in
+    // sync from local refs, no fetch
+    assert_eq!(
+        ws.git(&app, &["rev-parse", "refs/remotes/origin/main"]),
+        tip
+    );
+    ws.assert_track(&app, "main", "");
+    let e = find_entry(&ws.status(), "app").clone();
+    assert_eq!(branch(&e, "main").relation, Relation::InSync);
 }
 
 #[test]
@@ -695,7 +1263,8 @@ fn push_exits_one_when_a_branch_isnt_pushed() {
             "not pushed    app (behind 1)  blog:topic (no upstream on origin)\n              \
              hint: repos sync fast-forwards a branch behind its upstream (and moves a stale \
              shallow one)\n              \
-             hint: repos push never creates a remote branch; making one is the user's call\n"
+             hint: the user creates it on origin with repos push --new-branch (an agent \
+             can't)\n"
         ),
         "{text}"
     );
@@ -943,4 +1512,64 @@ fn a_pushed_status_reads_in_sync_without_a_fetch() {
     assert_eq!(branch(&e, "main").relation, Relation::InSync);
     assert_eq!(branch(&e, "main").verdict, Verdict::Quiet);
     ws.assert_track(&app, "main", "");
+}
+
+#[test]
+fn new_branch_is_the_users_and_refused_to_an_agent() {
+    let mut ws = FixtureWorkspace::new();
+    let (app, tip) = topic(&mut ws);
+    let ssh_before = ws.ssh_log();
+    let agent = |args: &[&str]| {
+        ws.command(REPOS, &app)
+            .env("CLAUDECODE", "1")
+            .args(args)
+            .output()
+            .unwrap()
+    };
+
+    let out = agent(&["push", "--new-branch"]);
+    assert_eq!(out.status.code(), Some(2), "stderr: {}", stderr(&out));
+    assert_eq!(
+        stderr(&out),
+        "error: creating a remote branch is the user's: repos push --new-branch doesn't run \
+         in an agent's shell (CLAUDECODE is set)\n\
+         hint: the user runs repos push --new-branch themselves; an agent pushes a branch \
+         origin already has with repos push\n"
+    );
+    let doc = error_doc(&agent(&["push", "--new-branch", "--json"]), 2);
+    assert_eq!(doc["error"]["kind"], "new_branch_by_agent");
+    // refused before anything ran: not even the fetch
+    assert_eq!(ws.ssh_log(), ssh_before);
+    // the agent's own push says whose it is
+    let out = agent(&["push"]);
+    assert_eq!(out.status.code(), Some(1), "stderr: {}", stderr(&out));
+    assert!(
+        stdout(&out).starts_with(
+            "not pushed    app:topic (no upstream on origin)\n              hint: the user \
+             creates it on origin with repos push --new-branch (an agent can't)\n"
+        ),
+        "{}",
+        stdout(&out)
+    );
+    assert!(!ws.has_ref(&ws.bare("app"), "refs/heads/topic"));
+
+    // the user's
+    let out = repos(&ws, &app, &["push", "--new-branch"]);
+    assert_eq!(out.status.code(), Some(0), "stderr: {}", stderr(&out));
+    let text = stdout(&out);
+    assert_eq!(
+        text.lines().next(),
+        Some("pushed        app:topic (new branch)"),
+        "{text}"
+    );
+    assert_eq!(ws.git(&ws.bare("app"), &["rev-parse", "topic"]), tip);
+    assert_tracks_origin(&ws, &app, "topic", &tip);
+    let doc: Value = serde_json::from_str(&stdout(&repos(
+        &ws,
+        &app,
+        &["push", "--json", "--new-branch"],
+    )))
+    .unwrap();
+    assert_eq!(doc["version"], PUSH_FORMAT_VERSION);
+    assert_eq!(doc["pushes"][0]["kind"], "in_sync");
 }

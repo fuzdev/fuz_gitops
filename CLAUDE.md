@@ -544,6 +544,7 @@ repos sync typescript prettier # a named third-party reference is refreshed: fet
 repos sync --references      # refresh every third-party reference too (never a pin); alone — with targets it's a usage error
 repos push                   # the gateway: fetch, then push the branch checked out here as a fast-forward of what was fetched; exit 1 unless it ends in sync
 repos push app ../wt --json  # targets: a key or dir name (the entry's own checkout), or a path (the checkout holding it); --json prints the versioned outcome report
+repos push --new-branch      # the user's (refused under CLAUDECODE): create the branch on origin when it has no upstream there, and track it as git push -u does
 repos --version              # the crate version and the commit the binary was built from
 repos --registry <file> --root <dir> status # a registry kept outside the workspace
 
@@ -689,10 +690,12 @@ the push a fast-forward. Any other push URL holds its pushes as a
 `needs_human` reason, and an upstream at `origin/HEAD` (or outside
 `refs/heads/`) is left to a person. A remote branch moved or deleted since
 the fetch fails the lease (`held`, rerun — a deleted one then reads gone, so
-no push ever recreates it); the remote's own refusal or an unreachable host
-is `push_failed`, exit `1`. After a push the remote-tracking ref moves to the
-commit by compare-and-swap on the fetched tip, so `status` reads the branch
-in sync without a refetch. **An agent's sync pushes are held**: under
+no push recreates it but the user's `repos push --new-branch`, and only while
+it has commits on no remote); the remote's own refusal or an unreachable host
+is `push_failed`, exit `1`. After a push (or finding the commit already
+there, another hand's push since the fetch) the remote-tracking ref moves to
+the commit by compare-and-swap on the fetched tip, so `status` reads the
+branch in sync without a refetch. **An agent's sync pushes are held**: under
 `CLAUDECODE` (Claude Code's agent shells) every push reads `held (gateway)`
 in `status` and `sync` alike; the agent pushes the branch it's on with
 `repos push`, and the person runs `repos sync` to push the rest. A branch
@@ -714,19 +717,37 @@ on each checked-out branch's push verdict alone, through sync's own push
 before). It never fast-forwards, moves, clones, or touches another branch: a
 branch behind is reported for `repos sync` to fast-forward, a diverged one
 left to a person. The policy is structural: owned entries only (a
-third-party reference or a pin named is a usage error), never a force, a
-tag, or a new remote branch (a branch with no upstream on origin reads
-`no_upstream`: creating the remote branch is the user's); another live
-session in the checkout holds the push (`busy`), and so does origin drift;
-a failed fetch or an entry-level reason (origin drift among them) holds even
-a branch that reads in sync, since its refs may not be origin's; dirt
-doesn't matter, since a push moves refs alone. It runs for an agent as
-for a person — the agent hold is sync's. Exit `0` when every target's
-branch ends in sync with its upstream (pushed, or already there), `1` when
-any didn't push (held, behind, diverged, detached, no upstream, a checkout
-not read, a failed fetch or push), as `git push` exits on a rejected ref,
-and `2` for usage (an unknown target, the cwd in no entry's checkout, a
-third-party or pinned target). `--json` prints its own versioned outcome
+third-party reference or a pin named is a usage error), never a force or a
+tag; another live session in the checkout holds the push (`busy`), and so
+does origin drift; a failed fetch or an entry-level reason (origin drift
+among them) holds even a branch that reads in sync, since its refs may not
+be origin's (a branch with no upstream configured reads `no_upstream`
+whatever the fetch, since that's its config); dirt doesn't matter, since a
+push moves refs alone. It runs for an agent as for a person — the agent
+hold is sync's. A branch with no upstream on origin reads `no_upstream`:
+**creating the remote branch is the user's**, with `repos push
+--new-branch`, which an agent's shell (`CLAUDECODE`) is refused, exit `2`.
+It creates a branch with no upstream configured, or whose same-named
+upstream on origin is gone while it has commits on no remote (with none —
+merged, say — `no_upstream`, recreated by hand only), as `refs/heads/<b>` on
+the registry's repo — the same send-pack, under a lease that no such ref exists
+(`--force-with-lease=<ref>:`), so one created there since the fetch is
+held, never overwritten — then, as `git push -u`, the remote-tracking ref
+by compare-and-swap on none and `branch.<b>.remote`/`.merge`, and reads
+`created`. A branch with a live upstream pushes as without the flag; one
+tracking another remote, or origin's branch under another name, stays
+`no_upstream`; one origin already has at another commit reads
+`remote_branch_exists` (never adopted: set the upstream by hand), and one
+the fetch refspec leaves out `needs_human` (`unmapped`). A run stopped
+between creating the branch and setting its upstream is finished by the
+next `--new-branch`: the branch is on origin at the very commit, the lease
+reads it up to date, and the upstream is set. Exit `0` when every target's
+branch ends in sync with its upstream (pushed, created, or already there),
+`1` when any didn't push (held, behind, diverged, detached, no upstream, a
+remote branch in the way, a checkout not read, a failed fetch or push), as
+`git push` exits on a rejected ref, and `2` for usage (an unknown target,
+the cwd in no entry's checkout, a third-party or pinned target,
+`--new-branch` in an agent's shell). `--json` prints its own versioned outcome
 report: the targets' entries after the fetch, and one outcome per target
 checkout. The rustdoc of `push.rs` has the details.
 
@@ -753,8 +774,10 @@ fetches it under `--fetch`. A partial clone (a `sparse` reference, cloned
 `--filter=blob:none`) lacks the blobs a new tip's checkout needs: a
 fast-forward or move in its checkout fetches them on demand from origin
 alone, over the one transport origin's URL names (SSH or HTTPS, whoever owns
-the repo), and only when no other remote is a promisor; every other call
-keeps lazy fetching off.
+the repo), and only when no other remote is a promisor — origin's URL read
+again right before, as git resolves it (`insteadOf` applied), and the action
+held (`changed`) if it no longer names the registry's repo over that
+transport; every other call keeps lazy fetching off.
 
 **Each missing entry is cloned** — agents' runs included, and whether or
 not busy detection can vouch for every session, since a clone only creates
