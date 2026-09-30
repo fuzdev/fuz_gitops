@@ -7,7 +7,9 @@
 //! checks) and then acts:
 //!
 //! 1. Probe every entry, fetching the ones `status --fetch` fetches (owned,
-//!    not pinned, with an `origin` URL) first.
+//!    not pinned, or a third-party reference the run refreshes whose origin
+//!    is the registry's repo — over HTTPS alone — with an `origin` URL)
+//!    first.
 //! 2. Read the live sessions — after the fetches, which can take minutes,
 //!    so a session started meanwhile still holds — scope them to the
 //!    checkouts probed, and classify.
@@ -22,11 +24,12 @@
 //! purpose, a rebase, a merge that isn't a fast-forward, a clone over
 //! anything at an entry's path, a deleted branch, or a pruned worktree (the
 //! origin fetch's `--prune` deletes only remote-tracking refs gone
-//! upstream); a third-party reference or a pin, once there, is never
-//! touched (their verdicts never act). An entry whose probe failed
-//! has no verdicts, so nothing in it acts. An agent's pushes are held
-//! (`Caller::Agent`, `HeldBy::Gateway`) until the gateway lands: a person
-//! runs sync to push.
+//! upstream); a pin, once there, is never touched (its verdicts never
+//! act), and a third-party reference only when the run refreshes it —
+//! named as a target, or under `--references` — and then never pushed. An
+//! entry whose probe failed has no verdicts, so nothing in it acts. An
+//! agent's pushes are held (`Caller::Agent`, `HeldBy::Gateway`) until the
+//! gateway lands: a person runs sync to push.
 //!
 //! **The verdict is a plan; git is the check.** Right before each action,
 //! sync re-reads the live sessions (a hold when busy detection has become
@@ -123,6 +126,12 @@
 //! A branch deleted since classifying is held (`changed`) wherever the
 //! action reads it.
 //!
+//! **A partial clone** (a sparse reference, cloned `--filter=blob:none`)
+//! lacks the blobs a new tip's checkout needs: the two actions that
+//! rewrite a working tree fetch them on demand (`LazyFetch`), from origin
+//! alone over the transport its URL names (`lazy_transport`), writing
+//! objects and no ref. Every other call keeps lazy fetching off.
+//!
 //! Each action moves one branch and touches at most the one checkout it's on
 //! (classify holds a fast-forward or move on several; a push touches none),
 //! re-reading what it relies on right before, so actions within a repo
@@ -143,10 +152,10 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 use crate::busy::{Detection, EntryCheckouts, Sessions, scope_sessions, sessions_under};
-use crate::classify::{push_target, push_urls_match};
+use crate::classify::{Refresh, push_target, push_urls_match};
 use crate::clone::Cloner;
 use crate::git::{CallOptions, Git, GitError, NetworkOptions};
-use crate::porcelain;
+use crate::porcelain::{self, ConfigFacts};
 use crate::probe::{
     ProbeContext, RegistryDirs, RepoFacts, RepoFetches, STATUS_ARGS, canonical, read_push_urls,
     read_shallow_roots,
@@ -155,10 +164,12 @@ use crate::registry::{Entry, RepoUrl};
 use crate::remote::{RefspecContext, RemoteFailure};
 use crate::report::{
     BranchOutcome, BranchSync, CloneOutcome, EntryStatus, EntrySync, FetchOutcome, SyncHold,
+    UnregisteredClone,
 };
 use crate::sessions::{Caller, LiveSessions};
 use crate::state::{BranchStatus, CloneRecipe, CloneVerdict, Head, SyncAction, Verdict};
-use crate::status::{EntryTiming, assess, probe_all, run_pool};
+use crate::status::{Assess, EntryTiming, assess, probe_all, run_pool};
+use crate::url::remote_parts;
 
 /// The timeout for an action that rewrites a working tree (`merge
 /// --ff-only`, `switch -C`), in place of `LOCAL_TIMEOUT`.
@@ -186,6 +197,15 @@ pub struct SyncOptions<'a> {
     pub caller: Caller,
     /// A clone's timeout: `CLONE_TIMEOUT`, but in tests.
     pub clone_timeout: Duration,
+    /// Which references the run refreshes (`Refresh`): a third-party one
+    /// fetched over HTTPS and acted on, a pin named refused, and one whose
+    /// origin isn't the registry's repo, or isn't reached over HTTPS, held
+    /// (`refresh_verdict`).
+    pub refresh: Refresh,
+    /// The unregistered scan's dirs, when it ran (without targets, or with
+    /// a missing entry among them): a missing entry whose repo one of them
+    /// clones is held, never cloned.
+    pub unregistered: Option<&'a [UnregisteredClone]>,
 }
 
 impl std::fmt::Debug for SyncOptions<'_> {
@@ -195,6 +215,8 @@ impl std::fmt::Debug for SyncOptions<'_> {
             .field("visibility_base", &self.visibility_base)
             .field("caller", &self.caller)
             .field("clone_timeout", &self.clone_timeout)
+            .field("refresh", &self.refresh)
+            .field("unregistered", &self.unregistered)
             .finish_non_exhaustive()
     }
 }
@@ -236,6 +258,7 @@ pub fn sync(
             root,
             registry_dirs,
             fetch: true,
+            refresh: opts.refresh,
             fetches: &fetches,
         },
         opts.jobs,
@@ -243,7 +266,17 @@ pub fn sync(
     );
     let probe_elapsed = start.elapsed();
     // after the fetches, never before: a session started while they ran holds
-    let assessed = assess(entries, probes, root, &(opts.read_live)(), opts.caller);
+    let assessed = assess(
+        entries,
+        probes,
+        &Assess {
+            root,
+            live: &(opts.read_live)(),
+            caller: opts.caller,
+            refresh: opts.refresh,
+            unregistered: opts.unregistered.unwrap_or_default(),
+        },
+    );
 
     let start = Instant::now();
     let actor = Actor {
@@ -442,6 +475,15 @@ impl Actor<'_> {
         if matches!(action, SyncAction::Push { .. }) && self.caller == Caller::Agent {
             return held(SyncHold::Gateway);
         }
+        // classify never makes a third-party reference's verdict a push (it
+        // reads local-only); a second line, as above
+        // (`a_third_party_push_fails_at_act_time_whatever_the_verdict`)
+        if matches!(action, SyncAction::Push { .. }) && !self.entries[i].writable {
+            return failed(format!(
+                "{} is a third-party reference's, which is never pushed",
+                b.name
+            ));
+        }
         let Some(branch) = facts.branches.iter().find(|f| f.branch.name == b.name) else {
             return failed(format!("{} isn't among the branches probed", b.name));
         };
@@ -466,16 +508,17 @@ impl Actor<'_> {
         if let Some(by) = self.busy_now(i, &b.name, &on) {
             return held(by);
         }
-        let step = Step {
-            git: self.git,
-            opts: CallOptions {
-                ceiling: Some(self.root),
-                ..CallOptions::default()
-            },
-            branch: &b.name,
+        // a partial clone lacks the new tip's blobs its checkout needs:
+        // fetched on demand from origin alone, over origin's transport
+        let lazy = lazy_fetch(&facts.config, self.git.env_configures_ssh());
+        let step = Step::new(
+            self.git,
+            self.root,
+            &b.name,
             upstream,
-            common_dir: &facts.common_dir,
-        };
+            &facts.common_dir,
+            lazy,
+        );
         let result = if let SyncAction::Push { commits } = action {
             let Some(target) = push_target(&branch.branch) else {
                 // classify leaves it to a person; never a guess at a ref
@@ -587,6 +630,56 @@ struct Step<'a> {
     /// The resolved upstream ref, `refs/remotes/origin/<b>`.
     upstream: &'a str,
     common_dir: &'a Path,
+    /// A partial clone's lazy fetch, for the actions that rewrite a working
+    /// tree (`run_checkout`); `None` keeps it off.
+    lazy: Option<LazyFetch>,
+}
+
+/// How an action that rewrites a partial clone's working tree fetches the
+/// objects it lacks: from its promisor remote, origin — only when no other
+/// remote is one (`ConfigFacts::other_promisor`), since git asks each in
+/// turn — over `transport` alone (`lazy_transport`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct LazyFetch {
+    transport: &'static str,
+    /// Batch-mode SSH, unless the user configures SSH (as the fetch).
+    batch_ssh: bool,
+}
+
+/// A partial clone's lazy fetch, from its `config`: `None` — lazy fetching
+/// stays off, and a checkout needing a missing blob fails — for a repo
+/// that isn't a partial clone, one with another promisor remote, and one
+/// whose origin URL names no transport the fetch may take
+/// (`lazy_transport`). `env_ssh`: the environment configures SSH.
+///
+/// Only when classify let the branch act, so with origin naming the
+/// registry's repo (origin drift holds the entry, and a reference's
+/// refresh).
+fn lazy_fetch(config: &ConfigFacts, env_ssh: bool) -> Option<LazyFetch> {
+    if config.partial_filter.is_none() || config.other_promisor {
+        return None;
+    }
+    Some(LazyFetch {
+        transport: lazy_transport(config.origin_url()?)?,
+        batch_ssh: !config.ssh_command && !env_ssh,
+    })
+}
+
+/// The one transport a lazy fetch from `origin` may take: its own — `ssh`
+/// for an SSH URL (`ssh://`, its `git+ssh` spellings, or scp-like),
+/// `https` for an HTTPS one — whoever owns the repo, so an owned partial
+/// clone whose origin is HTTPS fills its checkout over HTTPS. `None` for
+/// anything else (plain `http`, `git://`, a local path, a URL
+/// `remote_parts` rejects): no lazy fetch.
+fn lazy_transport(origin: &str) -> Option<&'static str> {
+    let parts = remote_parts(origin)?;
+    if parts.ssh {
+        Some("ssh")
+    } else if origin.starts_with("https://") {
+        Some("https")
+    } else {
+        None
+    }
 }
 
 /// The confined local fetch's flags before `.` and its refspec: what the
@@ -650,6 +743,32 @@ const PUSH_ARGS: [&str; 11] = [
     "--recurse-submodules=no",
     "--no-signed",
 ];
+
+impl<'a> Step<'a> {
+    /// A step whose calls stop repo discovery at `root` and are local:
+    /// lazy fetching off in every one but `run_checkout`'s, which lifts it
+    /// by `lazy`.
+    fn new(
+        git: &'a Git,
+        root: &'a Path,
+        branch: &'a str,
+        upstream: &'a str,
+        common_dir: &'a Path,
+        lazy: Option<LazyFetch>,
+    ) -> Self {
+        Self {
+            git,
+            opts: CallOptions {
+                ceiling: Some(root),
+                ..CallOptions::default()
+            },
+            branch,
+            upstream,
+            common_dir,
+            lazy,
+        }
+    }
+}
 
 impl Step<'_> {
     /// The commit `rev` names in `dir`.
@@ -1122,12 +1241,21 @@ impl Step<'_> {
     }
 
     /// Runs git in `checkout` to rewrite its working tree, under
-    /// `CHECKOUT_TIMEOUT`.
+    /// `CHECKOUT_TIMEOUT` — in a partial clone, with its lazy fetch
+    /// (`LazyFetch`): the new tip's blobs in the checkout's cone may never
+    /// have been fetched, and git reads them from the promisor remote.
     fn run_checkout(&self, checkout: &Path, args: &[&str]) -> Result<(), String> {
-        let opts = CallOptions {
+        let mut opts = CallOptions {
             timeout: Some(CHECKOUT_TIMEOUT),
             ..self.opts
         };
+        if let Some(lazy) = self.lazy {
+            opts.lazy_fetch = true;
+            opts.allow_protocol = Some(lazy.transport);
+            opts.network = Some(NetworkOptions {
+                batch_ssh: lazy.batch_ssh,
+            });
+        }
         self.run_in(checkout, args, opts)
     }
 
@@ -1302,29 +1430,15 @@ mod tests {
         ));
     }
 
-    /// The act-time gateway hold, driven directly: classify holds an
-    /// agent's push before it becomes an `act` (so no run through `sync`
-    /// reaches this guard), and the guard is the second line should that
-    /// ever slip. It holds before anything is read — no facts, no sessions,
-    /// no git.
-    #[test]
-    fn an_agents_push_is_held_at_act_time_whatever_the_verdict() {
-        // a runner with no `PATH`: git can't even start
-        let git = Git::with_clean_env(Vec::new());
-        let read_live = || -> LiveSessions { panic!("the guard reads no sessions") };
-        let actor = Actor {
-            git: &git,
-            root: Path::new("/ws"),
-            entries: &[],
-            checkouts: &[],
-            read_live: &read_live,
-            caller: Caller::Agent,
-        };
+    /// `main` of `/ws/app`, checked out and a commit ahead, as classify
+    /// would read it, its verdict a push; no branch probed, so past the
+    /// guards the push would fail on it.
+    fn ahead_main() -> (RepoFacts, BranchStatus) {
         let facts = RepoFacts {
             path: "/ws/app".into(),
             git_dir: PathBuf::from("/ws/app/.git"),
             common_dir: PathBuf::from("/ws/app/.git"),
-            config: porcelain::ConfigFacts::default(),
+            config: ConfigFacts::default(),
             status: porcelain::StatusFacts {
                 head: Head::Branch {
                     name: "main".into(),
@@ -1343,7 +1457,6 @@ mod tests {
             relative_gitdir: None,
             git_dirs: Vec::new(),
             bare_main: None,
-            // nothing probed: past the guard, the push would fail on it
             branches: Vec::new(),
             layout: crate::state::Layout {
                 shallow: false,
@@ -1354,7 +1467,6 @@ mod tests {
             fetch_failed: false,
             push_urls: Some(vec!["git@github.com:me/app".into()]),
         };
-        let action = SyncAction::Push { commits: 1 };
         let b = BranchStatus {
             name: "main".into(),
             upstream: Some("origin/main".into()),
@@ -1363,13 +1475,81 @@ mod tests {
             unique_commits: 1,
             newest_commit_at: 0,
             relation: crate::state::Relation::Ahead { commits: 1 },
-            verdict: Verdict::Act { action },
+            verdict: Verdict::Act {
+                action: SyncAction::Push { commits: 1 },
+            },
         };
+        (facts, b)
+    }
+
+    /// The act-time gateway hold, driven directly: classify holds an
+    /// agent's push before it becomes an `act` (so no run through `sync`
+    /// reaches this guard), and the guard is the second line should that
+    /// ever slip. It holds before anything is read — no facts, no sessions,
+    /// no git.
+    #[test]
+    fn an_agents_push_is_held_at_act_time_whatever_the_verdict() {
+        // a runner with no `PATH`: git can't even start
+        let git = Git::with_clean_env(Vec::new());
+        let read_live = || -> LiveSessions { panic!("the guard reads no sessions") };
+        let actor = Actor {
+            git: &git,
+            root: Path::new("/ws"),
+            entries: &[],
+            checkouts: &[],
+            read_live: &read_live,
+            caller: Caller::Agent,
+        };
+        let (facts, b) = ahead_main();
+        let action = SyncAction::Push { commits: 1 };
         assert_eq!(
             actor.act(0, &facts, &b, action),
             BranchOutcome::Held {
                 action,
                 by: SyncHold::Gateway
+            }
+        );
+    }
+
+    /// The act-time third-party guard, driven directly as the gateway's is:
+    /// classify reads a third-party reference's branch ahead as local-only
+    /// work, never a push, and the guard fails one that ever slips, before
+    /// anything is read.
+    #[test]
+    fn a_third_party_push_fails_at_act_time_whatever_the_verdict() {
+        let git = Git::with_clean_env(Vec::new());
+        let read_live = || -> LiveSessions { panic!("the guard reads no sessions") };
+        let lib = Entry {
+            key: "lib".into(),
+            kind: crate::registry::EntryKind::Reference,
+            dir: "lib".into(),
+            url: RepoUrl::try_from("https://github.com/them/lib".to_owned()).unwrap(),
+            writable: false,
+            archived: false,
+            visibility: None,
+            ci: false,
+            branch: None,
+            pinned: false,
+            shallow: false,
+            sparse: None,
+            same_repo_as: None,
+        };
+        let entries = [lib];
+        let actor = Actor {
+            git: &git,
+            root: Path::new("/ws"),
+            entries: &entries,
+            checkouts: &[],
+            read_live: &read_live,
+            caller: Caller::Person,
+        };
+        let (facts, b) = ahead_main();
+        let action = SyncAction::Push { commits: 1 };
+        assert_eq!(
+            actor.act(0, &facts, &b, action),
+            BranchOutcome::Failed {
+                action,
+                message: "main is a third-party reference's, which is never pushed".into(),
             }
         );
     }
@@ -1381,7 +1561,7 @@ mod tests {
     /// A repo in a tempdir, no global or system config, reflogs off — so
     /// what a branch's reflog holds, sync wrote.
     struct Repo {
-        _tmp: tempfile::TempDir,
+        tmp: tempfile::TempDir,
         dir: PathBuf,
         env: Vec<(std::ffi::OsString, std::ffi::OsString)>,
     }
@@ -1399,11 +1579,7 @@ mod tests {
                 ("GIT_COMMITTER_EMAIL".into(), "a@example.com".into()),
             ];
             env.extend(std::env::var_os("PATH").map(|p| ("PATH".into(), p)));
-            let repo = Self {
-                _tmp: tmp,
-                dir,
-                env,
-            };
+            let repo = Self { tmp, dir, env };
             std::fs::create_dir(&repo.dir).unwrap();
             repo.git(&["init", "-q", "-b", "main"]);
             repo.git(&["config", "core.logAllRefUpdates", "false"]);
@@ -1448,13 +1624,14 @@ mod tests {
     }
 
     fn step<'a>(git: &'a Git, branch: &'a str, common_dir: &'a Path) -> Step<'a> {
-        Step {
+        Step::new(
             git,
-            opts: CallOptions::default(),
+            Path::new("/"),
             branch,
-            upstream: "refs/remotes/origin/unused",
+            "refs/remotes/origin/unused",
             common_dir,
-        }
+            None,
+        )
     }
 
     #[test]
@@ -1573,5 +1750,178 @@ mod tests {
             Ok(Done::Held(SyncHold::Changed))
         ));
         assert_eq!(repo.git(&["rev-parse", "main"]), next);
+    }
+
+    // the lazy fetch's scope: one transport, origin's own, and the
+    // checkout's calls alone
+
+    #[test]
+    fn a_lazy_fetch_takes_origins_own_transport_alone() {
+        for (origin, want) in [
+            ("git@github.com:me/wpt", Some("ssh")),
+            ("ssh://git@github.com/me/wpt", Some("ssh")),
+            ("git+ssh://github.com/me/wpt", Some("ssh")),
+            ("https://github.com/them/lib", Some("https")),
+            // an owned repo whose origin is HTTPS: over HTTPS, never SSH
+            ("https://github.com/me/wpt", Some("https")),
+            ("http://github.com/them/lib", None),
+            ("git://github.com/them/lib", None),
+            ("file:///srv/lib.git", None),
+            ("/srv/lib.git", None),
+            ("ext::sh -c touch% /tmp/x", None),
+            ("https://github.com/them/%6Cib", None),
+        ] {
+            assert_eq!(lazy_transport(origin), want, "{origin}");
+        }
+    }
+
+    #[test]
+    fn a_lazy_fetch_is_a_partial_clones_with_origin_its_one_promisor() {
+        let partial = |origin: Option<&str>| ConfigFacts {
+            origin_urls: origin.map(porcelain::OriginUrl::repo).into_iter().collect(),
+            partial_filter: Some("blob:none".into()),
+            ..ConfigFacts::default()
+        };
+        let https = partial(Some("https://github.com/me/wpt"));
+        assert_eq!(
+            lazy_fetch(&https, false),
+            Some(LazyFetch {
+                transport: "https",
+                batch_ssh: true,
+            })
+        );
+        let ssh = partial(Some("git@github.com:them/lib"));
+        assert_eq!(
+            lazy_fetch(&ssh, false),
+            Some(LazyFetch {
+                transport: "ssh",
+                batch_ssh: true,
+            })
+        );
+        // the user's SSH, left alone
+        assert_eq!(lazy_fetch(&ssh, true).map(|l| l.batch_ssh), Some(false));
+        let configured = ConfigFacts {
+            ssh_command: true,
+            ..ssh.clone()
+        };
+        assert_eq!(
+            lazy_fetch(&configured, false).map(|l| l.batch_ssh),
+            Some(false)
+        );
+        // none: not partial, another promisor, no origin URL, or one naming
+        // no transport the fetch may take
+        let whole = ConfigFacts {
+            partial_filter: None,
+            ..ssh.clone()
+        };
+        let other = ConfigFacts {
+            other_promisor: true,
+            ..ssh
+        };
+        for config in [
+            whole,
+            other,
+            partial(None),
+            partial(Some("file:///srv/wpt.git")),
+        ] {
+            assert_eq!(lazy_fetch(&config, false), None, "{config:?}");
+        }
+    }
+
+    /// Every action's git calls, through a `git` that logs what each saw:
+    /// lazy fetching is lifted — over the lazy fetch's one transport — in
+    /// the calls that rewrite a working tree (`merge`, `switch`) and no
+    /// other, however the step was made.
+    #[test]
+    fn only_a_checkouts_calls_lift_lazy_fetching() {
+        let repo = Repo::new();
+        let root = repo.git(&["rev-parse", "main"]);
+        let tip = repo.child_of(&root);
+        let side = repo.child_of(&tip);
+        for (name, at) in [
+            ("main", &tip),
+            ("feat", &tip),
+            ("old", &side),
+            ("side", &side),
+        ] {
+            repo.git(&["update-ref", &format!("refs/remotes/origin/{name}"), at]);
+        }
+        repo.git(&["branch", "feat", &root]);
+        repo.git(&["branch", "old", &root]);
+        // a `git` first on PATH, logging each call it passes to the real one
+        let bin = repo.tmp.path().join("bin");
+        std::fs::create_dir(&bin).unwrap();
+        let log = repo.tmp.path().join("calls.log");
+        let real_path = std::env::var("PATH").unwrap();
+        let wrapper = format!(
+            "#!/bin/sh\nprintf '%s|%s|%s\\n' \"${{GIT_NO_LAZY_FETCH-unset}}\" \
+             \"${{GIT_ALLOW_PROTOCOL-unset}}\" \"$*\" >> '{}'\nPATH='{real_path}' exec git \"$@\"\n",
+            log.display()
+        );
+        std::fs::write(bin.join("git"), wrapper).unwrap();
+        std::fs::set_permissions(
+            bin.join("git"),
+            std::os::unix::fs::PermissionsExt::from_mode(0o755),
+        )
+        .unwrap();
+        let mut env = repo.env.clone();
+        env.retain(|(k, _)| k != "PATH");
+        env.push((
+            "PATH".into(),
+            format!("{}:{real_path}", bin.display()).into(),
+        ));
+        let git = Git::with_clean_env(env);
+        let common_dir = repo.dir.join(".git");
+        let lazy = Some(LazyFetch {
+            transport: "https",
+            batch_ssh: false,
+        });
+        let step = |branch, upstream| {
+            Step::new(&git, repo.tmp.path(), branch, upstream, &common_dir, lazy)
+        };
+
+        let updated = |done: Result<Done, String>| matches!(done, Ok(Done::Updated { .. }));
+        assert!(updated(
+            step("feat", "refs/remotes/origin/feat").ff_in_place(&repo.dir)
+        ));
+        assert!(updated(
+            step("main", "refs/remotes/origin/main").ff_in_checkout(&repo.dir)
+        ));
+        assert!(updated(
+            step("old", "refs/remotes/origin/old").move_in_place(&repo.dir)
+        ));
+        let moved = step("main", "refs/remotes/origin/side").move_in_checkout(&repo.dir);
+        assert!(matches!(moved, Ok(Done::Updated { .. })), "{moved:?}");
+        let url = RepoUrl::try_from("https://github.com/me/app".to_owned()).unwrap();
+        let oid = repo.git(&["rev-parse", "main"]);
+        // held at its re-checks, past its reads
+        let pushed = step("main", "refs/remotes/origin/side").push(
+            &repo.dir,
+            &Push {
+                oid: &oid,
+                target: "refs/heads/main",
+                commits: 1,
+                shallow: false,
+                url: &url,
+                batch_ssh: false,
+            },
+        );
+        assert!(matches!(pushed, Ok(Done::Held(_))), "{pushed:?}");
+
+        let calls = std::fs::read_to_string(&log).unwrap();
+        let mut checkouts = 0;
+        for call in calls.lines() {
+            let mut f = call.splitn(3, '|');
+            let (lazy, allowed, args) = (f.next().unwrap(), f.next().unwrap(), f.next().unwrap());
+            let checkout = [" merge ", " switch "].iter().any(|c| args.contains(c));
+            if checkout {
+                checkouts += 1;
+                assert_eq!((lazy, allowed), ("0", "https"), "{call}");
+            } else {
+                assert_eq!(lazy, "1", "{call}");
+                assert_ne!(allowed, "https", "{call}");
+            }
+        }
+        assert_eq!(checkouts, 2, "{calls}");
     }
 }

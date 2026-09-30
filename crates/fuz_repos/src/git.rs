@@ -25,7 +25,8 @@
 //! Optional locks are off too, so observing never rewrites another
 //! session's index, and lazy fetching is off, so a local call on a partial
 //! clone never touches the network — but for the clone that makes one,
-//! whose checkout fills it (`CallOptions::lazy_fetch`).
+//! whose checkout fills it, and for sync's fast-forward or move in one's
+//! checkout, which needs the new tip's blobs (`CallOptions::lazy_fetch`).
 
 use std::ffi::OsString;
 use std::io::{self, Read};
@@ -200,8 +201,10 @@ pub struct CallOptions<'a> {
     pub timeout: Option<Duration>,
     /// Let a partial clone fetch missing objects from its promisor remote on
     /// demand (`GIT_NO_LAZY_FETCH=0`), for a call that must fill one: the
-    /// checkout of a clone made `--filter=blob:none`. Off everywhere else,
-    /// so a local call never touches the network.
+    /// checkout of a clone made `--filter=blob:none`, or of a new tip in
+    /// one. Off everywhere else, so a local call never touches the network;
+    /// a caller lifting it names the one transport allowed
+    /// (`allow_protocol`).
     pub lazy_fetch: bool,
 }
 

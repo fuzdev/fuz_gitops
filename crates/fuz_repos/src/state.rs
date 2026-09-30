@@ -134,9 +134,8 @@ pub enum Prune {
     /// Not gone: moved into the workspace root, where the unregistered scan
     /// found each dir in `to` (by name) naming its git dir — so dropping
     /// the git dir would orphan them; their own lines say what to do.
-    /// Decided after the scan, which runs only without targets, and sees
-    /// only the root: without it, a moved worktree reads as `Safe` or
-    /// `Loses`.
+    /// Decided after the scan, in a run without targets, and seeing only
+    /// the root: otherwise a moved worktree reads as `Safe` or `Loses`.
     Moved { to: Vec<String> },
 }
 
@@ -320,6 +319,31 @@ pub enum Verdict {
     },
 }
 
+/// What a run does about refreshing a present reference it was asked to.
+///
+/// Asked by naming it as a target, or by `--references`; decided in
+/// `classify` (`refresh_verdict`). A reference no run asks about carries
+/// none: a third-party one is never fetched, and a pin is left alone.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum RefreshVerdict {
+    /// A third-party reference, refreshed: fetched from origin over HTTPS
+    /// (by `sync` and `status --fetch`, as an owned repo is), then each
+    /// branch compared against origin as an owned repo's is — fast-forwarded,
+    /// or moved when shallow, where it's clean and nothing holds it; never
+    /// pushed, so a branch ahead is local-only work.
+    Act,
+    /// Asked, and refused, never fetched: `by` is `pinned` for a pin named
+    /// — its consumer moves its HEAD, and its branches stay held by the
+    /// pin — or `entry` for a reference whose `origin` isn't the
+    /// registry's repo (its `origin_mismatch` reason, which says the fix):
+    /// a fetch would bring in another repo's history; or `origin_not_https`
+    /// for one whose fetch wouldn't reach the registry's repo over HTTPS
+    /// (its `origin_not_https` reason): it would fail. Its branches are
+    /// then compared against no remote, as an unasked reference's.
+    Held { by: HeldBy },
+}
+
 /// What `sync` does with an entry whose dir is missing: clone it, by
 /// `recipe` — decided in `classify`, as a branch's verdict is.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -328,7 +352,9 @@ pub enum CloneVerdict {
     /// Sync clones it.
     Act { recipe: CloneRecipe },
     /// Sync would clone it, but `by` holds it: `Entry`, another entry
-    /// naming the same repo (the entry's `clone_shares_repo` reason);
+    /// naming the same repo, or an unregistered dir at the workspace root
+    /// cloned from it (the entry's `clone_shares_repo` or
+    /// `cloned_unregistered` reason);
     /// `Busy`, a live session working at the missing path (its dir deleted
     /// from under it); or `UnprobedWorktree`, another entry's gone worktree
     /// recorded there.
@@ -375,12 +401,18 @@ pub enum HeldBy {
     /// `LocalOnly` when it has commits on no remote ref, else `Quiet`.)
     Pinned,
     /// An entry-level `needs_human` reason stops sync on the whole entry —
-    /// a missing entry's clone included (`clone_shares_repo`).
+    /// a missing entry's clone included (`clone_shares_repo`,
+    /// `cloned_unregistered`), and a reference's refresh (`origin_mismatch`;
+    /// an `origin_not_https` refresh is held by `OriginNotHttps` instead).
     Entry,
     /// A push through `origin` would reach somewhere other than the
     /// registry's repo over SSH (the entry's `push_url_mismatch` reason):
     /// pushes only.
     PushUrl,
+    /// A reference's refresh whose fetch wouldn't reach the registry's repo
+    /// over HTTPS, though `origin` names it (the entry's `origin_not_https`
+    /// reason): the refresh only, never fetched.
+    OriginNotHttps,
     /// The entry's fetch failed or was refused (its `fetch_error`), so its
     /// remote-tracking refs weren't refreshed and may not be origin's: no
     /// branch fast-forwards or moves to them, and none is pushed — its

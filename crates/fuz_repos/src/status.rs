@@ -10,24 +10,35 @@ use std::time::{Duration, Instant};
 use crate::busy::{
     EntryCheckouts, EntrySessions, Sessions, same_path, scope_sessions, sessions_under,
 };
-use crate::classify::{ClassifiedMissing, NeedsHuman, classify, classify_missing};
+use crate::classify::{
+    ClassifiedMissing, NeedsHuman, Refresh, classify, classify_missing, refresh_intent,
+    refresh_verdict,
+};
 use crate::git::Git;
 use crate::probe::{ProbeContext, ProbeRun, Probed, RegistryDirs, RepoFacts, RepoFetches, probe};
 use crate::registry::Entry;
 use crate::remote::{
     RemoteFailure, VisibilityCheck, is_declared_private, read_anonymously, visibility_url,
 };
-use crate::report::EntryStatus;
+use crate::report::{EntryStatus, UnregisteredClone};
 use crate::scan::Scan;
 use crate::sessions::{Caller, LiveSessions};
-use crate::state::{Checkout, Presence, Prune};
+use crate::state::{Checkout, Presence, Prune, RefreshVerdict};
 
 /// How to run `status`.
 #[derive(Debug, Clone, Copy)]
 pub struct StatusOptions<'a> {
-    /// Fetch owned, non-pinned entries from `origin` before probing, and run
-    /// the visibility check on each `[repos]` entry declared private.
+    /// Fetch from `origin` before probing — owned entries not pinned, and
+    /// the third-party references `refresh` refreshes — and run the
+    /// visibility check on each `[repos]` entry declared private.
     pub fetch: bool,
+    /// Which references the run refreshes (`Refresh`): previewed as sync
+    /// would refresh them, and fetched under `fetch`.
+    pub refresh: Refresh,
+    /// The unregistered scan's dirs, when it ran (without targets, or with
+    /// a missing entry among them): a missing entry whose repo one of them
+    /// clones is held.
+    pub unregistered: Option<&'a [UnregisteredClone]>,
     /// Git calls in flight at once — entries probed, visibility checks —
     /// at least one.
     pub jobs: usize,
@@ -95,12 +106,23 @@ pub fn status(
             root,
             registry_dirs,
             fetch: opts.fetch,
+            refresh: opts.refresh,
             fetches: &fetches,
         },
         opts.jobs,
         opts.visibility_base,
     );
-    let assessed = assess(entries, probes, root, opts.live, opts.caller);
+    let assessed = assess(
+        entries,
+        probes,
+        &Assess {
+            root,
+            live: opts.live,
+            caller: opts.caller,
+            refresh: opts.refresh,
+            unregistered: opts.unregistered.unwrap_or_default(),
+        },
+    );
     StatusRun {
         entries: assessed.entries,
         sessions: assessed.sessions,
@@ -215,23 +237,30 @@ pub(crate) struct Assessed {
     pub checkouts: Vec<EntryCheckouts>,
 }
 
-/// Scopes `live` to the probed checkouts, so a session lands in the deepest
-/// of them all, and classifies each entry for `caller` — a missing one's
-/// clone against the sessions at its path under `root` and the gone
-/// worktrees the probed entries record (`classify_missing_at`).
-pub(crate) fn assess(
-    entries: &[Entry],
-    probes: Probes,
-    root: &Path,
-    live: &LiveSessions,
-    caller: Caller,
-) -> Assessed {
+/// What `assess` classifies against, beside the probes.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct Assess<'a> {
+    /// The workspace root, which missing entries' paths are under.
+    pub root: &'a Path,
+    pub live: &'a LiveSessions,
+    pub caller: Caller,
+    pub refresh: Refresh,
+    /// The unregistered scan's dirs; empty when it didn't run.
+    pub unregistered: &'a [UnregisteredClone],
+}
+
+/// Scopes `cx.live` to the probed checkouts, so a session lands in the
+/// deepest of them all, and classifies each entry for `cx.caller` and
+/// `cx.refresh` — a missing one's clone against the sessions at its path
+/// under the root, the gone worktrees the probed entries record, and the
+/// unregistered dirs (`classify_missing_at`).
+pub(crate) fn assess(entries: &[Entry], probes: Probes, cx: &Assess<'_>) -> Assessed {
     let checkouts: Vec<EntryCheckouts> = probes
         .runs
         .iter()
         .map(|(run, _)| entry_checkouts(&run.probed))
         .collect();
-    let (sessions, per_entry) = scope_sessions(live, &checkouts);
+    let (sessions, per_entry) = scope_sessions(cx.live, &checkouts);
     let mut assessed = Assessed {
         sessions,
         entries: Vec::with_capacity(entries.len()),
@@ -248,7 +277,7 @@ pub(crate) fn assess(
         assessed.fetches.push(run.fetch.clone());
         assessed
             .entries
-            .push(entry_status(entry, run, busy, caller));
+            .push(entry_status(entry, run, busy, cx.caller, cx.refresh));
         assessed.timings.push(timing);
     }
     for (i, check, time) in probes.checks {
@@ -263,7 +292,7 @@ pub(crate) fn assess(
         .collect();
     for (entry, status) in entries.iter().zip(&mut assessed.entries) {
         if status.presence == Presence::Missing {
-            let missing = classify_missing_at(entry, root, live, &recorded);
+            let missing = classify_missing_at(entry, cx, &recorded);
             status.clone = Some(missing.clone);
             status.needs_human.extend(missing.needs_human);
         }
@@ -272,20 +301,17 @@ pub(crate) fn assess(
 }
 
 /// Classifies a missing entry (`classify_missing`): its clone held when
-/// another entry names its repo, when a live session works at or under its
-/// path, or when one of `recorded` — the paths of every probed entry's
-/// unprobed worktrees, gone ones among them — is that path.
-fn classify_missing_at(
-    entry: &Entry,
-    root: &Path,
-    live: &LiveSessions,
-    recorded: &[&str],
-) -> ClassifiedMissing {
-    let path = root.join(&entry.dir);
+/// another entry names its repo, or an unregistered dir clones it, when a
+/// live session works at or under its path, or when one of `recorded` —
+/// the paths of every probed entry's unprobed worktrees, gone ones among
+/// them — is that path.
+fn classify_missing_at(entry: &Entry, cx: &Assess<'_>, recorded: &[&str]) -> ClassifiedMissing {
+    let path = cx.root.join(&entry.dir);
     classify_missing(
         entry,
-        !sessions_under(live, &path).is_empty(),
+        !sessions_under(cx.live, &path).is_empty(),
         recorded.iter().any(|r| same_path(Path::new(r), &path)),
+        cx.unregistered,
     )
 }
 
@@ -309,12 +335,13 @@ pub(crate) fn entry_checkouts(probed: &Probed) -> EntryCheckouts {
 }
 
 /// Assembles an entry's report from its probe and the live sessions in its
-/// checkouts, classified for `caller`.
+/// checkouts, classified for `caller` and `refresh`.
 pub fn entry_status(
     entry: &Entry,
     run: ProbeRun,
     sessions: &EntrySessions,
     caller: Caller,
+    refresh: Refresh,
 ) -> EntryStatus {
     let mut status = EntryStatus {
         key: entry.key.clone(),
@@ -327,6 +354,7 @@ pub fn entry_status(
         ci: entry.ci,
         branch: entry.branch.clone(),
         pinned: entry.pinned,
+        refresh: None,
         presence: Presence::Present,
         clone: None,
         layout: None,
@@ -346,12 +374,25 @@ pub fn entry_status(
             status.presence = Presence::NotARepo;
             status.needs_human.push(NeedsHuman::NotARepo { detail });
         }
-        Probed::Failed { error, layout } => {
+        Probed::Failed {
+            error,
+            layout,
+            config,
+        } => {
+            // a repo is there: what the run asked of it stands, its fetch
+            // run or not — held for origin drift once its config was read.
+            // Without it the probe never fetched, so a refresh never acts:
+            // only a pin's refusal is said
+            status.refresh = config.map_or_else(
+                || refresh_intent(entry, refresh).filter(|v| *v != RefreshVerdict::Act),
+                |config| refresh_verdict(entry, refresh, &config),
+            );
             status.probe_error = Some(error);
             status.layout = layout;
         }
         Probed::Present(facts) => {
-            let classified = classify(entry, &facts, sessions, caller);
+            status.refresh = refresh_verdict(entry, refresh, &facts.config);
+            let classified = classify(entry, &facts, sessions, caller, refresh);
             status.branches = classified.branches;
             status.needs_human = classified.needs_human;
             status.stashes = facts.status.stashes;

@@ -12,11 +12,12 @@ use crate::gitdir::is_valid_refname;
 use crate::porcelain::{BranchConfig, ConfigFacts, OriginKeys, OriginUrl, RefFacts, Track};
 use crate::probe::{BranchFacts, RepoFacts};
 use crate::registry::{Entry, RepoUrl};
+use crate::report::{UnregisteredClone, UnregisteredKind};
 use crate::sessions::{Caller, Session};
 use crate::state::{
     BranchNeedsHuman, BranchStatus, CleanupReason, CloneRecipe, CloneVerdict, Head, HeldBy,
-    InProgressOp, Prune, PruneLoss, Relation, SyncAction, UnprobedHead, UnprobedWhy,
-    UnprobedWorktree, UnprobedWorktreeStatus, Verdict,
+    InProgressOp, Prune, PruneLoss, RefreshVerdict, Relation, SyncAction, UnprobedHead,
+    UnprobedWhy, UnprobedWorktree, UnprobedWorktreeStatus, Verdict,
 };
 use crate::url::{RemoteParts, remote_parts, without_userinfo};
 
@@ -36,11 +37,28 @@ pub enum NeedsHuman {
     },
     /// `origin` isn't the registry's `url`, or has none. `expected` is the
     /// URL it should have (SSH when owned, else HTTPS); `fix`, how to set it
-    /// with a command that can.
+    /// with a command that can. A third-party reference's refresh is held
+    /// for it, never fetched (`refresh_verdict`).
     OriginMismatch {
         origin: OriginRemote,
         expected: String,
         fix: OriginFix,
+    },
+    /// A refresh the run asks of a third-party reference whose `origin` is
+    /// the registry's repo, but whose fetch wouldn't reach it over HTTPS,
+    /// the only transport a reference is fetched over: `fetch_url` is where
+    /// it would reach, as git resolves it (`insteadOf` applied; a
+    /// credential in its userinfo redacted as `***`) — SSH, `http://`,
+    /// `git://`, or another repo a rewrite names. `expected` is the
+    /// registry's HTTPS URL. The refresh is held (`HeldBy::OriginNotHttps`),
+    /// never fetched; the rest of the entry goes on. `fix` is how to point
+    /// `origin` at `expected`, as `origin_mismatch`'s says — `None` when a
+    /// `url.<base>.insteadOf` rewrite changes origin's URL, which setting
+    /// the URL may not undo: the rewrite is what to change.
+    OriginNotHttps {
+        fetch_url: String,
+        expected: String,
+        fix: Option<OriginFix>,
     },
     /// A worktree's git dir (or `<commondir>/worktrees/` itself) can't be
     /// read, so whether an operation is in progress there is unknowable.
@@ -98,6 +116,20 @@ pub enum NeedsHuman {
     CloneSharesRepo {
         with: String,
     },
+    /// A missing entry whose repo is already cloned at `dir`, a dir at the
+    /// workspace root no registry entry claims, whose origin names the
+    /// entry's repo, as the unregistered scan read it — or a rename of it,
+    /// its name differing only in ASCII case and `-` against `_`
+    /// (`names_repo_loosely`): likely the entry's own checkout under
+    /// another name, and a clone would make a second, independent copy. Its
+    /// clone is held (`HeldBy::Entry`); a person renames the dir to the
+    /// entry's, or points the entry's `dir` at it. Found only when the scan
+    /// ran — every run with a missing entry in it — and only through an
+    /// origin the scan could read: a clone whose origin names the repo by
+    /// an unrelated old name isn't caught.
+    ClonedUnregistered {
+        dir: String,
+    },
 }
 
 impl NeedsHuman {
@@ -114,13 +146,15 @@ impl NeedsHuman {
             | Self::OperationInProgress { .. }
             | Self::OriginMismatch { .. }
             | Self::WorktreeUnreadable { .. }
-            | Self::CloneSharesRepo { .. } => true,
+            | Self::CloneSharesRepo { .. }
+            | Self::ClonedUnregistered { .. } => true,
             Self::DefaultBranchMissing { .. }
             | Self::DefaultBranchNoUpstream { .. }
             | Self::UnexpectedDetached { .. }
             | Self::CheckoutUnresolvable { .. }
             | Self::UnlistedGitDir { .. }
-            | Self::PushUrlMismatch { .. } => false,
+            | Self::PushUrlMismatch { .. }
+            | Self::OriginNotHttps { .. } => false,
         }
     }
 }
@@ -277,29 +311,115 @@ fn prune(u: &UnprobedWorktree, facts: &RepoFacts) -> Option<Prune> {
     })
 }
 
-/// Classifies a present repo's facts against its registry entry, with the
-/// live sessions in its checkouts and who runs the tool (an agent's pushes
-/// are held for the gateway).
+/// Which references a run asks to refresh — like a locked dependency, a
+/// reference is otherwise left as it is: a third-party one never fetched,
+/// a pin never touched.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum Refresh {
+    /// None: no targets, no `--references`.
+    #[default]
+    Unasked,
+    /// The run's targets name every entry in it: each third-party
+    /// reference among them is refreshed (unless its origin drifted or
+    /// isn't reached over HTTPS: `refresh_verdict`), and each pin refused.
+    Named,
+    /// `--references`, with no targets: every third-party reference is
+    /// refreshed; pins, named by no one, stay quiet.
+    References,
+}
+
+/// What `refresh` asks of `entry` from the registry alone, before its
+/// origin is read.
 ///
-/// Owned entries get a relation per branch. Third-party references are never
-/// compared against a remote: they keep only branches with commits on no
-/// remote, as `Untracked` — local work that can never be pushed.
+/// `None` for an owned entry not pinned (always synced, never
+/// "refreshed"), and for any entry the run doesn't ask about. The verdict
+/// is `refresh_verdict`'s, once the repo's config is read; for a repo whose
+/// config couldn't be, never fetched, only a pin's refusal stands. The
+/// probe reads where a refresh's fetch would reach when this acts.
+pub const fn refresh_intent(entry: &Entry, refresh: Refresh) -> Option<RefreshVerdict> {
+    match refresh {
+        Refresh::Named if entry.pinned => Some(RefreshVerdict::Held { by: HeldBy::Pinned }),
+        Refresh::Named | Refresh::References if !entry.writable && !entry.pinned => {
+            Some(RefreshVerdict::Act)
+        }
+        Refresh::Unasked | Refresh::Named | Refresh::References => None,
+    }
+}
+
+/// What `refresh` asks of `entry` (`RefreshVerdict`), its repo's `config`
+/// read.
+///
+/// `refresh_intent`, but a refresh of a repo whose origin isn't the
+/// registry's repo (`origin_drift`: another URL, or none) is held
+/// (`HeldBy::Entry`, the entry's `origin_mismatch` reason) — never fetched,
+/// since the fetch would bring in another repo's history, over whatever
+/// transport that URL names. So is one whose fetch wouldn't reach the
+/// registry's repo over HTTPS (`fetches_over_https`: an SSH-form origin, or
+/// an `insteadOf` rewrite), held by `HeldBy::OriginNotHttps` (the entry's
+/// `origin_not_https` reason): a reference is fetched over HTTPS alone,
+/// and that fetch would fail. The probe decides its fetch by this verdict.
+pub fn refresh_verdict(
+    entry: &Entry,
+    refresh: Refresh,
+    config: &ConfigFacts,
+) -> Option<RefreshVerdict> {
+    match refresh_intent(entry, refresh) {
+        Some(RefreshVerdict::Act) if origin_drift(entry, config).is_some() => {
+            Some(RefreshVerdict::Held { by: HeldBy::Entry })
+        }
+        Some(RefreshVerdict::Act) if !fetches_over_https(entry, config) => {
+            Some(RefreshVerdict::Held {
+                by: HeldBy::OriginNotHttps,
+            })
+        }
+        verdict => verdict,
+    }
+}
+
+/// Whether a fetch from `origin` reaches the registry's repo over HTTPS:
+/// the URL git resolves (`ConfigFacts::origin_fetch_url`, rewrites
+/// applied) is `https://`, naming the repo as `origin_matches` reads it.
+/// False when the probe didn't read it.
+fn fetches_over_https(entry: &Entry, config: &ConfigFacts) -> bool {
+    config
+        .origin_fetch_url
+        .as_deref()
+        .is_some_and(|u| u.starts_with("https://") && origin_matches(u, &entry.url))
+}
+
+/// Classifies a present repo's facts against its registry entry.
+///
+/// With the live sessions in its checkouts, who runs the tool (an agent's
+/// pushes are held for the gateway), and which references the run
+/// refreshes. Owned entries get a relation per branch, and so does a
+/// third-party reference the run refreshes (`refresh_verdict`), whose
+/// branch ahead is local-only work: it's never pushed. Any other
+/// third-party reference is never compared against a remote: it keeps only
+/// branches with commits on no remote, as `Untracked` — local work that can
+/// never be pushed.
 pub fn classify(
     entry: &Entry,
     facts: &RepoFacts,
     sessions: &EntrySessions,
     caller: Caller,
+    refresh: Refresh,
 ) -> Classified {
-    let needs_human = needs_human(entry, facts, sessions);
+    let needs_human = needs_human(entry, facts, sessions, refresh);
     let entry_held = needs_human.iter().any(NeedsHuman::holds_entry);
     let push_url = needs_human
         .iter()
         .any(|r| matches!(r, NeedsHuman::PushUrlMismatch { .. }));
+    // compared against origin: owned, or a third-party reference refreshed
+    let tracked = entry.writable
+        || matches!(
+            refresh_verdict(entry, refresh, &facts.config),
+            Some(RefreshVerdict::Act)
+        );
     let branches = facts
         .branches
         .iter()
         .filter_map(|b| {
-            let relation = if entry.writable {
+            let relation = if tracked {
                 relation(b, facts)
             } else if b.unique_commits > 0 {
                 Relation::Untracked
@@ -370,21 +490,36 @@ pub struct ClassifiedMissing {
 ///
 /// Another entry naming the same repo holds it for a person
 /// (`clone_shares_repo`, `HeldBy::Entry`): the missing dir may have been a
-/// worktree of that repo, and a second clone would be a guess. A live
-/// session working at or under the missing path holds it (`busy`: its dir
-/// was deleted from under it, and the clone would land where it works), as
+/// worktree of that repo, and a second clone would be a guess. So does each
+/// of `unregistered` — the unregistered scan's dirs, empty when it didn't
+/// run — whose origin names the entry's repo, or a rename of it
+/// (`cloned_unregistered`, `names_repo_loosely`): the entry's checkout
+/// under another name, most likely. A live session
+/// working at or under the missing path holds it (`busy`: its dir was
+/// deleted from under it, and the clone would land where it works), as
 /// does another entry's gone worktree recorded there (`recorded_worktree`:
 /// that repo would take the clone for its worktree's files) — named in
 /// that order. Nothing else holds a clone: it creates a dir and overwrites
 /// nothing, so neither an agent running the tool, a pin (cloned, then held
 /// for good), an archived repo, nor busy detection that's unavailable
 /// holds it.
-pub fn classify_missing(entry: &Entry, busy: bool, recorded_worktree: bool) -> ClassifiedMissing {
+pub fn classify_missing(
+    entry: &Entry,
+    busy: bool,
+    recorded_worktree: bool,
+    unregistered: &[UnregisteredClone],
+) -> ClassifiedMissing {
     let recipe = clone_recipe(entry);
     let needs_human: Vec<NeedsHuman> = entry
         .same_repo_as
         .iter()
         .map(|with| NeedsHuman::CloneSharesRepo { with: with.clone() })
+        .chain(
+            unregistered
+                .iter()
+                .filter(|u| clones_repo(u, &entry.url))
+                .map(|u| NeedsHuman::ClonedUnregistered { dir: u.dir.clone() }),
+        )
         .collect();
     let held = if !needs_human.is_empty() {
         Some(HeldBy::Entry)
@@ -400,6 +535,48 @@ pub fn classify_missing(entry: &Entry, busy: bool, recorded_worktree: bool) -> C
         None => CloneVerdict::Act { recipe },
     };
     ClassifiedMissing { clone, needs_human }
+}
+
+/// Whether an unregistered dir holds a clone of `url`'s repo, or likely
+/// does: its origin names it (`names_repo_loosely`), read past the `***`
+/// the scan redacts a credential to (an origin with one names its repo all
+/// the same). A clone's temp dir is the tool's own, a clone a sync didn't
+/// finish or is still making, never a checkout under another name.
+fn clones_repo(u: &UnregisteredClone, url: &RepoUrl) -> bool {
+    u.kind != UnregisteredKind::UnfinishedClone
+        && u.origin
+            .as_deref()
+            .is_some_and(|o| names_repo_loosely(&o.replacen("://***@", "://", 1), url))
+}
+
+/// Whether a remote URL names the registry's repo as `origin_matches`
+/// reads it, or one renamed from or to it: the same host and account, and
+/// a repo name equal once ASCII case is folded and `-` and `_` read as one
+/// (`vscode_extension_tsv_format` for `vscode-extension-tsv-format`).
+///
+/// Only ever holds a clone for a person (`cloned_unregistered`): a false
+/// match costs a question, never an action. Origin drift and push URLs
+/// stay exact (`origin_matches`).
+fn names_repo_loosely(origin: &str, url: &RepoUrl) -> bool {
+    remote_parts(origin).is_some_and(|p| {
+        let (account, name) = p.path.split_once('/').unwrap_or((p.path, ""));
+        p.port.is_none()
+            && p.host.eq_ignore_ascii_case(&url.host)
+            && account.eq_ignore_ascii_case(&url.account)
+            && repo_names_alike(name, &url.name)
+    })
+}
+
+/// Two repo names equal with ASCII case folded and `_` read as `-`.
+fn repo_names_alike(a: &str, b: &str) -> bool {
+    let fold = |c: u8| {
+        if c == b'_' {
+            b'-'
+        } else {
+            c.to_ascii_lowercase()
+        }
+    };
+    a.len() == b.len() && a.bytes().zip(b.bytes()).all(|(x, y)| fold(x) == fold(y))
 }
 
 /// How a missing entry is cloned: from `Entry::remote_url` (transport
@@ -649,6 +826,13 @@ fn verdict(
 
     let on = holds.on;
     let action = match relation {
+        // a third-party reference is read-only by derivation: never pushed,
+        // so what's ahead is local work, or on another remote already
+        Relation::Ahead { .. } if !entry.writable => Break(if b.unique_commits > 0 {
+            Verdict::LocalOnly
+        } else {
+            Verdict::Quiet
+        }),
         Relation::Ahead { .. } if entry.archived => Break(Verdict::NeedsHuman {
             reason: BranchNeedsHuman::ArchivedAhead,
         }),
@@ -710,7 +894,12 @@ fn verdict(
         .map_or(Verdict::Act { action }, |by| Verdict::Held { action, by })
 }
 
-fn needs_human(entry: &Entry, facts: &RepoFacts, sessions: &EntrySessions) -> Vec<NeedsHuman> {
+fn needs_human(
+    entry: &Entry,
+    facts: &RepoFacts,
+    sessions: &EntrySessions,
+    refresh: Refresh,
+) -> Vec<NeedsHuman> {
     let mut reasons = Vec::new();
     // one per checkout with an operation mid-way, the primary's first, then
     // the other worktrees', probed or not
@@ -729,20 +918,30 @@ fn needs_human(entry: &Entry, facts: &RepoFacts, sessions: &EntrySessions) -> Ve
     for path in &facts.unreadable {
         reasons.push(NeedsHuman::WorktreeUnreadable { path: path.clone() });
     }
-    let origin = match facts.config.origin_url() {
-        Some(url) if origin_matches(url, &entry.url) => None,
-        Some(url) => Some(OriginRemote::Url {
-            url: without_userinfo(url).into_owned(),
-        }),
-        None if facts.config.origin_keys != OriginKeys::None => Some(OriginRemote::NoUrl),
-        None => Some(OriginRemote::Missing),
-    };
+    let origin = origin_drift(entry, &facts.config);
     let drift = origin.is_some();
     if let Some(origin) = origin {
         reasons.push(NeedsHuman::OriginMismatch {
             origin,
             expected: entry.remote_url(),
             fix: OriginFix::decide(&facts.config),
+        });
+    }
+    // a refresh's fetch that wouldn't reach the repo over HTTPS
+    if let (
+        Some(RefreshVerdict::Held {
+            by: HeldBy::OriginNotHttps,
+        }),
+        Some(fetch_url),
+    ) = (
+        refresh_verdict(entry, refresh, &facts.config),
+        &facts.config.origin_fetch_url,
+    ) {
+        let rewritten = facts.config.origin_url() != Some(fetch_url.as_str());
+        reasons.push(NeedsHuman::OriginNotHttps {
+            fetch_url: without_userinfo(fetch_url).into_owned(),
+            expected: entry.remote_url(),
+            fix: (!rewritten).then(|| OriginFix::decide(&facts.config)),
         });
     }
     let head = &facts.status.head;
@@ -826,6 +1025,19 @@ fn needs_human(entry: &Entry, facts: &RepoFacts, sessions: &EntrySessions) -> Ve
         });
     }
     reasons
+}
+
+/// `origin` as git sees it, when it isn't the registry's repo
+/// (`origin_matches`): another URL, or none. `None` when it is.
+pub fn origin_drift(entry: &Entry, config: &ConfigFacts) -> Option<OriginRemote> {
+    match config.origin_url() {
+        Some(url) if origin_matches(url, &entry.url) => None,
+        Some(url) => Some(OriginRemote::Url {
+            url: without_userinfo(url).into_owned(),
+        }),
+        None if config.origin_keys != OriginKeys::None => Some(OriginRemote::NoUrl),
+        None => Some(OriginRemote::Missing),
+    }
 }
 
 /// The ref a push of `b` through origin names: its upstream's ref on the
@@ -1054,11 +1266,17 @@ mod tests {
     }
 
     fn relations(entry: &Entry, f: &RepoFacts) -> Vec<(String, Relation)> {
-        classify(entry, f, &EntrySessions::idle(), Caller::Person)
-            .branches
-            .into_iter()
-            .map(|b| (b.name, b.relation))
-            .collect()
+        classify(
+            entry,
+            f,
+            &EntrySessions::idle(),
+            Caller::Person,
+            Refresh::Unasked,
+        )
+        .branches
+        .into_iter()
+        .map(|b| (b.name, b.relation))
+        .collect()
     }
 
     const O: Option<&str> = Some("origin");
@@ -1111,11 +1329,17 @@ mod tests {
     }
 
     fn verdicts(entry: &Entry, f: &RepoFacts) -> Vec<(String, Verdict)> {
-        classify(entry, f, &EntrySessions::idle(), Caller::Person)
-            .branches
-            .into_iter()
-            .map(|b| (b.name, b.verdict))
-            .collect()
+        classify(
+            entry,
+            f,
+            &EntrySessions::idle(),
+            Caller::Person,
+            Refresh::Unasked,
+        )
+        .branches
+        .into_iter()
+        .map(|b| (b.name, b.verdict))
+        .collect()
     }
 
     fn named(want: &[(&str, Verdict)]) -> Vec<(String, Verdict)> {
@@ -1354,7 +1578,7 @@ mod tests {
     }
 
     fn verdicts_with(entry: &Entry, f: &RepoFacts, sessions: &EntrySessions) -> Vec<Verdict> {
-        classify(entry, f, sessions, Caller::Person)
+        classify(entry, f, sessions, Caller::Person, Refresh::Unasked)
             .branches
             .into_iter()
             .map(|b| b.verdict)
@@ -1431,7 +1655,13 @@ mod tests {
             head: UnprobedHead::Unknown,
             ..unprobed("/ws/app-lost", None, UnprobedWhy::Missing)
         }];
-        let c = classify(&e, &f, &busy_at(&["/ws/app-lost"]), Caller::Person);
+        let c = classify(
+            &e,
+            &f,
+            &busy_at(&["/ws/app-lost"]),
+            Caller::Person,
+            Refresh::Unasked,
+        );
         assert_eq!(
             c.branches
                 .iter()
@@ -1566,7 +1796,7 @@ mod tests {
             "/ws/sealed/app-old",
             "/ws/sealed/app-linked",
         ]);
-        let c = classify(&e, &f, &all, Caller::Person);
+        let c = classify(&e, &f, &all, Caller::Person, Refresh::Unasked);
         let reason = |checkout: &str| NeedsHuman::CheckoutUnresolvable {
             checkout: checkout.into(),
             path: checkout.into(),
@@ -1709,7 +1939,13 @@ mod tests {
             unprobed("/ws/app-old", Some("old"), UnprobedWhy::Prunable),
         ];
         let e = owned(Mode::Follow("main"));
-        let classified = classify(&e, &f, &busy_at(&["/ws/app-busy"]), Caller::Person);
+        let classified = classify(
+            &e,
+            &f,
+            &busy_at(&["/ws/app-busy"]),
+            Caller::Person,
+            Refresh::Unasked,
+        );
         let verdicts: Vec<(String, Verdict)> = classified
             .branches
             .into_iter()
@@ -1896,6 +2132,7 @@ mod tests {
             &f,
             &EntrySessions::idle(),
             Caller::Person,
+            Refresh::Unasked,
         );
         assert_eq!(
             c.needs_human,
@@ -2286,11 +2523,17 @@ mod tests {
         );
         let e = owned(Mode::Follow("main"));
         let reasons = |f: &RepoFacts| {
-            classify(&e, f, &EntrySessions::idle(), Caller::Person)
-                .needs_human
-                .into_iter()
-                .filter(|r| matches!(r, NeedsHuman::PushUrlMismatch { .. }))
-                .collect::<Vec<_>>()
+            classify(
+                &e,
+                f,
+                &EntrySessions::idle(),
+                Caller::Person,
+                Refresh::Unasked,
+            )
+            .needs_human
+            .into_iter()
+            .filter(|r| matches!(r, NeedsHuman::PushUrlMismatch { .. }))
+            .collect::<Vec<_>>()
         };
         // the registry's repo over SSH, however spelled
         for url in [
@@ -2375,7 +2618,7 @@ mod tests {
         );
         let e = owned(Mode::Follow("main"));
         let agent = |f: &RepoFacts, sessions: &EntrySessions| -> Vec<Verdict> {
-            classify(&e, f, sessions, Caller::Agent)
+            classify(&e, f, sessions, Caller::Agent, Refresh::Unasked)
                 .branches
                 .into_iter()
                 .map(|b| b.verdict)
@@ -2466,6 +2709,526 @@ mod tests {
     }
 
     #[test]
+    fn a_refresh_is_asked_of_third_party_references_and_refused_by_pins() {
+        use RefreshVerdict::{Act, Held};
+        let refused = Some(Held { by: HeldBy::Pinned });
+        // (entry, unasked, named, --references)
+        let table = [
+            (owned(Mode::Follow("main")), None, None, None),
+            (owned(Mode::PinnedOn("fork")), None, refused, None),
+            (third_party(Mode::Head), None, Some(Act), Some(Act)),
+            (third_party(Mode::Pinned), None, refused, None),
+        ];
+        for (e, unasked, named, references) in table {
+            // its origin the registry's repo, the verdict is the intent
+            let config = ConfigFacts {
+                origin_urls: vec![OriginUrl::repo(&e.remote_url())],
+                origin_keys: OriginKeys::InRepo,
+                origin_fetch_url: Some(e.remote_url()),
+                ..ConfigFacts::default()
+            };
+            for (refresh, want) in [
+                (Refresh::Unasked, unasked),
+                (Refresh::Named, named),
+                (Refresh::References, references),
+            ] {
+                assert_eq!(refresh_intent(&e, refresh), want, "{e:?} {refresh:?}");
+                assert_eq!(
+                    refresh_verdict(&e, refresh, &config),
+                    want,
+                    "{e:?} {refresh:?}"
+                );
+            }
+        }
+    }
+
+    /// A refresh of a repo whose origin isn't the registry's repo is held
+    /// for its origin drift, never fetched: another URL (an SSH fork, an
+    /// HTTPS fork), an origin with no URL, or none. A pin named stays
+    /// refused by its pin; an owned entry is never refreshed.
+    #[test]
+    fn a_refresh_with_origin_drift_is_held() {
+        use RefreshVerdict::{Act, Held};
+        let drifted = Some(Held { by: HeldBy::Entry });
+        let with_origin = |url: Option<&str>| ConfigFacts {
+            origin_urls: url.map(OriginUrl::repo).into_iter().collect(),
+            origin_keys: if url.is_some() {
+                OriginKeys::InRepo
+            } else {
+                OriginKeys::None
+            },
+            origin_fetch_url: url.map(str::to_owned),
+            ..ConfigFacts::default()
+        };
+        let lib = third_party(Mode::Head);
+        for refresh in [Refresh::Named, Refresh::References] {
+            for (origin, want) in [
+                (Some("https://github.com/them/lib"), Some(Act)),
+                (Some("https://github.com/Them/lib.git/"), Some(Act)),
+                // the same repo over SSH, spelled otherwise: no drift, but
+                // not the HTTPS a reference is fetched over
+                (
+                    Some("git@github.com:Them/lib.git"),
+                    Some(Held {
+                        by: HeldBy::OriginNotHttps,
+                    }),
+                ),
+                (Some("git@github.com:me/lib"), drifted),
+                (Some("https://github.com/me/lib"), drifted),
+                (Some("https://github.com/them/lib2"), drifted),
+                (None, drifted),
+            ] {
+                assert_eq!(
+                    refresh_verdict(&lib, refresh, &with_origin(origin)),
+                    want,
+                    "{origin:?} {refresh:?}"
+                );
+            }
+            let mut no_url = with_origin(None);
+            no_url.origin_keys = OriginKeys::InRepo;
+            assert_eq!(refresh_verdict(&lib, refresh, &no_url), drifted);
+            assert_eq!(
+                refresh_verdict(&lib, Refresh::Unasked, &with_origin(None)),
+                None
+            );
+        }
+        let fork = with_origin(Some("git@github.com:me/lib"));
+        assert_eq!(
+            refresh_verdict(&third_party(Mode::Pinned), Refresh::Named, &fork),
+            Some(Held { by: HeldBy::Pinned })
+        );
+        assert_eq!(
+            refresh_verdict(&owned(Mode::Follow("main")), Refresh::Named, &fork),
+            None
+        );
+    }
+
+    /// A refresh whose fetch wouldn't reach the registry's repo over HTTPS
+    /// — its origin the repo over SSH, `http://`, or `git://`, or an
+    /// `insteadOf` rewrite of its HTTPS origin, or a fetch URL never read —
+    /// is held for it, with its own reason, and tracks no branch. Its fix
+    /// points origin at the HTTPS URL, unless a rewrite makes the URL.
+    #[test]
+    fn a_refresh_not_over_https_is_held() {
+        let held = Some(RefreshVerdict::Held {
+            by: HeldBy::OriginNotHttps,
+        });
+        let lib = third_party(Mode::Head);
+        let https = "https://github.com/them/lib";
+        let cases: [(&str, Option<&str>, Option<OriginFix>); 6] = [
+            (
+                "git@github.com:them/lib",
+                Some("git@github.com:them/lib"),
+                Some(OriginFix::SetUrl),
+            ),
+            (
+                "ssh://git@github.com/them/lib",
+                Some("ssh://git@github.com/them/lib"),
+                Some(OriginFix::SetUrl),
+            ),
+            (
+                "http://github.com/them/lib",
+                Some("http://github.com/them/lib"),
+                Some(OriginFix::SetUrl),
+            ),
+            (
+                "git://github.com/them/lib",
+                Some("git://github.com/them/lib"),
+                Some(OriginFix::SetUrl),
+            ),
+            // `url.git@github.com:.insteadOf=https://github.com/`
+            (https, Some("git@github.com:them/lib"), None),
+            // a rewrite to another host's HTTPS
+            (https, Some("https://mirror.example/them/lib"), None),
+        ];
+        for (origin, fetch_url, fix) in cases {
+            let mut f = lib_facts(on("main"), &[b("main", O, true, Track::Behind(3))]);
+            f.config.origin_urls = vec![OriginUrl::repo(origin)];
+            f.config.origin_fetch_url = fetch_url.map(str::to_owned);
+            for refresh in [Refresh::Named, Refresh::References] {
+                assert_eq!(refresh_verdict(&lib, refresh, &f.config), held, "{origin}");
+                let c = classify(&lib, &f, &EntrySessions::idle(), Caller::Person, refresh);
+                assert!(c.branches.is_empty(), "{:?}", c.branches);
+                assert_eq!(
+                    c.needs_human,
+                    [NeedsHuman::OriginNotHttps {
+                        fetch_url: fetch_url.unwrap().to_owned(),
+                        expected: https.to_owned(),
+                        fix: fix.clone(),
+                    }],
+                    "{origin}"
+                );
+            }
+            // unasked: nothing said of it
+            let c = classify(
+                &lib,
+                &f,
+                &EntrySessions::idle(),
+                Caller::Person,
+                Refresh::Unasked,
+            );
+            assert!(c.needs_human.is_empty(), "{:?}", c.needs_human);
+        }
+        // a fetch URL never read: held, failing closed
+        let mut unread = lib_facts(on("main"), &[]);
+        unread.config.origin_fetch_url = None;
+        assert_eq!(refresh_verdict(&lib, Refresh::Named, &unread.config), held);
+        // a pin named keeps its pin's refusal; origin drift says drift first
+        let mut f = lib_facts(on("main"), &[]);
+        f.config.origin_fetch_url = Some("git@github.com:them/lib".into());
+        assert_eq!(
+            refresh_verdict(&third_party(Mode::Pinned), Refresh::Named, &f.config),
+            Some(RefreshVerdict::Held { by: HeldBy::Pinned })
+        );
+        f.config.origin_urls = vec![OriginUrl::repo("git@github.com:me/lib")];
+        f.config.origin_fetch_url = Some("git@github.com:me/lib".into());
+        assert_eq!(
+            refresh_verdict(&lib, Refresh::Named, &f.config),
+            Some(RefreshVerdict::Held { by: HeldBy::Entry })
+        );
+        let c = classify(
+            &lib,
+            &f,
+            &EntrySessions::idle(),
+            Caller::Person,
+            Refresh::Named,
+        );
+        assert!(
+            matches!(c.needs_human[..], [NeedsHuman::OriginMismatch { .. }]),
+            "{:?}",
+            c.needs_human
+        );
+    }
+
+    /// A drifted refresh compares no branch against origin: only local
+    /// work is said, as for a reference no run asks about, and the drift
+    /// is the entry's reason.
+    #[test]
+    fn a_drifted_refresh_tracks_no_branch() {
+        let mut f = lib_facts(
+            on("main"),
+            &[
+                b("main", O, true, Track::Behind(3)),
+                b("audit", None, false, Track::Even).unique(1),
+            ],
+        );
+        f.config.origin_urls = vec![OriginUrl::repo("git@github.com:me/lib")];
+        let c = classify(
+            &third_party(Mode::Head),
+            &f,
+            &EntrySessions::idle(),
+            Caller::Person,
+            Refresh::Named,
+        );
+        let names: Vec<(&str, Relation)> = c
+            .branches
+            .iter()
+            .map(|b| (b.name.as_str(), b.relation))
+            .collect();
+        assert_eq!(names, [("audit", Relation::Untracked)]);
+        assert!(matches!(
+            c.needs_human[..],
+            [NeedsHuman::OriginMismatch { .. }]
+        ));
+    }
+
+    /// A third-party reference's facts, its origin the registry's URL.
+    fn lib_facts(head: Head, branches: &[B<'_>]) -> RepoFacts {
+        let mut f = facts(head, branches);
+        f.config.origin_urls = vec![OriginUrl::repo("https://github.com/them/lib")];
+        f.config.origin_fetch_url = Some("https://github.com/them/lib".into());
+        // never read for a third-party reference
+        f.push_urls = None;
+        f
+    }
+
+    #[test]
+    fn a_refreshed_reference_is_compared_against_origin_and_never_pushed() {
+        let mut f = lib_facts(
+            on("main"),
+            &[
+                b("main", O, true, Track::Behind(3)),
+                b("feat", O, true, Track::Behind(1)),
+                // commits on no remote: local work
+                b("audit", O, true, Track::Ahead(2)).unique(2),
+                // ahead of origin, its commits on another remote already
+                b("mirror", O, true, Track::Ahead(1)),
+                b(
+                    "arc",
+                    O,
+                    true,
+                    Track::Diverged {
+                        ahead: 1,
+                        behind: 1,
+                    },
+                )
+                .unique(1),
+                b("even", O, true, Track::Even),
+            ],
+        );
+        let lib = third_party(Mode::Head);
+        let refreshed = |f: &RepoFacts, refresh| {
+            classify(&lib, f, &EntrySessions::idle(), Caller::Person, refresh)
+        };
+        for refresh in [Refresh::Named, Refresh::References] {
+            let c = refreshed(&f, refresh);
+            assert!(c.needs_human.is_empty(), "{:?}", c.needs_human);
+            let got: Vec<_> = c
+                .branches
+                .into_iter()
+                .map(|b| (b.name, b.verdict))
+                .collect();
+            assert_eq!(
+                got,
+                named(&[
+                    ("main", act(SyncAction::FastForward { commits: 3 })),
+                    ("feat", act(SyncAction::FastForward { commits: 1 })),
+                    ("audit", Verdict::LocalOnly),
+                    ("mirror", Verdict::Quiet),
+                    ("arc", needs(BranchNeedsHuman::Diverged)),
+                    ("even", Verdict::Quiet),
+                ]),
+                "{refresh:?}"
+            );
+        }
+        // an agent runs it: nothing to hold for the gateway, nothing pushed
+        let c = classify(
+            &lib,
+            &f,
+            &EntrySessions::idle(),
+            Caller::Agent,
+            Refresh::Named,
+        );
+        assert!(c.branches.iter().all(|b| !matches!(
+            b.verdict,
+            Verdict::Act {
+                action: SyncAction::Push { .. }
+            } | Verdict::Held {
+                action: SyncAction::Push { .. },
+                ..
+            }
+        )));
+        // a dirty checkout holds the branch it's on, not the others
+        f.status.uncommitted.untracked = 1;
+        let c = refreshed(&f, Refresh::Named);
+        assert_eq!(
+            c.branches[0].verdict,
+            Verdict::Held {
+                action: SyncAction::FastForward { commits: 3 },
+                by: HeldBy::DirtyCheckout,
+            }
+        );
+        assert_eq!(
+            c.branches[1].verdict,
+            act(SyncAction::FastForward { commits: 1 })
+        );
+        // unasked: local work alone, compared against nothing
+        f.status.uncommitted.untracked = 0;
+        let c = refreshed(&f, Refresh::Unasked);
+        let got: Vec<_> = c
+            .branches
+            .into_iter()
+            .map(|b| (b.name, b.relation, b.verdict))
+            .collect();
+        assert_eq!(
+            got,
+            [
+                ("audit".to_owned(), Relation::Untracked, Verdict::LocalOnly),
+                ("arc".to_owned(), Relation::Untracked, Verdict::LocalOnly),
+            ]
+        );
+        // a pin named keeps its pin's verdicts
+        let pinned = third_party(Mode::Pinned);
+        assert_eq!(
+            verdicts(&pinned, &f),
+            classify(
+                &pinned,
+                &f,
+                &EntrySessions::idle(),
+                Caller::Person,
+                Refresh::Named
+            )
+            .branches
+            .into_iter()
+            .map(|b| (b.name, b.verdict))
+            .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn a_refreshed_shallow_reference_moves_when_nothing_local_is_at_stake() {
+        let mut f = lib_facts(
+            on("main"),
+            &[
+                b(
+                    "main",
+                    O,
+                    true,
+                    Track::Diverged {
+                        ahead: 1,
+                        behind: 1,
+                    },
+                ),
+                b("tip", O, true, Track::Ahead(1)).unique(1).on_tip(),
+                b(
+                    "stranded",
+                    O,
+                    true,
+                    Track::Diverged {
+                        ahead: 2,
+                        behind: 1,
+                    },
+                )
+                .unique(1),
+            ],
+        );
+        f.layout.shallow = true;
+        let c = classify(
+            &third_party(Mode::Head),
+            &f,
+            &EntrySessions::idle(),
+            Caller::Person,
+            Refresh::Named,
+        );
+        let got: Vec<_> = c
+            .branches
+            .into_iter()
+            .map(|b| (b.name, b.verdict))
+            .collect();
+        assert_eq!(
+            got,
+            named(&[
+                ("main", act(SyncAction::Move)),
+                // on the fetched tip, but never pushed
+                ("tip", Verdict::LocalOnly),
+                ("stranded", needs(BranchNeedsHuman::ShallowLocalWork)),
+            ])
+        );
+    }
+
+    #[test]
+    fn a_missing_entry_cloned_under_another_name_is_held() {
+        let stray = |dir: &str, origin: Option<&str>, kind| UnregisteredClone {
+            dir: dir.into(),
+            origin: origin.map(str::to_owned),
+            owned: true,
+            kind,
+        };
+        let e = owned(Mode::Follow("main"));
+        let recipe = clone_recipe(&e);
+        let held = |dirs: &[&str]| ClassifiedMissing {
+            clone: CloneVerdict::Held {
+                recipe: recipe.clone(),
+                by: HeldBy::Entry,
+            },
+            needs_human: dirs
+                .iter()
+                .map(|d| NeedsHuman::ClonedUnregistered {
+                    dir: (*d).to_owned(),
+                })
+                .collect(),
+        };
+        // its repo by any of git's spellings, a credential redacted
+        for origin in [
+            "git@github.com:me/app",
+            "ssh://git@github.com/me/app.git",
+            "https://github.com/Me/App/",
+            "https://***@github.com/me/app",
+        ] {
+            let found = [stray("app-old", Some(origin), UnregisteredKind::Clone)];
+            assert_eq!(
+                classify_missing(&e, false, false, &found),
+                held(&["app-old"]),
+                "{origin}"
+            );
+        }
+        // each dir that clones it, a worktree of an unregistered clone too,
+        // named before a session at the path
+        let found = [
+            stray("a", Some("git@github.com:me/app"), UnregisteredKind::Clone),
+            stray(
+                "b",
+                Some("git@github.com:me/app"),
+                UnregisteredKind::Worktree,
+            ),
+        ];
+        assert_eq!(classify_missing(&e, true, false, &found), held(&["a", "b"]));
+        // another repo, no origin, or the tool's own temp dir: nothing
+        let unrelated = [
+            stray("x", Some("git@github.com:me/apps"), UnregisteredKind::Clone),
+            stray("y", Some("git@evil.com:me/app"), UnregisteredKind::Clone),
+            stray("z", None, UnregisteredKind::Clone),
+            stray(
+                ".app.repos-clone-1-0123456789abcdef",
+                Some("git@github.com:me/app"),
+                UnregisteredKind::UnfinishedClone,
+            ),
+        ];
+        assert_eq!(
+            classify_missing(&e, false, false, &unrelated),
+            ClassifiedMissing {
+                clone: CloneVerdict::Act { recipe },
+                needs_human: vec![],
+            }
+        );
+        assert!(NeedsHuman::ClonedUnregistered { dir: "a".into() }.holds_entry());
+    }
+
+    /// A rename differing only in ASCII case and `-` against `_` holds the
+    /// clone; any other name, account, or host doesn't — nor is it origin
+    /// drift's or a push URL's match, which stay exact.
+    #[test]
+    fn a_missing_entry_cloned_under_its_renamed_name_is_held() {
+        let e = Entry {
+            url: url("https://github.com/me/vscode-extension-tsv-format"),
+            ..owned(Mode::Follow("main"))
+        };
+        let stray = |origin: &str| UnregisteredClone {
+            dir: "old".into(),
+            origin: Some(origin.to_owned()),
+            owned: true,
+            kind: UnregisteredKind::Clone,
+        };
+        for origin in [
+            "git@github.com:me/vscode_extension_tsv_format",
+            "https://github.com/ME/VSCode_Extension-TSV_Format.git",
+            "git@github.com:me/vscode-extension-tsv-format",
+        ] {
+            let c = classify_missing(&e, false, false, &[stray(origin)]);
+            assert_eq!(
+                c.needs_human,
+                [NeedsHuman::ClonedUnregistered { dir: "old".into() }],
+                "{origin}"
+            );
+            assert!(
+                matches!(
+                    c.clone,
+                    CloneVerdict::Held {
+                        by: HeldBy::Entry,
+                        ..
+                    }
+                ),
+                "{origin}"
+            );
+        }
+        for origin in [
+            "git@github.com:me/vscode.extension.tsv.format",
+            "git@github.com:me/vscode-extension-tsv-formats",
+            "git@github.com:me/vscodeextensiontsvformat",
+            "git@github.com:you/vscode_extension_tsv_format",
+            "git@gitlab.com:me/vscode_extension_tsv_format",
+            "ssh://git@github.com:22/me/vscode_extension_tsv_format",
+        ] {
+            let c = classify_missing(&e, false, false, &[stray(origin)]);
+            assert!(c.needs_human.is_empty(), "{origin}: {:?}", c.needs_human);
+            assert!(matches!(c.clone, CloneVerdict::Act { .. }), "{origin}");
+        }
+        let renamed = "git@github.com:me/vscode_extension_tsv_format";
+        assert!(!origin_matches(renamed, &e.url));
+        assert!(!push_urls_match(&[renamed.to_owned()], &e.url));
+    }
+
+    #[test]
     fn a_missing_entry_is_cloned_by_its_recipe() {
         let act = |recipe| CloneVerdict::Act { recipe };
         // owned: over SSH, on its branch
@@ -2476,7 +3239,7 @@ mod tests {
             sparse: None,
         };
         assert_eq!(
-            classify_missing(&owned(Mode::Follow("main")), false, false).clone,
+            classify_missing(&owned(Mode::Follow("main")), false, false, &[]).clone,
             act(owned_recipe.clone())
         );
         // third-party: over HTTPS, shallow and sparse as declared, the
@@ -2487,7 +3250,7 @@ mod tests {
             ..third_party(Mode::Head)
         };
         assert_eq!(
-            classify_missing(&lib, false, false).clone,
+            classify_missing(&lib, false, false, &[]).clone,
             act(CloneRecipe {
                 url: "https://github.com/them/lib".into(),
                 branch: None,
@@ -2505,7 +3268,7 @@ mod tests {
         ] {
             assert!(
                 matches!(
-                    classify_missing(&e, false, false).clone,
+                    classify_missing(&e, false, false, &[]).clone,
                     CloneVerdict::Act { .. }
                 ),
                 "{e:?}"
@@ -2519,7 +3282,7 @@ mod tests {
             (false, true, HeldBy::UnprobedWorktree),
         ] {
             assert_eq!(
-                classify_missing(&e, busy, recorded),
+                classify_missing(&e, busy, recorded, &[]),
                 ClassifiedMissing {
                     clone: CloneVerdict::Held {
                         recipe: owned_recipe.clone(),
@@ -2537,7 +3300,7 @@ mod tests {
         };
         for (busy, recorded) in [(false, false), (true, false), (false, true), (true, true)] {
             assert_eq!(
-                classify_missing(&shared, busy, recorded),
+                classify_missing(&shared, busy, recorded, &[]),
                 ClassifiedMissing {
                     clone: CloneVerdict::Held {
                         recipe: owned_recipe.clone(),
@@ -2710,6 +3473,7 @@ mod tests {
             &f,
             &EntrySessions::idle(),
             Caller::Person,
+            Refresh::Unasked,
         );
         assert_eq!(c.branches.len(), 1);
         assert_eq!(c.branches[0].name, "tsv-format-audit");
@@ -2729,14 +3493,28 @@ mod tests {
         let e = owned(Mode::Follow("main"));
         let missing = facts(on("dev"), &[b("dev", O, true, Track::Even)]);
         assert_eq!(
-            classify(&e, &missing, &EntrySessions::idle(), Caller::Person).needs_human,
+            classify(
+                &e,
+                &missing,
+                &EntrySessions::idle(),
+                Caller::Person,
+                Refresh::Unasked
+            )
+            .needs_human,
             [NeedsHuman::DefaultBranchMissing {
                 branch: "main".into()
             }]
         );
         let no_upstream = facts(on("main"), &[b("main", None, false, Track::Even)]);
         assert_eq!(
-            classify(&e, &no_upstream, &EntrySessions::idle(), Caller::Person).needs_human,
+            classify(
+                &e,
+                &no_upstream,
+                &EntrySessions::idle(),
+                Caller::Person,
+                Refresh::Unasked
+            )
+            .needs_human,
             [NeedsHuman::DefaultBranchNoUpstream {
                 branch: "main".into()
             }]
@@ -2746,7 +3524,14 @@ mod tests {
             &[b("main", Some("upstream"), true, Track::Even)],
         );
         assert_eq!(
-            classify(&e, &other_remote, &EntrySessions::idle(), Caller::Person).needs_human,
+            classify(
+                &e,
+                &other_remote,
+                &EntrySessions::idle(),
+                Caller::Person,
+                Refresh::Unasked
+            )
+            .needs_human,
             [NeedsHuman::DefaultBranchNoUpstream {
                 branch: "main".into()
             }]
@@ -2754,9 +3539,15 @@ mod tests {
         // unmapped is a branch-level reason, not a missing upstream
         let unmapped = facts(on("main"), &[b("main", O, false, Track::Even)]);
         assert!(
-            classify(&e, &unmapped, &EntrySessions::idle(), Caller::Person)
-                .needs_human
-                .is_empty()
+            classify(
+                &e,
+                &unmapped,
+                &EntrySessions::idle(),
+                Caller::Person,
+                Refresh::Unasked
+            )
+            .needs_human
+            .is_empty()
         );
         let detached = facts(
             Head::Detached {
@@ -2765,7 +3556,14 @@ mod tests {
             &[b("main", O, true, Track::Even)],
         );
         assert_eq!(
-            classify(&e, &detached, &EntrySessions::idle(), Caller::Person).needs_human,
+            classify(
+                &e,
+                &detached,
+                &EntrySessions::idle(),
+                Caller::Person,
+                Refresh::Unasked
+            )
+            .needs_human,
             [NeedsHuman::UnexpectedDetached {
                 checkout: "/ws/app".into()
             }]
@@ -2779,9 +3577,15 @@ mod tests {
             ],
         );
         assert!(
-            classify(&e, &feature, &EntrySessions::idle(), Caller::Person)
-                .needs_human
-                .is_empty()
+            classify(
+                &e,
+                &feature,
+                &EntrySessions::idle(),
+                Caller::Person,
+                Refresh::Unasked
+            )
+            .needs_human
+            .is_empty()
         );
     }
 
@@ -2800,20 +3604,38 @@ mod tests {
         // to say
         for f in [&detached, &on_main] {
             assert!(
-                classify(&pinned, f, &EntrySessions::idle(), Caller::Person)
-                    .needs_human
-                    .is_empty()
+                classify(
+                    &pinned,
+                    f,
+                    &EntrySessions::idle(),
+                    Caller::Person,
+                    Refresh::Unasked
+                )
+                .needs_human
+                .is_empty()
             );
         }
         assert!(
-            classify(&head, &detached, &EntrySessions::idle(), Caller::Person)
-                .needs_human
-                .is_empty()
+            classify(
+                &head,
+                &detached,
+                &EntrySessions::idle(),
+                Caller::Person,
+                Refresh::Unasked
+            )
+            .needs_human
+            .is_empty()
         );
         assert!(
-            classify(&head, &on_main, &EntrySessions::idle(), Caller::Person)
-                .needs_human
-                .is_empty()
+            classify(
+                &head,
+                &on_main,
+                &EntrySessions::idle(),
+                Caller::Person,
+                Refresh::Unasked
+            )
+            .needs_human
+            .is_empty()
         );
     }
 
@@ -2821,7 +3643,14 @@ mod tests {
     fn a_pin_on_its_branch_expects_nothing_of_it() {
         let pinned = owned(Mode::PinnedOn("fork"));
         let reasons = |f: &RepoFacts| {
-            classify(&pinned, f, &EntrySessions::idle(), Caller::Person).needs_human
+            classify(
+                &pinned,
+                f,
+                &EntrySessions::idle(),
+                Caller::Person,
+                Refresh::Unasked,
+            )
+            .needs_human
         };
         // on its branch, behind a stale remote-tracking ref: held, not
         // reported
@@ -2853,7 +3682,14 @@ mod tests {
         // the same branch, followed rather than pinned, has all three
         let followed = owned(Mode::Follow("fork"));
         let followed_reasons = |f: &RepoFacts| {
-            classify(&followed, f, &EntrySessions::idle(), Caller::Person).needs_human
+            classify(
+                &followed,
+                f,
+                &EntrySessions::idle(),
+                Caller::Person,
+                Refresh::Unasked,
+            )
+            .needs_human
         };
         assert!(matches!(
             followed_reasons(&detached)[..],
@@ -2910,6 +3746,7 @@ mod tests {
                 &f,
                 &EntrySessions::idle(),
                 Caller::Person,
+                Refresh::Unasked,
             );
             assert!(c.needs_human.is_empty());
             assert_eq!(
@@ -3082,7 +3919,7 @@ mod tests {
         );
         // an entry-level reason stays on the entry, the pin still named
         f.in_progress = Some(InProgressOp::Merge);
-        let c = classify(&pinned, &f, &busy, Caller::Person);
+        let c = classify(&pinned, &f, &busy, Caller::Person, Refresh::Unasked);
         assert!(matches!(
             c.needs_human[..],
             [NeedsHuman::OperationInProgress { .. }]
@@ -3107,7 +3944,8 @@ mod tests {
                 &owned(Mode::Follow("main")),
                 &f,
                 &EntrySessions::idle(),
-                Caller::Person
+                Caller::Person,
+                Refresh::Unasked
             )
             .needs_human,
             [
@@ -3129,7 +3967,8 @@ mod tests {
                 &owned(Mode::Follow("main")),
                 &f,
                 &EntrySessions::idle(),
-                Caller::Person
+                Caller::Person,
+                Refresh::Unasked
             )
             .needs_human
             .contains(&NeedsHuman::OriginMismatch {
@@ -3148,6 +3987,7 @@ mod tests {
                 f,
                 &EntrySessions::idle(),
                 Caller::Person,
+                Refresh::Unasked,
             )
             .needs_human
             .into_iter()
@@ -3186,6 +4026,7 @@ mod tests {
                 f,
                 &EntrySessions::idle(),
                 Caller::Person,
+                Refresh::Unasked,
             )
             .needs_human
             .into_iter()
@@ -3298,7 +4139,8 @@ mod tests {
                     &owned(Mode::Follow("main")),
                     &f,
                     &EntrySessions::idle(),
-                    Caller::Person
+                    Caller::Person,
+                    Refresh::Unasked
                 )
                 .needs_human,
                 [NeedsHuman::OperationInProgress {
@@ -3321,7 +4163,8 @@ mod tests {
                     &owned(Mode::Follow("main")),
                     &f,
                     &EntrySessions::idle(),
-                    Caller::Person
+                    Caller::Person,
+                    Refresh::Unasked
                 )
                 .needs_human,
                 [
@@ -3349,6 +4192,7 @@ mod tests {
                 f,
                 &EntrySessions::idle(),
                 Caller::Person,
+                Refresh::Unasked,
             )
             .branches[0]
                 .verdict
@@ -3394,6 +4238,7 @@ mod tests {
             &f,
             &EntrySessions::idle(),
             Caller::Person,
+            Refresh::Unasked,
         );
         assert_eq!(
             c.needs_human,
@@ -3445,9 +4290,15 @@ mod tests {
             },
         )];
         assert!(
-            classify(&e, &f, &EntrySessions::idle(), Caller::Person)
-                .needs_human
-                .is_empty()
+            classify(
+                &e,
+                &f,
+                &EntrySessions::idle(),
+                Caller::Person,
+                Refresh::Unasked
+            )
+            .needs_human
+            .is_empty()
         );
 
         // a rebase in a linked worktree doesn't explain the primary's detach
@@ -3456,7 +4307,14 @@ mod tests {
         };
         f.worktrees[0].in_progress = Some(InProgressOp::Rebase);
         assert_eq!(
-            classify(&e, &f, &EntrySessions::idle(), Caller::Person).needs_human,
+            classify(
+                &e,
+                &f,
+                &EntrySessions::idle(),
+                Caller::Person,
+                Refresh::Unasked
+            )
+            .needs_human,
             [
                 NeedsHuman::OperationInProgress {
                     checkout: "/ws/app-detached".into(),

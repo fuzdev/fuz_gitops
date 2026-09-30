@@ -19,6 +19,11 @@ pub enum Error {
     /// No subcommand, and no flag that runs without one.
     #[error("a subcommand is required")]
     MissingCommand,
+    /// `--references` with targets: a run naming entries refreshes the
+    /// references among them already, and `--references` asks for every
+    /// one, so together they'd say two things.
+    #[error("--references takes no targets")]
+    ReferencesWithTargets,
     /// `--root` names no directory.
     #[error("no workspace root at {}", root.display())]
     RootNotFound { root: PathBuf },
@@ -71,6 +76,7 @@ impl Error {
     pub const fn exit_code(&self) -> u8 {
         match self {
             Self::MissingCommand
+            | Self::ReferencesWithTargets
             | Self::RootNotFound { .. }
             | Self::RegistryNotFound { .. }
             | Self::RegistryRead { .. }
@@ -87,6 +93,10 @@ impl Error {
     pub fn hint(&self) -> Option<Cow<'static, str>> {
         let hint = match self {
             Self::MissingCommand => "see `repos --help`",
+            Self::ReferencesWithTargets => {
+                "name the references to refresh just those, or pass --references alone to \
+                 refresh every one"
+            }
             Self::RootNotFound { .. } => "`--root` names the dir the entries live under",
             Self::RegistryNotFound { .. } => {
                 "run inside the workspace or a checkout of one of its repos, or pass \
@@ -133,6 +143,7 @@ impl Error {
     pub fn kind(&self) -> ErrorKind {
         match self {
             Self::MissingCommand => ErrorKind::MissingCommand,
+            Self::ReferencesWithTargets => ErrorKind::ReferencesWithTargets,
             Self::RootNotFound { .. } => ErrorKind::RootNotFound,
             Self::RegistryNotFound { .. } => ErrorKind::RegistryNotFound,
             Self::RegistryRead { .. } => ErrorKind::RegistryRead,
@@ -163,6 +174,7 @@ impl Error {
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum ErrorKind {
     MissingCommand,
+    ReferencesWithTargets,
     RootNotFound,
     RegistryNotFound,
     RegistryRead,
@@ -205,6 +217,7 @@ mod tests {
     fn exit_codes_by_remediation() {
         let caller_fixes = [
             Error::MissingCommand,
+            Error::ReferencesWithTargets,
             Error::RootNotFound {
                 root: PathBuf::from("/x"),
             },
@@ -316,6 +329,10 @@ mod tests {
                 required: crate::git::MIN_GIT_VERSION,
             }),
             serde_json::json!({"kind": "git_too_old", "found": "2.40.0", "required": "2.44.0"})
+        );
+        assert_eq!(
+            json(&Error::ReferencesWithTargets),
+            serde_json::json!({"kind": "references_with_targets"})
         );
         let io = Error::Io {
             context: "failed to list".into(),

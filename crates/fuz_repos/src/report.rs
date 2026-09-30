@@ -9,8 +9,8 @@ use crate::error::{Error, ErrorKind};
 use crate::registry::{EntryKind, Visibility};
 use crate::remote::{RemoteFailure, VisibilityCheck};
 use crate::state::{
-    BranchNeedsHuman, BranchStatus, Checkout, CloneVerdict, HeldBy, Layout, Presence, SyncAction,
-    UnprobedWorktreeStatus,
+    BranchNeedsHuman, BranchStatus, Checkout, CloneVerdict, HeldBy, Layout, Presence,
+    RefreshVerdict, SyncAction, UnprobedWorktreeStatus,
 };
 use crate::{STATUS_FORMAT_VERSION, SYNC_FORMAT_VERSION};
 
@@ -26,9 +26,10 @@ pub struct StatusReport {
     /// Whether the run was asked to fetch (`--fetch`) — not whether any
     /// fetch succeeded, or ran at all: true even when every fetch failed, or
     /// no entry was one `--fetch` fetches. Each entry's `fetch_error` says
-    /// how its own fetch went; entries `--fetch` passes over (third-party,
-    /// pinned, or with no `origin` URL) weren't fetched either way. The
-    /// visibility check ran exactly when this is true.
+    /// how its own fetch went; entries `--fetch` passes over (pinned, a
+    /// third-party reference the run doesn't refresh, or with no `origin`
+    /// URL) weren't fetched either way. The visibility check ran exactly
+    /// when this is true.
     pub fetched: bool,
     /// Busy detection: the live Claude Code sessions in no checkout, or why
     /// they couldn't be vouched for (every push, fast-forward, and move is
@@ -37,7 +38,8 @@ pub struct StatusReport {
     pub entries: Vec<EntryStatus>,
     /// The workspace root's children holding a `.git` that no registry
     /// entry claims, by dir name; `None` when the scan didn't run (it runs
-    /// only when no targets are given).
+    /// only when no targets are given). A missing entry whose repo one of
+    /// them clones is held (`cloned_unregistered`) only when it ran.
     pub unregistered: Option<Vec<UnregisteredClone>>,
 }
 
@@ -196,6 +198,15 @@ pub struct EntryStatus {
     /// Its consumer moves HEAD, never the tool: never fetched, and every
     /// fast-forward and move in it `HeldBy::Pinned`.
     pub pinned: bool,
+    /// What the run does about refreshing it, when it was asked to — named
+    /// as a target, or under `--references` (`refresh_verdict`): a
+    /// third-party reference refreshed (fetched, and its branches compared
+    /// against origin as an owned repo's are), or a pin refused, or one
+    /// whose origin isn't the registry's repo held (`HeldBy::Entry`), or
+    /// whose fetch wouldn't reach it over HTTPS (`HeldBy::OriginNotHttps`).
+    /// `None` when the run didn't ask, for an owned entry that isn't pinned
+    /// (synced either way), and when no repo is at the entry's dir.
+    pub refresh: Option<RefreshVerdict>,
     pub presence: Presence,
     /// What sync does about a missing dir — clone it, or why not yet
     /// (`classify_missing`); `Some` exactly when `presence` is missing.
@@ -303,9 +314,10 @@ pub struct SyncReport {
     pub version: u32,
     /// What sync acted on: a `status --fetch` report of the state its fetch
     /// left (so `fetched` is true), each branch's verdict classified with
-    /// the live sessions read after the fetch. The unregistered scan
-    /// doesn't run (`unregistered` is `null`). Parsed with the status
-    /// report's own schema: its `version` is `STATUS_FORMAT_VERSION`.
+    /// the live sessions read after the fetch. The unregistered scan runs
+    /// before the fetch, as `status`'s does, and is reported only without
+    /// targets (`unregistered` is `null` with them). Parsed with the status report's
+    /// own schema: its `version` is `STATUS_FORMAT_VERSION`.
     pub status: StatusReport,
     /// What sync did, one per `status` entry, in its order.
     pub entries: Vec<EntrySync>,
@@ -383,6 +395,11 @@ impl CloneOutcome {
 }
 
 /// How sync's fetch of an entry went.
+///
+/// A third-party reference's refresh (its status entry's `refresh`
+/// verdict) has no outcome of its own: it's this fetch, then its branches'
+/// outcomes — `fetched`, and each branch fast-forwarded, moved, untouched,
+/// or held, is the reference refreshed.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum FetchOutcome {
@@ -392,9 +409,10 @@ pub enum FetchOutcome {
     Failed {
         failure: RemoteFailure,
     },
-    /// Not attempted: an entry sync doesn't fetch (a third-party reference,
-    /// a pin), a repo that's missing (cloned instead) or isn't one, one whose `origin` has
-    /// no URL, or a probe that failed before its fetch.
+    /// Not attempted: an entry sync doesn't fetch (a third-party reference
+    /// the run doesn't refresh, a pin), a repo that's missing (cloned
+    /// instead) or isn't one, one whose `origin` has no URL, or a probe that
+    /// failed before its fetch.
     NotFetched,
 }
 
@@ -467,6 +485,9 @@ pub enum SyncHold {
     /// as classified, or found when sync re-read the push URLs right before
     /// pushing.
     PushUrl,
+    /// Never in a sync document's outcomes — a held refresh isn't one — but
+    /// named so every `HeldBy` converts.
+    OriginNotHttps,
     FetchFailed,
     /// The checkout the branch is on has uncommitted changes — as
     /// classified, or found when sync came to act.
@@ -499,6 +520,7 @@ impl From<HeldBy> for SyncHold {
             HeldBy::Pinned => Self::Pinned,
             HeldBy::Entry => Self::Entry,
             HeldBy::PushUrl => Self::PushUrl,
+            HeldBy::OriginNotHttps => Self::OriginNotHttps,
             HeldBy::FetchFailed => Self::FetchFailed,
             HeldBy::DirtyCheckout => Self::DirtyCheckout,
             HeldBy::UnprobedWorktree => Self::UnprobedWorktree,

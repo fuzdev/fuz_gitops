@@ -54,6 +54,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
 use std::time::{Duration, SystemTime};
 
+use fuz_repos::classify::Refresh;
 use fuz_repos::clone::CLONE_TIMEOUT;
 use fuz_repos::discover::{REGISTRY_FILE, find_registry};
 use fuz_repos::git::Git;
@@ -173,6 +174,18 @@ fn real_exec_path() -> &'static Path {
         assert!(out.status.success(), "git --exec-path failed");
         PathBuf::from(String::from_utf8(out.stdout).unwrap().trim())
     })
+}
+
+/// How `FixtureWorkspace::sync_full` runs `sync`.
+pub struct SyncRunOptions<'a> {
+    pub caller: Caller,
+    pub jobs: usize,
+    pub read_live: &'a (dyn Fn() -> LiveSessions + Sync),
+    pub clone_timeout: Duration,
+    pub refresh: Refresh,
+    /// Run the unregistered scan first and hand sync its dirs, as a run
+    /// without targets does.
+    pub scanned: bool,
 }
 
 /// A workspace of fixture repos under one tempdir.
@@ -492,6 +505,26 @@ impl FixtureWorkspace {
         self.clone_as(dir, name, &third_party_origin(name), args)
     }
 
+    /// Clones `name` as a third-party reference whose fetches go where
+    /// they would for real, its HTTPS URL, with nothing rewriting them:
+    /// the fixture's `https` serves them once `serve_https` swaps it in,
+    /// and refuses them until then, logging each.
+    pub fn clone_third_party_over_https(&self, dir: &str, name: &str, args: &[&str]) -> PathBuf {
+        let dest = self.dir(dir);
+        let url = self.file_url(name);
+        let mut clone = vec!["clone", "-q"];
+        clone.extend(args);
+        clone.extend([url.as_str(), dest.to_str().unwrap()]);
+        self.git(&self.root(), &clone);
+        let origin = third_party_origin(name);
+        self.git(&dest, &["remote", "set-url", "origin", &origin]);
+        assert_eq!(
+            self.git(&dest, &["ls-remote", "--get-url", "origin"]),
+            origin
+        );
+        dest
+    }
+
     /// Clones `name` into `<root>/<dir>` with `args`, sets `origin` to
     /// `origin`, and routes fetches for it to the bare remote.
     pub fn clone_as(&self, dir: &str, name: &str, origin: &str, args: &[&str]) -> PathBuf {
@@ -655,6 +688,49 @@ impl FixtureWorkspace {
         git: &Git,
         visibility_base: &str,
     ) -> Vec<EntryStatus> {
+        self.status_asked_with(root, fetch, git, visibility_base, Refresh::Unasked, None)
+    }
+
+    /// `status` over every entry, refreshing the references `refresh`
+    /// asks for — `Refresh::Named` as a run naming every entry would.
+    pub fn status_asked(&self, fetch: bool, refresh: Refresh) -> Vec<EntryStatus> {
+        let root = self.root();
+        self.status_asked_with(
+            &root,
+            fetch,
+            &self.runner(),
+            &self.visibility_base(),
+            refresh,
+            None,
+        )
+    }
+
+    /// `status` over every entry, local refs only, after the unregistered
+    /// scan, as a run without targets makes it.
+    pub fn status_scanned(&self) -> Vec<EntryStatus> {
+        let root = self.root();
+        let unregistered = self.unregistered();
+        self.status_asked_with(
+            &root,
+            false,
+            &self.runner(),
+            &self.visibility_base(),
+            Refresh::Unasked,
+            Some(&unregistered),
+        )
+    }
+
+    /// `status_with`, refreshing what `refresh` asks for, with the
+    /// unregistered scan's dirs when it ran.
+    pub fn status_asked_with(
+        &self,
+        root: &Path,
+        fetch: bool,
+        git: &Git,
+        visibility_base: &str,
+        refresh: Refresh,
+        unregistered: Option<&[UnregisteredClone]>,
+    ) -> Vec<EntryStatus> {
         let entries = self.entries();
         let run = status(
             &entries,
@@ -663,6 +739,8 @@ impl FixtureWorkspace {
             git,
             StatusOptions {
                 fetch,
+                refresh,
+                unregistered,
                 jobs: 4,
                 visibility_base: Some(visibility_base),
                 live: &LiveSessions::Known(vec![]),
@@ -688,6 +766,8 @@ impl FixtureWorkspace {
             &self.runner(),
             StatusOptions {
                 fetch: false,
+                refresh: Refresh::Unasked,
+                unregistered: None,
                 jobs: 4,
                 visibility_base: Some(&self.visibility_base()),
                 live,
@@ -720,19 +800,60 @@ impl FixtureWorkspace {
         read_live: &(dyn Fn() -> LiveSessions + Sync),
         clone_timeout: Duration,
     ) -> SyncRun {
+        self.sync_full(&SyncRunOptions {
+            caller,
+            jobs,
+            read_live,
+            clone_timeout,
+            refresh: Refresh::Unasked,
+            scanned: false,
+        })
+    }
+
+    /// `sync` by a person, no live session anywhere, refreshing the
+    /// references `refresh` asks for, with `jobs` in flight.
+    pub fn sync_asked(&self, refresh: Refresh, jobs: usize) -> SyncRun {
+        self.sync_full(&SyncRunOptions {
+            caller: Caller::Person,
+            jobs,
+            read_live: &|| LiveSessions::Known(vec![]),
+            clone_timeout: CLONE_TIMEOUT,
+            refresh,
+            scanned: false,
+        })
+    }
+
+    /// `sync` by a person, no live session anywhere, after the unregistered
+    /// scan, as a run without targets makes it.
+    pub fn sync_scanned(&self) -> SyncRun {
+        self.sync_full(&SyncRunOptions {
+            caller: Caller::Person,
+            jobs: 4,
+            read_live: &|| LiveSessions::Known(vec![]),
+            clone_timeout: CLONE_TIMEOUT,
+            refresh: Refresh::Unasked,
+            scanned: true,
+        })
+    }
+
+    /// `sync` over every entry, as `opts` says.
+    pub fn sync_full(&self, opts: &SyncRunOptions<'_>) -> SyncRun {
         let entries = self.entries();
         let root = self.root();
+        let unregistered = opts.scanned.then(|| self.unregistered());
         sync(
             &entries,
             &RegistryDirs::new(&root, &entries),
             &root,
             &self.runner(),
             SyncOptions {
-                jobs,
+                jobs: opts.jobs,
                 visibility_base: Some(&self.visibility_base()),
-                read_live: &read_live,
-                caller,
-                clone_timeout,
+                read_live: &opts.read_live,
+                caller: opts.caller,
+                clone_timeout: opts.clone_timeout,
+                refresh: opts.refresh,
+                unregistered: unregistered.as_deref(),
             },
         )
     }

@@ -9,7 +9,7 @@ mod support;
 
 use std::path::Path;
 
-use fuz_repos::classify::NeedsHuman;
+use fuz_repos::classify::{NeedsHuman, Refresh};
 use fuz_repos::probe::RegistryDirs;
 use fuz_repos::sessions::{Caller, LiveSessions};
 use fuz_repos::state::{
@@ -671,6 +671,8 @@ fn worktrees_are_listed_only_when_the_repo_has_some() {
             &ws.root(),
             &git,
             StatusOptions {
+                refresh: Refresh::Unasked,
+                unregistered: None,
                 fetch: false,
                 jobs: 1,
                 visibility_base: None,
@@ -1768,6 +1770,8 @@ fn the_index_is_read_only_for_a_worktree_on_a_gone_branch() {
         &ws.root(),
         &git,
         StatusOptions {
+            refresh: Refresh::Unasked,
+            unregistered: None,
             fetch: false,
             jobs: 1,
             visibility_base: None,

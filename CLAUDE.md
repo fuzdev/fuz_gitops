@@ -530,14 +530,17 @@ SvelteKit app; gro never invokes cargo):
 ```bash
 cargo install --path crates/fuz_repos --locked # install the `repos` binary
 repos status                 # git state of every repos.toml entry, local refs only, plus unregistered clones
-repos status gro .           # narrow to targets: a key, a dir name, or a path (no unregistered scan)
+repos status gro .           # narrow to targets: a key, a dir name, or a path inside a checkout (each names its entry); a named reference previews its refresh
 repos status --verbose       # plus stash counts, unscoped sessions, and a block per entry and unregistered dir
 repos status --json          # the versioned report
 COLUMNS=80 repos status      # text wraps at COLUMNS (else 100); color only on a terminal without NO_COLOR
-repos status --fetch         # fetch owned entries from origin first (writes remote-tracking refs), and check private repos
+repos status --fetch         # fetch owned entries (and references asked for) from origin first (writes remote-tracking refs), and check private repos
+repos status --references    # preview refreshing every third-party reference, as sync --references would (no targets with it)
 repos status --jobs 4 --timings # parallelism (default 16), and per-phase timings on stderr
 repos sync                   # fetch as status --fetch does, then fast-forward, move, push, and clone what's safe; report outcomes
 repos sync gro --json        # narrowed to targets; --json prints the versioned outcome report
+repos sync typescript prettier # a named third-party reference is refreshed: fetched over HTTPS, then ff'd or moved where clean
+repos sync --references      # refresh every third-party reference too (never a pin); alone — with targets it's a usage error
 repos --version              # the crate version and the commit the binary was built from
 repos --registry <file> --root <dir> status # a registry kept outside the workspace
 
@@ -639,11 +642,36 @@ in `status` and `sync` alike, and the person runs `repos sync` to push —
 until the `repos push` gateway lands, when this lifts. A branch that's a
 symbolic ref never acts. It never rebases, merges anything but a
 fast-forward, deletes a branch, or prunes a worktree (the fetch prunes only
-remote-tracking refs gone upstream), and never touches existing third-party
-references or pins. A failed fetch holds that entry's moves and pushes (its
-remote-tracking refs weren't refreshed), and a branch on HEAD in several
-checkouts holds its fast-forward or move. The rustdoc of `sync.rs` has the
-details.
+remote-tracking refs gone upstream), and never touches a pin. A failed fetch
+holds that entry's moves and pushes (its remote-tracking refs weren't
+refreshed), and a branch on HEAD in several checkouts holds its fast-forward
+or move. The rustdoc of `sync.rs` has the details.
+
+**Third-party references are like locked dependencies**: left as they are —
+never fetched, no branch compared against a remote, only local work
+reported — unless the run names them as targets (a path inside a checkout
+names its entry) or passes `--references`, which takes no targets (with them
+it's a usage error, exit `2`). Then each is refreshed (its `refresh` verdict `act`): fetched from origin over
+HTTPS alone, with the same confined fetch, and each branch fast-forwarded, or
+moved when shallow, as an owned one would be where clean; never pushed, so a
+branch ahead is local-only work, and one diverged or shallow with local
+commits is left to a person. A pin is never fetched; named, it's refused
+(`refresh` held `pinned`), and `--references` passes it over. A reference
+whose `origin` isn't the registry's repo (a fork, or no URL) is never
+fetched: its refresh is held (`refresh held (origin drift)`, held by
+`entry`) and its origin-drift line says the fix. A refresh also needs an
+HTTPS origin naming the registry's repo, as git resolves it (`insteadOf`
+applied): the same repo over SSH, `http://`, or `git://`, or a rewrite of
+it, holds the refresh (`refresh held (origin not HTTPS)`, held by
+`origin_not_https`), never fetched, with a needs-human line saying the
+`set-url` fix or naming the rewrite. `status` takes
+the same targets and `--references` to preview a refresh from local refs, and
+fetches it under `--fetch`. A partial clone (a `sparse` reference, cloned
+`--filter=blob:none`) lacks the blobs a new tip's checkout needs: a
+fast-forward or move in its checkout fetches them on demand from origin
+alone, over the one transport origin's URL names (SSH or HTTPS, whoever owns
+the repo), and only when no other remote is a promisor; every other call
+keeps lazy fetching off.
 
 **Each missing entry is cloned** — agents' runs included, and whether or
 not busy detection can vouch for every session, since a clone only creates
@@ -663,7 +691,13 @@ left, or one still running, to remove once no `repos sync` is. Anything at the p
 missing; a live session at or under the path, or another entry's gone
 worktree recorded there, holds the clone, and an entry whose `url` another
 entry shares is never cloned (its dir may have been a worktree of that
-repo) — a `needs_human` reason. A `sparse` path is checked at parse: plain
+repo) — a `needs_human` reason, as is a missing entry whose repo an
+unregistered dir at the root already clones (its origin names it, or a rename
+of it differing only in case and `-` against `_`: likely the entry's checkout
+under another name). The unregistered scan runs for that whenever the run
+includes a missing entry, named or not, before anything is cloned, in `sync`
+as in `status` (a run with targets doesn't report what it found); a clone
+whose origin names the repo by an unrelated old name isn't caught. A `sparse` path is checked at parse: plain
 relative directory names, no globs. The clone is read back in place
 (on its branch, tracking origin's, clean) and reported `cloned`, or
 `clone_failed` (classified as a fetch failure is) or `failed`, exit `1`. The

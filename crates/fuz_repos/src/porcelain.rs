@@ -368,7 +368,8 @@ pub fn parse_gitlinks(out: &[u8]) -> Result<Vec<String>, String> {
 }
 
 /// The config pattern `ConfigFacts::parse` reads.
-pub const CONFIG_PATTERN: &str = r"^(branch|remote)\.|^core\.(sparsecheckout|sshcommand)$";
+pub const CONFIG_PATTERN: &str =
+    r"^(branch|remote)\.|^core\.(sparsecheckout|sshcommand)$|^extensions\.partialclone$";
 
 /// A branch's configured upstream: `branch.<b>.remote` and `.merge`.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -509,10 +510,20 @@ pub struct ConfigFacts {
     /// Every other remote's fetch refspecs, in the order git reads them.
     pub other_fetch: Vec<RemoteRefspec>,
     pub partial_filter: Option<String>,
+    /// Whether a promisor remote besides `origin` is configured — another
+    /// remote's `promisor` true, or `extensions.partialClone` naming
+    /// another — which a lazy fetch of a missing object may reach.
+    pub other_promisor: bool,
     pub sparse: bool,
     /// Whether `core.sshCommand` is set anywhere, so fetch leaves SSH alone.
     pub ssh_command: bool,
     pub branches: BTreeMap<String, BranchConfig>,
+    /// The URL a fetch from `origin` reaches, as git resolves it: `git
+    /// ls-remote --get-url origin`, the first URL with `insteadOf` applied.
+    /// Not parsed here: the probe reads it only for a refresh the run asks
+    /// to act (`refresh_intent`), whose fetch must reach the registry's repo
+    /// over HTTPS; `None` otherwise.
+    pub origin_fetch_url: Option<String>,
 }
 
 impl ConfigFacts {
@@ -571,6 +582,10 @@ impl ConfigFacts {
             };
             if key == "core.sparsecheckout" {
                 facts.sparse = value.is_none_or(git_bool);
+            } else if key == "extensions.partialclone" {
+                // any value naming another counts, whichever git reads last:
+                // it only ever keeps a lazy fetch off
+                facts.other_promisor |= value != Some("origin");
             } else if key == "core.sshcommand" {
                 facts.ssh_command = true;
             } else if let Some(rest) = key.strip_prefix("branch.") {
@@ -589,6 +604,10 @@ impl ConfigFacts {
                 // a remote's name may hold dots and slashes (`origin.old`,
                 // `origin/fork`): only exactly `origin` is origin
                 if remote != "origin" {
+                    // any true value counts, as above
+                    if var == "promisor" {
+                        facts.other_promisor |= value.is_none_or(git_bool);
+                    }
                     if var == "fetch"
                         && let Some(refspec) = value
                     {
@@ -996,6 +1015,32 @@ mod tests {
             Some("upstream/main")
         );
         assert!(!c.branches.contains_key("main"));
+        // origin, the only promisor: a lazy fetch reaches nothing else
+        assert!(!c.other_promisor);
+    }
+
+    #[test]
+    fn config_promisors_besides_origin() {
+        let promisor = |entries: &[&str]| parse(&local(entries)).other_promisor;
+        let origin = [
+            "remote.origin.promisor\ntrue",
+            "extensions.partialclone\norigin",
+        ];
+        assert!(!promisor(&origin));
+        assert!(!promisor(&["remote.up.promisor\nfalse"]));
+        for other in [
+            "remote.up.promisor\ntrue",
+            // valueless: true
+            "remote.up.promisor",
+            "extensions.partialclone\nup",
+        ] {
+            assert!(promisor(&[origin[0], other]), "{other}");
+        }
+        // one true value keeps it, whatever git reads last
+        assert!(promisor(&[
+            "remote.up.promisor\ntrue",
+            "remote.up.promisor\nfalse"
+        ]));
     }
 
     #[test]

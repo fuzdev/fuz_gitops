@@ -33,9 +33,9 @@ use fuz_repos::report::{
 use fuz_repos::sessions::{Session, SessionSource, Unavailable};
 use fuz_repos::state::{
     BranchNeedsHuman, BranchStatus, Checkout, CleanupReason, CloneRecipe, CloneVerdict,
-    GitDirHolds, Head, HeldBy, InProgressOp, Layout, Presence, Prune, PruneLoss, Relation,
-    SyncAction, Uncommitted, UnprobedHead, UnprobedWhy, UnprobedWorktree, UnprobedWorktreeStatus,
-    Verdict,
+    GitDirHolds, Head, HeldBy, InProgressOp, Layout, Presence, Prune, PruneLoss, RefreshVerdict,
+    Relation, SyncAction, Uncommitted, UnprobedHead, UnprobedWhy, UnprobedWorktree,
+    UnprobedWorktreeStatus, Verdict,
 };
 use fuz_repos::{STATUS_FORMAT_VERSION, SYNC_FORMAT_VERSION};
 use serde::Serialize;
@@ -145,6 +145,17 @@ fn status_report_targeted() {
             .iter()
             .all(|e| e.fetch_error.is_none() && e.visibility_check.is_none())
     );
+    // every refresh verdict: exhaustive, so a new one fails to compile here
+    let kinds: std::collections::BTreeSet<usize> = doc
+        .entries
+        .iter()
+        .filter_map(|e| e.refresh.as_ref())
+        .map(|r| match r {
+            RefreshVerdict::Act => 0,
+            RefreshVerdict::Held { .. } => 1,
+        })
+        .collect();
+    assert_eq!(kinds, (0..2).collect());
     assert_golden("status_report_targeted.json", &doc);
 }
 
@@ -176,6 +187,20 @@ fn sync_report() {
     }
     // a failed action, fetch, and probe: exit 1
     assert!(doc.failed());
+    // `--references`: each third-party reference present refreshed, its
+    // refresh carried out as its fetch and its branches' outcomes
+    for (e, s) in doc.status.entries.iter().zip(&doc.entries) {
+        let refreshed = !e.writable && !e.pinned && e.presence == Presence::Present;
+        assert_eq!(
+            e.refresh == Some(RefreshVerdict::Act),
+            refreshed,
+            "{}",
+            e.key
+        );
+        if refreshed {
+            assert_eq!(s.fetch, FetchOutcome::Fetched, "{}", e.key);
+        }
+    }
     assert_sync_coverage(&doc);
     assert_golden("sync_report.json", &doc);
 }
@@ -211,6 +236,9 @@ fn assert_sync_coverage(doc: &SyncReport) {
         SyncHold::BusyUnknown => 8,
         SyncHold::Gateway => 9,
         SyncHold::Changed => 10,
+        // a refresh's hold alone, never a branch's: the targeted status
+        // document carries it, as a refresh verdict's
+        SyncHold::OriginNotHttps => 11,
     };
     let clone = |c: &CloneOutcome| match c {
         CloneOutcome::Cloned { .. } => 0,
@@ -317,6 +345,7 @@ fn status_report_doc() -> StatusReport {
             // a session works where its dir was deleted
             missing_reference("wpt", Some(HeldBy::Busy)),
             twin(),
+            renamed(),
             not_a_repo(),
             partial(),
             forge(),
@@ -339,7 +368,8 @@ fn status_report_doc() -> StatusReport {
 
 /// A run narrowed by targets, local refs only: the scan, the fetch, and
 /// the visibility check didn't run; busy detection was unavailable, so
-/// every action is held.
+/// every action is held. The targets name every entry: a third-party
+/// reference among them is refreshed, a pin refused.
 fn targeted_doc() -> StatusReport {
     StatusReport::new(
         WORKSPACE.into(),
@@ -372,6 +402,78 @@ fn targeted_doc() -> StatusReport {
                     )
                 }],
                 ..entry("fuz_util", Some("main"))
+            },
+            // named: refreshed, previewed from local refs
+            EntryStatus {
+                kind: EntryKind::Reference,
+                url: "https://github.com/them/typescript".into(),
+                writable: false,
+                visibility: None,
+                ci: false,
+                refresh: Some(RefreshVerdict::Act),
+                branches: vec![branch(
+                    "main",
+                    Some("origin/main"),
+                    Relation::Behind { commits: 3 },
+                    Verdict::Held {
+                        action: SyncAction::FastForward { commits: 3 },
+                        by: HeldBy::BusyUnknown,
+                    },
+                )],
+                ..entry("typescript", Some("main"))
+            },
+            // named, its origin the repo over SSH: held, never fetched
+            EntryStatus {
+                kind: EntryKind::Reference,
+                url: "https://github.com/them/lit".into(),
+                writable: false,
+                visibility: None,
+                ci: false,
+                refresh: Some(RefreshVerdict::Held {
+                    by: HeldBy::OriginNotHttps,
+                }),
+                needs_human: vec![NeedsHuman::OriginNotHttps {
+                    fetch_url: "git@github.com:them/lit".into(),
+                    expected: "https://github.com/them/lit".into(),
+                    fix: Some(OriginFix::SetUrl),
+                }],
+                ..entry("lit", Some("main"))
+            },
+            // named, an `insteadOf` rewriting its HTTPS origin to SSH
+            EntryStatus {
+                kind: EntryKind::Reference,
+                url: "https://github.com/them/dom".into(),
+                writable: false,
+                visibility: None,
+                ci: false,
+                refresh: Some(RefreshVerdict::Held {
+                    by: HeldBy::OriginNotHttps,
+                }),
+                needs_human: vec![NeedsHuman::OriginNotHttps {
+                    fetch_url: "git@github.com:them/dom".into(),
+                    expected: "https://github.com/them/dom".into(),
+                    fix: None,
+                }],
+                ..entry("dom", Some("main"))
+            },
+            // named: a pin refuses
+            EntryStatus {
+                kind: EntryKind::Reference,
+                visibility: None,
+                ci: false,
+                pinned: true,
+                refresh: Some(RefreshVerdict::Held { by: HeldBy::Pinned }),
+                checkouts: vec![primary("wpt", on("fork"))],
+                branches: vec![branch(
+                    "fork",
+                    Some("origin/fork"),
+                    Relation::Behind { commits: 2 },
+                    Verdict::Held {
+                        action: SyncAction::FastForward { commits: 2 },
+                        by: HeldBy::Pinned,
+                    },
+                )],
+                ..entry("wpt", Some("fork"))
             },
         ],
     )
@@ -432,8 +534,9 @@ fn unscoped_sessions() -> Vec<Session> {
     ]
 }
 
-/// A sync run: every outcome, fetch outcome, and hold, each branch's
-/// verdict the one the outcome carries out.
+/// A `sync --references` run over the whole workspace: every outcome,
+/// fetch outcome, and hold, each branch's verdict the one the outcome
+/// carries out.
 fn sync_report_doc() -> SyncReport {
     let ff = |commits| SyncAction::FastForward { commits };
     let push = |commits| SyncAction::Push { commits };
@@ -679,6 +782,8 @@ fn sync_report_doc() -> SyncReport {
             by: SyncHold::Pinned,
         },
     );
+    // `--references`: fetched over HTTPS, fast-forwarded where clean;
+    // never pushed, so a branch ahead is local-only work
     let lib = EntryStatus {
         kind: EntryKind::Reference,
         url: "https://github.com/them/lib".into(),
@@ -686,8 +791,36 @@ fn sync_report_doc() -> SyncReport {
         visibility: None,
         ci: false,
         branch: None,
+        refresh: Some(RefreshVerdict::Act),
+        branches: vec![
+            branch("main", Some("origin/main"), behind(1), act(ff(1))),
+            BranchStatus {
+                unique_commits: 2,
+                ..branch(
+                    "audit",
+                    Some("origin/audit"),
+                    Relation::Ahead { commits: 2 },
+                    Verdict::LocalOnly,
+                )
+            },
+        ],
         ..entry("lib", None)
     };
+    let lib_sync = vec![
+        BranchSync {
+            name: "main".into(),
+            outcome: BranchOutcome::FastForwarded {
+                from: oid('5'),
+                to: oid('6'),
+            },
+            repeats: None,
+        },
+        BranchSync {
+            name: "audit".into(),
+            outcome: BranchOutcome::Untouched,
+            repeats: None,
+        },
+    ];
     let broken = EntryStatus {
         probe_error: Some("git status failed (128): error: bad tree object HEAD".into()),
         checkouts: vec![],
@@ -713,7 +846,7 @@ fn sync_report_doc() -> SyncReport {
         url: "https://github.com/me/stray".into(),
         ..stray
     };
-    let status = StatusReport::new(
+    let mut status = StatusReport::new(
         WORKSPACE.into(),
         format!("{WORKSPACE}/repos.toml"),
         true,
@@ -728,12 +861,15 @@ fn sync_report_doc() -> SyncReport {
             missing(),
             stray,
             twin(),
+            renamed(),
             missing_reference("wpt", None),
             missing_reference("html", None),
             missing_reference("dom", None),
             broken,
         ],
     );
+    // no targets: the scan ran first
+    status.unregistered = Some(vec![renamed_old()]);
     let sync = |key: &str, fetch, branches| EntrySync {
         key: key.into(),
         fetch,
@@ -760,7 +896,7 @@ fn sync_report_doc() -> SyncReport {
                 forge_sync,
             ),
             sync("spec", FetchOutcome::NotFetched, spec_sync),
-            sync("lib", FetchOutcome::NotFetched, vec![]),
+            sync("lib", FetchOutcome::Fetched, lib_sync),
             cloned(
                 "blake3",
                 CloneOutcome::Cloned {
@@ -776,6 +912,12 @@ fn sync_report_doc() -> SyncReport {
             ),
             cloned(
                 "twin",
+                CloneOutcome::Held {
+                    by: SyncHold::Entry,
+                },
+            ),
+            cloned(
+                "renamed",
                 CloneOutcome::Held {
                     by: SyncHold::Entry,
                 },
@@ -866,6 +1008,7 @@ fn entry(key: &str, branch: Option<&str>) -> EntryStatus {
         ci: true,
         branch: branch.map(str::to_owned),
         pinned: false,
+        refresh: None,
         presence: Presence::Present,
         clone: None,
         layout: Some(plain_layout()),
@@ -1513,6 +1656,41 @@ fn twin() -> EntryStatus {
     }
 }
 
+/// A missing entry whose repo the unregistered dir `renamed-old` clones,
+/// held for a person: likely its checkout under another name.
+fn renamed() -> EntryStatus {
+    EntryStatus {
+        url: "https://github.com/me/renamed".into(),
+        clone: Some(CloneVerdict::Held {
+            recipe: CloneRecipe {
+                url: "git@github.com:me/renamed".into(),
+                branch: Some("main".into()),
+                shallow: false,
+                sparse: None,
+            },
+            by: HeldBy::Entry,
+        }),
+        needs_human: vec![NeedsHuman::ClonedUnregistered {
+            dir: "renamed-old".into(),
+        }],
+        ..EntryStatus {
+            key: "renamed".into(),
+            dir: "renamed".into(),
+            ..missing()
+        }
+    }
+}
+
+/// The unregistered dir `renamed()` is held by: a clone of its repo.
+fn renamed_old() -> UnregisteredClone {
+    stray(
+        "renamed-old",
+        Some("git@github.com:me/renamed"),
+        true,
+        UnregisteredKind::Clone,
+    )
+}
+
 /// A dir that holds no repo.
 fn not_a_repo() -> EntryStatus {
     EntryStatus {
@@ -1875,6 +2053,7 @@ fn unregistered() -> Vec<UnregisteredClone> {
                 None,
             ),
         ),
+        renamed_old(),
         stray(
             "rewrites",
             app_origin,

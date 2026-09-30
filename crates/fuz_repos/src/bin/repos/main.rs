@@ -32,6 +32,7 @@ use std::process::ExitCode;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use argh::{EarlyExit, FromArgs};
+use fuz_repos::classify::Refresh;
 use fuz_repos::clone::CLONE_TIMEOUT;
 use fuz_repos::discover::{RegistryLocation, find_registry, resolve_targets};
 use fuz_repos::error::{Error, Result};
@@ -39,7 +40,7 @@ use fuz_repos::git::Git;
 use fuz_repos::probe::RegistryDirs;
 use fuz_repos::registry::{Entry, ValidRegistry};
 use fuz_repos::report::{ErrorReport, StatusReport, SyncReport};
-use fuz_repos::scan::scan_unregistered;
+use fuz_repos::scan::{Scan, scan_unregistered};
 use fuz_repos::sessions::{Caller, SessionsSource, read_live_sessions};
 use fuz_repos::status::{EntryTiming, StatusOptions, mark_moved_worktrees, status};
 use fuz_repos::sync::{SyncOptions, sync};
@@ -89,11 +90,15 @@ struct StatusArgs {
     /// entry)
     #[argh(positional)]
     targets: Vec<String>,
-    /// fetch owned, non-pinned entries from origin first (writes
-    /// remote-tracking refs), and check that repos declared private aren't
-    /// anonymously readable
+    /// fetch owned, non-pinned entries (and third-party references named or
+    /// under --references) from origin first (writes remote-tracking refs),
+    /// and check that repos declared private aren't anonymously readable
     #[argh(switch)]
     fetch: bool,
+    /// preview refreshing every third-party reference, as sync --references
+    /// would; takes no targets (named ones are previewed so anyway)
+    #[argh(switch)]
+    references: bool,
     /// print the report as JSON
     #[argh(switch)]
     json: bool,
@@ -113,7 +118,11 @@ struct StatusArgs {
 /// Fetch, then fast-forward each branch behind, move each stale shallow one,
 /// push each one ahead, and clone each missing entry, where safe; report
 /// what was done and what was held. Never force-pushes, merges, rebases, or
-/// deletes; an agent's pushes are held.
+/// deletes; an agent's pushes are held. Third-party references are left as
+/// they are unless named or under --references; pins, and references whose
+/// origin isn't the registry's repo, always are.
+// A flat bundle of CLI switches, not domain state.
+#[allow(clippy::struct_excessive_bools)]
 #[derive(FromArgs, Debug)]
 #[argh(subcommand, name = "sync")]
 struct SyncArgs {
@@ -121,6 +130,11 @@ struct SyncArgs {
     /// entry)
     #[argh(positional)]
     targets: Vec<String>,
+    /// refresh every third-party reference too: fetch it over HTTPS, then
+    /// fast-forward or move it where clean; takes no targets (named ones are
+    /// refreshed anyway)
+    #[argh(switch)]
+    references: bool,
     /// print the report as JSON
     #[argh(switch)]
     json: bool,
@@ -282,6 +296,49 @@ fn load(locate: Locate<'_>, targets: &[String]) -> Result<Loaded> {
     })
 }
 
+/// Which references a run refreshes: the named ones — every entry of a run
+/// given targets (a path inside a checkout names its entry too) — or,
+/// without targets, every third-party one under `--references`. Both at
+/// once is a usage error: the run would say two things.
+const fn refresh_asked(targets: &[String], references: bool) -> Result<Refresh> {
+    match (targets.is_empty(), references) {
+        (false, true) => Err(Error::ReferencesWithTargets),
+        (false, false) => Ok(Refresh::Named),
+        (true, true) => Ok(Refresh::References),
+        (true, false) => Ok(Refresh::Unasked),
+    }
+}
+
+/// The unregistered scan over the whole workspace: without targets, and
+/// with them when a named entry's dir is missing — a clone the scan finds
+/// already made under another name holds its clone. `None` when it didn't
+/// run. Only a run without targets reports what it found: with them the
+/// report is about the named entries.
+fn scan_workspace(loaded: &Loaded, targets: &[String]) -> Result<Option<Scan>> {
+    // missing as the probe reads it: nothing at the path, not even a link
+    let missing = |e: &Entry| {
+        std::fs::symlink_metadata(loaded.loc.root.join(&e.dir))
+            .is_err_and(|err| err.kind() == io::ErrorKind::NotFound)
+    };
+    if !targets.is_empty() && !loaded.entries.iter().any(missing) {
+        return Ok(None);
+    }
+    scan_unregistered(
+        &loaded.loc.root,
+        &loaded.all,
+        loaded.registry.owners(),
+        &loaded.git,
+    )
+    .map(Some)
+    .map_err(|source| Error::Io {
+        context: format!(
+            "failed to list the workspace root {}",
+            loaded.loc.root.display()
+        ),
+        source,
+    })
+}
+
 /// How rendering sees the environment, for a run printing JSON or not.
 fn view(home: Option<&str>, json: bool) -> View<'_> {
     let columns = std::env::var("COLUMNS").ok();
@@ -313,14 +370,21 @@ fn to_json(report: &impl serde::Serialize) -> Result<String> {
 
 fn run_sync(locate: Locate<'_>, args: &SyncArgs) -> Result<Printed> {
     let start = Instant::now();
+    let refresh = refresh_asked(&args.targets, args.references)?;
+    let loaded = load(locate, &args.targets)?;
+    let load_time = start.elapsed();
+    // before anything is cloned: a missing entry cloned under another name
+    // holds its clone
+    let scan_start = Instant::now();
+    let scan = scan_workspace(&loaded, &args.targets)?;
+    let scan_time = scan.as_ref().map(|_| scan_start.elapsed());
     let Loaded {
         git,
         loc,
         all,
         entries,
         ..
-    } = load(locate, &args.targets)?;
-    let load_time = start.elapsed();
+    } = loaded;
 
     let source = SessionsSource::from_env();
     let read_live = || read_live_sessions(&source);
@@ -335,15 +399,22 @@ fn run_sync(locate: Locate<'_>, args: &SyncArgs) -> Result<Printed> {
             read_live: &read_live,
             caller: Caller::from_env(),
             clone_timeout: CLONE_TIMEOUT,
+            refresh,
+            unregistered: scan.as_ref().map(|s| &s.unregistered[..]),
         },
     );
-    let status = StatusReport::new(
+    let mut status = StatusReport::new(
         loc.root.to_string_lossy().into_owned(),
         loc.path.to_string_lossy().into_owned(),
         true,
         run.sessions,
         run.entries,
     );
+    if let Some(scan) = scan.filter(|_| args.targets.is_empty()) {
+        // before render: a gone worktree the scan found moved gets no command
+        mark_moved_worktrees(&mut status.entries, &scan);
+        status.unregistered = Some(scan.unregistered);
+    }
     let report = SyncReport::new(status, run.outcomes);
 
     let render_start = Instant::now();
@@ -374,7 +445,7 @@ fn run_sync(locate: Locate<'_>, args: &SyncArgs) -> Result<Printed> {
             load: load_time,
             probe: run.probe_elapsed,
             act: Some(run.act_elapsed),
-            scan: None,
+            scan: scan_time,
             render: render_time,
             total: start.elapsed(),
             jobs: args.jobs,
@@ -387,14 +458,21 @@ fn run_sync(locate: Locate<'_>, args: &SyncArgs) -> Result<Printed> {
 
 fn run_status(locate: Locate<'_>, args: &StatusArgs) -> Result<Printed> {
     let start = Instant::now();
+    let refresh = refresh_asked(&args.targets, args.references)?;
+    let loaded = load(locate, &args.targets)?;
+    let load_time = start.elapsed();
+    // first, since a missing entry cloned under another name holds its
+    // clone; reported without targets only (`scan_workspace`)
+    let scan_start = Instant::now();
+    let scan = scan_workspace(&loaded, &args.targets)?;
+    let scan_time = scan.as_ref().map(|_| scan_start.elapsed());
     let Loaded {
         git,
         loc,
-        registry,
         all,
         entries,
-    } = load(locate, &args.targets)?;
-    let load_time = start.elapsed();
+        ..
+    } = loaded;
 
     let live = read_live_sessions(&SessionsSource::from_env());
     let run = status(
@@ -404,6 +482,8 @@ fn run_status(locate: Locate<'_>, args: &StatusArgs) -> Result<Printed> {
         &git,
         StatusOptions {
             fetch: args.fetch,
+            refresh,
+            unregistered: scan.as_ref().map(|s| &s.unregistered[..]),
             jobs: args.jobs,
             visibility_base: None,
             live: &live,
@@ -417,24 +497,11 @@ fn run_status(locate: Locate<'_>, args: &StatusArgs) -> Result<Printed> {
         run.sessions,
         run.entries,
     );
-    // the whole workspace only: with targets the report is about the named
-    // entries, and `unregistered` stays `null`
-    let scan_start = Instant::now();
-    let scan_time = if args.targets.is_empty() {
-        let scan =
-            scan_unregistered(&loc.root, &all, registry.owners(), &git).map_err(|source| {
-                Error::Io {
-                    context: format!("failed to list the workspace root {}", loc.root.display()),
-                    source,
-                }
-            })?;
+    if let Some(scan) = scan.filter(|_| args.targets.is_empty()) {
         // before render: a gone worktree the scan found moved gets no command
         mark_moved_worktrees(&mut report.entries, &scan);
         report.unregistered = Some(scan.unregistered);
-        Some(scan_start.elapsed())
-    } else {
-        None
-    };
+    }
 
     let render_start = Instant::now();
     let home = std::env::var("HOME").ok();

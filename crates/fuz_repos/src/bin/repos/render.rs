@@ -12,13 +12,14 @@ use fuz_repos::classify::{NeedsHuman, OriginByHand, OriginFix, OriginRemote};
 use fuz_repos::registry::{EntryKind, Visibility};
 use fuz_repos::remote::{RefGoneFix, RemoteFailure, UnreachableCause, VisibilityCheck};
 use fuz_repos::report::{
-    BranchOutcome, CloneOutcome, EntryStatus, EntrySync, RepairBlock, StatusReport, SyncHold,
-    SyncReport, UnregisteredClone, UnregisteredKind,
+    BranchOutcome, CloneOutcome, EntryStatus, EntrySync, FetchOutcome, RepairBlock, StatusReport,
+    SyncHold, SyncReport, UnregisteredClone, UnregisteredKind,
 };
 use fuz_repos::sessions::{Session, SessionSource, Unavailable};
 use fuz_repos::state::{
     BranchNeedsHuman, BranchStatus, CleanupReason, CloneVerdict, Head, HeldBy, Presence, Prune,
-    PruneLoss, Relation, SyncAction, Uncommitted, UnprobedHead, UnprobedWhy, Verdict,
+    PruneLoss, RefreshVerdict, Relation, SyncAction, Uncommitted, UnprobedHead, UnprobedWhy,
+    Verdict,
 };
 
 /// The label column's width.
@@ -477,10 +478,11 @@ fn render_group(label: &str, tone: Tone, items: &Items, view: View<'_>) -> Strin
     out
 }
 
-/// Sync actions by verb, each item a labeled branch — or, for a clone, an
-/// entry's key.
+/// Sync actions by verb, each item a labeled branch — or, for a refresh or
+/// a clone, an entry's key.
 #[derive(Debug, Default)]
 struct Actions {
+    refreshes: Vec<String>,
     push: Vec<String>,
     ff: Vec<String>,
     moves: Vec<String>,
@@ -504,10 +506,16 @@ impl Actions {
         self.clones.push(format!("{key}{note}"));
     }
 
-    /// A run per verb — `push a +1, b +2`, `ff …`, `move …`, `clone …` —
-    /// omitting empty verbs.
+    /// Adds a reference's refresh, by its key; `note` as for `add`.
+    fn add_refresh(&mut self, key: &str, note: &str) {
+        self.refreshes.push(format!("{key}{note}"));
+    }
+
+    /// A run per verb — `refresh lib`, `push a +1, b +2`, `ff …`, `move …`,
+    /// `clone …` — omitting empty verbs.
     fn verbs(&self) -> Vec<Vec<String>> {
         [
+            ("refresh ", &self.refreshes),
             ("push ", &self.push),
             ("ff ", &self.ff),
             ("move ", &self.moves),
@@ -519,7 +527,11 @@ impl Actions {
     }
 
     const fn len(&self) -> usize {
-        self.push.len() + self.ff.len() + self.moves.len() + self.clones.len()
+        self.refreshes.len()
+            + self.push.len()
+            + self.ff.len()
+            + self.moves.len()
+            + self.clones.len()
     }
 }
 
@@ -598,6 +610,18 @@ impl Groups {
                     .needs_human
                     .push(format!("{key} ({})", needs_human_label(reason, e, view))),
             }
+        }
+        // a reference asked for by name or `--references`: under sync, a
+        // refresh is its fetch (a failed one is said above, as failed)
+        match (&e.refresh, sync.map(|s| &s.fetch)) {
+            (Some(RefreshVerdict::Act), None | Some(FetchOutcome::Fetched)) => {
+                self.act.add_refresh(key, "");
+            }
+            (Some(RefreshVerdict::Held { by }), _) => {
+                self.held
+                    .add_refresh(key, refresh_held_note(*by, &e.needs_human));
+            }
+            (Some(RefreshVerdict::Act), Some(_)) | (None, _) => {}
         }
         match (&e.clone, self.synced) {
             (Some(_), true) => {
@@ -909,6 +933,20 @@ fn needs_human_label(reason: &NeedsHuman, e: &EntryStatus, view: View<'_>) -> St
             sessions_label(busy, view)
         ),
         NeedsHuman::CloneSharesRepo { with } => format!("same repo as {with}, not cloned"),
+        NeedsHuman::ClonedUnregistered { dir } => {
+            format!("already cloned as {dir}, not cloned")
+        }
+        NeedsHuman::OriginNotHttps {
+            fetch_url,
+            expected,
+            ..
+        } => {
+            if fetches_elsewhere(fetch_url) {
+                format!("refresh would fetch from {fetch_url}, not {expected}")
+            } else {
+                format!("refresh would fetch from {fetch_url}, not over HTTPS")
+            }
+        }
         NeedsHuman::PushUrlMismatch { push_urls, .. } => match &push_urls[..] {
             [] => "push goes nowhere".into(),
             [one] => format!("push goes to {one}"),
@@ -983,6 +1021,16 @@ pub fn render_entry(e: &EntryStatus, workspace: &Path, view: View<'_>) -> String
         (Some(branch), true) => format!("pinned · branch {branch}"),
         (None, true) => "pinned".into(),
     });
+    match e.refresh {
+        Some(RefreshVerdict::Act) => tags.push("refresh".into()),
+        Some(RefreshVerdict::Held { by }) => {
+            tags.push(format!(
+                "refresh held{}",
+                refresh_held_note(by, &e.needs_human)
+            ));
+        }
+        None => {}
+    }
     let _ = writeln!(out, "{}  {}", e.key, tags.join(" · "));
     let _ = writeln!(out, "  {:<10}{}", "url", e.url);
 
@@ -1149,10 +1197,37 @@ pub fn render_entry(e: &EntryStatus, workspace: &Path, view: View<'_>) -> String
                  --all origin (remote.origin.pushurl, url.*.pushInsteadOf)",
                 needs_human_label(reason, e, view)
             ),
+            NeedsHuman::OriginNotHttps { expected, fix, .. } => {
+                let quoted = shell_quote(expected);
+                let command = match fix {
+                    Some(OriginFix::SetUrl) => {
+                        format!("git -C {dir} remote set-url origin {quoted}")
+                    }
+                    Some(OriginFix::Add) => format!("git -C {dir} remote add origin {quoted}"),
+                    Some(OriginFix::ByHand { .. }) => {
+                        format!("set remote.origin.url to {quoted} by hand")
+                    }
+                    None => format!(
+                        "a url.*.insteadOf rewrite makes it: see git -C {dir} config \
+                         --get-regexp '^url\\..*\\.insteadof$'"
+                    ),
+                };
+                format!(
+                    "{} — a reference is fetched only over HTTPS, from {expected}: {command}",
+                    needs_human_label(reason, e, view)
+                )
+            }
             NeedsHuman::CloneSharesRepo { with } => format!(
                 "{} — sync never makes a second copy of a repo: clone {dir} by hand, or add it \
                  as a worktree of {with}",
                 needs_human_label(reason, e, view)
+            ),
+            NeedsHuman::ClonedUnregistered { dir: at } => format!(
+                "{} — sync never makes a second copy of a repo: rename {} to {dir}, or set the \
+                 entry's dir to {}",
+                needs_human_label(reason, e, view),
+                view.show_arg(&workspace.join(at).to_string_lossy()),
+                shell_quote(at)
             ),
             reason => needs_human_label(reason, e, view),
         };
@@ -1648,6 +1723,32 @@ fn held_note(by: HeldBy) -> &'static str {
     hold_note(by.into())
 }
 
+/// `held_note` for a held refresh: the one entry-level reason that holds a
+/// refresh is origin drift (`refresh_verdict`), named here since the
+/// entry's origin-drift line may not print (a probe that failed after
+/// reading the config). An origin not over HTTPS has a note of its own,
+/// worded from the entry's `origin_not_https` reason: a fetch that is over
+/// HTTPS after all reaches another repo.
+fn refresh_held_note(by: HeldBy, reasons: &[NeedsHuman]) -> &'static str {
+    let elsewhere = || {
+        reasons.iter().any(|r| {
+            matches!(r, NeedsHuman::OriginNotHttps { fetch_url, .. } if fetches_elsewhere(fetch_url))
+        })
+    };
+    match by {
+        HeldBy::Entry => " (origin drift)",
+        HeldBy::OriginNotHttps if elsewhere() => " (origin elsewhere)",
+        by => held_note(by),
+    }
+}
+
+/// Whether an `origin_not_https` reason's fetch URL is HTTPS after all —
+/// an `insteadOf` rewrite naming another repo — so its wording names the
+/// repo it would reach, not the transport.
+fn fetches_elsewhere(fetch_url: &str) -> bool {
+    fetch_url.starts_with("https://")
+}
+
 /// `held_note` for a hold sync found, the verdict's or its own; a push sync
 /// never makes carries none (a hint says it once).
 const fn hold_note(by: SyncHold) -> &'static str {
@@ -1655,6 +1756,7 @@ const fn hold_note(by: SyncHold) -> &'static str {
         SyncHold::Pinned => " (pinned)",
         SyncHold::Entry => "",
         SyncHold::PushUrl => " (push URL)",
+        SyncHold::OriginNotHttps => " (origin not HTTPS)",
         SyncHold::Gateway => " (gateway)",
         SyncHold::FetchFailed => " (fetch failed)",
         SyncHold::DirtyCheckout => " (dirty)",
@@ -1835,7 +1937,7 @@ pub fn format_age(secs: u64) -> String {
 #[cfg(test)]
 mod tests {
     use fuz_repos::registry::{EntryKind, Visibility};
-    use fuz_repos::report::FetchOutcome;
+    use fuz_repos::report::{BranchSync, FetchOutcome};
     use fuz_repos::state::{
         Checkout, CloneRecipe, InProgressOp, Layout, UnprobedWorktree, UnprobedWorktreeStatus,
     };
@@ -1870,6 +1972,7 @@ mod tests {
             ci: true,
             branch,
             pinned,
+            refresh: None,
             presence: Presence::Present,
             clone: None,
             layout: Some(Layout {
@@ -2123,6 +2226,156 @@ mod tests {
                  repo: clone ~/dev/twin by hand, or add it as a worktree of app\n"
             ),
             "{block}"
+        );
+    }
+
+    /// A missing entry whose repo an unregistered dir clones: its reason,
+    /// the clone held, and in its block the two ways out.
+    #[test]
+    fn a_missing_entry_cloned_under_another_name_needs_a_person() {
+        let mut e = missing("app");
+        let recipe = e.clone.take().unwrap().recipe().clone();
+        e.clone = Some(CloneVerdict::Held {
+            recipe,
+            by: HeldBy::Entry,
+        });
+        e.needs_human = vec![NeedsHuman::ClonedUnregistered {
+            dir: "app old".into(),
+        }];
+        let r = report(vec![e]);
+        let text = render_summary(&r, VIEW, false);
+        assert!(
+            text.starts_with(
+                "needs human   app (already cloned as app old, not cloned)\nheld          clone \
+                 app\n"
+            ),
+            "{text}"
+        );
+        let block = render_entry(&r.entries[0], Path::new("/home/me/dev"), VIEW);
+        assert!(
+            block.contains(
+                "  needs     already cloned as app old, not cloned — sync never makes a second \
+                 copy of a repo: rename ~/'dev/app old' to ~/dev/app, or set the entry's dir to \
+                 'app old'\n"
+            ),
+            "{block}"
+        );
+    }
+
+    /// A reference asked for: its refresh in the preview and in sync's
+    /// summary — refreshed as its fetch went — and a pin's refusal.
+    #[test]
+    fn a_refresh_reads_as_what_sync_would_do_and_did() {
+        let ff = SyncAction::FastForward { commits: 3 };
+        let reference = |key: &str, refresh| EntryStatus {
+            kind: EntryKind::Reference,
+            writable: false,
+            visibility: None,
+            ci: false,
+            refresh: Some(refresh),
+            ..entry(key, Mode::Head, "main")
+        };
+        let mut lib = reference("lib", RefreshVerdict::Act);
+        lib.branches = vec![branch(
+            "main",
+            Some("origin/main"),
+            Relation::Behind { commits: 3 },
+            0,
+            act(ff),
+        )];
+        // fetched and in sync: said by its refresh alone
+        let dom = reference("dom", RefreshVerdict::Act);
+        let off = reference("off", RefreshVerdict::Act);
+        let mut wpt = EntryStatus {
+            kind: EntryKind::Reference,
+            visibility: None,
+            ci: false,
+            refresh: Some(RefreshVerdict::Held { by: HeldBy::Pinned }),
+            ..entry("wpt", Mode::PinnedOn("fork"), "fork")
+        };
+        wpt.branches = vec![branch(
+            "fork",
+            Some("origin/fork"),
+            Relation::Behind { commits: 2 },
+            0,
+            Verdict::Held {
+                action: SyncAction::FastForward { commits: 2 },
+                by: HeldBy::Pinned,
+            },
+        )];
+        let r = report(vec![lib, dom, off, wpt]);
+        let text = render_summary(&r, VIEW, false);
+        assert!(
+            text.starts_with(
+                "sync would    refresh lib, dom, off · ff lib:main −3\nheld          refresh \
+                 wpt (pinned)\nclean 0 · on branches 0 · pinned 0"
+            ),
+            "{text}"
+        );
+        let block = render_entry(&r.entries[0], Path::new("/home/me/dev"), VIEW);
+        assert!(
+            block.starts_with("lib  reference · third-party · leave HEAD · refresh\n"),
+            "{block}"
+        );
+        let block = render_entry(&r.entries[3], Path::new("/home/me/dev"), VIEW);
+        assert!(
+            block.starts_with(
+                "wpt  reference · owned · pinned · branch fork · refresh held (pinned)\n"
+            ),
+            "{block}"
+        );
+        let failure = RemoteFailure::Failed {
+            message: "fatal: transport 'ssh' not allowed".into(),
+        };
+        let mut r = r;
+        r.entries[2].fetch_error = Some(failure.clone());
+        let sync = |key: &str, fetch, branches| EntrySync {
+            key: key.into(),
+            fetch,
+            clone: None,
+            branches,
+        };
+        let synced = SyncReport::new(
+            r,
+            vec![
+                sync(
+                    "lib",
+                    FetchOutcome::Fetched,
+                    vec![BranchSync {
+                        name: "main".into(),
+                        outcome: BranchOutcome::FastForwarded {
+                            from: "a".repeat(40),
+                            to: "b".repeat(40),
+                        },
+                        repeats: None,
+                    }],
+                ),
+                sync("dom", FetchOutcome::Fetched, vec![]),
+                sync("off", FetchOutcome::Failed { failure }, vec![]),
+                sync(
+                    "wpt",
+                    FetchOutcome::NotFetched,
+                    vec![BranchSync {
+                        name: "fork".into(),
+                        outcome: BranchOutcome::Held {
+                            action: SyncAction::FastForward { commits: 2 },
+                            by: SyncHold::Pinned,
+                        },
+                        repeats: None,
+                    }],
+                ),
+            ],
+        );
+        let text = render_sync_summary(&synced, VIEW, false);
+        let lines: Vec<&str> = text.lines().collect();
+        assert_eq!(
+            lines[..lines.len() - 1],
+            [
+                "failed        off (fetch: fatal: transport 'ssh' not allowed)",
+                "synced        refresh lib, dom · ff lib:main −3",
+                "held          refresh wpt (pinned)",
+            ],
+            "{text}"
         );
     }
 

@@ -1,7 +1,7 @@
 {
-	"version": 3,
+	"version": 4,
 	"status": {
-		"version": 10,
+		"version": 11,
 		"workspace": "/home/me/dev",
 		"registry": "/home/me/dev/repos.toml",
 		"fetched": true,
@@ -21,6 +21,7 @@
 				"ci": true,
 				"branch": "main",
 				"pinned": false,
+				"refresh": null,
 				"presence": {
 					"kind": "present"
 				},
@@ -372,6 +373,7 @@
 				"ci": true,
 				"branch": "main",
 				"pinned": false,
+				"refresh": null,
 				"presence": {
 					"kind": "present"
 				},
@@ -442,6 +444,7 @@
 				"ci": true,
 				"branch": "main",
 				"pinned": false,
+				"refresh": null,
 				"presence": {
 					"kind": "present"
 				},
@@ -519,6 +522,7 @@
 				"ci": true,
 				"branch": "main",
 				"pinned": false,
+				"refresh": null,
 				"presence": {
 					"kind": "present"
 				},
@@ -594,6 +598,7 @@
 				"ci": true,
 				"branch": null,
 				"pinned": true,
+				"refresh": null,
 				"presence": {
 					"kind": "present"
 				},
@@ -665,6 +670,9 @@
 				"ci": false,
 				"branch": null,
 				"pinned": false,
+				"refresh": {
+					"kind": "act"
+				},
 				"presence": {
 					"kind": "present"
 				},
@@ -695,7 +703,42 @@
 						"busy": []
 					}
 				],
-				"branches": [],
+				"branches": [
+					{
+						"name": "main",
+						"upstream": "origin/main",
+						"worktree": null,
+						"symref": null,
+						"unique_commits": 0,
+						"newest_commit_at": 1799827200,
+						"relation": {
+							"kind": "behind",
+							"commits": 1
+						},
+						"verdict": {
+							"kind": "act",
+							"action": {
+								"kind": "fast_forward",
+								"commits": 1
+							}
+						}
+					},
+					{
+						"name": "audit",
+						"upstream": "origin/audit",
+						"worktree": null,
+						"symref": null,
+						"unique_commits": 2,
+						"newest_commit_at": 1799827200,
+						"relation": {
+							"kind": "ahead",
+							"commits": 2
+						},
+						"verdict": {
+							"kind": "local_only"
+						}
+					}
+				],
 				"stashes": 0,
 				"fetched_at": 1799913600,
 				"needs_human": [],
@@ -715,6 +758,7 @@
 				"ci": true,
 				"branch": "main",
 				"pinned": false,
+				"refresh": null,
 				"presence": {
 					"kind": "missing"
 				},
@@ -749,6 +793,7 @@
 				"ci": true,
 				"branch": "main",
 				"pinned": false,
+				"refresh": null,
 				"presence": {
 					"kind": "missing"
 				},
@@ -784,6 +829,7 @@
 				"ci": true,
 				"branch": "main",
 				"pinned": false,
+				"refresh": null,
 				"presence": {
 					"kind": "missing"
 				},
@@ -814,6 +860,47 @@
 				"visibility_check": null
 			},
 			{
+				"key": "renamed",
+				"kind": "repo",
+				"dir": "renamed",
+				"url": "https://github.com/me/renamed",
+				"writable": true,
+				"archived": false,
+				"visibility": "public",
+				"ci": true,
+				"branch": "main",
+				"pinned": false,
+				"refresh": null,
+				"presence": {
+					"kind": "missing"
+				},
+				"clone": {
+					"kind": "held",
+					"recipe": {
+						"url": "git@github.com:me/renamed",
+						"branch": "main",
+						"shallow": false,
+						"sparse": null
+					},
+					"by": "entry"
+				},
+				"layout": null,
+				"checkouts": [],
+				"branches": [],
+				"stashes": 0,
+				"fetched_at": null,
+				"needs_human": [
+					{
+						"kind": "cloned_unregistered",
+						"dir": "renamed-old"
+					}
+				],
+				"probe_error": null,
+				"unprobed_worktrees": [],
+				"fetch_error": null,
+				"visibility_check": null
+			},
+			{
 				"key": "wpt",
 				"kind": "reference",
 				"dir": "wpt",
@@ -824,6 +911,7 @@
 				"ci": false,
 				"branch": null,
 				"pinned": false,
+				"refresh": null,
 				"presence": {
 					"kind": "missing"
 				},
@@ -858,6 +946,7 @@
 				"ci": false,
 				"branch": null,
 				"pinned": false,
+				"refresh": null,
 				"presence": {
 					"kind": "missing"
 				},
@@ -892,6 +981,7 @@
 				"ci": false,
 				"branch": null,
 				"pinned": false,
+				"refresh": null,
 				"presence": {
 					"kind": "missing"
 				},
@@ -926,6 +1016,7 @@
 				"ci": true,
 				"branch": "main",
 				"pinned": false,
+				"refresh": null,
 				"presence": {
 					"kind": "present"
 				},
@@ -946,7 +1037,14 @@
 				"visibility_check": null
 			}
 		],
-		"unregistered": null
+		"unregistered": [
+			{
+				"dir": "renamed-old",
+				"origin": "git@github.com:me/renamed",
+				"owned": true,
+				"kind": "clone"
+			}
+		]
 	},
 	"entries": [
 		{
@@ -1178,10 +1276,23 @@
 		{
 			"key": "lib",
 			"fetch": {
-				"kind": "not_fetched"
+				"kind": "fetched"
 			},
 			"clone": null,
-			"branches": []
+			"branches": [
+				{
+					"name": "main",
+					"kind": "fast_forwarded",
+					"from": "5555555555555555555555555555555555555555",
+					"to": "6666666666666666666666666666666666666666",
+					"repeats": null
+				},
+				{
+					"name": "audit",
+					"kind": "untouched",
+					"repeats": null
+				}
+			]
 		},
 		{
 			"key": "blake3",
@@ -1208,6 +1319,17 @@
 		},
 		{
 			"key": "twin",
+			"fetch": {
+				"kind": "not_fetched"
+			},
+			"clone": {
+				"kind": "held",
+				"by": "entry"
+			},
+			"branches": []
+		},
+		{
+			"key": "renamed",
 			"fetch": {
 				"kind": "not_fetched"
 			},

@@ -16,6 +16,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{Duration, Instant, UNIX_EPOCH};
 
+use crate::classify::{Refresh, refresh_intent, refresh_verdict};
 use crate::git::{CallOptions, Git, GitError, NetworkOptions};
 use crate::gitdir::{dot_git_target, read_head, read_worktree_gitdir};
 use crate::porcelain::{
@@ -25,7 +26,8 @@ use crate::registry::Entry;
 use crate::regular_file::read_regular;
 use crate::remote::{RefspecContext, RemoteFailure};
 use crate::state::{
-    Checkout, GitDirHolds, Head, InProgressOp, Layout, UnprobedHead, UnprobedWhy, UnprobedWorktree,
+    Checkout, GitDirHolds, Head, InProgressOp, Layout, RefreshVerdict, UnprobedHead, UnprobedWhy,
+    UnprobedWorktree,
 };
 
 /// What the probe needs from its caller.
@@ -37,8 +39,11 @@ pub struct ProbeContext<'a> {
     /// targets: a worktree of the probed repo at one is that entry's
     /// checkout.
     pub registry_dirs: &'a RegistryDirs,
-    /// Fetch owned, non-pinned entries from `origin` before probing.
+    /// Fetch from `origin` before probing the entries `fetches` names.
     pub fetch: bool,
+    /// Which references the run refreshes: a third-party one it refreshes
+    /// is fetched too.
+    pub refresh: Refresh,
     /// The run's fetches so far, so entries sharing a repo fetch it once.
     pub fetches: &'a RepoFetches,
 }
@@ -122,9 +127,13 @@ pub enum Probed {
     /// once the config step (and the fetch, when asked) has run, before any
     /// call that reads objects — a partial clone's filter says why a call
     /// may have needed an object the probe never fetches.
+    ///
+    /// `config` is the repo's, once the config step has read it: the
+    /// refresh verdict (`refresh_verdict`) the fetch obeyed.
     Failed {
         error: String,
         layout: Option<Layout>,
+        config: Option<Box<ConfigFacts>>,
     },
 }
 
@@ -235,9 +244,25 @@ const fn could_push(b: &BranchFacts, shallow: bool) -> bool {
         }
 }
 
-/// Whether `--fetch` fetches this entry: owned and not pinned — a pin is
-/// never fetched, whatever branch it's on.
-pub const fn fetches(entry: &Entry) -> bool {
+/// Whether `--fetch` (and `sync`) fetches this entry, its repo's `config`
+/// read.
+///
+/// Owned and not pinned — a pin is never fetched, whatever branch it's on
+/// — or a third-party reference whose refresh verdict acts
+/// (`refresh_verdict`, which holds one whose origin isn't the registry's
+/// repo, or whose fetch wouldn't reach it over HTTPS): fetched over HTTPS
+/// alone. Classify decides; the probe obeys.
+pub fn fetches(entry: &Entry, refresh: Refresh, config: &ConfigFacts) -> bool {
+    syncs_owned(entry)
+        || matches!(
+            refresh_verdict(entry, refresh, config),
+            Some(RefreshVerdict::Act)
+        )
+}
+
+/// Whether the entry is owned and not pinned: fetched on every fetching
+/// run, and the only kind sync may push.
+const fn syncs_owned(entry: &Entry) -> bool {
     entry.writable && !entry.pinned
 }
 
@@ -250,6 +275,7 @@ pub fn probe(entry: &Entry, cx: ProbeContext<'_>) -> ProbeRun {
             Probed::Failed {
                 error,
                 layout: early.layout.take(),
+                config: early.config.take().map(Box::new),
             }
         });
     ProbeRun {
@@ -261,9 +287,11 @@ pub fn probe(entry: &Entry, cx: ProbeContext<'_>) -> ProbeRun {
 }
 
 /// What the probe records as it goes, kept even when a later step fails:
-/// the fetch's outcome and time, and the layout once the config step ran.
+/// the config once read, the fetch's outcome and time, and the layout once
+/// the config step ran.
 #[derive(Debug, Default)]
 struct Recorded {
+    config: Option<ConfigFacts>,
     fetch: Option<Result<(), RemoteFailure>>,
     fetch_time: Duration,
     layout: Option<Layout>,
@@ -339,7 +367,7 @@ fn probe_present(
     // main checkout, absolute from a linked worktree
     let repo_file = canonical(&common_dir.join("config"));
     let is_repo_file = |path: &str| repo_file.is_some() && canonical(&dir.join(path)) == repo_file;
-    let config = match cx.git.run(
+    let mut config = match cx.git.run(
         dir,
         &[
             "config",
@@ -358,10 +386,19 @@ fn probe_present(
         Ok(out) => return Err(format!("config failed: {}", out.stderr.trim())),
         Err(e) => return Err(e.to_string()),
     };
+    // where a refresh's fetch would reach, rewrites applied: classify holds
+    // one that isn't the registry's repo over HTTPS (`refresh_verdict`)
+    if refresh_intent(entry, cx.refresh) == Some(RefreshVerdict::Act)
+        && config.origin_url().is_some()
+    {
+        config.origin_fetch_url = Some(read_fetch_url(cx.git, dir, local)?);
+    }
     let shallow_roots = read_shallow_roots(&common_dir);
+    early.config = Some(config.clone());
 
-    // no `origin` URL, nothing to fetch from — origin drift reports it
-    if cx.fetch && fetches(entry) && config.origin_url().is_some() {
+    // no `origin` URL, nothing to fetch from — origin drift reports it (a
+    // third-party reference's refresh is held for it, so never fetched)
+    if cx.fetch && fetches(entry, cx.refresh, &config) && config.origin_url().is_some() {
         let start = Instant::now();
         let mut args = FETCH_ARGS.to_vec();
         if !shallow_roots.is_empty() {
@@ -373,6 +410,9 @@ fn probe_present(
             network: Some(NetworkOptions {
                 batch_ssh: !config.ssh_command && !cx.git.env_configures_ssh(),
             }),
+            // a third-party reference over HTTPS alone, as it's cloned: no
+            // `insteadOf` can send it over SSH, offering a key to its host
+            allow_protocol: (!entry.writable).then_some("https"),
             ..CallOptions::default()
         };
         // a refspec writing outside `refs/remotes/origin/`, or another
@@ -458,7 +498,7 @@ fn probe_present(
     // where a push through origin goes, rewrites applied, when sync may
     // push a branch of the entry (an archived repo's are a person's):
     // classify checks it's the registry's repo
-    let push_urls = if fetches(entry)
+    let push_urls = if syncs_owned(entry)
         && !entry.archived
         && config.origin_url().is_some()
         && branches.iter().any(|b| could_push(b, layout.shallow))
@@ -532,6 +572,20 @@ fn probe_present(
         fetch_failed: early.fetch.as_ref().is_some_and(Result::is_err),
         push_urls,
     })))
+}
+
+/// The URL a fetch from `origin` reaches, as git resolves it: its first
+/// URL, `insteadOf` rewrites applied. Local: `--get-url` never talks to the
+/// remote.
+///
+/// # Errors
+///
+/// Git's message when it can't say (a config it can't read).
+fn read_fetch_url(git: &Git, dir: &Path, opts: CallOptions<'_>) -> Result<String, String> {
+    let out = git
+        .output_string(dir, &["ls-remote", "--get-url", "origin"], opts)
+        .map_err(|e| format!("fetch URL: {e}"))?;
+    Ok(out.trim_end_matches('\n').to_owned())
 }
 
 /// Every URL a push through `origin` goes to, in git's order, as git
@@ -1886,6 +1940,7 @@ purpose = "a .git git can't use"
             root: tmp.path(),
             registry_dirs: &registry_dirs,
             fetch: false,
+            refresh: Refresh::Unasked,
             fetches: &RepoFetches::default(),
         };
         let details: Vec<String> = registry
