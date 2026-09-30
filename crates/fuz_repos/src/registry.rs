@@ -170,13 +170,13 @@ impl TryFrom<String> for RepoUrl {
 impl RepoUrl {
     /// The SSH form, `git@<host>:<account>/<name>` — how owned repos clone
     /// and push.
-    pub fn ssh(&self) -> String {
+    pub(crate) fn ssh(&self) -> String {
         format!("git@{}:{}/{}", self.host, self.account, self.name)
     }
 
     /// Whether `other` names the same repo, ignoring ASCII case: host
     /// names and GitHub's account and repo paths are case-insensitive.
-    pub fn same_repo(&self, other: &Self) -> bool {
+    fn same_repo(&self, other: &Self) -> bool {
         self.host.eq_ignore_ascii_case(&other.host)
             && self.account.eq_ignore_ascii_case(&other.account)
             && self.name.eq_ignore_ascii_case(&other.name)
@@ -241,7 +241,7 @@ impl fmt::Display for RepoUrl {
 /// Whether `account` is one of `owners`, ignoring ASCII case: host
 /// accounts (GitHub's) are case-insensitive. The one ownership comparison,
 /// for registry entries and unregistered clones alike.
-pub fn is_owner(owners: &[String], account: &str) -> bool {
+pub(crate) fn is_owner(owners: &[String], account: &str) -> bool {
     owners.iter().any(|o| o.eq_ignore_ascii_case(account))
 }
 
@@ -294,7 +294,7 @@ pub struct Entry {
 impl Entry {
     /// The URL `origin` should hold: SSH for owned entries, HTTPS for
     /// third-party ones — transport follows write authority.
-    pub fn remote_url(&self) -> String {
+    pub(crate) fn remote_url(&self) -> String {
         if self.writable {
             self.url.ssh()
         } else {
@@ -309,7 +309,7 @@ impl Registry {
     /// # Errors
     ///
     /// Returns the TOML or schema error, with the offending key's position.
-    pub fn parse(src: &str) -> std::result::Result<Self, toml::de::Error> {
+    pub(crate) fn parse(src: &str) -> std::result::Result<Self, toml::de::Error> {
         toml::from_str(src)
     }
 
@@ -332,7 +332,7 @@ impl Registry {
     }
 
     /// Whether `url`'s account is one of the owners (`is_owner`).
-    pub fn is_owned(&self, url: &RepoUrl) -> bool {
+    fn is_owned(&self, url: &RepoUrl) -> bool {
         is_owner(&self.owners, &url.account)
     }
 

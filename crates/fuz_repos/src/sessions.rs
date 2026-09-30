@@ -124,7 +124,7 @@ impl Session {
 
     /// Every path it works in: its recorded cwd, its worktree, and its
     /// process's cwd.
-    pub fn places(&self) -> impl Iterator<Item = &str> {
+    pub(crate) fn places(&self) -> impl Iterator<Item = &str> {
         std::iter::once(self.cwd.as_str())
             .chain(self.worktree.as_deref())
             .chain(self.process_cwd.as_deref())
@@ -263,7 +263,7 @@ impl Caller {
 ///
 /// `HomeUnknown` without a `home`: Claude Code would fall back to the
 /// passwd entry's home, which isn't read.
-pub fn config_dirs(
+fn config_dirs(
     config_dir: Option<OsString>,
     home: Option<OsString>,
 ) -> Result<Vec<PathBuf>, Unavailable> {
@@ -282,7 +282,7 @@ pub fn config_dirs(
 
 /// This process's ancestors by pid, each with its `starttime`, read from
 /// `/proc` (`walk_ancestors`).
-pub fn caller_ancestors() -> BTreeMap<u32, u64> {
+fn caller_ancestors() -> BTreeMap<u32, u64> {
     read_stat(Path::new("/proc/self/stat")).map_or_else(BTreeMap::new, |own| {
         walk_ancestors(own, |pid| {
             read_stat(&PathBuf::from(format!("/proc/{pid}/stat")))

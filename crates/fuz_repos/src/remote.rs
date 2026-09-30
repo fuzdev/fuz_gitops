@@ -116,7 +116,7 @@ impl RefGoneFix {
     /// negative refspec (`^refs/…`): with only those left, or only another
     /// scope's (a global `refs/pull/*` line, say), a fetch succeeds while
     /// updating no branch — so that case is `SetBranches`.
-    pub fn decide(refname: &str, cx: RefspecContext<'_>) -> Self {
+    fn decide(refname: &str, cx: RefspecContext<'_>) -> Self {
         let names = |v: &ConfigValue| {
             let refspec = v.value.strip_prefix('+').unwrap_or(&v.value);
             refspec.split(':').next() == Some(refname)
@@ -147,7 +147,7 @@ impl RefGoneFix {
 
 /// What a missing ref's repair is decided against.
 #[derive(Debug, Clone, Copy, Default)]
-pub struct RefspecContext<'a> {
+pub(crate) struct RefspecContext<'a> {
     /// Origin's fetch refspecs, as git reads them.
     pub refspecs: &'a [ConfigValue],
     /// The entry's branch, if any: what `SetBranches` names.
@@ -256,7 +256,7 @@ impl RemoteFailure {
     /// resolve, a failed connection; else `Failed` with the first `fatal:`
     /// line, or failing that the first non-empty one (a `warning:` or trace
     /// line may come first).
-    pub fn from_stderr(stderr: &str, cx: RefspecContext<'_>) -> Self {
+    fn from_stderr(stderr: &str, cx: RefspecContext<'_>) -> Self {
         let lines: Vec<&str> = stderr
             .lines()
             .map(str::trim)
@@ -308,7 +308,7 @@ impl RemoteFailure {
     /// Classifies a failed network call: git's stderr when it exited
     /// non-zero (`from_stderr`, with `cx`), `TimedOut` when the runner
     /// stopped it, else `Failed` with the runner's error.
-    pub fn from_git_error(e: GitError, cx: RefspecContext<'_>) -> Self {
+    pub(crate) fn from_git_error(e: GitError, cx: RefspecContext<'_>) -> Self {
         match e {
             GitError::Failed { stderr, code, .. } if stderr.trim().is_empty() => Self::Failed {
                 message: code.map_or_else(
@@ -392,13 +392,13 @@ fn refused_by_host(stderr: &str, url: &str) -> bool {
 /// Whether the visibility check applies to this entry: a `[repos]` entry
 /// declared private. A repo declared public but really private harms
 /// nothing, and references declare no visibility.
-pub fn is_declared_private(entry: &Entry) -> bool {
+pub(crate) fn is_declared_private(entry: &Entry) -> bool {
     entry.kind == EntryKind::Repo && entry.visibility == Some(Visibility::Private)
 }
 
 /// The URL the visibility check reads: the registry's HTTPS URL, or, with
 /// `base`, `<base><account>/<name>` (a test seam).
-pub fn visibility_url(entry: &Entry, base: Option<&str>) -> String {
+pub(crate) fn visibility_url(entry: &Entry, base: Option<&str>) -> String {
     base.map_or_else(
         || entry.url.to_string(),
         |base| format!("{base}{}/{}", entry.url.account, entry.url.name),
@@ -408,7 +408,7 @@ pub fn visibility_url(entry: &Entry, base: Option<&str>) -> String {
 /// Reads `url` anonymously (`Git::ls_remote_anonymous`) and decides what
 /// that says about a repo declared private; `dir` is any existing dir to run
 /// in, and no repo's config applies there.
-pub fn read_anonymously(git: &Git, dir: &Path, url: &str) -> VisibilityCheck {
+pub(crate) fn read_anonymously(git: &Git, dir: &Path, url: &str) -> VisibilityCheck {
     VisibilityCheck::from_read(url, git.ls_remote_anonymous(dir, url))
 }
 

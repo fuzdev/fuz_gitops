@@ -335,7 +335,7 @@ fn temp_dir(root: &Path, dir: &str) -> PathBuf {
 /// Whether `name` is a clone's temp dir name (`temp_dir_name`): `.`, a dir
 /// name, `.repos-clone-`, a pid's digits, `-`, and the nonce's
 /// `NONCE_LEN` lowercase hex digits.
-pub fn is_temp_dir_name(name: &str) -> bool {
+pub(crate) fn is_temp_dir_name(name: &str) -> bool {
     let Some(rest) = name.strip_prefix('.') else {
         return false;
     };

@@ -210,7 +210,7 @@ use crate::status::{Assess, EntryTiming, assess, probe_all, run_pool};
 /// fetching content) can take minutes, and git killed mid-checkout leaves
 /// the files half-written against an unmoved HEAD. Long enough for any
 /// checkout that is making progress; a hung filter still ends.
-pub const CHECKOUT_TIMEOUT: Duration = Duration::from_secs(10 * 60);
+const CHECKOUT_TIMEOUT: Duration = Duration::from_secs(10 * 60);
 
 /// How to run `sync`.
 #[derive(Clone, Copy)]

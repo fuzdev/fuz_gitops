@@ -420,7 +420,7 @@ pub enum CloneOutcome {
 
 impl CloneOutcome {
     /// Whether the clone failed, so the run exits `1`.
-    pub const fn failed(&self) -> bool {
+    const fn failed(&self) -> bool {
         matches!(self, Self::CloneFailed { .. } | Self::Failed { .. })
     }
 }

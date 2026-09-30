@@ -50,9 +50,9 @@ const STDERR_CAP: usize = 64 * 1024;
 const KILL_GRACE: Duration = Duration::from_secs(5);
 
 /// The timeout for a local call.
-pub const LOCAL_TIMEOUT: Duration = Duration::from_secs(60);
+const LOCAL_TIMEOUT: Duration = Duration::from_secs(60);
 /// The timeout for a network call.
-pub const NETWORK_TIMEOUT: Duration = Duration::from_secs(120);
+const NETWORK_TIMEOUT: Duration = Duration::from_secs(120);
 /// SSH's connect timeout under batch mode, in seconds.
 const SSH_CONNECT_TIMEOUT_SECS: u32 = 15;
 
@@ -126,7 +126,7 @@ impl GitVersion {
     /// candidate (`2.44.0.rc1`, read as `2.44.0`), a dev build's describe
     /// (`2.43.0.381.gb435a96ce8`, read as `2.43.0`). The patch may be absent
     /// (read as `0`); the major and minor may not.
-    pub fn parse(output: &str) -> Option<Self> {
+    fn parse(output: &str) -> Option<Self> {
         let version = version_line(output)?;
         let token = version.split_whitespace().next()?;
         let mut parts = token.split('.');
@@ -161,7 +161,7 @@ fn version_line(output: &str) -> Option<&str> {
 
 /// A git call that didn't produce usable output.
 #[derive(Debug, Error)]
-pub enum GitError {
+pub(crate) enum GitError {
     #[error("git not found on PATH")]
     NotFound,
     #[error("failed to run git: {0}")]
@@ -185,7 +185,7 @@ pub enum GitError {
 
 /// Per-call options.
 #[derive(Debug, Clone, Copy, Default)]
-pub struct CallOptions<'a> {
+pub(crate) struct CallOptions<'a> {
     /// Stop repo discovery above this dir (`GIT_CEILING_DIRECTORIES`), so a
     /// dir that isn't a repo never resolves to a parent's.
     pub ceiling: Option<&'a Path>,
@@ -215,7 +215,7 @@ pub struct CallOptions<'a> {
 
 /// Options for a call that reaches a remote.
 #[derive(Debug, Clone, Copy)]
-pub struct NetworkOptions {
+pub(crate) struct NetworkOptions {
     /// Whether to set `GIT_SSH_COMMAND` to batch mode with a connect timeout.
     /// Off when the repo sets `core.sshCommand` or the env sets
     /// `GIT_SSH_COMMAND`/`GIT_SSH`.
@@ -224,7 +224,7 @@ pub struct NetworkOptions {
 
 /// A finished git call.
 #[derive(Debug)]
-pub struct GitOutput {
+pub(crate) struct GitOutput {
     pub status: ExitStatus,
     pub stdout: Vec<u8>,
     pub stderr: String,
@@ -248,9 +248,10 @@ impl Git {
     /// hardening — no inherited variable reaches git, so neither the caller's
     /// `HOME` (and with it the global config and excludes file) nor its
     /// `GIT_*` settings apply. The system config still does unless `env` sets
-    /// `GIT_CONFIG_NOSYSTEM`. For hermetic callers like the fixture tests.
-    /// git and its own children (ssh, `!` aliases, hooks) all search `env`'s
-    /// `PATH`, never the caller's, so `env` should carry one.
+    /// `GIT_CONFIG_NOSYSTEM`. git and its own children (ssh, `!` aliases,
+    /// hooks) all search `env`'s `PATH`, never the caller's, so `env` should
+    /// carry one. A test seam: the binary never uses it, and the fixture tests
+    /// build their hermetic runner with it.
     pub const fn with_clean_env(env: Vec<(OsString, OsString)>) -> Self {
         Self {
             spawns: AtomicU32::new(0),
@@ -277,7 +278,7 @@ impl Git {
     }
 
     /// Whether the environment git sees already configures its SSH.
-    pub fn env_configures_ssh(&self) -> bool {
+    pub(crate) fn env_configures_ssh(&self) -> bool {
         ["GIT_SSH_COMMAND", "GIT_SSH"]
             .iter()
             .any(|v| self.env_var(v).is_some())
@@ -289,7 +290,7 @@ impl Git {
     /// # Errors
     ///
     /// When git can't be spawned, times out, or overflows the stdout cap.
-    pub fn run(
+    pub(crate) fn run(
         &self,
         dir: &Path,
         args: &[&str],
@@ -324,7 +325,7 @@ impl Git {
     /// userinfo; otherwise as
     /// `output`, including `Failed` with git's stderr when the read is
     /// refused.
-    pub fn ls_remote_anonymous(&self, dir: &Path, url: &str) -> Result<(), GitError> {
+    pub(crate) fn ls_remote_anonymous(&self, dir: &Path, url: &str) -> Result<(), GitError> {
         let args = anonymous_args(url);
         let (cmd, timeout) = self.anonymous_command(dir, url)?;
         let out = self.spawn_wait(cmd, timeout, || args.join(" "))?;
@@ -495,7 +496,7 @@ impl Git {
     /// # Errors
     ///
     /// As `run`, plus `Failed` on a non-zero exit.
-    pub fn output(
+    pub(crate) fn output(
         &self,
         dir: &Path,
         args: &[&str],
@@ -518,7 +519,7 @@ impl Git {
     /// # Errors
     ///
     /// As `output`, plus `NonUtf8`.
-    pub fn output_string(
+    pub(crate) fn output_string(
         &self,
         dir: &Path,
         args: &[&str],

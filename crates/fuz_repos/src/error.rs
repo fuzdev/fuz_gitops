@@ -193,7 +193,7 @@ impl Error {
 
     /// The stable, machine-readable kind and its payload, for the `--json`
     /// error document.
-    pub fn kind(&self) -> ErrorKind {
+    pub(crate) fn kind(&self) -> ErrorKind {
         match self {
             Self::MissingCommand => ErrorKind::MissingCommand,
             Self::ReferencesWithTargets => ErrorKind::ReferencesWithTargets,

@@ -171,7 +171,7 @@ impl NeedsHuman {
     /// one checkout's HEAD (an unresolvable checkout holds the branches
     /// checked out there, as a busy one does), and leave the other branches
     /// safe to sync.
-    pub const fn holds_entry(&self) -> bool {
+    pub(crate) const fn holds_entry(&self) -> bool {
         match self {
             Self::NotARepo { .. }
             | Self::OperationInProgress { .. }
@@ -251,7 +251,7 @@ pub enum OriginByHand {
 
 impl OriginFix {
     /// The fix for a repo whose `origin` needs the registry's URL.
-    pub fn decide(config: &ConfigFacts) -> Self {
+    fn decide(config: &ConfigFacts) -> Self {
         let urls = &config.origin_urls;
         let by_hand = |reason| Self::ByHand { reason };
         if urls.iter().any(|v| !v.in_repo_file) {
@@ -277,7 +277,7 @@ impl OriginFix {
 
 /// What `classify` derives for a present repo.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Classified {
+pub(crate) struct Classified {
     pub branches: Vec<BranchStatus>,
     pub needs_human: Vec<NeedsHuman>,
     /// The repo's unprobed worktrees, each with what removing it would do.
@@ -371,7 +371,7 @@ pub enum Refresh {
 /// is `refresh_verdict`'s, once the repo's config is read; for a repo whose
 /// config couldn't be, never fetched, only a pin's refusal stands. The
 /// probe reads where a refresh's fetch would reach when this acts.
-pub const fn refresh_intent(entry: &Entry, refresh: Refresh) -> Option<RefreshVerdict> {
+pub(crate) const fn refresh_intent(entry: &Entry, refresh: Refresh) -> Option<RefreshVerdict> {
     match refresh {
         Refresh::Named if entry.pinned => Some(RefreshVerdict::Held { by: HeldBy::Pinned }),
         Refresh::Named | Refresh::References if !entry.writable && !entry.pinned => {
@@ -393,7 +393,7 @@ pub const fn refresh_intent(entry: &Entry, refresh: Refresh) -> Option<RefreshVe
 /// an `insteadOf` rewrite), held by `HeldBy::OriginNotHttps` (the entry's
 /// `origin_not_https` reason): a reference is fetched over HTTPS alone,
 /// and that fetch would fail. The probe decides its fetch by this verdict.
-pub fn refresh_verdict(
+pub(crate) fn refresh_verdict(
     entry: &Entry,
     refresh: Refresh,
     config: &ConfigFacts,
@@ -432,7 +432,7 @@ fn fetches_over_https(entry: &Entry, config: &ConfigFacts) -> bool {
 /// entry not owned or pinned (a reference's refresh has its own check,
 /// `fetches_over_https`; a pin is never fetched), and when the probe didn't
 /// read it.
-pub fn fetch_url_mismatch<'a>(entry: &Entry, config: &'a ConfigFacts) -> Option<&'a str> {
+pub(crate) fn fetch_url_mismatch<'a>(entry: &Entry, config: &'a ConfigFacts) -> Option<&'a str> {
     if !entry.writable || entry.pinned {
         return None;
     }
@@ -449,7 +449,7 @@ pub fn fetch_url_mismatch<'a>(entry: &Entry, config: &'a ConfigFacts) -> Option<
 /// clone whose origin is HTTPS fills its checkout over HTTPS. `None` for
 /// anything else (plain `http`, `git://`, a local path, a URL
 /// `remote_parts` rejects): no lazy fetch.
-pub fn lazy_transport(origin: &str) -> Option<&'static str> {
+pub(crate) fn lazy_transport(origin: &str) -> Option<&'static str> {
     let parts = remote_parts(origin)?;
     if parts.ssh {
         Some("ssh")
@@ -479,7 +479,7 @@ fn tracked(entry: &Entry, refresh: Refresh, config: &ConfigFacts) -> bool {
 /// third-party reference is never compared against a remote: it keeps only
 /// branches with commits on no remote, as `Untracked` — local work that can
 /// never be pushed.
-pub fn classify(
+pub(crate) fn classify(
     entry: &Entry,
     facts: &RepoFacts,
     sessions: &EntrySessions,
@@ -617,7 +617,7 @@ pub fn at_rest(
 /// A missing entry's clone verdict, and the reason a person decides it,
 /// when one does.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ClassifiedMissing {
+pub(crate) struct ClassifiedMissing {
     pub clone: CloneVerdict,
     pub needs_human: Vec<NeedsHuman>,
 }
@@ -641,7 +641,7 @@ pub struct ClassifiedMissing {
 /// nothing, so neither an agent running the tool, a pin (cloned, then held
 /// for good), an archived repo, nor busy detection that's unavailable
 /// holds it.
-pub fn classify_missing(
+pub(crate) fn classify_missing(
     entry: &Entry,
     busy: bool,
     recorded_worktree: bool,
@@ -720,7 +720,7 @@ fn repo_names_alike(a: &str, b: &str) -> bool {
 /// How a missing entry is cloned: from `Entry::remote_url` (transport
 /// follows write authority), on its branch when it names one, shallow and
 /// sparse as a reference declares.
-pub fn clone_recipe(entry: &Entry) -> CloneRecipe {
+fn clone_recipe(entry: &Entry) -> CloneRecipe {
     CloneRecipe {
         url: entry.remote_url(),
         branch: entry.branch.clone(),
@@ -1193,7 +1193,7 @@ fn needs_human(
 
 /// `origin` as git sees it, when it isn't the registry's repo
 /// (`origin_matches`): another URL, or none. `None` when it is.
-pub fn origin_drift(entry: &Entry, config: &ConfigFacts) -> Option<OriginRemote> {
+fn origin_drift(entry: &Entry, config: &ConfigFacts) -> Option<OriginRemote> {
     match config.origin_url() {
         Some(url) if origin_matches(url, &entry.url) => None,
         Some(url) => Some(OriginRemote::Url {
@@ -1209,7 +1209,7 @@ pub fn origin_drift(entry: &Entry, config: &ConfigFacts) -> Option<OriginRemote>
 ///
 /// `refs/heads/<name>`, never `refs/heads/HEAD` (which would create a
 /// branch named `HEAD` there), and a ref name git accepts.
-pub fn push_target(b: &RefFacts) -> Option<&str> {
+pub(crate) fn push_target(b: &RefFacts) -> Option<&str> {
     let merge = b.merge_ref.as_deref()?;
     let name = merge.strip_prefix("refs/heads/")?;
     (!name.is_empty() && name != "HEAD" && is_valid_refname(merge.as_bytes())).then_some(merge)
@@ -1221,7 +1221,7 @@ pub fn push_target(b: &RefFacts) -> Option<&str> {
 /// Exactly one push URL, SSH (scp-like `git@host:path` or `ssh://`), naming
 /// the registry's repo as `origin_matches` reads it. Several URLs would
 /// each take the push.
-pub fn push_urls_match(urls: &[String], url: &RepoUrl) -> bool {
+pub(crate) fn push_urls_match(urls: &[String], url: &RepoUrl) -> bool {
     match urls {
         [one] => remote_parts(one).is_some_and(|p| p.ssh && names_repo(&p, url)),
         _ => false,
@@ -1237,7 +1237,7 @@ pub fn push_urls_match(urls: &[String], url: &RepoUrl) -> bool {
 /// GitHub paths are case-insensitive). SSH, `git://`, and HTTPS forms
 /// compare equal; a `user@` drops. Anything else — an `@` outside the
 /// authority, an escape, an IP literal, a port — is a mismatch.
-pub fn origin_matches(origin: &str, url: &RepoUrl) -> bool {
+pub(crate) fn origin_matches(origin: &str, url: &RepoUrl) -> bool {
     remote_parts(origin).is_some_and(|p| names_repo(&p, url))
 }
 
@@ -1254,7 +1254,7 @@ fn names_repo(p: &RemoteParts<'_>, url: &RepoUrl) -> bool {
 /// The first segment of the path on its host (`remote_parts`, any port
 /// aside), when a name follows; `None` for a URL with no host and account,
 /// such as a local path.
-pub fn remote_account(url: &str) -> Option<String> {
+pub(crate) fn remote_account(url: &str) -> Option<String> {
     let p = remote_parts(url)?;
     let mut parts = p.path.split('/');
     let (Some(account), Some(name)) = (parts.next(), parts.next()) else {

@@ -33,7 +33,7 @@ use crate::state::{
 
 /// What the probe needs from its caller.
 #[derive(Debug, Clone, Copy)]
-pub struct ProbeContext<'a> {
+pub(crate) struct ProbeContext<'a> {
     pub git: &'a Git,
     pub root: &'a Path,
     /// Every registry entry's dir, the whole registry's whatever the
@@ -56,7 +56,7 @@ pub struct ProbeContext<'a> {
 /// once and share the outcome: two fetches of one repo at once race on its
 /// ref locks, and one fails.
 #[derive(Debug, Default)]
-pub struct RepoFetches(Mutex<HashMap<PathBuf, Arc<Mutex<Option<FetchResult>>>>>);
+pub(crate) struct RepoFetches(Mutex<HashMap<PathBuf, Arc<Mutex<Option<FetchResult>>>>>);
 
 /// How a fetch went: `Err` says why it failed or was refused.
 type FetchResult = Result<(), RemoteFailure>;
@@ -98,14 +98,14 @@ impl RegistryDirs {
 
     /// Whether `path`, canonicalized, is a registry entry's dir; `false` when
     /// it can't be canonicalized.
-    pub fn contains(&self, path: &Path) -> bool {
+    fn contains(&self, path: &Path) -> bool {
         canonical(path).is_some_and(|p| self.0.contains(&p))
     }
 }
 
 /// One entry's probe, with its timings.
 #[derive(Debug)]
-pub struct ProbeRun {
+pub(crate) struct ProbeRun {
     pub probed: Probed,
     /// `None` when no fetch was attempted; `Some(Err)` says why it failed.
     /// Shared by entries sharing a repo (`RepoFetches`).
@@ -116,7 +116,7 @@ pub struct ProbeRun {
 
 /// What the probe found.
 #[derive(Debug)]
-pub enum Probed {
+pub(crate) enum Probed {
     /// Nothing is at the entry's path, not even a dangling symlink.
     Missing,
     /// The dir exists but holds no repo; `detail` says why.
@@ -140,7 +140,7 @@ pub enum Probed {
 
 /// The facts of a present repo.
 #[derive(Debug, Clone)]
-pub struct RepoFacts {
+pub(crate) struct RepoFacts {
     /// The primary checkout's path.
     pub path: String,
     pub common_dir: PathBuf,
@@ -210,7 +210,7 @@ pub struct RepoFacts {
 
 /// A local branch's facts.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct BranchFacts {
+pub(crate) struct BranchFacts {
     pub branch: RefFacts,
     /// Commits on no remote-tracking ref, minus shallow roots; counted only
     /// where `could_carry_local_work` says so, else zero.
@@ -225,7 +225,7 @@ pub struct BranchFacts {
 /// Anything but a branch level with, or strictly behind, a resolved
 /// upstream — or a symbolic ref, an alias whose commits are its target's (a
 /// branch's, counted as itself).
-pub const fn could_carry_local_work(r: &RefFacts) -> bool {
+const fn could_carry_local_work(r: &RefFacts) -> bool {
     r.symref.is_none()
         && !matches!(
             (&r.upstream_ref, r.track),
@@ -269,7 +269,7 @@ const fn could_push(b: &BranchFacts, shallow: bool) -> bool {
 /// one whose origin isn't the registry's repo, or whose fetch wouldn't
 /// reach it over HTTPS): fetched over HTTPS alone. Classify decides; the
 /// probe obeys.
-pub fn fetches(entry: &Entry, refresh: Refresh, config: &ConfigFacts) -> bool {
+fn fetches(entry: &Entry, refresh: Refresh, config: &ConfigFacts) -> bool {
     (syncs_owned(entry)
         && config.origin_fetch_url.is_some()
         && fetch_url_mismatch(entry, config).is_none())
@@ -286,7 +286,7 @@ const fn syncs_owned(entry: &Entry) -> bool {
 }
 
 /// Probes one entry.
-pub fn probe(entry: &Entry, cx: ProbeContext<'_>) -> ProbeRun {
+pub(crate) fn probe(entry: &Entry, cx: ProbeContext<'_>) -> ProbeRun {
     let start = Instant::now();
     let mut early = Recorded::default();
     let probed =
