@@ -526,4 +526,25 @@ They need git 2.44 or newer on `PATH`, and Linux (`/proc`,
 narrowed report, busy-detection states, sync report, push report, error
 documents), written by `crates/fuz_repos/tests/golden.rs` as the contract TS consumers parse
 against — regenerate them with `UPDATE_GOLDEN=1 cargo test --test golden`,
-never by hand.
+never by hand. Each error `repos status --json` can print has its own
+document, `error_report_<kind>.json`; `sync_error_report.json` and
+`push_error_report.json` show the same document shape at those commands'
+versions.
+
+The goldens hold to two checks. Every report they build is checked for its
+structure (`crates/fuz_repos/tests/golden/invariants.rs`): keys and dirs
+unique, nothing read of an entry with no repo or a failed probe, the
+primary checkout first, an unasked reference's branches its local work
+alone, one default-branch reason at most, no session placed while busy
+detection is unavailable, relations that fit the clone's depth, and no
+fetch time beside a fetch that failed and emptied `FETCH_HEAD`. They re-derive none of
+`classify`'s decisions: the integration tests over real git pin those. And
+together the goldens cover every variant
+(`crates/fuz_repos/tests/golden/coverage.rs`): the status documents —
+both reports, `sessions.json`, and the status error documents — carry every
+variant of every closed enum the status report and its error document
+hold, in each place it can appear (a hold per action it can meet), and the
+sync and push documents every outcome of theirs. Each enum's variants are
+listed once, a list an exhaustive `match` checks, and the floor counts
+that list: a new variant fails to compile until it's listed, and fails the
+floor until a golden covers it.

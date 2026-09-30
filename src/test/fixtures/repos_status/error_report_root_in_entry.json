@@ -1,0 +1,9 @@
+{
+	"version": 16,
+	"error": {
+		"kind": "root_in_entry",
+		"key": "grimoire",
+		"message": "the registry found at /home/me/dev/grimoire/repos.toml would root the workspace at /home/me/dev/grimoire, a checkout of entry `grimoire`",
+		"hint": "run from the workspace root, link the registry there (a repos.toml symlink to it), or pass `--root <dir>` or `--registry <path>`"
+	}
+}

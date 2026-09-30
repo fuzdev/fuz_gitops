@@ -181,7 +181,7 @@
 					{
 						"name": "main",
 						"upstream": "origin/main",
-						"worktree": null,
+						"worktree": "/home/me/dev/blog",
 						"symref": null,
 						"unique_commits": 0,
 						"newest_commit_at": 1799827200,
@@ -255,7 +255,7 @@
 					{
 						"name": "main",
 						"upstream": "origin/main",
-						"worktree": null,
+						"worktree": "/home/me/dev/site",
 						"symref": null,
 						"unique_commits": 0,
 						"newest_commit_at": 1799827200,
@@ -335,7 +335,7 @@
 					{
 						"name": "main",
 						"upstream": "origin/main",
-						"worktree": null,
+						"worktree": "/home/me/dev/zap",
 						"symref": null,
 						"unique_commits": 1,
 						"newest_commit_at": 1799827200,
@@ -428,7 +428,7 @@
 					{
 						"name": "topic",
 						"upstream": null,
-						"worktree": null,
+						"worktree": "/home/me/dev/gro",
 						"symref": null,
 						"unique_commits": 1,
 						"newest_commit_at": 1799827200,
@@ -617,7 +617,7 @@
 					{
 						"name": "main",
 						"upstream": "origin/main",
-						"worktree": null,
+						"worktree": "/home/me/dev/forge",
 						"symref": null,
 						"unique_commits": 1,
 						"newest_commit_at": 1799827200,
@@ -645,7 +645,7 @@
 					}
 				},
 				"stashes": 0,
-				"fetched_at": 1799913600,
+				"fetched_at": null,
 				"needs_human": [],
 				"probe_error": null,
 				"unprobed_worktrees": [],
@@ -702,7 +702,7 @@
 					{
 						"name": "main",
 						"upstream": "origin/main",
-						"worktree": null,
+						"worktree": "/home/me/dev/tsv",
 						"symref": null,
 						"unique_commits": 1,
 						"newest_commit_at": 1799827200,
@@ -778,33 +778,21 @@
 						"busy": []
 					}
 				],
-				"branches": [
-					{
-						"name": "main",
-						"upstream": "origin/main",
-						"worktree": "/home/me/dev/uz",
-						"symref": null,
-						"unique_commits": 0,
-						"newest_commit_at": 1799827200,
-						"relation": {
-							"kind": "in_sync"
-						},
-						"verdict": {
-							"kind": "quiet"
-						}
-					}
-				],
+				"branches": [],
 				"at_rest": {
 					"on_branch": true,
 					"clean": true,
 					"idle": true,
-					"followed": {
-						"kind": "in_sync"
-					}
+					"followed": null
 				},
 				"stashes": 0,
 				"fetched_at": 1799913600,
-				"needs_human": [],
+				"needs_human": [
+					{
+						"kind": "default_branch_missing",
+						"branch": "main"
+					}
+				],
 				"probe_error": null,
 				"unprobed_worktrees": [],
 				"fetch_error": null,
@@ -870,7 +858,7 @@
 					{
 						"name": "topic",
 						"upstream": null,
-						"worktree": null,
+						"worktree": "/home/me/dev/fuz_ui",
 						"symref": null,
 						"unique_commits": 1,
 						"newest_commit_at": 1799827200,
@@ -958,7 +946,7 @@
 					{
 						"name": "topic",
 						"upstream": null,
-						"worktree": null,
+						"worktree": "/home/me/dev/fuz_css",
 						"symref": null,
 						"unique_commits": 1,
 						"newest_commit_at": 1799827200,

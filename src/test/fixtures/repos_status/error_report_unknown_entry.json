@@ -1,0 +1,12 @@
+{
+	"version": 16,
+	"error": {
+		"kind": "unknown_entry",
+		"name": "grimoir",
+		"suggestions": [
+			"grimoire"
+		],
+		"message": "unknown target `grimoir`",
+		"hint": "did you mean: grimoire"
+	}
+}

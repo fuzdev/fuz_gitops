@@ -227,7 +227,7 @@
 				{
 					"name": "main",
 					"upstream": "origin/main",
-					"worktree": null,
+					"worktree": "/home/me/dev/typescript",
 					"symref": null,
 					"unique_commits": 0,
 					"newest_commit_at": 1799827200,
@@ -257,6 +257,93 @@
 			"stashes": 0,
 			"fetched_at": 1799913600,
 			"needs_human": [],
+			"probe_error": null,
+			"unprobed_worktrees": [],
+			"fetch_error": null,
+			"visibility_check": null
+		},
+		{
+			"key": "html",
+			"kind": "reference",
+			"dir": "html",
+			"url": "https://github.com/them/html",
+			"writable": false,
+			"archived": false,
+			"visibility": null,
+			"ci": false,
+			"branch": "main",
+			"pinned": false,
+			"refresh": {
+				"kind": "held",
+				"by": "entry"
+			},
+			"presence": {
+				"kind": "present"
+			},
+			"clone": null,
+			"layout": {
+				"shallow": false,
+				"sparse": false,
+				"partial_filter": null
+			},
+			"checkouts": [
+				{
+					"path": "/home/me/dev/html",
+					"primary": true,
+					"head": {
+						"kind": "branch",
+						"name": "main"
+					},
+					"uncommitted": {
+						"staged": 0,
+						"unstaged": 0,
+						"untracked": 0,
+						"conflicted": 0
+					},
+					"in_progress": null,
+					"locked": false,
+					"linked": false,
+					"submodules": null,
+					"busy": []
+				}
+			],
+			"branches": [
+				{
+					"name": "notes",
+					"upstream": null,
+					"worktree": null,
+					"symref": null,
+					"unique_commits": 2,
+					"newest_commit_at": 1799827200,
+					"relation": {
+						"kind": "untracked"
+					},
+					"verdict": {
+						"kind": "local_only"
+					}
+				}
+			],
+			"at_rest": {
+				"on_branch": true,
+				"clean": true,
+				"idle": true,
+				"followed": null
+			},
+			"stashes": 0,
+			"fetched_at": 1799913600,
+			"needs_human": [
+				{
+					"kind": "origin_mismatch",
+					"origin": {
+						"kind": "url",
+						"url": "https://github.com/me/html"
+					},
+					"expected": "https://github.com/them/html",
+					"fix": {
+						"kind": "set_url"
+					}
+				}
+			],
 			"probe_error": null,
 			"unprobed_worktrees": [],
 			"fetch_error": null,
@@ -447,7 +534,7 @@
 				{
 					"name": "fork",
 					"upstream": "origin/fork",
-					"worktree": null,
+					"worktree": "/home/me/dev/wpt",
 					"symref": null,
 					"unique_commits": 0,
 					"newest_commit_at": 1799827200,
