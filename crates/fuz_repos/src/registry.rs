@@ -2,8 +2,8 @@
 //! validated.
 //!
 //! Core fields belong to this tool, and an unknown one is a parse error with
-//! its position. The `grimoire` namespace on a repo belongs to the grimoire
-//! and is accepted unread. A reference's `branch` (where its checkout
+//! its position. The `grimoire` table on a repo is another tool's namespace,
+//! accepted unread. A reference's `branch` (where its checkout
 //! lives) and `pinned` (who moves HEAD) are independent. The integrity rules
 //! the schema can't express — ownership, unique dirs and keys, checkout-list
 //! targets — are `Registry::validate`'s, and only its `ValidRegistry` yields
@@ -19,7 +19,7 @@ use serde::{Deserialize, Serialize};
 use crate::error::{Error, Result};
 
 /// The default branch of a repo whose entry doesn't name one.
-pub const DEFAULT_BRANCH: &str = "main";
+const DEFAULT_BRANCH: &str = "main";
 
 /// The whole `repos.toml` document.
 #[derive(Debug, Deserialize)]
@@ -42,6 +42,8 @@ pub struct Registry {
 pub struct RepoEntry {
     pub url: RepoUrl,
     pub dir: Option<String>,
+    /// Parsed so the schema is whole under `deny_unknown_fields`; unread, like
+    /// `purpose`.
     pub upstream: Option<RepoUrl>,
     /// The default branch; absent means `main`. Never empty (`parse_branch`).
     #[serde(default, deserialize_with = "parse_branch")]
@@ -56,7 +58,7 @@ pub struct RepoEntry {
     pub requires: Vec<String>,
     #[serde(default)]
     pub consults: Vec<String>,
-    /// The grimoire's namespace, accepted and ignored.
+    /// Another tool's namespace, accepted and ignored.
     #[serde(default, rename = "grimoire")]
     _grimoire: Option<IgnoredAny>,
 }
@@ -686,7 +688,7 @@ grimoire.lore_id = "app"
 grimoire.frontend = {framework = "sveltekit", deployed = true}
 
 [repos.site]
-url = "https://github.com/me/private_site.git"
+url = "https://github.com/me/hidden_site.git"
 dir = "site"
 branch = "trunk"
 visibility = "private"
@@ -727,7 +729,7 @@ pinned = true
         assert_eq!(r.repos.len(), 2);
         assert_eq!(r.references.len(), 4);
         let site = &r.repos["site"];
-        assert_eq!(site.url.name, "private_site");
+        assert_eq!(site.url.name, "hidden_site");
         assert_eq!(site.dir.as_deref(), Some("site"));
         assert_eq!(site.requires, ["spec"]);
     }
@@ -1085,7 +1087,7 @@ purpose = "a third-party clone, no fork"
         }
         for dir in [
             "r",
-            "private_site",
+            "hidden_site",
             "tsv.fuz.dev",
             ".hidden",
             "..x",
@@ -1260,7 +1262,7 @@ purpose = "x"
             r#"
 owners = ["me"]
 [repos.site]
-url = "https://github.com/me/private_site"
+url = "https://github.com/me/hidden_site"
 visibility = "public"
 purpose = "x"
 [repos.old]

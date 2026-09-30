@@ -1446,9 +1446,9 @@ fn status_errors() -> Vec<Error> {
             start: PathBuf::from("/home/me"),
         },
         Error::RootInEntry {
-            root: PathBuf::from(path("grimoire")),
-            registry: PathBuf::from(path("grimoire/repos.toml")),
-            key: "grimoire".into(),
+            root: PathBuf::from(path("meta")),
+            registry: PathBuf::from(path("meta/repos.toml")),
+            key: "meta".into(),
         },
         Error::RegistryRead {
             path: registry(),
@@ -1469,8 +1469,8 @@ fn status_errors() -> Vec<Error> {
             required: MIN_GIT_VERSION,
         },
         Error::UnknownEntry {
-            name: "grimoir".into(),
-            suggestions: vec!["grimoire".into()],
+            name: "mta".into(),
+            suggestions: vec!["meta".into()],
         },
         Error::Io {
             context: format!("failed to list the workspace root {WORKSPACE}"),

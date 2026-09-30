@@ -1,13 +1,14 @@
 /**
  * Whether each configured repo sits where the registry puts it, read from the
  * entries `repos status --json` reports: the facts `gitops_publish --wetrun`
- * gates on, and the at-rest block the read-only diagnostics print.
+ * gates on, the ones `gitops_sync` refuses or warns on, and the at-rest block
+ * the read-only diagnostics print.
  *
  * Pure — a report's facts in, problems and their messages out; no git calls.
  * The facts are decided on the Rust side (`at_rest`, `fetch_error`, a
  * checkout's `busy`, `needs_human`); this reads them, never re-derives them.
  *
- * Two readings:
+ * Three readings:
  *
  * - **at rest** (`repo_readiness_at_rest`) — the primary checkout on the
  *   branch the entry follows, clean (untracked files count), no operation in
@@ -153,6 +154,11 @@ export interface RepoReadinessFormatOptions {
 /**
  * What a readiness problem says is wrong with the repo keyed `key`, and the
  * fix, when there is one to name.
+ *
+ * @param key - the repo's registry key
+ * @param problem - one of the repo's readiness problems
+ * @param options - the `repos` invocation fixes name
+ * @returns what's wrong, and the fix
  */
 export const format_repo_readiness_problem = (
 	key: string,
@@ -285,23 +291,28 @@ export const check_publish_readiness = (
  * `refused` stops it, `warned` is logged. Off its branch, dirty, or mid-operation
  * refuses, since the site would show that working tree's modules beside origin's
  * CI — unless `allow_dirty`, which reads the repo as it sits and warns instead.
- * A checkout that can't be read always refuses. The followed branch not in sync
+ * A checkout that can't be read, or an entry following no branch (only a
+ * reference follows none, and the config refuses references), always
+ * refuses. The followed branch not in sync
  * with origin (behind, say: CI is origin's tip, the modules the local tree) and
  * a failed fetch (the last fetch's view stands) warn. Busy sessions and
  * `needs_human` reasons don't matter: generating writes nothing in the repo.
  *
  * @param entry - the entry as `repos status --json` reported it
- * @param allow_dirty - read a repo off its branch, dirty, or mid-operation as it sits
+ * @param options.allow_dirty - read a repo off its branch, dirty, or mid-operation as it sits
+ * @returns the problems that refuse, and those that warn
  */
 export const repo_readiness_for_gen = (
 	entry: ReposEntryStatus,
-	allow_dirty = false
+	options: { allow_dirty?: boolean } = {}
 ): { refused: Array<RepoReadinessProblem>; warned: Array<RepoReadinessProblem> } => {
+	const { allow_dirty = false } = options;
 	const refused: Array<RepoReadinessProblem> = [];
 	const warned: Array<RepoReadinessProblem> = [];
 	for (const problem of repo_readiness_at_rest(entry)) {
 		switch (problem.kind) {
 			case 'unprobed':
+			case 'no_branch':
 				refused.push(problem);
 				break;
 			case 'off_branch':
@@ -348,7 +359,7 @@ export const check_gen_readiness = (
 	for (const key of keys) {
 		const entry = by_key.get(key);
 		const { refused, warned } = entry
-			? repo_readiness_for_gen(entry, allow_dirty)
+			? repo_readiness_for_gen(entry, { allow_dirty })
 			: {
 					refused: [{ kind: 'unprobed', detail: 'not in the `repos status` report' } as const],
 					warned: []
@@ -359,10 +370,7 @@ export const check_gen_readiness = (
 		}
 		for (const problem of warned) {
 			const { what, fix } = format_repo_readiness_problem(key, problem, options);
-			// relations are as of the remote-tracking refs, so say how old they are
-			const as_of =
-				problem.kind === 'followed' && entry ? ` (${format_fetched_at(entry, now)})` : '';
-			warnings.push(`${key}: ${what}${as_of} — ${fix}`);
+			warnings.push(`${key}: ${what}${format_as_of(entry, problem, now)} — ${fix}`);
 		}
 	}
 
@@ -387,12 +395,19 @@ export interface ReadinessAhead {
  *
  * @param ahead - the repo, its branch, and how many commits it's ahead
  * @param publishes - whether the plan publishes it
+ * @param options - the `repos` invocation the message names
+ * @returns the line to log
  */
-export const format_readiness_ahead = (ahead: ReadinessAhead, publishes: boolean): string => {
+export const format_readiness_ahead = (
+	ahead: ReadinessAhead,
+	publishes: boolean,
+	options: RepoReadinessFormatOptions = {}
+): string => {
+	const repos = options.repos_command ?? 'repos';
 	const head = `${ahead.key}: \`${ahead.branch}\` is ${plural(ahead.commits, 'commit')} ahead of origin`;
 	return publishes
 		? `${head} — publishing pushes them with the release`
-		: `${head} — it doesn't publish, so they stay unpushed until \`repos sync\` or \`repos push\``;
+		: `${head} — it doesn't publish, so they stay unpushed until \`${repos} sync\` or \`${repos} push\``;
 };
 
 /**
@@ -426,10 +441,7 @@ export const format_readiness_block = (
 	for (const { key, entry, problems } of not_ready) {
 		for (const problem of problems) {
 			const { what } = format_repo_readiness_problem(key, problem);
-			// relations are as of the remote-tracking refs, so say how old they are
-			const as_of =
-				problem.kind === 'followed' && entry ? ` (${format_fetched_at(entry, now)})` : '';
-			lines.push(`  ${key}: ${what}${as_of}`);
+			lines.push(`  ${key}: ${what}${format_as_of(entry, problem, now)}`);
 		}
 	}
 	return lines;
@@ -573,7 +585,7 @@ const format_unavailable = (reason: ReposUnavailable): string => {
 			return `a relative CLAUDE_CONFIG_DIR, ${reason.path}`;
 		case 'unreadable':
 		case 'unparseable':
-			return `${reason.kind}: ${reason.path}`;
+			return `${reason.kind}: ${reason.path}: ${reason.error}`;
 		case 'foreign_pid_domain':
 			return `a session from another machine or pid namespace: ${reason.path}`;
 	}
@@ -605,6 +617,13 @@ const format_uncommitted = (u: ReposUncommitted): string =>
 		.join(', ');
 
 const plural = (n: number, noun: string): string => `${n} ${noun}${n === 1 ? '' : 's'}`;
+
+// relations are as of the remote-tracking refs, so a followed-branch problem says how old they are
+const format_as_of = (
+	entry: ReposEntryStatus | null | undefined,
+	problem: RepoReadinessProblem,
+	now: number
+): string => (problem.kind === 'followed' && entry ? ` (${format_fetched_at(entry, now)})` : '');
 
 const format_fetched_at = (entry: ReposEntryStatus, now: number): string =>
 	entry.fetched_at === null ? 'never fetched' : `fetched ${format_age(now - entry.fetched_at)} ago`;

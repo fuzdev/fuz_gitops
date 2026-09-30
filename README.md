@@ -38,7 +38,7 @@ material as data, including env-file contents. Its own GitHub API token
 (noted below) is the one credential it uses, to authenticate itself.
 
 See [CLAUDE.md](CLAUDE.md#scope-and-boundaries) for the capability tiers, what
-`repos` never does, the known gaps, and the TS/Rust split.
+`repos` never does, and the TS/Rust split.
 
 ## Usage
 
@@ -97,7 +97,7 @@ gitops.config.ts (registry keys) → repos status --json → local repos → Git
 ```
 
 - **Operations pattern**: Dependency injection for all side effects (git, npm, fs, `repos`)
-- **Fixture testing**: Generated git repos for isolated tests
+- **Fixture testing**: In-memory fixture repos with expected publishing outcomes
 - **Changeset-driven**: Automatic version bumps and dependency updates
 
 See [CLAUDE.md](CLAUDE.md#architecture) for detailed documentation.
@@ -117,7 +117,7 @@ gro gitops_run "git status" --format json  # JSON output for scripting
 - Parallel execution with configurable concurrency (default: 5)
 - Continue-on-error behavior (shows all results)
 - Structured output formats (text or JSON)
-- Uses lightweight repo path resolution through `repos status` (no full sync needed); a
+- Uses lightweight repo path resolution through `repos status`; a
   configured repo that's missing fails the run, naming it
 
 ### Generating the dashboard's data
@@ -139,7 +139,7 @@ origin or missing its `node_modules`.
 gro gitops_validate           # run all validation checks (analyze + plan + dry run)
 gro gitops_analyze            # analyze dependency graph and detect cycles
 gro gitops_plan               # generate publishing plan showing version changes and cascades
-gro gitops_publish            # simulate publishing without side effects (dry run default)
+gro gitops_publish            # simulate publishing, writing nothing in git (dry run default)
 gro gitops_publish --preview  # show the ordered side-effects a --wetrun would perform
 ```
 

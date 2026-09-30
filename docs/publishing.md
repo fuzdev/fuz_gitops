@@ -24,7 +24,7 @@ gro gitops_validate
 # 2. Review what will be published
 gro gitops_plan
 
-# 3. Fast-forward what's behind (repos off their branch or dirty are yours to move)
+# 3. Fetch, fast-forward what's behind, push what's ahead (repos off their branch or dirty are yours to move)
 repos sync
 
 # 4. Publish (after dry run looks good)
@@ -87,7 +87,7 @@ production/peer takes priority for dependency graph calculations.
 - Uses fixed-point iteration to resolve transitive cascades (max 10 iterations)
 - Shows all 4 publishing scenarios: explicit changesets, bump escalation,
   auto-generated changesets, and no changes
-- No side effects - does not modify any files or state
+- Read-only - moves no ref and writes nothing in git
 - Reads each repo's working tree **as-is** (whatever branch is checked out, even
   with uncommitted changes), and prints a readiness block naming each repo not
   at rest (see [Readiness](#readiness)), so a plan over a feature branch says
@@ -101,8 +101,7 @@ gitops_plan`, so it shows the full cascade: explicit changesets, bump
   escalations, and auto-generated changesets
 - Skips the readiness gate and preflight checks (npm auth, builds), and prints
   the same readiness block as `gro gitops_plan`
-- No side effects - reports what `--wetrun` would publish without touching git or
-  npm
+- Read-only - reports what `--wetrun` would publish without touching git or npm
 - The dry-run count matches `gro gitops_plan`; the difference between them is
   framing, not content (`plan` is the read-only report, the dry run is the
   publish command in preview mode)

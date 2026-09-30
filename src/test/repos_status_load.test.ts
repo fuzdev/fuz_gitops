@@ -6,7 +6,8 @@ import { fileURLToPath } from 'node:url';
 import {
 	REPOS_INSTALL_COMMAND,
 	load_repos_status,
-	parse_repos_status_output
+	parse_repos_status_output,
+	to_repos_command
 } from '$lib/repos_status_load.ts';
 import { REPOS_STATUS_FORMAT_VERSION, ReposStatusErrorReport } from '$lib/repos_status.ts';
 import { create_mock_repos_ops } from './test_helpers.ts';
@@ -69,7 +70,7 @@ describe('parse_repos_status_output', () => {
 				with_version('error_report_unknown_entry.json', REPOS_STATUS_FORMAT_VERSION - 1)
 			);
 			assert.include(message, REPOS_INSTALL_COMMAND);
-			assert.notInclude(message, 'grimoir');
+			assert.notInclude(message, '`mta`');
 		});
 
 		test('no version at all', () => {
@@ -167,5 +168,19 @@ describe('load_repos_status', () => {
 		const result = await load_repos_status({ keys: ['gro'], repos_ops });
 		assert.ok(!result.ok);
 		assert.include(result.message, 'SIGKILL');
+	});
+});
+
+describe('to_repos_command', () => {
+	test('no registry is plain `repos`', () => {
+		assert.strictEqual(to_repos_command(undefined), 'repos');
+	});
+
+	test('a plain path passes unquoted', () => {
+		assert.strictEqual(to_repos_command('../repos.toml'), 'repos --registry ../repos.toml');
+	});
+
+	test('a path with spaces or quotes is POSIX-shell-quoted', () => {
+		assert.strictEqual(to_repos_command("/a b/it's.toml"), `repos --registry '/a b/it'\\''s.toml'`);
 	});
 });

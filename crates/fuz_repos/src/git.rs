@@ -544,7 +544,7 @@ const fn anonymous_args(url: &str) -> [&str; 6] {
 
 /// `GitTooOld`'s `found` for a git that rejects `--no-optional-locks`, the
 /// runner's first flag, before it can print its version.
-pub const FOUND_PRE_OPTIONAL_LOCKS: &str = "unknown (older than 2.15)";
+const FOUND_PRE_OPTIONAL_LOCKS: &str = "unknown (older than 2.15)";
 
 /// What an unrecognized `git --version` printed, for the error: its version
 /// line without the `git version ` prefix, else its first line; capped.

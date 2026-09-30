@@ -2,11 +2,11 @@
 	"version": 17,
 	"error": {
 		"kind": "unknown_entry",
-		"name": "grimoir",
+		"name": "mta",
 		"suggestions": [
-			"grimoire"
+			"meta"
 		],
-		"message": "unknown target `grimoir`",
-		"hint": "did you mean: grimoire"
+		"message": "unknown target `mta`",
+		"hint": "did you mean: meta"
 	}
 }

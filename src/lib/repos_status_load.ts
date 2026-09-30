@@ -30,6 +30,19 @@ import type { ReposCommandOutput, ReposOperations } from './operations.ts';
 export const REPOS_INSTALL_COMMAND = 'cargo install --path crates/fuz_repos --locked';
 
 /**
+ * The `repos` invocation a suggested fix names: `repos`, or `repos --registry
+ * <path>` when the run passed one, the path POSIX-shell-quoted when it needs it.
+ *
+ * @param registry - the run's `--registry`, if any
+ * @returns the command prefix, ready for a subcommand
+ */
+export const to_repos_command = (registry: string | undefined): string =>
+	registry === undefined ? 'repos' : `repos --registry ${shell_quote(registry)}`;
+
+const shell_quote = (arg: string): string =>
+	/^[\w@%+=:,./-]+$/.test(arg) ? arg : `'${arg.replaceAll("'", `'\\''`)}'`;
+
+/**
  * Why `repos status` gave no report: a message saying what to change, and the
  * error document when `repos` printed one.
  */
@@ -106,10 +119,7 @@ export const parse_repos_status_output = (
 	return { ok: true, report: parsed.data };
 };
 
-/**
- * Formats a `repos status` error document as a message saying what to change.
- */
-export const format_repos_status_error = (error: ReposStatusErrorBody): string => {
+const format_repos_status_error = (error: ReposStatusErrorBody): string => {
 	switch (error.kind) {
 		case 'unknown_entry': {
 			const suggestions = error.suggestions.length

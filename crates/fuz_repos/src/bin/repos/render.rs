@@ -2333,7 +2333,7 @@ fn first_line(s: &str) -> &str {
 }
 
 /// A compact age: `45s`, `12m`, `3h`, `5d`, `4mo`, `2y`.
-pub fn format_age(secs: u64) -> String {
+fn format_age(secs: u64) -> String {
     const MIN: u64 = 60;
     const HOUR: u64 = 60 * MIN;
     const DAY: u64 = 24 * HOUR;
@@ -5066,7 +5066,7 @@ sync would    push a +1, bb +2, ccc +3,
     #[test]
     fn a_wrapped_sync_line_in_the_summary() {
         let mut entries = Vec::new();
-        for (key, commits) in [("grimoire", 13), ("setup", 2), ("fuz_util", 1)] {
+        for (key, commits) in [("archives", 13), ("setup", 2), ("fuz_util", 1)] {
             let mut e = entry(key, main(), "main");
             e.branches = vec![branch(
                 "main",
@@ -5091,13 +5091,13 @@ sync would    push a +1, bb +2, ccc +3,
         }
         let r = report(entries);
         assert!(render_summary(&r, VIEW, false).starts_with(
-            "sync would    push grimoire +13, setup +2, fuz_util +1 · ff zzz −3 · clone blake3, \
+            "sync would    push archives +13, setup +2, fuz_util +1 · ff zzz −3 · clone blake3, \
                  corpora\n"
         ));
         assert!(
             render_summary(&r, View { width: 50, ..VIEW }, false).starts_with(
                 "\
-sync would    push grimoire +13, setup +2,
+sync would    push archives +13, setup +2,
               fuz_util +1
               ff zzz −3
               clone blake3, corpora

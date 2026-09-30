@@ -1934,7 +1934,6 @@ mod tests {
     fn ahead_main() -> (RepoFacts, BranchStatus) {
         let facts = RepoFacts {
             path: "/ws/app".into(),
-            git_dir: PathBuf::from("/ws/app/.git"),
             common_dir: PathBuf::from("/ws/app/.git"),
             config: ConfigFacts::default(),
             status: porcelain::StatusFacts {

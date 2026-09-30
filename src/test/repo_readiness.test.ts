@@ -423,7 +423,9 @@ describe('repo_readiness_for_gen', () => {
 	});
 
 	test('allow_dirty warns instead', () => {
-		const { refused, warned } = repo_readiness_for_gen(OFF_BRANCH_DIRTY_REBASING, true);
+		const { refused, warned } = repo_readiness_for_gen(OFF_BRANCH_DIRTY_REBASING, {
+			allow_dirty: true
+		});
 		assert.deepEqual(refused, []);
 		assert.deepEqual(kinds(warned), ['off_branch', 'dirty', 'in_progress']);
 	});
@@ -469,7 +471,19 @@ describe('repo_readiness_for_gen', () => {
 
 	test('an unprobed entry refuses, even with allow_dirty', () => {
 		const entry = { ...create_mock_repos_entry({ key: 'a' }), at_rest: null, checkouts: [] };
-		assert.deepEqual(kinds(repo_readiness_for_gen(entry, true).refused), ['unprobed']);
+		assert.deepEqual(kinds(repo_readiness_for_gen(entry, { allow_dirty: true }).refused), [
+			'unprobed'
+		]);
+	});
+
+	test('an entry following no branch refuses, even with allow_dirty', () => {
+		const entry = entry_with('a', {
+			branch: null,
+			at_rest: { on_branch: null, clean: true, idle: true, followed: null }
+		});
+		assert.deepEqual(kinds(repo_readiness_for_gen(entry, { allow_dirty: true }).refused), [
+			'no_branch'
+		]);
 	});
 });
 
@@ -542,6 +556,10 @@ describe('format_readiness_ahead', () => {
 		assert.strictEqual(
 			format_readiness_ahead(ahead, false),
 			"fuz_ui: `main` is 2 commits ahead of origin — it doesn't publish, so they stay unpushed until `repos sync` or `repos push`"
+		);
+		assert.include(
+			format_readiness_ahead(ahead, false, { repos_command: 'repos --registry ../r.toml' }),
+			'until `repos --registry ../r.toml sync` or `repos --registry ../r.toml push`'
 		);
 	});
 });

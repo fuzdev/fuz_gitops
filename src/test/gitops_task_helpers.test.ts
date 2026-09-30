@@ -54,7 +54,7 @@ describe('resolve_gitops_repos', () => {
 		);
 		await assert_rejects(
 			() => resolve_gitops_repos({ config: CONFIG, repos_ops: create_mock_repos_ops(error_doc) }),
-			/basic_publishing\.config\.ts: the gitops config lists `grimoir`, which the registry \(repos\.toml\) doesn't name — did you mean `grimoire`\?/
+			/basic_publishing\.config\.ts: the gitops config lists `mta`, which the registry \(repos\.toml\) doesn't name — did you mean `meta`\?/
 		);
 	});
 

@@ -143,7 +143,6 @@ pub enum Probed {
 pub struct RepoFacts {
     /// The primary checkout's path.
     pub path: String,
-    pub git_dir: PathBuf,
     pub common_dir: PathBuf,
     pub config: ConfigFacts,
     pub status: StatusFacts,
@@ -381,7 +380,7 @@ fn probe_present(
     let git_dir = PathBuf::from(git_dir);
     let common_dir = PathBuf::from(common_dir);
 
-    // 4. config, first: fetch needs to know whether SSH is configured
+    // 2. config, first: fetch needs to know whether SSH is configured
     // the repo's own config file, which the advised `git remote` and `git
     // config` commands edit; git prints its path relative to `dir` from the
     // main checkout, absolute from a linked worktree
@@ -487,14 +486,14 @@ fn probe_present(
     // before any step that reads objects: a partial clone may lack one
     early.layout = Some(layout.clone());
 
-    // 2. status of the primary checkout
+    // 3. status of the primary checkout
     let status = cx
         .git
         .output(dir, &STATUS_ARGS, local)
         .map_err(|e| e.to_string())?;
     let status = porcelain::parse_status(&status)?;
 
-    // 3. branches
+    // 4. branches
     let format = format!("--format={}", porcelain::REFS_FORMAT);
     let refs = cx
         .git
@@ -573,7 +572,6 @@ fn probe_present(
 
     Ok(Probed::Present(Box::new(RepoFacts {
         path,
-        git_dir,
         common_dir,
         config,
         status,
@@ -794,7 +792,7 @@ fn refspec_destination(refspec: &str) -> Option<&str> {
         .filter(|dst| !dst.is_empty())
 }
 
-/// The flags step 2's status runs with, in every checkout.
+/// The flags step 3's status runs with, in every checkout.
 pub(crate) const STATUS_ARGS: [&str; 8] = [
     "status",
     "--porcelain=v2",
@@ -1226,7 +1224,7 @@ fn gone(path: &Path, prunable: bool) -> Result<(), UnprobedWhy> {
     }
 }
 
-/// Runs step 2's status in a worktree, after checking its `.git` points at
+/// Runs step 3's status in a worktree, after checking its `.git` points at
 /// the git dir git's worktree list gave it — so a `.git` pointing into
 /// another repo is a failure, not that repo's state.
 fn probe_worktree(git: &Git, path: &Path, git_dir: Option<&Path>) -> Result<StatusFacts, String> {

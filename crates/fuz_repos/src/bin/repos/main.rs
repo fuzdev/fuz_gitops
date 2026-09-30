@@ -70,6 +70,9 @@ use crate::render::{
     render_unregistered, summary_width, use_color,
 };
 
+/// How many entries `status`, `sync`, and `push` work on at once by default.
+const DEFAULT_JOBS: usize = 16;
+
 /// The build's identity: the crate version, and the commit the binary was
 /// built from (stamped by `build.rs`).
 const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), " (", env!("REPOS_BUILD"), ")");
@@ -140,7 +143,7 @@ struct StatusArgs {
     #[argh(switch)]
     verbose: bool,
     /// entries probed at once
-    #[argh(option, default = "16")]
+    #[argh(option, default = "DEFAULT_JOBS")]
     jobs: usize,
     /// print wall time per phase, git spawns, and the slowest entries to
     /// stderr
@@ -182,7 +185,7 @@ struct SyncArgs {
     #[argh(switch)]
     verbose: bool,
     /// entries fetched, and repos acted on, at once
-    #[argh(option, default = "16")]
+    #[argh(option, default = "DEFAULT_JOBS")]
     jobs: usize,
     /// print wall time per phase, git spawns, and the slowest entries to
     /// stderr
@@ -220,7 +223,7 @@ struct PushArgs {
     #[argh(switch)]
     json: bool,
     /// entries fetched at once
-    #[argh(option, default = "16")]
+    #[argh(option, default = "DEFAULT_JOBS")]
     jobs: usize,
     /// print wall time per phase, git spawns, and the slowest entries to
     /// stderr

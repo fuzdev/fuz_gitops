@@ -349,7 +349,7 @@ impl VisibilityCheck {
     /// Decides the check from the anonymous read of `url`: success is a
     /// leak; a refusal is `Private` only when git's refusal names `url`'s own
     /// origin (`refused_by_host`); anything else is `Unknown`.
-    pub fn from_read(url: &str, result: Result<(), GitError>) -> Self {
+    fn from_read(url: &str, result: Result<(), GitError>) -> Self {
         match result {
             Ok(()) => Self::Leak,
             Err(GitError::Failed { stderr, .. }) if refused_by_host(&stderr, url) => Self::Private,

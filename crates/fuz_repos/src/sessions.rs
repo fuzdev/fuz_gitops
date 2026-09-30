@@ -244,7 +244,7 @@ impl Caller {
     }
 
     /// From `CLAUDECODE`'s value, as `from_env` reads it.
-    pub fn from_claudecode(value: Option<&std::ffi::OsStr>) -> Self {
+    fn from_claudecode(value: Option<&std::ffi::OsStr>) -> Self {
         if value.is_some_and(|v| !v.is_empty()) {
             Self::Agent
         } else {

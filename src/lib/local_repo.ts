@@ -14,6 +14,7 @@ import { gitops_config_leaked_private_repos } from './gitops_config.ts';
 import type { ReposEntryStatus, ReposStatusReport } from './repos_status.ts';
 import { GITOPS_CONCURRENCY_DEFAULT } from './gitops_constants.ts';
 import { cargo_toml_load } from './cargo_toml.ts';
+import { to_repos_command } from './repos_status_load.ts';
 
 /**
  * Fully loaded local repo with `Library` and extracted dependency data.
@@ -76,7 +77,7 @@ export const local_repos_resolve = (options: {
 	registry?: string;
 }): Result<{ value: Array<LocalRepoPath> }, { message: string; problems: Array<string> }> => {
 	const { keys, report, host, registry } = options;
-	const repos_command = registry === undefined ? 'repos' : `repos --registry ${registry}`;
+	const repos_command = to_repos_command(registry);
 	const by_key = new Map(report.entries.map((e) => [e.key, e] as const));
 
 	const problems: Array<string> = [];
@@ -129,8 +130,9 @@ export const local_repos_resolve = (options: {
 };
 
 /**
- * Loads a resolved repo as its working tree sits, changing nothing (the tasks
- * read where each repo sits from `repos status`, and `repos sync` moves them):
+ * Loads a resolved repo as its working tree sits (the tasks read where each
+ * repo sits from `repos status`, and `repos sync` moves them). Moves no ref;
+ * gro caches the library at `.gro/library.json` in the repo, at a clean commit.
  *
  * 1. Loads `library_json` via `library_load_from_repo` (svelte-docinfo analysis)
  * 2. Creates `Library` and extracts dependency maps
@@ -142,7 +144,7 @@ export const local_repos_resolve = (options: {
  */
 export const local_repo_load = async ({
 	local_repo_path,
-	log: _log
+	log
 }: {
 	local_repo_path: LocalRepoPath;
 	log?: Logger;
@@ -161,14 +163,10 @@ export const local_repo_load = async ({
 	let library_json: LibraryJson;
 	let package_json: PackageJson;
 	try {
-		({ library_json, package_json } = await library_load_from_repo(repo_dir, { log: _log }));
+		({ library_json, package_json } = await library_load_from_repo(repo_dir, { log }));
 	} catch (err) {
-		const message = to_error_message(err);
-		_log?.warn(
-			`Failed to load library metadata for repo "${repo_name}" in ${repo_dir}: ${message}`
-		);
 		throw new TaskError(
-			`Failed to load library metadata for repo "${repo_name}" in ${repo_dir}: ${message}`
+			`Failed to load library metadata for repo "${repo_name}" in ${repo_dir}: ${to_error_message(err)}`
 		);
 	}
 	const library = new Library(library_json);
@@ -253,7 +251,7 @@ export const local_repos_load = async ({
 	concurrency?: number;
 }): Promise<Array<LocalRepo>> => {
 	if (!parallel) {
-		// Sequential loading (original behavior)
+		// sequential loading
 		const loaded: Array<LocalRepo> = [];
 		for (const local_repo_path of local_repo_paths) {
 			loaded.push(await local_repo_load({ local_repo_path, log }));

@@ -79,10 +79,8 @@ export const default_changeset_operations: ChangesetOperations = {
 
 export const default_git_operations: GitOperations = {
 	current_commit_hash: async (options) => {
-		const { branch, cwd } = options ?? EMPTY_OBJECT;
-		return wrap_with_value(() =>
-			git_current_commit_hash_required(branch, cwd ? { cwd } : undefined)
-		);
+		const { cwd } = options ?? EMPTY_OBJECT;
+		return wrap_with_value(() => git_current_commit_hash_required(cwd ? { cwd } : undefined));
 	},
 
 	add: async (options) => {
@@ -91,8 +89,8 @@ export const default_git_operations: GitOperations = {
 	},
 
 	commit: async (options) => {
-		const { message, cwd } = options;
-		return wrap_void(() => git_commit(message, cwd ? { cwd } : undefined));
+		const { message, files, cwd } = options;
+		return wrap_void(() => git_commit(message, files, cwd ? { cwd } : undefined));
 	}
 };
 

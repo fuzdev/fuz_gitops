@@ -21,7 +21,7 @@ import {
 	type LocalRepo,
 	type LocalRepoPath
 } from './local_repo.ts';
-import { load_repos_status } from './repos_status_load.ts';
+import { load_repos_status, to_repos_command } from './repos_status_load.ts';
 import { check_gen_readiness } from './repo_readiness.ts';
 import type { ReposOperations } from './operations.ts';
 import { default_repos_operations } from './operations_defaults.ts';
@@ -235,7 +235,7 @@ export const prepare_gitops_sync = async (
 		...default_gitops_sync_deps,
 		...deps
 	};
-	const repos_command = registry === undefined ? 'repos' : `repos --registry ${registry}`;
+	const repos_command = to_repos_command(registry);
 
 	const { config_path, gitops_config, report } = await resolve_gitops_repos({
 		config,

@@ -27,7 +27,7 @@
  * variant the status report and its error document can hold, and a TS test
  * parses each with these schemas. The field semantics live in the Rust
  * rustdoc and the JSON contract in `docs/repos.md`. The `repos sync --json`
- * and `repos push --json` documents have no TS consumer yet and aren't
+ * and `repos push --json` documents have no TS consumer and aren't
  * mirrored here.
  *
  * @module

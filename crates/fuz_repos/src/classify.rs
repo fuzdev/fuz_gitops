@@ -1376,7 +1376,6 @@ mod tests {
         }
         RepoFacts {
             path: "/ws/app".into(),
-            git_dir: PathBuf::from("/ws/app/.git"),
             common_dir: PathBuf::from("/ws/app/.git"),
             config,
             status: StatusFacts {

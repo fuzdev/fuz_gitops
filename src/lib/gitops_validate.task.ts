@@ -209,8 +209,7 @@ export const task: Task<Args> = {
 					repo_url: r.entry.url,
 					ci: r.entry.ci,
 					has_workflows: repo_has_workflows(r.repo_dir),
-					// always present today: a configured repo that isn't fails the load
-					// (`local_repos_resolve`) before we reach here
+					// a configured repo that isn't present fails the load (`local_repos_resolve`)
 					checkable: r.entry.presence.kind === 'present',
 					archived: r.entry.archived
 				}))

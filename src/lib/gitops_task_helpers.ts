@@ -31,7 +31,7 @@ import {
 	type LocalRepo,
 	type LocalRepoPath
 } from './local_repo.ts';
-import { load_repos_status } from './repos_status_load.ts';
+import { load_repos_status, to_repos_command } from './repos_status_load.ts';
 import {
 	check_publish_readiness,
 	format_readiness_ahead,
@@ -99,34 +99,22 @@ export const resolve_gitops_repos = async (
 	return { config_path, gitops_config, report, local_repo_paths: resolved.value };
 };
 
-export interface GetGitopsReadyOptions extends ResolveGitopsReposOptions {
-	parallel?: boolean;
-	concurrency?: number;
-}
-
 /**
  * Central initialization function for the gitops tasks that load libraries:
  * resolves the config's repos through `repos status` (`resolve_gitops_repos`),
  * then loads each repo's library as its working tree sits (`local_repos_load`).
- * Changes nothing.
+ * Moves no ref; gro caches each library at `.gro/library.json` in its repo, at
+ * a clean commit.
  *
- * @param options.repos_ops - for testing (defaults to running the `repos` binary)
- * @param options.parallel - whether to load repos in parallel (default: true)
- * @param options.concurrency - max concurrent repo loads (default: 5)
- * @returns initialized config and fully loaded repos ready for operations
+ * @returns the loaded repos, in config order
  * @throws {TaskError} if resolving the repos or loading them fails
  */
 export const get_gitops_ready = async (
-	options: GetGitopsReadyOptions
-): Promise<{
-	config_path: string;
-	gitops_config: GitopsConfig;
-	local_repos: Array<LocalRepo>;
-}> => {
-	const { log, parallel, concurrency } = options;
-	const { config_path, gitops_config, local_repo_paths } = await resolve_gitops_repos(options);
-	const local_repos = await local_repos_load({ local_repo_paths, log, parallel, concurrency });
-	return { config_path, gitops_config, local_repos };
+	options: ResolveGitopsReposOptions
+): Promise<{ local_repos: Array<LocalRepo> }> => {
+	const { local_repo_paths } = await resolve_gitops_repos(options);
+	const local_repos = await local_repos_load({ local_repo_paths, log: options.log });
+	return { local_repos };
 };
 
 export interface GatePublishReadinessOptions {
@@ -174,11 +162,8 @@ export const gate_publish_readiness = async (
 	if (!loaded.ok) {
 		throw new TaskError(`the readiness check failed: ${loaded.message}`);
 	}
-	const checked = check_publish_readiness({
-		report: loaded.report,
-		keys,
-		repos_command: registry === undefined ? 'repos' : `repos --registry ${registry}`
-	});
+	const repos_command = to_repos_command(registry);
+	const checked = check_publish_readiness({ report: loaded.report, keys, repos_command });
 	if (!checked.ok) {
 		throw new TaskError(checked.message);
 	}
@@ -187,7 +172,7 @@ export const gate_publish_readiness = async (
 	for (const ahead of checked.ahead) {
 		const name = name_by_key.get(ahead.key);
 		const publishes = name !== undefined && publishing?.has(name) === true;
-		log?.info(st('yellow', format_readiness_ahead(ahead, publishes)));
+		log?.info(st('yellow', format_readiness_ahead(ahead, publishes, { repos_command })));
 	}
 };
 
@@ -212,7 +197,7 @@ export const log_readiness_block = (
 	}
 };
 
-export const import_gitops_config = async (config_path: string): Promise<GitopsConfig> => {
+const import_gitops_config = async (config_path: string): Promise<GitopsConfig> => {
 	let gitops_config: GitopsConfig | null;
 	try {
 		gitops_config = await load_gitops_config(config_path);

@@ -170,21 +170,6 @@ export const create_mock_package_json_files = (
 };
 
 /**
- * Creates a mock repo with simulated changesets directory
- */
-export const create_mock_repo_with_changesets = (
-	options: MockRepoOptions & { changesets?: boolean }
-): LocalRepo & { has_changesets: boolean } => {
-	const repo = create_mock_repo(options);
-	const has_changesets = options.changesets ?? true;
-
-	return {
-		...repo,
-		has_changesets
-	};
-};
-
-/**
  * Creates mock ChangesetOperations with custom version predictions
  */
 export const create_mock_changeset_ops = (

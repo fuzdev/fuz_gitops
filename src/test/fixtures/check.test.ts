@@ -1,4 +1,4 @@
-import { test, assert, describe, beforeAll, afterAll } from 'vitest';
+import { test, assert, describe, afterAll } from 'vitest';
 import { existsSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -27,7 +27,6 @@ import { circular_prod_deps_error } from './repo_fixtures/circular_prod_deps_err
 import { isolated_packages } from './repo_fixtures/isolated_packages.ts';
 import { multiple_dep_types } from './repo_fixtures/multiple_dep_types.ts';
 import type { RepoFixtureSet } from './repo_fixture_types.ts';
-import { generate_all_fixtures, fixtures_exist } from './generate_repos.ts';
 import { assert_publishing_order, assert_version_changes, assert_messages } from './helpers.ts';
 
 // All fixture sets
@@ -92,17 +91,6 @@ const setup_dry_run_test = async (fixture: RepoFixtureSet) => {
 	});
 	return { mock_ops, local_repos, result };
 };
-
-// Generate fixture repos before running tests (still needed for configs)
-beforeAll(async () => {
-	// Check if any fixtures are missing
-	const missing = FIXTURES.some((f) => !fixtures_exist(f.name));
-
-	if (missing) {
-		// Generate all fixtures if any are missing
-		await generate_all_fixtures(FIXTURES);
-	}
-}, 120_000); // Allow up to 2 minutes for fixture generation
 
 // Clear cache after all tests to prevent memory leaks
 afterAll(() => {

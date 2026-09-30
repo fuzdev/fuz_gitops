@@ -12,7 +12,7 @@ import {
 	type PublishingPlan
 } from './publishing_plan.ts';
 import type { PreflightOptions } from './preflight_checks.ts';
-import { load_repos_status } from './repos_status_load.ts';
+import { load_repos_status, to_repos_command } from './repos_status_load.ts';
 import { check_publish_readiness } from './repo_readiness.ts';
 import type { Result } from '@fuzdev/fuz_util/result.ts';
 import type { GitopsOperations } from './operations.ts';
@@ -591,7 +591,7 @@ const recheck_publish_readiness = async (
 	const checked = check_publish_readiness({
 		report: loaded.report,
 		keys: [key],
-		repos_command: registry === undefined ? 'repos' : `repos --registry ${registry}`
+		repos_command: to_repos_command(registry)
 	});
 	return checked.ok ? { ok: true } : { ok: false, message: checked.lines.join('; ') };
 };
@@ -603,7 +603,7 @@ const recheck_publish_readiness = async (
  * move what the check vouched for; and `--branch` naming the branch the registry entry follows,
  * which gro checks out (its default is `main`).
  */
-export const gro_publish_args = (repo: Pick<LocalRepo, 'entry'>): Array<string> => {
+const gro_publish_args = (repo: Pick<LocalRepo, 'entry'>): Array<string> => {
 	const args = ['publish', '--no-build', '--no-pull'];
 	if (repo.entry.branch !== null) args.push('--branch', repo.entry.branch);
 	return args;

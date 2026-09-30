@@ -86,7 +86,6 @@ export interface GitOperations {
 	 * Gets the current commit hash.
 	 */
 	current_commit_hash: (options?: {
-		branch?: string;
 		cwd?: string;
 	}) => Promise<Result<{ value: string }, { message: string }>>;
 
@@ -99,10 +98,12 @@ export interface GitOperations {
 	}) => Promise<Result<object, { message: string }>>;
 
 	/**
-	 * Creates a commit.
+	 * Commits `files` alone (`git commit -- <files>`), leaving anything else
+	 * staged out of the commit; `files` must be non-empty.
 	 */
 	commit: (options: {
 		message: string;
+		files: Array<string>;
 		cwd?: string;
 	}) => Promise<Result<object, { message: string }>>;
 }

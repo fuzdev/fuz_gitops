@@ -340,10 +340,10 @@ mod tests {
     fn unknown_entry_hints_its_suggestions() {
         let e = Error::UnknownEntry {
             name: "gr".into(),
-            suggestions: vec!["gro".into(), "grimoire".into()],
+            suggestions: vec!["gro".into(), "grove".into()],
         };
         assert_eq!(e.to_string(), "unknown target `gr`");
-        assert_eq!(e.hint().as_deref(), Some("did you mean: gro, grimoire"));
+        assert_eq!(e.hint().as_deref(), Some("did you mean: gro, grove"));
         let e = Error::UnknownEntry {
             name: "zzzzzz".into(),
             suggestions: vec![],

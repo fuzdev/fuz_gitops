@@ -331,7 +331,7 @@ pub(crate) fn entry_checkouts(probed: &Probed) -> EntryCheckouts {
 
 /// Assembles an entry's report from its probe and the live sessions in its
 /// checkouts, classified for `refresh`.
-pub fn entry_status(
+fn entry_status(
     entry: &Entry,
     run: ProbeRun,
     sessions: &EntrySessions,

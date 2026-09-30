@@ -386,7 +386,7 @@ The rustdoc of `push.rs` has the details.
 
 ### Agents push through `repos push`
 
-The user's Claude Code settings deny raw `git push` (a `Bash(git push:*)`
+The recommended Claude Code settings deny raw `git push` (a `Bash(git push:*)`
 prefix rule, with `Bash(repos push --new-branch:*)` beside it) and allow
 `Bash(repos:*)`, and agents are instructed to push with `repos push`.
 Permission rules hold in every permission mode but match a command's prefix

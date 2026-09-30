@@ -87,13 +87,8 @@ const error_with_stack = (err: unknown): string =>
 export const parse_gitops_config = (raw: unknown, config_path: string): GitopsConfig => {
 	const parsed = GitopsConfig.safeParse(raw);
 	if (!parsed.success) {
-		const repos = typeof raw === 'object' && raw !== null && 'repos' in raw ? raw.repos : null;
-		const has_objects = Array.isArray(repos) && repos.some((r) => typeof r === 'object');
-		const old_shape =
-			has_objects || (typeof raw === 'object' && raw !== null && 'repos_dir' in raw);
-		const hint = old_shape
-			? "\n  `repos` lists repos.toml registry keys; a repo's url, dir, branch, visibility, ci, and archived come from the registry"
-			: '';
+		const hint =
+			"\n  `repos` lists repos.toml registry keys; a repo's url, dir, branch, visibility, ci, and archived come from the registry";
 		throw Error(
 			`Invalid gitops config at ${config_path}:\n${z.prettifyError(parsed.error)}${hint}`
 		);

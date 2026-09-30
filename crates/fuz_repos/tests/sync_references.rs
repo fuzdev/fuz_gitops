@@ -1112,9 +1112,9 @@ fn a_missing_entry_cloned_under_its_old_name_is_held() {
     ws.remote("podcast", &[]);
     ws.declare_repo("podcast", "podcast", "");
     ws.clone_as(
-        "private_podcast",
+        "old_podcast",
         "podcast",
-        &format!("git@github.com:{OWNER}/private_podcast_notes"),
+        &format!("git@github.com:{OWNER}/old_podcast_notes"),
         &[],
     );
     ws.write_registry();

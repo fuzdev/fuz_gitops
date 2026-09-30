@@ -987,7 +987,7 @@ mod tests {
     #[test]
     fn suggests_close_keys_best_first() {
         let es = entries(&[
-            "fuz_app", "fuz_css", "fuz_ui", "fuz_util", "gro", "grimoire", "tsv", "zzz", "FuzDocs",
+            "fuz_app", "fuz_css", "fuz_ui", "fuz_util", "gro", "graphite", "tsv", "zzz", "FuzDocs",
             "cm",
         ]);
         let suggest = |t: &str| suggest_keys(&es, t);
@@ -1001,7 +1001,7 @@ mod tests {
         assert_eq!(suggest("fuz_u"), ["fuz_ui", "fuz_util"]);
         assert_eq!(suggest("fuz"), ["fuz_ui", "FuzDocs", "fuz_app"]);
         // a prefix too far to be a typo, and a key inside the target
-        assert_eq!(suggest("grim"), ["grimoire"]);
+        assert_eq!(suggest("grap"), ["graphite"]);
         assert_eq!(suggest("gro-old"), ["gro"]);
         // a path's last component
         assert_eq!(suggest("../tsb/"), ["tsv"]);
@@ -1023,16 +1023,12 @@ mod tests {
 
     #[test]
     fn suggests_by_key_or_dir_named_by_key() {
-        let es = entries(&[
-            "fuz_forge:private_fuz_forge",
-            "fuz_os:private_fuz_os",
-            "tsv",
-        ]);
+        let es = entries(&["app_forge:vendor_app_forge", "app_os:vendor_app_os", "tsv"]);
         let suggest = |t: &str| suggest_keys(&es, t);
-        // near the dir by one edit, and `fuz_os`'s dir by three
-        assert_eq!(suggest("private_fuz_forg"), ["fuz_forge", "fuz_os"]);
-        // the closer of key and dir ranks it: `fuz_os` by its key
-        assert_eq!(suggest("fuz_o"), ["fuz_os"]);
-        assert_eq!(suggest("../private_fuz_os/"), ["fuz_os", "fuz_forge"]);
+        // near the dir by one edit, and `app_os`'s dir by three
+        assert_eq!(suggest("vendor_app_forg"), ["app_forge", "app_os"]);
+        // the closer of key and dir ranks it: `app_os` by its key
+        assert_eq!(suggest("app_o"), ["app_os"]);
+        assert_eq!(suggest("../vendor_app_os/"), ["app_os", "app_forge"]);
     }
 }

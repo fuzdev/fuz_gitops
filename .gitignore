@@ -11,9 +11,6 @@ target/
 .fuz/
 .zzz/
 
-# Generated test repos
-/src/test/fixtures/repos/
-
 # Env
 .env*
 !.env.example

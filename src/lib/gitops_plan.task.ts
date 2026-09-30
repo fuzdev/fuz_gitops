@@ -57,11 +57,6 @@ export const task: Task<Args> = {
 		const { local_repos } = await get_gitops_ready({ config, registry, log });
 		log_readiness_block(local_repos, log);
 
-		if (local_repos.length === 0) {
-			log.error('No local repos found');
-			return;
-		}
-
 		log.info(`  Found ${local_repos.length} local repos`);
 
 		// Generate publishing plan

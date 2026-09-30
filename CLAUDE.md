@@ -61,7 +61,7 @@ pushes.
 | Writes | Tier | Commands |
 | --- | --- | --- |
 | nothing in git | **observe** | `repos status` (local refs), `repos status --brief`; `gitops_analyze`, `gitops_plan`, `gitops_publish` (dry run), `gitops_validate`, `gitops_sync --check`, `gitops_run` with read-only commands |
-| remote-tracking refs only, plus the objects, `FETCH_HEAD`, and shallow boundary a fetch writes | **observe** (refreshed) | `repos status --fetch`; the fetch that starts `repos sync` and `repos push`, the readiness gate that starts `gitops_publish --wetrun`, and `gitops_sync`'s fetch before it writes its host's site data |
+| remote-tracking refs only, plus the objects, `FETCH_HEAD`, and shallow boundary a fetch writes | **observe** (refreshed) | `repos status --fetch`; the fetch that starts `repos sync` and `repos push`, the readiness gate before `gitops_publish --wetrun`'s prompt and its re-check before each `gro publish`, and `gitops_sync`'s fetch before it writes its host's site data |
 | local branches, working trees, new clones | **converge** | `repos sync` (fast-forwards, shallow moves, clones of missing entries, references refreshed when named or under `--references`) |
 | remote branches, under policy | **gateway** | `repos push`, and the push step of `repos sync`: fast-forwards only, under a lease, to the registry's SSH URL, owned entries only, no tags or force; a new remote branch is `repos push --new-branch`, the user's |
 | releases: npm, git commits and tags, deploys | **publish** | `gitops_publish --wetrun`, and gro's own `publish` and `deploy` it runs — the user's |
@@ -444,8 +444,11 @@ commit. So the executor **re-checks each repo right before its `gro publish`**
 gate's predicate on that entry) and aborts before any npm side effect unless
 it's ready — in sync or ahead, since the executor's own dependency-rewrite
 commit leaves a dependent ahead. The abort is a `not_ready` failure, like
-`drift`: the dirty state stays, and resumption applies. The window left is the
-seconds between that re-check and gro's push.
+`drift`: the dirty state stays, and resumption applies. The windows left are
+the seconds between that re-check and gro's push, and the executor's own
+dependency-rewrite commits, which aren't re-checked: each commits only the
+`package.json` and changeset it staged (`git commit -- <files>`), but lands on
+whatever branch the repo is on then.
 
 **Build Validation (Fail-Fast Safety)**
 
@@ -516,7 +519,7 @@ no executor-owned installs to skip.
 - Uses fixed-point iteration to resolve transitive cascades (max 10 iterations)
 - Shows all 4 publishing scenarios: explicit changesets, bump escalation,
   auto-generated changesets, and no changes
-- No side effects - does not modify any files or state
+- Read-only - moves no ref and writes nothing in git
 
 `gro gitops_publish` (dry run, default):
 
@@ -524,7 +527,7 @@ no executor-owned installs to skip.
 gitops_plan` and reports the full cascade (explicit changesets, bump
   escalations, and auto-generated changesets)
 - Skips the readiness gate and preflight checks (npm auth, builds)
-- No side effects - reports what `--wetrun` would publish; the count matches
+- Read-only - reports what `--wetrun` would publish; the count matches
   `gro gitops_plan` (the plan is the single source of truth for the cascade)
 
 Both read repos as they sit, from local refs, and print a **readiness block**
@@ -682,9 +685,8 @@ gro dev        # start dev server
 gro build      # build static site
 gro deploy     # deploy to GitHub Pages
 
-# Fixture Management
-gro src/test/fixtures/generate_repos # generate test git repos from fixture data
-gro test src/test/fixtures/check     # validate gitops commands against fixture expectations
+# Fixtures
+gro test src/test/fixtures/check # validate the plan and dry run against fixture expectations
 ```
 
 The Rust `repos` tool lives in `crates/fuz_repos`, a Cargo workspace beside
@@ -711,9 +713,9 @@ cargo test --workspace
 UPDATE_GOLDEN=1 cargo test --test golden # regenerate the --json golden fixtures in src/test/fixtures/repos_status/ (never hand-edit)
 ```
 
-**Agents push through `repos push`**, never raw `git push` — the user's Claude
-Code settings deny the latter by prefix rule, which is guidance, not a
-boundary.
+**Agents push through `repos push`**, never raw `git push` — a Claude Code
+deny rule on the latter is guidance, not a boundary
+([docs/repos.md](docs/repos.md#agents-push-through-repos-push)).
 
 ### Commands by Side Effects
 
@@ -871,7 +873,7 @@ dependency injection (see above).
 ```bash
 gro test                         # run all tests
 gro test version_utils           # run specific test file
-gro test src/test/fixtures/check # validate command output fixtures
+gro test src/test/fixtures/check # validate the analysis, plan, and dry run against fixture expectations
 ```
 
 Core modules tested:
@@ -891,19 +893,18 @@ Core modules tested:
 
 ### Fixture Testing
 
-The fixture system uses **generated git repositories** for isolated,
-reproducible integration tests:
+The fixture system builds `LocalRepo`s in memory from fixture data, with mock
+operations standing in for git, npm, and the fs:
 
-**Generated Test Repos:**
+**Fixture Data:**
 
-- `src/test/fixtures/repos/` - Auto-generated from fixture data (gitignored)
 - `src/test/fixtures/repo_fixtures/*.ts` - Source of truth for test repo definitions
-- `src/test/fixtures/generate_repos.ts` - Idempotent repo generation logic
+- `src/test/fixtures/load_repo_fixtures.ts` - Converts a fixture to `LocalRepo`s
 - `src/test/fixtures/configs/*.config.ts` - Each fixture's repos as a key-list
   config, load-validated against the fixture (there's no fixture registry, so
   the tasks don't run on them)
 
-**Fixture Scenarios (10 total):**
+**Fixture Scenarios:**
 
 - `basic_publishing` - All 4 publishing scenarios (explicit, auto-generated,
   bump escalation, no changes)
@@ -920,18 +921,14 @@ reproducible integration tests:
 
 **Structured Validation:**
 
-- `src/test/fixtures/check.test.ts` - Validates JSON output against fixture
-  `expected_outcomes`
-- `src/test/fixtures/helpers.ts` - JSON command runner and assertion helpers
+- `src/test/fixtures/check.test.ts` - Checks the analysis, plan, and dry run against each fixture's `expected_outcomes`
+- `src/test/fixtures/helpers.ts` - Assertion helpers
 
 **Workflow:**
 
 1. Define fixture data with expected outcomes in `repo_fixtures/*.ts`
-2. Run `gro test src/test/fixtures/check` to validate commands against expected
-   outcomes
-
-Fixture repos are auto-generated on first test run if missing. To manually
-regenerate: `gro src/test/fixtures/generate_repos`
+2. Run `gro test src/test/fixtures/check` to validate the plan and dry run
+   against expected outcomes
 
 Each fixture runs in isolation, validating:
 
@@ -939,9 +936,6 @@ Each fixture runs in isolation, validating:
 - Version changes (explicit, auto-generated, bump escalation scenarios)
 - Breaking change cascades
 - Warnings, errors, and info messages
-
-Test repos are isolated from real workspace repos and can run in CI without
-cloning.
 
 The Rust test harness is described in [docs/repos.md](docs/repos.md#testing),
 along with the `repos --json` golden documents in

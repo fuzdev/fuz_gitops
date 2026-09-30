@@ -8,7 +8,7 @@ import {
 	gate_publish_readiness,
 	get_gitops_ready,
 	log_readiness_block,
-	type GetGitopsReadyOptions
+	type ResolveGitopsReposOptions
 } from './gitops_task_helpers.ts';
 import type { LocalRepo } from './local_repo.ts';
 import type { GitopsOperations, ReposOperations } from './operations.ts';
@@ -94,7 +94,7 @@ export const task: Task<Args> = {
  */
 export interface GitopsPublishDeps {
 	/** Loads the configured repos as they sit (`get_gitops_ready`). */
-	load_repos: (options: GetGitopsReadyOptions) => Promise<{ local_repos: Array<LocalRepo> }>;
+	load_repos: (options: ResolveGitopsReposOptions) => Promise<{ local_repos: Array<LocalRepo> }>;
 	/** Runs `repos status` for the readiness gate. */
 	repos_ops: ReposOperations;
 	/** The executor's operations. */

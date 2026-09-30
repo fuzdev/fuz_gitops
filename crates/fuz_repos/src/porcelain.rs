@@ -125,7 +125,7 @@ pub enum Track {
 /// # Errors
 ///
 /// Returns a message for anything else.
-pub fn parse_track(s: &str) -> Result<Track, String> {
+fn parse_track(s: &str) -> Result<Track, String> {
     if s.is_empty() {
         return Ok(Track::Even);
     }
