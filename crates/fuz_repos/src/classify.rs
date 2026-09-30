@@ -62,6 +62,24 @@ pub enum NeedsHuman {
         expected: String,
         fix: Option<OriginFix>,
     },
+    /// An owned entry whose `origin` is the registry's repo, but whose
+    /// fetch from it wouldn't reach that repo as sync fetches it: `fetch_url`
+    /// is where it would reach, as git resolves it (`insteadOf` applied; a
+    /// credential in its userinfo redacted as `***`) — another repo a
+    /// rewrite names, or, in a partial clone, whose checkouts fetch missing
+    /// objects from origin on demand, a transport that fetch may not take
+    /// (neither SSH nor HTTPS: `fetch_url_mismatch`). `expected` is the
+    /// registry's SSH URL. The entry is held whole and never fetched: the
+    /// fetch would fill `refs/remotes/origin/*` with another repo's history.
+    /// `fix` is how to point `origin` at `expected`, as `origin_mismatch`'s
+    /// says — `None` when a `url.<base>.insteadOf` rewrite changes origin's
+    /// URL, which setting the URL may not undo: the rewrite is what to
+    /// change.
+    FetchUrlMismatch {
+        fetch_url: String,
+        expected: String,
+        fix: Option<OriginFix>,
+    },
     /// A worktree's git dir (or `<commondir>/worktrees/` itself) can't be
     /// read, so whether an operation is in progress there is unknowable.
     WorktreeUnreadable {
@@ -146,8 +164,9 @@ pub enum NeedsHuman {
 impl NeedsHuman {
     /// Whether the reason stops sync on the whole entry, holding every
     /// branch's action: an operation mid-way owns the checkout (and one that
-    /// can't be ruled out counts the same), and a wrong origin would move
-    /// branches to another repo's history. The rest concern one branch or
+    /// can't be ruled out counts the same), and a wrong origin, or a fetch
+    /// from it that reaches elsewhere, would move branches to another
+    /// repo's history. The rest concern one branch or
     /// one checkout's HEAD (an unresolvable checkout holds the branches
     /// checked out there, as a busy one does), and leave the other branches
     /// safe to sync.
@@ -156,6 +175,7 @@ impl NeedsHuman {
             Self::NotARepo { .. }
             | Self::OperationInProgress { .. }
             | Self::OriginMismatch { .. }
+            | Self::FetchUrlMismatch { .. }
             | Self::WorktreeUnreadable { .. }
             | Self::CloneSharesRepo { .. }
             | Self::ClonedUnregistered { .. } => true,
@@ -397,6 +417,44 @@ fn fetches_over_https(entry: &Entry, config: &ConfigFacts) -> bool {
         .origin_fetch_url
         .as_deref()
         .is_some_and(|u| u.starts_with("https://") && origin_matches(u, &entry.url))
+}
+
+/// Where an owned entry's fetch from `origin` would reach, when that isn't
+/// the registry's repo as sync fetches it.
+///
+/// That is, the URL git resolves (`ConfigFacts::origin_fetch_url`,
+/// rewrites applied) names another repo (`origin_matches`), or, in a
+/// partial clone, a transport its lazy fetch may not take
+/// (`lazy_transport`: neither SSH nor HTTPS). `None` when it is, for an
+/// entry not owned or pinned (a reference's refresh has its own check,
+/// `fetches_over_https`; a pin is never fetched), and when the probe didn't
+/// read it.
+pub fn fetch_url_mismatch<'a>(entry: &Entry, config: &'a ConfigFacts) -> Option<&'a str> {
+    if !entry.writable || entry.pinned {
+        return None;
+    }
+    let url = config.origin_fetch_url.as_deref()?;
+    let reaches = origin_matches(url, &entry.url)
+        && (config.partial_filter.is_none() || lazy_transport(url).is_some());
+    (!reaches).then_some(url)
+}
+
+/// The one transport a lazy fetch from `origin` may take: its own.
+///
+/// `ssh` for an SSH URL (`ssh://`, its `git+ssh` spellings, or scp-like),
+/// `https` for an HTTPS one — whoever owns the repo, so an owned partial
+/// clone whose origin is HTTPS fills its checkout over HTTPS. `None` for
+/// anything else (plain `http`, `git://`, a local path, a URL
+/// `remote_parts` rejects): no lazy fetch.
+pub fn lazy_transport(origin: &str) -> Option<&'static str> {
+    let parts = remote_parts(origin)?;
+    if parts.ssh {
+        Some("ssh")
+    } else if origin.starts_with("https://") {
+        Some("https")
+    } else {
+        None
+    }
 }
 
 /// Whether an entry's branches are compared against origin: owned, or a
@@ -963,6 +1021,15 @@ fn needs_human(
             origin,
             expected: entry.remote_url(),
             fix: OriginFix::decide(&facts.config),
+        });
+    }
+    // an owned entry's fetch that would reach elsewhere, rewrites applied
+    if !drift && let Some(fetch_url) = fetch_url_mismatch(entry, &facts.config) {
+        let rewritten = facts.config.origin_url() != Some(fetch_url);
+        reasons.push(NeedsHuman::FetchUrlMismatch {
+            fetch_url: without_userinfo(fetch_url).into_owned(),
+            expected: entry.remote_url(),
+            fix: (!rewritten).then(|| OriginFix::decide(&facts.config)),
         });
     }
     // a refresh's fetch that wouldn't reach the repo over HTTPS
@@ -2846,6 +2913,106 @@ mod tests {
             Some(RefreshVerdict::Held { by: HeldBy::Entry })
         );
         let c = classify(&lib, &f, &EntrySessions::idle(), Refresh::Named);
+        assert!(
+            matches!(c.needs_human[..], [NeedsHuman::OriginMismatch { .. }]),
+            "{:?}",
+            c.needs_human
+        );
+    }
+
+    /// An owned entry's fetch, as git resolves it, that wouldn't reach the
+    /// registry's repo as sync fetches it — another repo a rewrite names,
+    /// or a partial clone's over neither SSH nor HTTPS — holds the entry,
+    /// with its own reason. Its fix points origin at the SSH URL, unless a
+    /// rewrite makes the URL. Origin drift says drift alone, a pin is never
+    /// fetched, and a fetch URL never read says nothing.
+    #[test]
+    fn an_owned_fetch_that_reaches_elsewhere_holds_the_entry() {
+        let app = owned(Mode::Follow("main"));
+        let ssh = "git@github.com:me/app";
+        let branches = [b("main", O, true, Track::Ahead(1))];
+        let with = |origin: &str, fetch_url: &str, partial: bool| {
+            let mut f = facts(on("main"), &branches);
+            f.config.origin_urls = vec![OriginUrl::repo(origin)];
+            f.config.origin_fetch_url = Some(fetch_url.to_owned());
+            f.config.partial_filter = partial.then(|| "blob:none".to_owned());
+            f
+        };
+        let cases: [(&str, &str, bool, Option<OriginFix>); 5] = [
+            // a rewrite to another repo
+            (ssh, "git@github.com:me/other", false, None),
+            (ssh, "file:///srv/app.git", false, None),
+            // a partial clone over a transport its lazy fetch may not take
+            (ssh, "git://github.com/me/app", true, None),
+            (
+                "http://github.com/me/app",
+                "http://github.com/me/app",
+                true,
+                Some(OriginFix::SetUrl),
+            ),
+            (
+                "git://github.com/me/app",
+                "git://github.com/me/app",
+                true,
+                Some(OriginFix::SetUrl),
+            ),
+        ];
+        for (origin, fetch_url, partial, fix) in cases {
+            let f = with(origin, fetch_url, partial);
+            assert_eq!(
+                fetch_url_mismatch(&app, &f.config),
+                Some(fetch_url),
+                "{fetch_url}"
+            );
+            let c = classify(&app, &f, &EntrySessions::idle(), Refresh::Unasked);
+            assert_eq!(
+                c.needs_human,
+                [NeedsHuman::FetchUrlMismatch {
+                    fetch_url: fetch_url.to_owned(),
+                    expected: ssh.to_owned(),
+                    fix,
+                }],
+                "{fetch_url}"
+            );
+            assert!(c.needs_human[0].holds_entry());
+            assert_eq!(
+                c.branches[0].verdict,
+                Verdict::Held {
+                    action: SyncAction::Push { commits: 1 },
+                    by: HeldBy::Entry
+                },
+                "{fetch_url}"
+            );
+        }
+        // the registry's repo, however git reaches it: nothing said
+        for (fetch_url, partial) in [
+            (ssh, true),
+            ("https://github.com/me/app", true),
+            ("ssh://git@github.com/me/app.git", true),
+            // a whole clone fetches over whatever names the repo
+            ("git://github.com/me/app", false),
+        ] {
+            let f = with(ssh, fetch_url, partial);
+            assert_eq!(fetch_url_mismatch(&app, &f.config), None, "{fetch_url}");
+            let c = classify(&app, &f, &EntrySessions::idle(), Refresh::Unasked);
+            assert!(c.needs_human.is_empty(), "{fetch_url}: {:?}", c.needs_human);
+        }
+        // never read: nothing said (the probe doesn't fetch it)
+        let unread = facts(on("main"), &branches);
+        assert_eq!(fetch_url_mismatch(&app, &unread.config), None);
+        // a pin, and a reference: never this reason
+        let other = with(ssh, "git@github.com:me/other", false);
+        assert_eq!(
+            fetch_url_mismatch(&owned(Mode::Pinned), &other.config),
+            None
+        );
+        assert_eq!(
+            fetch_url_mismatch(&third_party(Mode::Head), &other.config),
+            None
+        );
+        // origin drift says drift alone
+        let drifted = with("git@github.com:me/other", "git@github.com:me/other", false);
+        let c = classify(&app, &drifted, &EntrySessions::idle(), Refresh::Unasked);
         assert!(
             matches!(c.needs_human[..], [NeedsHuman::OriginMismatch { .. }]),
             "{:?}",

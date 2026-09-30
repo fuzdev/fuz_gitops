@@ -186,6 +186,7 @@ impl Cloner<'_> {
             allow_protocol: Some(transport),
             timeout: Some(self.timeout),
             lazy_fetch: recipe.sparse.is_some(),
+            env: &[],
         };
         let branch = recipe.branch.as_ref().map(|b| format!("--branch={b}"));
         let mut args = CLONE_ARGS.to_vec();

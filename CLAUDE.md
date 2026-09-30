@@ -619,8 +619,13 @@ URL with no credential in reach — readable means it leaked, printed first as
 `visibility`. The fetch writes remote-tracking refs and nothing else, whatever
 the repo's config says; an entry whose refspecs could write outside
 `refs/remotes/origin/`, or another remote's into it, isn't fetched, and neither
-is one whose `origin` isn't the registry's repo (its origin-drift line says
-the fix): the fetch would bring in another repo's history. Origin URLs
+is an owned one whose fetch wouldn't reach the registry's repo as git resolves
+origin's URL, `insteadOf` applied: the fetch would bring in another repo's
+history. An origin set to another URL says so on its origin-drift line; one
+set to the registry's that a rewrite sends elsewhere is a needs-human
+`fetch_url_mismatch` naming the rewrite; and one spelled otherwise that a
+rewrite sends to the registry's repo (an alias, `gh:me/app`) is fetched, its
+drift still holding the rest. Origin URLs
 are redacted wherever shown, and registry URLs are strict (a plain DNS host, no
 userinfo or port). An origin or push URL names the registry's repo only when
 read as git connects for it: the host (to the first `/` after `scheme://`, or
@@ -809,11 +814,13 @@ the same targets and `--references` to preview a refresh from local refs, and
 fetches it under `--fetch`. A partial clone (a `sparse` reference, cloned
 `--filter=blob:none`) lacks the blobs a new tip's checkout needs: a
 fast-forward or move in its checkout fetches them on demand from origin
-alone, over the one transport origin's URL names (SSH or HTTPS, whoever owns
-the repo), and only when no other remote is a promisor — origin's URL read
-again right before, as git resolves it (`insteadOf` applied), and the action
-held (`changed`) if it no longer names the registry's repo over that
-transport; every other call keeps lazy fetching off.
+alone, over the one transport origin's URL names as git resolves it
+(`insteadOf` applied; SSH or HTTPS, whoever owns the repo — an owned partial
+clone resolving to neither is a needs-human `fetch_url_mismatch`), and only
+when no other remote is a promisor — both read again right before, and the
+action held (`changed`) if origin no longer names the registry's repo over
+that transport or another promisor appeared; every other call keeps lazy
+fetching off.
 
 **Each missing entry is cloned** — agents' runs included, and whether or
 not busy detection can vouch for every session, since a clone only creates
@@ -849,8 +856,8 @@ rustdoc of `clone.rs` has the recipe.
 workspaces (`crates/fuz_repos/tests/support`): real repos in a tempdir, each
 cloned from a local bare remote, with git's environment cleared (no global or
 system config, fixed identities and dates) and no network — the `ssh` on
-`PATH` is the fixture's own, serving pushes to the registry's SSH URLs from
-the local bare remotes and refusing anything else, SSH failures come from
+`PATH` is the fixture's own, serving fetches and pushes to the registry's SSH
+URLs from the local bare remotes and refusing anything else, SSH failures come from
 fakes too, `GIT_EXEC_PATH` is the fixture's — git's own programs, but a
 `git-remote-https` that refuses every URL unless a test serves the bare
 remotes through it (`serve_https`) — and the visibility check reads

@@ -206,6 +206,11 @@ pub struct CallOptions<'a> {
     /// a caller lifting it names the one transport allowed
     /// (`allow_protocol`).
     pub lazy_fetch: bool,
+    /// Variables set for this call alone: the tool's own, never `GIT_*`
+    /// (git's own are the runner's to set or scrub, some only under an
+    /// option). For the values a `--config-env` names, which git reads
+    /// whole, `=` and all, where `-c` splits its argument at the first `=`.
+    pub env: &'a [(&'a str, &'a str)],
 }
 
 /// Options for a call that reaches a remote.
@@ -353,6 +358,7 @@ impl Git {
                 allow_protocol: None,
                 timeout: None,
                 lazy_fetch: false,
+                env: &[],
             },
         );
         let allowed = match self.env_var("GIT_ALLOW_PROTOCOL") {
@@ -377,6 +383,12 @@ impl Git {
         if let Some(env) = &self.env {
             cmd.env_clear().envs(env.iter().map(|(k, v)| (k, v)));
         }
+        debug_assert!(
+            opts.env.iter().all(|(k, _)| !k.starts_with("GIT_")),
+            "a call's own env never sets git's: {:?}",
+            opts.env
+        );
+        cmd.envs(opts.env.iter().copied());
         // what never runs (the module doc says why, and what still does)
         cmd.args([
             "--no-optional-locks",
@@ -675,15 +687,15 @@ mod tests {
 
     /// The environment a runner's git sees, via a `!` alias.
     fn seen_env(git: &Git, dir: &Path) -> Vec<String> {
-        git.output_string(
-            dir,
-            &["-c", "alias.fixture-env=!env", "fixture-env"],
-            CallOptions::default(),
-        )
-        .unwrap()
-        .lines()
-        .map(str::to_owned)
-        .collect()
+        seen_env_with(git, dir, CallOptions::default())
+    }
+
+    fn seen_env_with(git: &Git, dir: &Path, opts: CallOptions<'_>) -> Vec<String> {
+        git.output_string(dir, &["-c", "alias.fixture-env=!env", "fixture-env"], opts)
+            .unwrap()
+            .lines()
+            .map(str::to_owned)
+            .collect()
     }
 
     #[test]
@@ -732,6 +744,59 @@ mod tests {
         let seen = seen_env(&Git::new(), tmp.path());
         assert!(seen.contains(&inherited), "{inherited}: {seen:?}");
         assert!(!seen.iter().any(|l| l == "FIXTURE_VAR=kept"));
+    }
+
+    /// A call's own variables reach its git alone; `--config-env` reads one
+    /// whole, `=` and all.
+    #[test]
+    fn a_calls_own_env_is_its_alone() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mut env: Vec<(OsString, OsString)> = vec![
+            ("GIT_CONFIG_GLOBAL".into(), "/dev/null".into()),
+            ("GIT_CONFIG_NOSYSTEM".into(), "1".into()),
+        ];
+        if let Some(path) = std::env::var_os("PATH") {
+            env.push(("PATH".into(), path));
+        }
+        let git = Git::with_clean_env(env);
+        let opts = CallOptions {
+            env: &[("FIXTURE_CALL", "a=b")],
+            ..CallOptions::default()
+        };
+        let seen = seen_env_with(&git, tmp.path(), opts);
+        assert!(seen.iter().any(|l| l == "FIXTURE_CALL=a=b"), "{seen:?}");
+        // the next call's isn't
+        let seen = seen_env(&git, tmp.path());
+        assert!(
+            !seen.iter().any(|l| l.starts_with("FIXTURE_CALL=")),
+            "{seen:?}"
+        );
+        // a key holding `=`, split at the last one
+        let value = git
+            .output_string(
+                tmp.path(),
+                &[
+                    "--config-env=branch.a=b.merge=FIXTURE_CALL",
+                    "config",
+                    "--get",
+                    "branch.a=b.merge",
+                ],
+                opts,
+            )
+            .unwrap();
+        assert_eq!(value.trim_end(), "a=b");
+    }
+
+    /// git's own variables are the runner's alone.
+    #[test]
+    #[cfg(debug_assertions)]
+    #[should_panic(expected = "a call's own env never sets git's")]
+    fn a_calls_own_env_never_sets_gits() {
+        let opts = CallOptions {
+            env: &[("GIT_DIR", "/nowhere")],
+            ..CallOptions::default()
+        };
+        let _ = Git::new().command(Path::new("/"), &["status"], opts);
     }
 
     #[test]

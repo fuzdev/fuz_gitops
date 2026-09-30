@@ -843,6 +843,148 @@ fn origin_rewritten_before_a_partial_checkout_holds_it() {
     );
 }
 
+/// wpt as an owned fork, shallow and sparse on `fork`, synced once, and a
+/// commit to its cone upstream: the fork's clone, the new tip, and the
+/// branch's commit before it.
+fn sparse_fork_behind(ws: &mut FixtureWorkspace) -> (PathBuf, String, String) {
+    ws.remote("wpt", &[("css/a.css", "a {}\n"), ("html/c.html", "<p>\n")]);
+    ws.upstream_commit("wpt", "fork");
+    ws.declare_reference(
+        "wpt",
+        OWNER,
+        "wpt",
+        "branch = \"fork\"\nshallow = true\nsparse = \"css\"",
+    );
+    ws.write_registry();
+    ws.sync();
+    let wpt = ws.dir("wpt");
+    let up = ws.upstream("wpt");
+    ws.git(&up, &["checkout", "-q", "fork"]);
+    write(&up, "css/a.css", "a { color: red }\n");
+    ws.git(&up, &["commit", "-q", "-am", "css"]);
+    ws.git(&up, &["push", "-q", "origin", "fork"]);
+    let tip = ws.git(&up, &["rev-parse", "HEAD"]);
+    let was = ws.git(&wpt, &["rev-parse", "fork"]);
+    (wpt, tip, was)
+}
+
+/// A rewrite that stays: origin configured as the repo over HTTPS, and a
+/// permanent `insteadOf` sending it over SSH. The checkout's lazy fetch
+/// takes the transport git connects over, as the fetch does, so the move
+/// goes on, never held as changed.
+#[test]
+fn a_permanent_rewrite_of_a_partial_clones_origin_is_its_transport() {
+    let mut ws = FixtureWorkspace::new();
+    let (wpt, tip, was) = sparse_fork_behind(&mut ws);
+    let https = format!("https://github.com/{OWNER}/wpt");
+    ws.git(&wpt, &["remote", "set-url", "origin", &https]);
+    let rewrite = format!("url.git@github.com:{OWNER}/wpt.insteadOf");
+    ws.git(&wpt, &["config", &rewrite, &https]);
+    assert_eq!(
+        ws.git(&wpt, &["ls-remote", "--get-url", "origin"]),
+        support::owned_origin("wpt")
+    );
+    let calls = ws.ssh_log().len();
+
+    let run = ws.sync();
+
+    assert_eq!(
+        outcome(&run, "wpt", "fork"),
+        &BranchOutcome::Moved { from: was, to: tip }
+    );
+    assert!(find_entry(&run.entries, "wpt").needs_human.is_empty());
+    assert_eq!(
+        std::fs::read_to_string(wpt.join("css/a.css")).unwrap(),
+        "a { color: red }\n"
+    );
+    // the fetch, then the checkout's fetch of the cone's blob, both over SSH
+    let log = ws.ssh_log();
+    assert_eq!(log.len() - calls, 2, "{log:?}");
+    assert!(ws.https_refused_log().is_empty());
+}
+
+/// A partial clone whose fetch resolves to a transport its lazy fetch may
+/// not take — the repo over `git://`, a rewrite's doing — is a person's,
+/// named, never fetched or moved.
+#[test]
+fn a_partial_clone_fetching_over_another_transport_needs_a_person() {
+    let mut ws = FixtureWorkspace::new();
+    let (wpt, _, was) = sparse_fork_behind(&mut ws);
+    let git_url = format!("git://github.com/{OWNER}/wpt");
+    let rewrite = format!("url.{git_url}.insteadOf");
+    ws.git(&wpt, &["config", &rewrite, &support::owned_origin("wpt")]);
+    let before = ws.refs(&wpt);
+    let calls = ws.ssh_log().len();
+
+    let run = ws.sync();
+
+    let e = find_entry(&run.entries, "wpt");
+    assert_eq!(
+        e.needs_human,
+        [NeedsHuman::FetchUrlMismatch {
+            fetch_url: git_url,
+            expected: support::owned_origin("wpt"),
+            fix: None,
+        }]
+    );
+    // unfetched, the branch reads as the last fetch left it: nothing to do
+    assert_eq!(outcomes(&run, "wpt").fetch, FetchOutcome::NotFetched);
+    assert_eq!(outcome(&run, "wpt", "fork"), &BranchOutcome::Untouched);
+    assert_eq!(ws.refs(&wpt), before);
+    assert_eq!(ws.git(&wpt, &["rev-parse", "fork"]), was);
+    assert_eq!(ws.ssh_log().len(), calls);
+}
+
+/// A promisor remote added between classifying and the checkout holds the
+/// move before its lazy fetch: git would ask that remote too, so whether
+/// one is configured is read again right before, with origin.
+#[test]
+fn a_promisor_remote_added_before_a_partial_checkout_holds_it() {
+    let mut ws = FixtureWorkspace::new();
+    let (wpt, _, was) = sparse_fork_behind(&mut ws);
+    let calls = ws.ssh_log().len();
+    let env = ws.env();
+    // after the fetch and classifying, right before the move
+    let reads = AtomicUsize::new(0);
+    let read = || {
+        if reads.fetch_add(1, Ordering::SeqCst) == 1 {
+            for args in [
+                &["remote", "add", "mirror", "git@github.com:me/other"][..],
+                &["config", "remote.mirror.promisor", "true"],
+            ] {
+                let out = Command::new("git")
+                    .env_clear()
+                    .envs(env.iter().map(|(k, v)| (k, v)))
+                    .current_dir(&wpt)
+                    .args(args)
+                    .output()
+                    .unwrap();
+                assert!(out.status.success());
+            }
+        }
+        LiveSessions::Known(vec![])
+    };
+
+    let run = ws.sync_with(4, &read);
+
+    assert_eq!(
+        outcome(&run, "wpt", "fork"),
+        &BranchOutcome::Held {
+            action: SyncAction::Move,
+            by: SyncHold::Changed,
+        }
+    );
+    assert_eq!(ws.git(&wpt, &["rev-parse", "fork"]), was);
+    ws.assert_clean(&wpt);
+    assert_eq!(
+        std::fs::read_to_string(wpt.join("css/a.css")).unwrap(),
+        "a {}\n"
+    );
+    // the fetch alone reached a remote
+    let log = ws.ssh_log();
+    assert_eq!(log.len() - calls, 1, "{log:?}");
+}
+
 /// A promisor remote besides origin keeps the lazy fetch off: git would
 /// ask it too, and the tool reaches origin alone.
 #[test]

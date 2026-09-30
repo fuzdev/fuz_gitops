@@ -1292,6 +1292,7 @@ fn needs_human_label(reason: &NeedsHuman, e: &EntryStatus, view: View<'_>) -> St
                 format!("refresh would fetch from {fetch_url}, not over HTTPS")
             }
         }
+        NeedsHuman::FetchUrlMismatch { fetch_url, .. } => format!("fetch goes to {fetch_url}"),
         NeedsHuman::PushUrlMismatch { push_urls, .. } => match &push_urls[..] {
             [] => "push goes nowhere".into(),
             [one] => format!("push goes to {one}"),
@@ -1301,6 +1302,22 @@ fn needs_human_label(reason: &NeedsHuman, e: &EntryStatus, view: View<'_>) -> St
                 several.join(", ")
             ),
         },
+    }
+}
+
+/// How to make origin's fetch reach `expected`: `fix`, the command that
+/// points origin at it, or, with none, the `insteadOf` rewrite that sends
+/// the fetch elsewhere, to look at. `dir` is the checkout, shell-quoted.
+fn fetch_fix(fix: Option<&OriginFix>, expected: &str, dir: &str) -> String {
+    let quoted = shell_quote(expected);
+    match fix {
+        Some(OriginFix::SetUrl) => format!("git -C {dir} remote set-url origin {quoted}"),
+        Some(OriginFix::Add) => format!("git -C {dir} remote add origin {quoted}"),
+        Some(OriginFix::ByHand { .. }) => format!("set remote.origin.url to {quoted} by hand"),
+        None => format!(
+            "a url.*.insteadOf rewrite makes it: see git -C {dir} config --get-regexp \
+             '^url\\..*\\.insteadof$'"
+        ),
     }
 }
 
@@ -1542,24 +1559,25 @@ pub fn render_entry(e: &EntryStatus, workspace: &Path, view: View<'_>) -> String
                  --all origin (remote.origin.pushurl, url.*.pushInsteadOf)",
                 needs_human_label(reason, e, view)
             ),
-            NeedsHuman::OriginNotHttps { expected, fix, .. } => {
-                let quoted = shell_quote(expected);
-                let command = match fix {
-                    Some(OriginFix::SetUrl) => {
-                        format!("git -C {dir} remote set-url origin {quoted}")
-                    }
-                    Some(OriginFix::Add) => format!("git -C {dir} remote add origin {quoted}"),
-                    Some(OriginFix::ByHand { .. }) => {
-                        format!("set remote.origin.url to {quoted} by hand")
-                    }
-                    None => format!(
-                        "a url.*.insteadOf rewrite makes it: see git -C {dir} config \
-                         --get-regexp '^url\\..*\\.insteadof$'"
-                    ),
+            NeedsHuman::OriginNotHttps { expected, fix, .. } => format!(
+                "{} — a reference is fetched only over HTTPS, from {expected}: {}",
+                needs_human_label(reason, e, view),
+                fetch_fix(fix.as_ref(), expected, &dir)
+            ),
+            NeedsHuman::FetchUrlMismatch { expected, fix, .. } => {
+                let partial = e
+                    .layout
+                    .as_ref()
+                    .is_some_and(|l| l.partial_filter.is_some());
+                let over = if partial {
+                    ", over SSH or HTTPS in a partial clone"
+                } else {
+                    ""
                 };
                 format!(
-                    "{} — a reference is fetched only over HTTPS, from {expected}: {command}",
-                    needs_human_label(reason, e, view)
+                    "{} — sync fetches only the registry's repo, {expected}{over}: {}",
+                    needs_human_label(reason, e, view),
+                    fetch_fix(fix.as_ref(), expected, &dir)
                 )
             }
             NeedsHuman::CloneSharesRepo { with } => format!(
@@ -2782,6 +2800,18 @@ mod tests {
         assert_eq!(
             render_push_summary(&created, VIEW),
             "pushed        app:topic (new branch)\n~/dev/repos.toml · fetched 3h ago\n"
+        );
+        // the merged branch alone: its own hint, never --new-branch's
+        let merged = PushReport::new(report.status.clone(), vec![report.pushes[7].clone()]);
+        assert_eq!(
+            render_push_summary(&merged, VIEW)
+                .lines()
+                .collect::<Vec<_>>(),
+            [
+                "not pushed    tsv:done (nothing unique, upstream gone from origin)",
+                format!("              hint: {MERGED_HINT}").as_str(),
+                "~/dev/repos.toml · fetched 3h ago",
+            ]
         );
     }
 

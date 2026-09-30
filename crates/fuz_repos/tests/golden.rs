@@ -437,6 +437,8 @@ fn status_report_doc() -> StatusReport {
             fuz_ui(),
             uz(),
             pushy(),
+            fetchy(),
+            sparse_fork(),
             renamed_default(),
         ],
     );
@@ -2307,6 +2309,50 @@ fn pushy() -> EntryStatus {
             expected: "git@github.com:me/pushy".into(),
         }],
         ..entry("pushy", Some("main"))
+    }
+}
+
+/// A fetch an `insteadOf` rewrite sends to another repo: held whole, never
+/// fetched, the rewrite to change.
+fn fetchy() -> EntryStatus {
+    EntryStatus {
+        branches: vec![branch(
+            "main",
+            Some("origin/main"),
+            Relation::InSync,
+            Verdict::Quiet,
+        )],
+        needs_human: vec![NeedsHuman::FetchUrlMismatch {
+            fetch_url: "git@github.com:me/mirror".into(),
+            expected: "git@github.com:me/fetchy".into(),
+            fix: None,
+        }],
+        fetched_at: None,
+        ..entry("fetchy", Some("main"))
+    }
+}
+
+/// A partial clone whose origin is the repo over plain `http://`, which its
+/// checkouts' lazy fetch may not take: held whole, never fetched.
+fn sparse_fork() -> EntryStatus {
+    EntryStatus {
+        layout: Some(Layout {
+            shallow: false,
+            sparse: true,
+            partial_filter: Some("blob:none".into()),
+        }),
+        branches: vec![branch(
+            "main",
+            Some("origin/main"),
+            Relation::InSync,
+            Verdict::Quiet,
+        )],
+        needs_human: vec![NeedsHuman::FetchUrlMismatch {
+            fetch_url: "http://github.com/me/sparse_fork".into(),
+            expected: "git@github.com:me/sparse_fork".into(),
+            fix: Some(OriginFix::SetUrl),
+        }],
+        ..entry("sparse_fork", Some("main"))
     }
 }
 

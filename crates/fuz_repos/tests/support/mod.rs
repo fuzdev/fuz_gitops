@@ -12,13 +12,15 @@
 //! `FixtureWorkspace::command`.
 //!
 //! A clone's `origin` holds the URL the registry expects (SSH for owned
-//! entries, HTTPS for third-party ones) — the probe reads it raw from config
-//! — and a repo-local `url.<file URL>.insteadOf` sends fetches to the local
-//! bare remote. A push goes where it would for real, the registry's URL (an
-//! identity `pushInsteadOf` exempts it from the fetch's rewrite): over SSH,
+//! entries, HTTPS for third-party ones). An owned clone's fetches and
+//! pushes go where they would for real, the registry's URL, with nothing
+//! rewriting them — the probe checks where a fetch resolves — over SSH,
 //! where `ssh` on `PATH` is the fixture's own (`FIXTURE_SSH`), which serves
 //! the owner's repos from the local bare remotes and refuses anything else,
-//! so no push ever leaves the tempdir. `GIT_ALLOW_PROTOCOL=file:ssh` makes
+//! so nothing ever leaves the tempdir. Any other origin (a third-party
+//! clone's HTTPS URL, an owned one set otherwise) has a repo-local
+//! `url.<file URL>.insteadOf` sending fetches to the local bare remote, and
+//! an identity `pushInsteadOf` exempting pushes from it. `GIT_ALLOW_PROTOCOL=file:ssh` makes
 //! any other transport an error (unless a test widens it,
 //! `allow_transport`). A call that sets its own allowlist — a third-party
 //! clone allows `https` alone — still reaches no host: `GIT_EXEC_PATH` is
@@ -372,6 +374,15 @@ impl FixtureWorkspace {
         read_lines(&self.base.join("ssh.log"))
     }
 
+    /// The calls in `ssh_log` but fetches and clones (`git-upload-pack`'s):
+    /// every push, or try at one, whatever program it asked the host for.
+    pub fn ssh_push_log(&self) -> Vec<String> {
+        self.ssh_log()
+            .into_iter()
+            .filter(|l| !l.contains(" git-upload-pack "))
+            .collect()
+    }
+
     /// The library's runner, under the hermetic environment.
     pub fn runner(&self) -> Git {
         Git::with_clean_env(self.env())
@@ -539,19 +550,29 @@ impl FixtureWorkspace {
     }
 
     /// Points `origin` at `url` while fetches still reach `name`'s bare
-    /// remote.
+    /// remote: over the fixture's `ssh` for an owner's SSH URL, as they
+    /// would for real, with nothing rewriting them; through a repo-local
+    /// `url.<file URL>.insteadOf` for any other.
     pub fn set_origin(&self, repo: &Path, name: &str, url: &str) {
         self.git(repo, &["remote", "set-url", "origin", url]);
-        let key = format!("url.{}.insteadOf", self.file_url(name));
-        self.git(repo, &["config", &key, url]);
-        // a push goes to `url` itself, where the fixture's `ssh` serves it
-        let key = format!("url.{url}.pushInsteadOf");
-        self.git(repo, &["config", &key, url]);
+        let served = url.starts_with(&format!("git@github.com:{OWNER}/"));
+        if !served {
+            let key = format!("url.{}.insteadOf", self.file_url(name));
+            self.git(repo, &["config", &key, url]);
+            // a push goes to `url` itself, where the fixture's `ssh` serves it
+            let key = format!("url.{url}.pushInsteadOf");
+            self.git(repo, &["config", &key, url]);
+        }
         assert_eq!(self.git(repo, &["config", "remote.origin.url"]), url);
         // what a fetch actually reaches, and a push
+        let fetched = if served {
+            url.to_owned()
+        } else {
+            self.file_url(name)
+        };
         assert_eq!(
             self.git(repo, &["ls-remote", "--get-url", "origin"]),
-            self.file_url(name)
+            fetched
         );
         assert_eq!(
             self.git(repo, &["remote", "get-url", "--push", "--all", "origin"]),

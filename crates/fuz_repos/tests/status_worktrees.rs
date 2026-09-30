@@ -684,25 +684,25 @@ fn worktrees_are_listed_only_when_the_repo_has_some() {
         git.spawns()
     };
     assert!(!app.join(".git/worktrees").exists());
-    // rev-parse, config, status, for-each-ref
-    assert_eq!(spawns(), 4);
+    // rev-parse, config, the fetch URL, status, for-each-ref
+    assert_eq!(spawns(), 5);
     // detached, so no new branch adds its own call
     let wt = ws.dir("app-look");
     ws.add_worktree(&app, &wt, &["--detach"]);
     // plus the list and the worktree's status
-    assert_eq!(spawns(), 6);
+    assert_eq!(spawns(), 7);
     // a gone one: no status, but its index is compared with its HEAD
     let gone = ws.outside("app-gone");
     ws.add_worktree(&app, &gone, &["--detach"]);
     std::fs::remove_dir_all(&gone).unwrap();
-    assert_eq!(spawns(), 7);
+    assert_eq!(spawns(), 8);
     // a locked one gone (unmounted media): nothing of it is at stake, so
     // nothing is read
     let usb = ws.outside("usb");
     ws.add_worktree(&app, &usb, &["--detach"]);
     ws.git(&app, &["worktree", "lock", usb.to_str().unwrap()]);
     std::fs::remove_dir_all(&usb).unwrap();
-    assert_eq!(spawns(), 7);
+    assert_eq!(spawns(), 8);
 }
 
 #[test]
@@ -1910,10 +1910,10 @@ fn the_index_is_read_only_for_a_worktree_on_a_gone_branch() {
         },
     );
     let e = &run.entries[0];
-    // rev-parse, config, status, for-each-ref; rev-list for `fresh` and
-    // `old` (they could carry local work); the worktree list and three
-    // statuses; and one `ls-files`, for the worktree on `old`
-    assert_eq!(git.spawns(), 4 + 2 + 1 + 3 + 1);
+    // rev-parse, config, the fetch URL, status, for-each-ref; rev-list for
+    // `fresh` and `old` (they could carry local work); the worktree list and
+    // three statuses; and one `ls-files`, for the worktree on `old`
+    assert_eq!(git.spawns(), 5 + 2 + 1 + 3 + 1);
     let submodules = |b: &str| {
         e.checkouts
             .iter()

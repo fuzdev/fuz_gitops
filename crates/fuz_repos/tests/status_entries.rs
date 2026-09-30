@@ -491,7 +491,11 @@ fn an_https_origin_matches_an_owned_entry() {
     let mut ws = FixtureWorkspace::new();
     ws.remote("app", &[]);
     ws.declare_repo("app", "app", "");
-    ws.clone_as("app", "app", "https://github.com/me/app.git", &[]);
+    let app = ws.clone_as("app", "app", "https://github.com/me/app.git", &[]);
+    // fetched as configured, as for real (never here: the fixture's
+    // `https` refuses it)
+    let rewrite = format!("url.file://{}.insteadOf", ws.bare("app").display());
+    ws.git(&app, &["config", "--unset", &rewrite]);
 
     let e = ws.entry("app");
     assert!(e.needs_human.is_empty(), "{:?}", e.needs_human);

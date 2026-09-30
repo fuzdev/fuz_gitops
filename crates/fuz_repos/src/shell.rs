@@ -9,7 +9,8 @@
 //! - **Words**: single quotes, double quotes (with their backslash rules),
 //!   backslash escapes and line continuations, `$'…'` (ANSI-C escapes),
 //!   `$"…"`, and brace expansion (`pu{sh,ll}`, unquoted braces alone, not
-//!   `{a..b}`) as bash reads them.
+//!   `{a..b}`) as bash reads them — past a budget on how much it reads, a
+//!   word it would expand is `DYN`.
 //! - **Expansions**: `$NAME` and `${NAME}` take the value a plain
 //!   assignment earlier in the same script gave (`g=git; $g push`, `export`,
 //!   `declare`, `local`, `readonly`; `unset` forgets); any other expansion —
@@ -70,6 +71,11 @@ pub struct Script {
     pub commands: Vec<SimpleCommand>,
     /// The scripts substitutions hold, which run wherever they appear.
     pub substitutions: Vec<String>,
+    /// Some word's brace groups were left unexpanded, past a budget
+    /// (`MAX_BRACE_CHARS`, `MAX_PARSE_BRACE_CHARS`), or its expansion cut
+    /// short (`MAX_BRACE_WORDS`): what it runs can't be known, not even its
+    /// command names.
+    pub unexpanded: bool,
 }
 
 /// Text the reader couldn't delimit.
@@ -104,13 +110,24 @@ fn is_name(s: &str) -> bool {
 }
 
 /// Brace expansion yields at most this many words from one: past it, the
-/// rest are dropped.
+/// rest are dropped, and the word counts as unexpanded
+/// (`Script::unexpanded`), so the hook denies it — a dropped word may be
+/// the one that pushes (`git {-c,x.y=z,…,push}`).
 const MAX_BRACE_WORDS: usize = 256;
 
 /// Brace expansion reads at most this many chars for one word, over all
-/// its expansions: past it, a word stands unexpanded. Bounds the time a
-/// word of many groups takes.
+/// its expansions. Bounds the time a word of many groups takes.
 const MAX_BRACE_CHARS: usize = 1 << 16;
+
+/// Brace expansion reads at most this many chars for one text, over all
+/// its words. Bounds the time a text of many words with groups takes.
+///
+/// Past either budget, a word whose groups are left unexpanded is `DYN`
+/// whole, and the script says so (`Script::unexpanded`): its words can't
+/// be known without the expansion, and literal braces would read as a word
+/// bash never runs (`git pu{sh,ll}` past the budget must still read as a
+/// push, and `{git,push}` as git pushing).
+const MAX_PARSE_BRACE_CHARS: usize = 1 << 22;
 
 /// A word being read: each char, and whether it was unquoted (brace
 /// expansion and assignment only see unquoted syntax).
@@ -151,32 +168,49 @@ impl Word {
         Some((name.to_owned(), value.to_owned()))
     }
 
-    /// The words brace expansion makes of it.
-    fn expand_braces(&self) -> Vec<String> {
+    /// The words brace expansion makes of it, reading from `budget`, what's
+    /// left of the text's (`MAX_PARSE_BRACE_CHARS`); `unexpanded` is set
+    /// when a group is left unexpanded past it.
+    fn expand_braces(&self, budget: &mut usize, unexpanded: &mut bool) -> Vec<String> {
         let mut out = Vec::new();
-        let mut budget = MAX_BRACE_CHARS;
-        expand_braces_into(&self.chars, &self.bare, &mut out, &mut budget);
+        let mut left = MAX_BRACE_CHARS.min(*budget);
+        let start = left;
+        expand_braces_into(&self.chars, &self.bare, &mut out, &mut left, unexpanded);
+        *budget -= start - left;
         out
     }
 }
 
 /// Expands the first unquoted `{…,…}` group of `chars`, then each result's
-/// next, into `out`, up to `MAX_BRACE_WORDS` and `MAX_BRACE_CHARS`
-/// (`budget`, what's left of it).
-fn expand_braces_into(chars: &[char], bare: &[bool], out: &mut Vec<String>, budget: &mut usize) {
+/// next, into `out`, up to `MAX_BRACE_WORDS` and the chars `budget` has
+/// left: past the words, the rest are dropped, and past the chars, a word
+/// with a group left is `DYN` — either way, `unexpanded` set.
+fn expand_braces_into(
+    chars: &[char],
+    bare: &[bool],
+    out: &mut Vec<String>,
+    budget: &mut usize,
+    unexpanded: &mut bool,
+) {
+    // a word past the cap is dropped: what it ran can't be known
     if out.len() >= MAX_BRACE_WORDS {
+        *unexpanded = true;
         return;
     }
-    // out of budget: the word stands as it is
-    if *budget < chars.len() {
-        out.push(chars.iter().collect());
-        return;
+    let within = *budget >= chars.len();
+    if within {
+        *budget -= chars.len();
     }
-    *budget -= chars.len();
     let Some((open, commas, close)) = brace_group(chars, bare) else {
         out.push(chars.iter().collect());
         return;
     };
+    // out of budget with a group left: what it expands to can't be known
+    if !within {
+        out.push(DYN.to_string());
+        *unexpanded = true;
+        return;
+    }
     let mut bounds = vec![open];
     bounds.extend(commas);
     bounds.push(close);
@@ -188,7 +222,7 @@ fn expand_braces_into(chars: &[char], bare: &[bool], out: &mut Vec<String>, budg
         b.extend_from_slice(&bare[start..end]);
         c.extend_from_slice(&chars[close + 1..]);
         b.extend_from_slice(&bare[close + 1..]);
-        expand_braces_into(&c, &b, out, budget);
+        expand_braces_into(&c, &b, out, budget, unexpanded);
     }
 }
 
@@ -252,6 +286,10 @@ struct Lexer {
     /// How many quotes, substitutions, and `${…}`s the cursor is inside,
     /// bounded by `MAX_NESTING`.
     nesting: u32,
+    /// What's left of `MAX_PARSE_BRACE_CHARS`.
+    brace_budget: usize,
+    /// A word's groups were left unexpanded (`Script::unexpanded`).
+    unexpanded: bool,
 }
 
 /// How deeply quotes, substitutions, and `${…}`s may nest in one text
@@ -270,6 +308,8 @@ impl Lexer {
             substitutions: Vec::new(),
             heredocs: Vec::new(),
             nesting: 0,
+            brace_budget: MAX_PARSE_BRACE_CHARS,
+            unexpanded: false,
         }
     }
 
@@ -359,7 +399,7 @@ impl Lexer {
                     self.substitutions.push(body);
                     let mut w = Word::default();
                     w.push(DYN, false);
-                    Self::add_word(&mut cur, &w);
+                    self.add_word(&mut cur, &w);
                 }
                 '<' | '>' => self.redirect(&script, &mut cur)?,
                 c if c.is_ascii_digit() && self.fd_prefix_len().is_some() => {
@@ -371,7 +411,7 @@ impl Lexer {
                     if w.is_bare("{") || w.is_bare("}") {
                         self.finish(&mut script, &mut cur, false);
                     } else {
-                        Self::add_word(&mut cur, &w);
+                        self.add_word(&mut cur, &w);
                     }
                 }
             }
@@ -380,6 +420,7 @@ impl Lexer {
         // a here-document the text ends before: its body is what's left
         self.read_heredocs(&mut script)?;
         script.substitutions = self.substitutions;
+        script.unexpanded = self.unexpanded;
         Ok(script)
     }
 
@@ -403,14 +444,15 @@ impl Lexer {
         matches!(self.peek_at(digits), Some('<' | '>')).then_some(digits)
     }
 
-    fn add_word(cur: &mut SimpleCommand, w: &Word) {
+    fn add_word(&mut self, cur: &mut SimpleCommand, w: &Word) {
         if cur.words.is_empty()
             && let Some(assign) = w.assignment()
         {
             cur.assigns.push(assign);
             return;
         }
-        cur.words.extend(w.expand_braces());
+        cur.words
+            .extend(w.expand_braces(&mut self.brace_budget, &mut self.unexpanded));
     }
 
     /// Ends the command being read, if it has anything, and records the
@@ -760,11 +802,12 @@ impl Lexer {
         self.balanced('[', ']', Inside::Arithmetic)
     }
 
-    /// The text up to the `close` matching an `open` just passed. Quotes and
-    /// `$[…]` are passed over, and, for commands, comments, arithmetic
-    /// (`((…))`, `$((…))`), and here-document bodies, so an apostrophe or `)`
-    /// in them doesn't count:
-    /// `$(cat <<'EOF'` … `EOF` `)`, the commit-message idiom, reads whole.
+    /// The text up to the `close` matching an `open` just passed. Quotes,
+    /// substitutions, `${…}`, and `$[…]` are passed over, each read as its
+    /// own unit, and, for commands, comments, arithmetic (`((…))`), and
+    /// here-document bodies, so an apostrophe, `)`, or `}` in them doesn't
+    /// count: `$(cat <<'EOF'` … `EOF` `)`, the commit-message idiom, reads
+    /// whole, and so does `${x:-$(…)}` with a `}` in the substitution.
     fn balanced(&mut self, open: char, close: char, inside: Inside) -> Read<String> {
         self.nested(|lx| lx.balanced_inner(open, close, inside))
     }
@@ -789,12 +832,22 @@ impl Lexer {
                 '\'' => while self.next().ok_or(Unreadable)? != '\'' {},
                 '"' => self.skip_double_quoted()?,
                 '`' => self.skip_backtick()?,
+                // a substitution or `${…}` is its own unit, read as its
+                // kind is, whatever it's inside: a `}` or `)` in it (in a
+                // here-document, a quote, or bare) never closes this
+                '$' if self.peek() == Some('(') => {
+                    self.pos += 1;
+                    self.balanced_parens()?;
+                }
+                '$' if self.peek() == Some('{') => {
+                    self.pos += 1;
+                    self.balanced_braces()?;
+                }
                 '$' if self.peek() == Some('[') => {
                     self.pos += 1;
                     self.balanced_brackets()?;
                 }
-                // arithmetic, `((…))` or `$((…))`: no here-document or
-                // comment in it
+                // arithmetic, `((…))`: no here-document or comment in it
                 '(' if commands && self.peek() == Some('(') => {
                     self.balanced('(', ')', Inside::Arithmetic)?;
                 }
@@ -898,6 +951,11 @@ impl Lexer {
                     '$' if lx.peek() == Some('(') => {
                         lx.pos += 1;
                         lx.balanced_parens()?;
+                    }
+                    // quotes in it nest: `"${x:-"}"}"`
+                    '$' if lx.peek() == Some('{') => {
+                        lx.pos += 1;
+                        lx.balanced_braces()?;
                     }
                     _ => {}
                 }
@@ -1035,6 +1093,11 @@ mod tests {
         );
         let many = one(&"{a,b}".repeat(12));
         assert_eq!(many.len(), MAX_BRACE_WORDS);
+        // cut short, it counts as unexpanded; exactly at the cap, it doesn't
+        assert!(parse(&"{a,b}".repeat(12)).unwrap().unexpanded);
+        let at_cap = parse(&"{a,b}".repeat(8)).unwrap();
+        assert_eq!(at_cap.commands[0].words.len(), MAX_BRACE_WORDS);
+        assert!(!at_cap.unexpanded);
     }
 
     #[test]
@@ -1070,10 +1133,18 @@ mod tests {
         let defaults = |n: usize| format!("echo {}x{}", "${a:-".repeat(n), "}".repeat(n));
         assert!(parse(&defaults(10)).is_ok());
         assert_eq!(parse(&defaults(MAX_NESTING as usize + 1)), Err(Unreadable));
-        // a word too long to expand stands as it is
+        // a word too long to expand can't be known; with no group, it's
+        // itself
         let long = "x".repeat(MAX_BRACE_CHARS) + "{a,b}";
-        assert_eq!(one(&long), [long]);
+        assert_eq!(one(&long), ["\0"]);
+        assert!(parse(&long).unwrap().unexpanded);
+        let plain = "x".repeat(MAX_BRACE_CHARS) + "{ab}";
+        assert!(!parse(&plain).unwrap().unexpanded);
+        assert_eq!(one(&plain), [plain]);
         assert_eq!(one("x{a,b}").len(), 2);
+        // bash expands `{push,x…}` to `push` first: never read as itself
+        let first = format!("git {{push,{}}}", "x".repeat(MAX_BRACE_CHARS));
+        assert_eq!(one(&first), ["git", "\0"]);
     }
 
     #[test]
@@ -1094,6 +1165,48 @@ mod tests {
         let s = parse("$(cat <<< x\necho 'a'\n)").unwrap();
         assert_eq!(s.substitutions, ["cat <<< x\necho 'a'\n"]);
         assert_eq!(parse("$(cat <<< it's)"), Err(Unreadable));
+    }
+
+    /// Past the text's budget, a word with a group is `DYN`, however short;
+    /// one with none is itself.
+    #[test]
+    fn brace_expansion_is_bounded_over_the_text() {
+        let word = "{a,b}{c,d}{e,f}{g,h}{i,j}{k,l}{m,n}{o,p} ";
+        let many = word.repeat(MAX_PARSE_BRACE_CHARS / 1000);
+        let s = parse(&format!("echo {many}; git pu{{sh,ll}} x{{a}}")).unwrap();
+        let echo = &s.commands[0].words;
+        assert_eq!(echo[1], "acegikmo");
+        assert_eq!(echo.last().map(String::as_str), Some("\0"));
+        assert!(
+            echo.len() < 256 * MAX_PARSE_BRACE_CHARS / 1000,
+            "{}",
+            echo.len()
+        );
+        assert_eq!(s.commands[1].words, ["git", "\0", "x{a}"]);
+        assert!(s.unexpanded);
+        // within it, as bash reads them
+        let s = parse(&format!("{word}; git pu{{sh,ll}}")).unwrap();
+        assert_eq!(s.commands[1].words, ["git", "push", "pull"]);
+        assert!(!s.unexpanded);
+    }
+
+    #[test]
+    fn nested_substitutions_are_units() {
+        // a `}` in a substitution in `${…}` doesn't close it
+        let s = parse("echo ${x:-$(cat <<'EOF'\n}\nEOF\n$g push\n)} after").unwrap();
+        assert_eq!(s.commands[0].words, ["echo", "\0", "after"]);
+        assert_eq!(s.substitutions, ["cat <<'EOF'\n}\nEOF\n$g push\n"]);
+        let s = parse("echo ${x:-$(echo })}").unwrap();
+        assert_eq!(s.substitutions, ["echo }"]);
+        // nor does a `)` in a `${…}` in a substitution close that
+        let s = parse("x=$(echo ${y:-)}) after").unwrap();
+        assert_eq!(s.commands[0].words, ["after"]);
+        assert_eq!(s.substitutions, ["echo ${y:-)}"]);
+        // quotes nest in `${…}` in a double-quoted string in a substitution:
+        // the `)` is quoted
+        let s = parse("x=$(echo \"${y:-\")\"}\") after").unwrap();
+        assert_eq!(s.commands[0].words, ["after"]);
+        assert_eq!(s.substitutions, ["echo \"${y:-\")\"}\""]);
     }
 
     #[test]

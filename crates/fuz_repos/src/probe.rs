@@ -17,7 +17,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{Duration, Instant, UNIX_EPOCH};
 
-use crate::classify::{Refresh, origin_drift, refresh_intent, refresh_verdict};
+use crate::classify::{Refresh, fetch_url_mismatch, refresh_intent, refresh_verdict};
 use crate::git::{CallOptions, Git, GitError, NetworkOptions};
 use crate::gitdir::{dot_git_target, read_head, read_worktree_gitdir};
 use crate::porcelain::{
@@ -252,15 +252,28 @@ const fn could_push(b: &BranchFacts, shallow: bool) -> bool {
 /// read.
 ///
 /// Owned and not pinned — a pin is never fetched, whatever branch it's on
-/// — with an origin that's the registry's repo (`origin_drift`: a fetch
-/// from another URL would fill `refs/remotes/origin/*` with another repo's
-/// history, and with none there's nothing to fetch from; its
-/// `origin_mismatch` reason holds the entry); or a third-party reference
-/// whose refresh verdict acts (`refresh_verdict`, which holds one whose
-/// origin isn't the registry's repo, or whose fetch wouldn't reach it over
-/// HTTPS): fetched over HTTPS alone. Classify decides; the probe obeys.
+/// — whose fetch from origin reaches the registry's repo, as git resolves
+/// its URL (`ConfigFacts::origin_fetch_url`, read by the probe): git
+/// fetches where an `insteadOf` sends it, not where the config says, and a
+/// fetch from another repo would fill `refs/remotes/origin/*` with that
+/// repo's history (`fetch_url_mismatch`; with no URL there's nothing to
+/// fetch from). An origin configured otherwise that a rewrite sends to the
+/// registry's repo (an alias, `gh:me/app`) is fetched, its
+/// `origin_mismatch` reason holding the rest; one configured as the
+/// registry's that a rewrite sends elsewhere isn't, its
+/// `fetch_url_mismatch` reason holding the entry. (A reference whose
+/// configured origin drifts is held unfetched even so: an owned entry's
+/// fetch is observation — the drift holds its actions, and the fetch writes
+/// only remote-tracking refs, from the right repo — where a reference's
+/// fetch is its refresh, the action the drift holds.) Or a third-party
+/// reference whose refresh verdict acts (`refresh_verdict`, which holds
+/// one whose origin isn't the registry's repo, or whose fetch wouldn't
+/// reach it over HTTPS): fetched over HTTPS alone. Classify decides; the
+/// probe obeys.
 pub fn fetches(entry: &Entry, refresh: Refresh, config: &ConfigFacts) -> bool {
-    (syncs_owned(entry) && origin_drift(entry, config).is_none())
+    (syncs_owned(entry)
+        && config.origin_fetch_url.is_some()
+        && fetch_url_mismatch(entry, config).is_none())
         || matches!(
             refresh_verdict(entry, refresh, config),
             Some(RefreshVerdict::Act)
@@ -393,9 +406,10 @@ fn probe_present(
         Ok(out) => return Err(format!("config failed: {}", out.stderr.trim())),
         Err(e) => return Err(e.to_string()),
     };
-    // where a refresh's fetch would reach, rewrites applied: classify holds
-    // one that isn't the registry's repo over HTTPS (`refresh_verdict`)
-    if refresh_intent(entry, cx.refresh) == Some(RefreshVerdict::Act)
+    // where a fetch would reach, rewrites applied: classify holds an owned
+    // entry's that isn't the registry's repo (`fetch_url_mismatch`), and a
+    // refresh's that isn't that repo over HTTPS (`refresh_verdict`)
+    if (syncs_owned(entry) || refresh_intent(entry, cx.refresh) == Some(RefreshVerdict::Act))
         && config.origin_url().is_some()
     {
         config.origin_fetch_url = Some(read_fetch_url(cx.git, dir, local)?);
@@ -403,8 +417,9 @@ fn probe_present(
     let shallow_roots = read_shallow_roots(&common_dir);
     early.config = Some(config.clone());
 
-    // an origin that isn't the registry's repo, or has no URL, is never
-    // fetched: origin drift reports it
+    // a fetch that wouldn't reach the registry's repo, or an origin with no
+    // URL, is never made: origin drift reports it, or a fetch URL
+    // elsewhere
     if cx.fetch && fetches(entry, cx.refresh, &config) {
         let start = Instant::now();
         let mut args = FETCH_ARGS.to_vec();

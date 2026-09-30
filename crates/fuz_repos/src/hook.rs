@@ -54,7 +54,10 @@
 //! line, continuations joined, up to a `;`, `&`, or `|`) has a push word
 //! after a git word, quoting ignored (or `repos push` and `--new-branch`, or
 //! `repos push` with `CLAUDECODE` cleared): a false positive costs a
-//! message.
+//! message. So does brace expansion past the reader's bounds, whatever the
+//! words (`Script::unexpanded`): the words it leaves unexpanded, or drops
+//! past its word cap, can't be known, command names included
+//! (`{git,push}`), and a command that size is never an ordinary one.
 //!
 //! **Out of reach**, as for any reading of a command: scripts in files,
 //! other languages (`python -c`, `perl -e`), aliases and functions defined
@@ -97,7 +100,8 @@ pub const MAX_WORK: usize = 1 << 21;
 pub enum Denial {
     /// It runs a raw git push.
     GitPush,
-    /// It couldn't be read, and names git and a push.
+    /// It couldn't be read, and names git and a push; or its brace
+    /// expansion ran past the reader's bounds.
     Unreadable,
     /// It runs `repos push --new-branch`.
     NewBranch,
@@ -119,9 +123,10 @@ impl Denial {
             Self::Unreadable => {
                 "this command couldn't be read as shell (an unterminated quote or \
                  substitution, nesting too deep, or too long to read), and one of its commands \
-                 has git and push in it, so it's held as a raw git push: push with `repos push` \
-                 (the branch checked out here; `repos push <key>` for another checkout). If it \
-                 isn't a push, fix its quoting or split it up."
+                 has git and push in it — or its brace expansion is too large to follow — so \
+                 it's held as a raw git push: push with `repos push` (the branch checked out \
+                 here; `repos push <key>` for another checkout). If it isn't a push, fix its \
+                 quoting or split it up."
             }
             Self::NewBranch => {
                 "creating a remote branch is the user's: `repos push --new-branch` is theirs to \
@@ -307,6 +312,10 @@ impl Scan {
             self.by_words(text, cleared);
             return;
         };
+        // what brace expansion left unexpanded can't be known, command
+        // names included (`{git,push}`), and no reading of the words sees
+        // through braces
+        self.maybe_push |= script.unexpanded;
         for sub in &script.substitutions {
             self.script(sub, depth + 1, cleared);
         }
@@ -1159,6 +1168,10 @@ mod tests {
             "diff <(git push) y",
             "cat <<EOF\n$(git push)\nEOF",
             "echo ${x:-$(git push)}",
+            // a `}` in the substitution closes nothing: the push runs
+            "g=git; echo ${x:-$(cat <<'EOF'\n}\nEOF\n$g push\n)}",
+            "echo \"${x:-$(echo }; git push)}\"",
+            "x=$(echo ${y:-)}; git push)",
             "$SHELL -c 'git push'",
             "gro gitops_run 'git push'",
             "gro gitops_run --concurrency 2 \"git push origin main\"",
@@ -1238,6 +1251,8 @@ mod tests {
             "x=$(cat <<-'EOF'\n\tdon't push\n\tEOF\n)",
             "x=$(cat <<EOF | tr a b\nit's git push\nEOF\n)",
             "echo $(cat <<< \"don't\") $((1 << 2))",
+            "echo ${x:-$(echo })}",
+            "echo \"${x:-$(cat <<'EOF'\ndon't } push\nEOF\n)}\"",
             "x=$(# don't\ngit status)",
         ] {
             passes(c);
@@ -1272,7 +1287,6 @@ mod tests {
             "${a:-".repeat(20_000) + &"}".repeat(20_000),
             "echo \"$(".repeat(5_000) + &")\"".repeat(5_000),
             "echo ".to_owned() + &"{".repeat(50_000),
-            "echo ".to_owned() + &"{a,".repeat(20_000) + &"}".repeat(20_000),
             "$(".repeat(100_000) + "git status" + &")".repeat(100_000),
             "echo git status | ".repeat(20_000) + "bash",
             "cat <<EOF | bash\n".to_owned() + &"echo $(echo $(echo x))\n".repeat(20_000) + "EOF",
@@ -1282,6 +1296,51 @@ mod tests {
             assert_eq!(check_command(input), None, "{}", &input[..40]);
             let took = start.elapsed();
             // generous for an unoptimized build on a slow runner
+            assert!(took.as_secs() < 5, "{took:?}: {}", &input[..40]);
+        }
+        // brace expansion past a budget: bounded, and denied as unreadable,
+        // since what the words left unexpanded run can't be known — a
+        // command that size is never an ordinary one
+        let words = "{a,b}{c,d}{e,f}{g,h}{i,j}{k,l}{m,n}{o,p} ".repeat(200_000);
+        let unreadable = Some(Denial::Unreadable);
+        for (input, denial) in [
+            (format!("echo {words}"), unreadable),
+            (format!("x {words}"), unreadable),
+            (format!("x {words}; {{git,push}}"), unreadable),
+            (format!("x {words}; sudo {{git,push}}"), unreadable),
+            (format!("x {words}; env {{git,push}}"), unreadable),
+            (format!("x {words}; timeout 5 {{git,push}}"), unreadable),
+            (format!("x {words}; git pu{{sh,ll}}"), Some(Denial::GitPush)),
+            (format!("x {words}; {{git,x}} push"), Some(Denial::GitPush)),
+            // one word past the per-word budget: bash runs `git push origin
+            // main -v …`
+            (
+                format!("{{git,push,origin,main{}}}", ",-v".repeat(22_000)),
+                unreadable,
+            ),
+            (
+                "echo ".to_owned() + &"{a,".repeat(20_000) + &"}".repeat(20_000),
+                unreadable,
+            ),
+            // under both char budgets, but past the word cap: bash runs `git
+            // -c x.y=z … push`
+            (
+                format!("git {{{}push}}", "-c,x.y=z,".repeat(300)),
+                unreadable,
+            ),
+            (
+                format!("{{git,{}push}}", "-c,x.y=z,".repeat(300)),
+                unreadable,
+            ),
+        ] {
+            let start = std::time::Instant::now();
+            assert_eq!(
+                check_command(&input),
+                denial,
+                "{}",
+                &input[input.len() - 20..]
+            );
+            let took = start.elapsed();
             assert!(took.as_secs() < 5, "{took:?}: {}", &input[..40]);
         }
         // argvs wrappers hand on count toward `MAX_DEPTH`

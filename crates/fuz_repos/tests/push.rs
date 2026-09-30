@@ -922,10 +922,9 @@ fn new_branch_never_creates_a_branch_outside_the_refspec() {
     assert_eq!(pushes_served(&ws), Vec::<String>::new());
 }
 
-/// Never created: in an archived repo (a person's, as a push there is),
-/// or under a name git can't take as config.
+/// Never created in an archived repo: a person's, as a push there is.
 #[test]
-fn new_branch_leaves_an_archived_repo_or_an_unconfigurable_name_alone() {
+fn new_branch_leaves_an_archived_repo_alone() {
     let mut ws = FixtureWorkspace::new();
     ws.remote("app", &[]);
     ws.declare_repo("app", "app", "archived = true");
@@ -944,20 +943,39 @@ fn new_branch_leaves_an_archived_repo_or_an_unconfigurable_name_alone() {
             }
         )
     );
+    assert_eq!(pushes_served(&ws), Vec::<String>::new());
+}
 
+/// A name holding `=` is created and tracked as any other: the upstream
+/// it would track is read with the config whole (`--config-env`), where
+/// `-c` would split it at its first `=`.
+#[test]
+fn new_branch_creates_a_name_holding_an_equals_sign() {
     let mut ws = FixtureWorkspace::new();
     let app = ws.owned_repo("app", &[]);
     ws.write_registry();
     ws.git(&app, &["switch", "-q", "-c", "a=b"]);
-    ws.commit(&app, "topic");
-    let run = ws.push_new_branch(&["app"]);
-    let (_, outcome) = only(&run);
-    assert!(
-        matches!(outcome, PushOutcome::Failed { message } if message.contains("holds `=`")),
-        "{outcome:?}"
-    );
+    let tip = ws.commit(&app, "topic");
     ws.assert_upstream(&app, "a=b", "");
-    assert_eq!(pushes_served(&ws), Vec::<String>::new());
+
+    let run = ws.push_new_branch(&["app"]);
+
+    assert_eq!(
+        only(&run),
+        (Some("a=b"), &PushOutcome::Created { to: tip.clone() })
+    );
+    assert_eq!(
+        ws.git(&ws.bare("app"), &["rev-parse", "refs/heads/a=b"]),
+        tip
+    );
+    assert_tracks_origin(&ws, &app, "a=b", &tip);
+    assert_eq!(
+        ws.git(&app, &["config", "--get", "branch.a=b.merge"]),
+        "refs/heads/a=b"
+    );
+    // a rerun has nothing to do
+    let run = ws.push_new_branch(&["app"]);
+    assert_eq!(only(&run), (Some("a=b"), &PushOutcome::InSync));
 }
 
 /// What holds a push holds a creation: another live session in the

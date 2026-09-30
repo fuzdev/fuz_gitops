@@ -193,7 +193,7 @@ fn pushes_the_branch_ahead_and_nothing_else() {
     );
     ws.assert_track(&app, "main", "");
     // over SSH to the registry's repo, in batch mode, once
-    let log = ws.ssh_log();
+    let log = ws.ssh_push_log();
     assert_eq!(log.len(), 1, "{log:?}");
     assert!(log[0].contains("BatchMode=yes"), "{log:?}");
     assert!(
@@ -206,7 +206,7 @@ fn pushes_the_branch_ahead_and_nothing_else() {
     // again: in sync, nothing to push
     let run = ws.sync();
     assert_eq!(outcome(&run, "app", "main"), &BranchOutcome::Untouched);
-    assert_eq!(ws.ssh_log().len(), 1);
+    assert_eq!(ws.ssh_push_log().len(), 1);
     assert!(!hooks_log.exists());
 }
 
@@ -237,7 +237,7 @@ fn a_commit_landing_after_classifying_is_never_pushed() {
         ws.git(&app, &["rev-parse", "main"]),
         *landed.lock().unwrap()
     );
-    assert_eq!(ws.ssh_log(), Vec::<String>::new());
+    assert_eq!(ws.ssh_push_log(), Vec::<String>::new());
 }
 
 /// A change to a clone between classifying and pushing: the fixture's
@@ -309,7 +309,7 @@ fn a_branch_reconfigured_after_classifying_is_held() {
         assert_eq!(ws.git(&app, &["rev-parse", "main"]), tip, "{case}");
         assert_eq!(remote_refs(&ws, "app"), app_before, "{case}");
         assert_eq!(remote_refs(&ws, "other"), other_before, "{case}");
-        assert_eq!(ws.ssh_log(), Vec::<String>::new(), "{case}");
+        assert_eq!(ws.ssh_push_log(), Vec::<String>::new(), "{case}");
     }
 }
 
@@ -342,7 +342,7 @@ fn a_remote_moved_since_the_fetch_refuses_the_push() {
     assert_eq!(ws.git(&ws.bare("app"), &["rev-parse", "main"]), moved);
     assert_eq!(ws.git(&app, &["rev-parse", "main"]), tip);
     // the remote was reached, and refused it
-    assert_eq!(ws.ssh_log().len(), 1);
+    assert_eq!(ws.ssh_push_log().len(), 1);
 
     // the rerun sees it diverged: a person's
     let run = ws.sync();
@@ -381,7 +381,7 @@ fn a_remote_branch_deleted_after_the_fetch_is_never_recreated() {
         &held(push(1), SyncHold::Changed)
     );
     assert!(!remote_refs(&ws, "app").contains_key("refs/heads/feat"));
-    assert_eq!(ws.ssh_log().len(), 1);
+    assert_eq!(ws.ssh_push_log().len(), 1);
 
     // the rerun reads its upstream gone: cleanup, never a push
     let run = ws.sync();
@@ -390,24 +390,23 @@ fn a_remote_branch_deleted_after_the_fetch_is_never_recreated() {
     assert!(matches!(branch(e, "feat").verdict, Verdict::Cleanup { .. }));
     assert!(!remote_refs(&ws, "app").contains_key("refs/heads/feat"));
     assert_eq!(ws.git(&app, &["rev-parse", "feat"]), tip);
-    assert_eq!(ws.ssh_log().len(), 1);
+    assert_eq!(ws.ssh_push_log().len(), 1);
 }
 
-/// A fixture change to a clone's config: the workspace, the clone, and
-/// two config keys a case may use.
-type Setup = fn(&FixtureWorkspace, &Path, &str, &str);
+/// A fixture change to a clone's config: the workspace, the clone, and a
+/// config key a case may use.
+type Setup = fn(&FixtureWorkspace, &Path, &str);
 
 #[test]
 fn a_push_url_other_than_the_registrys_is_refused() {
     let app_ssh = "git@github.com:me/app";
     let other_ssh = "git@github.com:me/other";
-    let identity = format!("url.{app_ssh}.pushInsteadOf");
     let redirect = format!("url.{other_ssh}.pushInsteadOf");
     // each a config that sends the push elsewhere, and where it goes
     let cases: [(&str, Setup, Vec<&str>); 4] = [
         (
             "pushurl",
-            |ws, app, _, _| {
+            |ws, app, _| {
                 ws.git(
                     app,
                     &["config", "remote.origin.pushurl", "git@github.com:me/other"],
@@ -417,17 +416,15 @@ fn a_push_url_other_than_the_registrys_is_refused() {
         ),
         (
             "pushInsteadOf",
-            |ws, app, identity, redirect| {
-                ws.git(app, &["config", "--unset", identity]);
+            |ws, app, redirect| {
                 ws.git(app, &["config", redirect, "git@github.com:me/app"]);
             },
             vec![other_ssh],
         ),
-        // the registry's repo among them (spelled past the fixture's
-        // fetch rewrite), and another
+        // the registry's repo among them, and another
         (
             "several",
-            |ws, app, _, _| {
+            |ws, app, _| {
                 ws.git(
                     app,
                     &[
@@ -450,7 +447,7 @@ fn a_push_url_other_than_the_registrys_is_refused() {
         ),
         (
             "https",
-            |ws, app, _, _| {
+            |ws, app, _| {
                 ws.git(
                     app,
                     &[
@@ -468,7 +465,7 @@ fn a_push_url_other_than_the_registrys_is_refused() {
         // where a misdirected push would land
         ws.remote("other", &[]);
         let (app, _) = ahead(&mut ws);
-        setup(&ws, &app, &identity, &redirect);
+        setup(&ws, &app, &redirect);
         assert_eq!(
             ws.git(&app, &["remote", "get-url", "--push", "--all", "origin"]),
             urls.join("\n"),
@@ -505,7 +502,7 @@ fn a_push_url_other_than_the_registrys_is_refused() {
         );
         assert_eq!(remote_refs(&ws, "app"), app_before, "{case}");
         assert_eq!(remote_refs(&ws, "other"), other_before, "{case}");
-        assert_eq!(ws.ssh_log(), Vec::<String>::new(), "{case}");
+        assert_eq!(ws.ssh_push_log(), Vec::<String>::new(), "{case}");
     }
 }
 
@@ -561,7 +558,7 @@ fn a_push_url_that_only_spells_the_registrys_is_refused() {
         );
         assert_eq!(remote_refs(&ws, "app"), remote_before, "{url}");
         assert_eq!(ws.git(&app, &["rev-parse", "main"]), tip, "{url}");
-        assert_eq!(ws.ssh_log(), Vec::<String>::new(), "{url}");
+        assert_eq!(ws.ssh_push_log(), Vec::<String>::new(), "{url}");
     }
 }
 
@@ -593,7 +590,7 @@ fn a_remote_tracking_ref_moved_after_classifying_is_held() {
     );
     assert_eq!(ws.git(&bare, &["rev-parse", "main"]), first);
     assert_eq!(ws.git(&app, &["rev-parse", "main"]), second);
-    assert_eq!(ws.ssh_log(), Vec::<String>::new());
+    assert_eq!(ws.ssh_push_log(), Vec::<String>::new());
 }
 
 #[test]
@@ -630,7 +627,7 @@ fn a_fetch_after_classifying_never_turns_the_push_into_a_force() {
         &held(push(1), SyncHold::Changed)
     );
     assert_eq!(ws.git(&ws.bare("app"), &["rev-parse", "main"]), theirs);
-    assert_eq!(ws.ssh_log(), Vec::<String>::new());
+    assert_eq!(ws.ssh_push_log(), Vec::<String>::new());
 }
 
 #[test]
@@ -659,7 +656,7 @@ fn a_push_url_set_after_classifying_is_refused() {
     );
     assert_eq!(remote_refs(&ws, "app"), app_before);
     assert_eq!(remote_refs(&ws, "other"), other_before);
-    assert_eq!(ws.ssh_log(), Vec::<String>::new());
+    assert_eq!(ws.ssh_push_log(), Vec::<String>::new());
 }
 
 #[test]
@@ -699,7 +696,7 @@ fn a_remote_helper_set_after_classifying_never_runs() {
         remote_refs(&ws, "app"),
         with(&remote_before, &[("refs/heads/main", &tip)])
     );
-    assert_eq!(ws.ssh_log().len(), 1);
+    assert_eq!(ws.ssh_push_log().len(), 1);
 }
 
 #[test]
@@ -726,7 +723,7 @@ fn an_upstream_at_origin_head_is_never_pushed() {
     );
     // no branch named `HEAD` on the remote
     assert_eq!(remote_refs(&ws, "app"), remote_before);
-    assert_eq!(ws.ssh_log(), Vec::<String>::new());
+    assert_eq!(ws.ssh_push_log(), Vec::<String>::new());
 }
 
 #[test]
@@ -748,7 +745,7 @@ fn an_archived_repo_ahead_is_left_to_a_person() {
         &BranchOutcome::NeedsHuman { reason }
     );
     assert_eq!(remote_refs(&ws, "app"), remote_before);
-    assert_eq!(ws.ssh_log(), Vec::<String>::new());
+    assert_eq!(ws.ssh_push_log(), Vec::<String>::new());
 }
 
 #[test]
@@ -845,6 +842,7 @@ fn a_failed_fetch_holds_the_push() {
     );
     assert_eq!(remote_refs(&ws, "app"), remote_before);
     assert_eq!(ws.refs(&app), local_before);
+    // the refused fetch never reached a remote, nor did a push
     assert_eq!(ws.ssh_log(), Vec::<String>::new());
 }
 
@@ -941,7 +939,7 @@ fn a_configured_receive_pack_never_moves_the_push() {
     );
     assert_eq!(remote_refs(&ws, "other"), other_before);
     // the command the host runs is git's own, on the registry's path
-    let log = ws.ssh_log();
+    let log = ws.ssh_push_log();
     assert_eq!(log.len(), 1, "{log:?}");
     let command = log[0].rsplit_once(" git@github.com ").unwrap().1;
     assert_eq!(command, "git-receive-pack 'me/app'");
@@ -951,10 +949,12 @@ fn a_configured_receive_pack_never_moves_the_push() {
 fn an_unreachable_host_fails_the_push_classified() {
     let mut ws = FixtureWorkspace::new();
     let (app, _) = ahead(&mut ws);
+    // the fetch goes through, to the fixture's `ssh`; the push is denied
     write_executable(
         ws.base(),
         "denied-ssh",
-        "#!/bin/sh\necho 'git@github.com: Permission denied (publickey).' >&2\nexit 255\n",
+        "#!/bin/sh\ncase \"$*\" in *git-upload-pack*) exec ssh \"$@\" ;; esac\n\
+         echo 'git@github.com: Permission denied (publickey).' >&2\nexit 255\n",
     );
     let ssh = ws.base().join("denied-ssh");
     ws.git(&app, &["config", "core.sshCommand", ssh.to_str().unwrap()]);
@@ -972,8 +972,8 @@ fn an_unreachable_host_fails_the_push_classified() {
         }
     );
     assert_eq!(remote_refs(&ws, "app"), remote_before);
-    // the repo's own ssh ran, never the one on `PATH`
-    assert_eq!(ws.ssh_log(), Vec::<String>::new());
+    // the push went through the repo's own ssh, never the one on `PATH`
+    assert_eq!(ws.ssh_push_log(), Vec::<String>::new());
 }
 
 #[test]

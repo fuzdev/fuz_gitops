@@ -520,9 +520,11 @@ pub struct ConfigFacts {
     pub branches: BTreeMap<String, BranchConfig>,
     /// The URL a fetch from `origin` reaches, as git resolves it: `git
     /// ls-remote --get-url origin`, the first URL with `insteadOf` applied.
-    /// Not parsed here: the probe reads it only for a refresh the run asks
-    /// to act (`refresh_intent`), whose fetch must reach the registry's repo
-    /// over HTTPS; `None` otherwise.
+    /// Not parsed here: the probe reads it, when origin has a URL, for an
+    /// owned entry not pinned, whose fetch must reach the registry's repo
+    /// (`fetch_url_mismatch`), and for a refresh the run asks to act
+    /// (`refresh_intent`), whose fetch must reach it over HTTPS; `None`
+    /// otherwise.
     pub origin_fetch_url: Option<String>,
 }
 

@@ -1238,6 +1238,9 @@ fn a_root_found_in_an_entrys_checkout_is_refused() {
     let (ws, meta) = unlinked_registry_workspace();
     let deeper = meta.join("src");
     std::fs::create_dir(&deeper).unwrap();
+    // a rewrite sends origin's fetches to the local bare remote
+    let rewrite = format!("url.file://{}.insteadOf", ws.bare("meta").display());
+    ws.git(&meta, &["config", &rewrite, &support::owned_origin("meta")]);
 
     for cwd in [&meta, &deeper] {
         let out = repos(&ws, cwd, &["status", "--json"]);
@@ -1823,6 +1826,50 @@ fn push_refusals_read_in_the_summary() {
              held          push app +1 (push URL)\n"
         ),
         "{text}"
+    );
+}
+
+/// A fetch a rewrite sends to another repo: said, and its fix, the
+/// rewrite to look at — the command as printed lists it.
+#[test]
+fn a_fetch_url_elsewhere_reads_with_its_rewrite() {
+    let mut ws = FixtureWorkspace::new();
+    let app = ws.owned_repo("app", &[]);
+    ws.git(
+        &app,
+        &[
+            "config",
+            "url.git@github.com:me/other.insteadOf",
+            "git@github.com:me/app",
+        ],
+    );
+    ws.write_registry();
+
+    let before = ws.refs(&app);
+
+    let out = repos(&ws, &ws.root(), &["status", "--fetch"]);
+    assert_eq!(out.status.code(), Some(0), "stderr: {}", stderr(&out));
+    assert!(
+        stdout(&out).starts_with("needs human   app (fetch goes to git@github.com:me/other)\n"),
+        "{}",
+        stdout(&out)
+    );
+    // never fetched
+    assert_eq!(ws.refs(&app), before);
+    assert_eq!(ws.ssh_log(), Vec::<String>::new());
+    let text = stdout(&repos(&ws, &ws.root(), &["status", "--verbose", "app"]));
+    let advice = format!(
+        "  needs     fetch goes to git@github.com:me/other — sync fetches only the registry's \
+         repo, git@github.com:me/app: a url.*.insteadOf rewrite makes it: see git -C {} config \
+         --get-regexp '^url\\..*\\.insteadof$'\n",
+        app.display()
+    );
+    assert!(text.contains(&advice), "{text}");
+    // run as printed, it lists the rewrite
+    let listed = ws.git(&app, &["config", "--get-regexp", "^url\\..*\\.insteadof$"]);
+    assert_eq!(
+        listed,
+        "url.git@github.com:me/other.insteadof git@github.com:me/app"
     );
 }
 

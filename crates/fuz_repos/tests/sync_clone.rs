@@ -742,7 +742,9 @@ fn another_entrys_gone_worktree_at_the_path_holds_its_clone() {
         }
     );
     assert!(!ws.dir("lib").exists());
-    assert!(ws.ssh_log().is_empty(), "{:?}", ws.ssh_log());
+    // app's fetch alone reached a remote
+    let log = ws.ssh_log();
+    assert!(log.iter().all(|l| l.ends_with("'me/app'")), "{log:?}");
 }
 
 /// The clone may use its entry's transport alone: an `insteadOf` pointing
@@ -953,8 +955,8 @@ fn a_missing_entry_sharing_its_repo_is_held_for_a_person() {
     let e = find_entry(&run.entries, "app");
     assert!(e.needs_human.is_empty(), "{:?}", e.needs_human);
     assert!(!ws.dir("app-wt").exists());
-    // no clone was tried (app's fetch reaches its bare remote over `file`)
-    assert!(ws.ssh_log().is_empty(), "{:?}", ws.ssh_log());
+    // no clone was tried: app's fetch is the one call
+    assert_eq!(ws.ssh_log().len(), 1, "{:?}", ws.ssh_log());
     assert_eq!(root_listing(&ws), ["app", "repos.toml"]);
 }
 

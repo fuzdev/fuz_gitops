@@ -160,8 +160,8 @@ fn fast_forwards_in_place_and_in_a_clean_checkout() {
     assert!(app.join("upstream-main.txt").is_file());
     // the local fetch wrote no `FETCH_HEAD` of its own: origin's is still there
     let fetch_head = std::fs::read_to_string(app.join(".git/FETCH_HEAD")).unwrap();
-    // git names a remote without its `.git`
-    let origin = format!("of file://{}", ws.base().join("remotes/app").display());
+    // origin's, over SSH as for real
+    let origin = "of github.com:me/app";
     assert!(
         !fetch_head.is_empty() && fetch_head.lines().all(|l| l.ends_with(&origin)),
         "{fetch_head}"
@@ -745,6 +745,128 @@ fn an_owned_entry_with_origin_drift_is_never_fetched() {
     ws.set_origin(&app, "app", &support::owned_origin("app"));
     ws.sync();
     assert!(app.join(".git/FETCH_HEAD").exists());
+}
+
+/// Origin configured as the registry's repo, and a rewrite sending its
+/// fetch to another: git fetches where the rewrite sends it, so it's never
+/// fetched, and a person's, the rewrite named.
+#[test]
+fn an_owned_fetch_a_rewrite_sends_elsewhere_is_never_made() {
+    let mut ws = FixtureWorkspace::new();
+    let app = ws.owned_repo("app", &[]);
+    ws.upstream_commit("app", "main");
+    ws.commit(&app, "local");
+    // a repo the rewritten fetch would reach
+    ws.remote("other", &[("other.txt", "other\n")]);
+    let rewrite = "url.git@github.com:me/other.insteadOf";
+    ws.git(&app, &["config", rewrite, &support::owned_origin("app")]);
+    assert_eq!(
+        ws.git(&app, &["config", "remote.origin.url"]),
+        support::owned_origin("app")
+    );
+    assert_eq!(
+        ws.git(&app, &["ls-remote", "--get-url", "origin"]),
+        "git@github.com:me/other"
+    );
+    ws.write_registry();
+    let before = ws.refs(&app);
+    let unfetched = || {
+        assert!(!app.join(".git/FETCH_HEAD").exists());
+        assert_eq!(ws.refs(&app), before);
+    };
+
+    let e = find_entry(&ws.status_with_fetch(), "app").clone();
+    unfetched();
+    assert_eq!(e.fetch_error, None);
+    // the rewrite sends a push there too
+    assert_eq!(
+        e.needs_human,
+        [
+            NeedsHuman::FetchUrlMismatch {
+                fetch_url: "git@github.com:me/other".into(),
+                expected: support::owned_origin("app"),
+                fix: None,
+            },
+            NeedsHuman::PushUrlMismatch {
+                push_urls: vec!["git@github.com:me/other".into()],
+                expected: support::owned_origin("app"),
+            }
+        ]
+    );
+    assert_eq!(
+        branch(&e, "main").verdict,
+        Verdict::Held {
+            action: SyncAction::Push { commits: 1 },
+            by: HeldBy::Entry
+        }
+    );
+
+    let run = ws.sync();
+    unfetched();
+    assert_eq!(outcomes(&run, "app").fetch, FetchOutcome::NotFetched);
+    assert_eq!(
+        outcome(&run, "app", "main"),
+        &BranchOutcome::Held {
+            action: SyncAction::Push { commits: 1 },
+            by: SyncHold::Entry
+        }
+    );
+    assert_eq!(ws.ssh_log(), Vec::<String>::new());
+
+    // the rewrite gone, it's fetched
+    ws.git(&app, &["config", "--unset", rewrite]);
+    ws.sync();
+    assert!(app.join(".git/FETCH_HEAD").exists());
+}
+
+/// Origin spelled through an alias (`gh:me/app`) is origin drift, which
+/// holds the entry; but git fetches it from the registry's repo, the
+/// rewrite applied, so it's fetched, and its remote view is fresh.
+#[test]
+fn an_owned_origin_an_alias_resolves_to_the_registrys_repo_is_fetched() {
+    let mut ws = FixtureWorkspace::new();
+    let app = ws.owned_repo("app", &[]);
+    let tip = ws.upstream_commit("app", "main");
+    ws.git(&app, &["remote", "set-url", "origin", "gh:me/app"]);
+    ws.git(&app, &["config", "url.git@github.com:.insteadOf", "gh:"]);
+    assert_eq!(
+        ws.git(&app, &["ls-remote", "--get-url", "origin"]),
+        support::owned_origin("app")
+    );
+    ws.write_registry();
+    assert_ne!(ws.git(&app, &["rev-parse", "origin/main"]), tip);
+
+    let e = find_entry(&ws.status_with_fetch(), "app").clone();
+    assert_eq!(e.fetch_error, None);
+    assert_eq!(ws.git(&app, &["rev-parse", "origin/main"]), tip);
+    assert!(
+        matches!(e.needs_human[..], [NeedsHuman::OriginMismatch { .. }]),
+        "{:?}",
+        e.needs_human
+    );
+    assert_eq!(
+        branch(&e, "main").verdict,
+        Verdict::Held {
+            action: SyncAction::FastForward { commits: 1 },
+            by: HeldBy::Entry
+        }
+    );
+    let log = ws.ssh_log();
+    assert_eq!(log.len(), 1, "{log:?}");
+    assert!(
+        log[0].ends_with("git@github.com git-upload-pack 'me/app'"),
+        "{log:?}"
+    );
+
+    let run = ws.sync();
+    assert_eq!(outcomes(&run, "app").fetch, FetchOutcome::Fetched);
+    assert_eq!(
+        outcome(&run, "app", "main"),
+        &BranchOutcome::Held {
+            action: SyncAction::FastForward { commits: 1 },
+            by: SyncHold::Entry
+        }
+    );
 }
 
 #[test]

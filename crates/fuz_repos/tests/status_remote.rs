@@ -341,14 +341,13 @@ fn a_remote_that_is_gone_is_repo_not_found() {
     let Some(RemoteFailure::RepoNotFound { message }) = &e.fetch_error else {
         panic!("{:?}", e.fetch_error);
     };
-    // it reached for the local bare remote, nothing else
+    // it reached for the registry's repo, nothing else
+    assert_eq!(message, "ERROR: Repository not found.");
+    let log = ws.ssh_log();
+    assert_eq!(log.len(), 1, "{log:?}");
     assert!(
-        message.contains(ws.bare("app").to_str().unwrap()),
-        "{message}"
-    );
-    assert!(
-        message.ends_with("does not appear to be a git repository"),
-        "{message}"
+        log[0].ends_with(&format!("git@github.com git-upload-pack '{OWNER}/app'")),
+        "{log:?}"
     );
     // the local probe still ran
     assert_eq!(e.probe_error, None);
@@ -395,10 +394,8 @@ fn ssh_failures_are_classified() {
     let cases = ["dns", "refused", "host_key", "auth", "not_found", "banner"];
     for case in cases {
         let repo = ws.owned_repo(case, &[]);
-        // fetches go over SSH to the registry's host: no more rewrite to the
-        // local bare remote, and the repo's own ssh is the fake
-        let rewrite = format!("url.file://{}.insteadOf", ws.bare(case).display());
-        ws.git(&repo, &["config", "--unset", &rewrite]);
+        // fetches go over SSH to the registry's host, where the repo's own
+        // ssh is the fake
         let ssh = format!("'{}' {case}", fake.display());
         ws.git(&repo, &["config", "core.sshCommand", &ssh]);
         assert_eq!(
@@ -753,7 +750,7 @@ fn the_anonymous_read_offers_no_credential() {
         ),
         ("GIT_ASKPASS".into(), askpass.clone().into()),
         ("SSH_ASKPASS".into(), askpass.into()),
-        ("GIT_ALLOW_PROTOCOL".into(), "file:http".into()),
+        ("GIT_ALLOW_PROTOCOL".into(), "file:ssh:http".into()),
     ]);
 
     // control: plain git, from the workspace root, hands them over
@@ -800,7 +797,7 @@ fn the_anonymous_read_offers_no_credential() {
         "a credential source ran: {}",
         std::fs::read_to_string(&marker).unwrap_or_default()
     );
-    // the fetch itself, over `file://`, went on as ever
+    // the fetch itself, over the fixture's `ssh`, went on as ever
     assert_eq!(e.fetch_error, None);
 
     // credentials in the URL itself: refused before anything is sent, and

@@ -153,11 +153,14 @@
 //! **A partial clone** (a sparse reference, cloned `--filter=blob:none`)
 //! lacks the blobs a new tip's checkout needs: the two actions that
 //! rewrite a working tree fetch them on demand (`LazyFetch`), from origin
-//! alone over the transport its URL names (`lazy_transport`), writing
-//! objects and no ref. Right before the checkout, origin's URL is read
-//! again as git resolves it — the URL the fetch connects to — and a URL
-//! that no longer names the registry's repo over that transport holds the
-//! action (`changed`). Every other call keeps lazy fetching off.
+//! alone over the transport its URL names as git resolves it — the URL the
+//! fetch connects to, `insteadOf` applied (`lazy_transport`) — writing
+//! objects and no ref; one resolving to neither SSH nor HTTPS is a
+//! person's (`fetch_url_mismatch`). Right before the checkout, that URL is
+//! read again, and a URL that no longer names the registry's repo over
+//! that transport holds the action (`changed`), as does another promisor
+//! remote configured since, which git would ask too. Every other call
+//! keeps lazy fetching off.
 //!
 //! Each action moves one branch and touches at most the one checkout it's on
 //! (classify holds a fast-forward or move on several; a push touches none),
@@ -180,7 +183,7 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 use crate::busy::{Detection, EntryCheckouts, Sessions, scope_sessions, sessions_under};
-use crate::classify::{Refresh, origin_matches, push_target, push_urls_match};
+use crate::classify::{Refresh, lazy_transport, origin_matches, push_target, push_urls_match};
 use crate::clone::Cloner;
 use crate::git::{CallOptions, Git, GitError, NetworkOptions};
 use crate::porcelain::{self, ConfigFacts};
@@ -199,7 +202,6 @@ use crate::state::{
     BranchNeedsHuman, BranchStatus, CloneRecipe, CloneVerdict, Head, SyncAction, Verdict,
 };
 use crate::status::{Assess, EntryTiming, assess, probe_all, run_pool};
-use crate::url::remote_parts;
 
 /// The timeout for an action that rewrites a working tree (`merge
 /// --ff-only`, `switch -C`), in place of `LOCAL_TIMEOUT`.
@@ -711,6 +713,11 @@ enum Done {
     Held(SyncHold),
 }
 
+/// The variables `Step::mapped_upstream`'s `--config-env` reads the
+/// upstream it tries from.
+const UPSTREAM_REMOTE_VAR: &str = "REPOS_UPSTREAM_REMOTE";
+const UPSTREAM_MERGE_VAR: &str = "REPOS_UPSTREAM_MERGE";
+
 /// One action's git calls: on `branch`, toward `upstream`'s tip.
 struct Step<'a> {
     git: &'a Git,
@@ -741,40 +748,26 @@ struct LazyFetch<'a> {
 /// A partial clone's lazy fetch, from its `config`: `None` — lazy fetching
 /// stays off, and a checkout needing a missing blob fails — for a repo
 /// that isn't a partial clone, one with another promisor remote, and one
-/// whose origin URL names no transport the fetch may take
-/// (`lazy_transport`). `env_ssh`: the environment configures SSH; `repo`:
-/// the entry's.
+/// whose origin, as git resolves it (`ConfigFacts::origin_fetch_url`,
+/// rewrites applied: where the fetch connects), names no transport the
+/// fetch may take (`lazy_transport`), or wasn't read. `env_ssh`: the
+/// environment configures SSH; `repo`: the entry's.
 ///
-/// Only when classify let the branch act, so with origin naming the
-/// registry's repo (origin drift holds the entry, and a reference's
-/// refresh) — as the probe read it: right before the checkout, origin is
-/// read again as git resolves it (`Step::lazy_origin_moved`).
+/// Only when classify let the branch act, so with that URL naming the
+/// registry's repo over SSH or HTTPS (`fetch_url_mismatch` holds an owned
+/// entry, and a reference's refresh is held unless it's HTTPS) — as the
+/// probe read it: right before the checkout, it's read again, and so is
+/// whether another promisor remote is configured
+/// (`Step::lazy_origin_moved`).
 fn lazy_fetch<'a>(config: &ConfigFacts, env_ssh: bool, repo: &'a RepoUrl) -> Option<LazyFetch<'a>> {
     if config.partial_filter.is_none() || config.other_promisor {
         return None;
     }
     Some(LazyFetch {
-        transport: lazy_transport(config.origin_url()?)?,
+        transport: lazy_transport(config.origin_fetch_url.as_deref()?)?,
         batch_ssh: !config.ssh_command && !env_ssh,
         repo,
     })
-}
-
-/// The one transport a lazy fetch from `origin` may take: its own — `ssh`
-/// for an SSH URL (`ssh://`, its `git+ssh` spellings, or scp-like),
-/// `https` for an HTTPS one — whoever owns the repo, so an owned partial
-/// clone whose origin is HTTPS fills its checkout over HTTPS. `None` for
-/// anything else (plain `http`, `git://`, a local path, a URL
-/// `remote_parts` rejects): no lazy fetch.
-fn lazy_transport(origin: &str) -> Option<&'static str> {
-    let parts = remote_parts(origin)?;
-    if parts.ssh {
-        Some("ssh")
-    } else if origin.starts_with("https://") {
-        Some("https")
-    } else {
-        None
-    }
 }
 
 /// The confined local fetch's flags before `.` and its refspec: what the
@@ -1179,10 +1172,11 @@ impl Step<'_> {
     }
 
     /// Whether the lazy fetch a checkout would make may no longer reach
-    /// the registry's repo over the transport decided: origin's URL, read
-    /// again as git resolves it (`insteadOf` applied) — the URL the fetch
-    /// connects to — names another repo, or another transport. `false`
-    /// with no lazy fetch: nothing reaches a remote.
+    /// the registry's repo over the transport decided, or alone: origin's
+    /// URL, read again as git resolves it (`insteadOf` applied) — the URL
+    /// the fetch connects to — names another repo, or another transport; or
+    /// another promisor remote is configured now, which git would ask too.
+    /// `false` with no lazy fetch: nothing reaches a remote.
     fn lazy_origin_moved(&self, dir: &Path) -> Result<bool, String> {
         let Some(lazy) = self.lazy else {
             return Ok(false);
@@ -1192,7 +1186,30 @@ impl Step<'_> {
             .output_string(dir, &["ls-remote", "--get-url", "origin"], self.opts)
             .map_err(|e| git_message(&e))?;
         let url = out.trim_end_matches('\n');
-        Ok(!origin_matches(url, lazy.repo) || lazy_transport(url) != Some(lazy.transport))
+        if !origin_matches(url, lazy.repo) || lazy_transport(url) != Some(lazy.transport) {
+            return Ok(true);
+        }
+        let out = self
+            .git
+            .run(
+                dir,
+                &[
+                    "config",
+                    "-z",
+                    "--show-scope",
+                    "--show-origin",
+                    "--get-regexp",
+                    porcelain::CONFIG_PATTERN,
+                ],
+                self.opts,
+            )
+            .map_err(|e| git_message(&e))?;
+        // exit 1 is "no matching keys"
+        if !out.status.success() && out.status.code() != Some(1) {
+            return Err(first_message(&out.stderr));
+        }
+        let config = ConfigFacts::parse(&out.stdout, |_| false)?;
+        Ok(config.other_promisor)
     }
 
     /// `switch -C` to `to` in `checkout`, then the check that the branch it
@@ -1546,33 +1563,35 @@ impl Step<'_> {
     /// configured, through origin's fetch refspec — or `None` when the
     /// refspec maps it nowhere under `refs/remotes/origin/`.
     ///
-    /// Read with the config passed as `-c`, whose key git splits from its
-    /// value at the first `=`: a branch whose name holds one is refused.
+    /// Read with the config passed for this call alone as `--config-env`,
+    /// which git splits at the last `=` and whose values come whole from
+    /// the environment: a branch named `a=b` reads as itself, where `-c`
+    /// would split it at its first `=`.
     fn mapped_upstream(&self, dir: &Path) -> Result<Option<String>, String> {
         let name = self.branch;
-        if name.contains('=') {
-            return Err(format!(
-                "{name}'s name holds `=`, which repos can't pass to git as config: \
-                 create the branch on origin by hand"
-            ));
-        }
         let local = self.local();
-        let remote = format!("branch.{name}.remote=origin");
-        let merge = format!("branch.{name}.merge={local}");
+        let remote = format!("--config-env=branch.{name}.remote={UPSTREAM_REMOTE_VAR}");
+        let merge = format!("--config-env=branch.{name}.merge={UPSTREAM_MERGE_VAR}");
+        let env = [
+            (UPSTREAM_REMOTE_VAR, "origin"),
+            (UPSTREAM_MERGE_VAR, local.as_str()),
+        ];
+        let opts = CallOptions {
+            env: &env,
+            ..self.opts
+        };
         let out = self
             .git
             .output_string(
                 dir,
                 &[
-                    "-c",
                     &remote,
-                    "-c",
                     &merge,
                     "for-each-ref",
                     "--format=%(refname)%00%(upstream)",
                     &local,
                 ],
-                self.opts,
+                opts,
             )
             .map_err(|e| git_message(&e))?;
         // the pattern also matches refs under it (`<b>/x`): only the ref
@@ -2287,8 +2306,10 @@ mod tests {
     fn a_lazy_fetch_is_a_partial_clones_with_origin_its_one_promisor() {
         let repo = RepoUrl::try_from("https://github.com/me/wpt".to_owned()).unwrap();
         let lazy_fetch = |config: &ConfigFacts, env_ssh| lazy_fetch(config, env_ssh, &repo);
+        // origin as configured, and as git resolves it
         let partial = |origin: Option<&str>| ConfigFacts {
             origin_urls: origin.map(porcelain::OriginUrl::repo).into_iter().collect(),
+            origin_fetch_url: origin.map(str::to_owned),
             partial_filter: Some("blob:none".into()),
             ..ConfigFacts::default()
         };
@@ -2312,6 +2333,33 @@ mod tests {
         );
         // the user's SSH, left alone
         assert_eq!(lazy_fetch(&ssh, true).map(|l| l.batch_ssh), Some(false));
+        // the transport is where git connects, a rewrite applied: SSH
+        // rewritten to HTTPS fetches over HTTPS, and the other way
+        let rewritten = ConfigFacts {
+            origin_fetch_url: Some("https://github.com/me/wpt".into()),
+            ..ssh.clone()
+        };
+        assert_eq!(
+            lazy_fetch(&rewritten, false).map(|l| l.transport),
+            Some("https")
+        );
+        let rewritten = ConfigFacts {
+            origin_fetch_url: Some("git@github.com:me/wpt".into()),
+            ..https.clone()
+        };
+        assert_eq!(
+            lazy_fetch(&rewritten, false).map(|l| l.transport),
+            Some("ssh")
+        );
+        // unread, or rewritten to a transport the fetch may not take
+        let unread = ConfigFacts {
+            origin_fetch_url: None,
+            ..https.clone()
+        };
+        let to_file = ConfigFacts {
+            origin_fetch_url: Some("file:///srv/wpt.git".into()),
+            ..https
+        };
         let configured = ConfigFacts {
             ssh_command: true,
             ..ssh.clone()
@@ -2335,6 +2383,8 @@ mod tests {
             other,
             partial(None),
             partial(Some("file:///srv/wpt.git")),
+            unread,
+            to_file,
         ] {
             assert_eq!(lazy_fetch(&config, false), None, "{config:?}");
         }
