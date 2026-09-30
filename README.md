@@ -25,7 +25,7 @@ With fuz_gitops you can:
 
 fuz_gitops runs **deterministic, config-driven operations over a declared set
 of repos** — no LLM in the loop, and the repo set comes from a declared list
-(`gitops.config.ts` today). Publishing is its flagship capability, not its whole
+(a `repos.toml` registry, and a `gitops.config.ts` naming a subset of its keys). Publishing is its flagship capability, not its whole
 identity. The Rust `repos` tool in this repo (`crates/fuz_repos`) reports
 every declared repo's git state (`repos status`), syncs them (`repos sync`),
 and is the gateway agents push through (`repos push`); the package is
@@ -46,7 +46,21 @@ See [CLAUDE.md](CLAUDE.md#scope-and-boundaries) for the capability tiers, what
 npm i -D @fuzdev/fuz_gitops
 ```
 
-- configure [`gitops.config.ts`](/gitops.config.ts)
+- install the `repos` binary, which the tasks read repo state from — it isn't in the npm
+  package: in a checkout of this repo, `cargo install --path crates/fuz_repos --locked`
+- configure [`gitops.config.ts`](/gitops.config.ts) as a list of `repos.toml` registry keys —
+  each repo's dir, URL, branch, visibility, and CI come from the registry:
+
+  ```ts
+  import type { GitopsConfig } from '@fuzdev/fuz_gitops/gitops_config.ts';
+
+  const config: GitopsConfig = { repos: ['fuz_util', 'gro', 'fuz_ui'] };
+
+  export default config;
+  ```
+
+  The tasks find the registry the way `repos` does, walking up from the cwd, or take
+  `--registry <path>`; a repo the registry has but the disk lacks is cloned by `repos sync <key>`.
 - fuz_gitops calls the GitHub API using the environment variable `SECRET_GITHUB_API_TOKEN` for authorization,
   which is a [classic GitHub token](https://github.com/settings/tokens)
   (with "public access" for public repos, no options selected)
@@ -79,10 +93,10 @@ npm i -D @fuzdev/fuz_gitops
 ## Architecture
 
 ```
-gitops.config.ts → local repos → GitHub API → repos.ts → UI components
+gitops.config.ts (registry keys) → repos status --json → local repos → GitHub API → repos.ts → UI components
 ```
 
-- **Operations pattern**: Dependency injection for all side effects (git, npm, fs)
+- **Operations pattern**: Dependency injection for all side effects (git, npm, fs, `repos`)
 - **Fixture testing**: Generated git repos for isolated tests
 - **Changeset-driven**: Automatic version bumps and dependency updates
 
@@ -103,13 +117,13 @@ gro gitops_run "git status" --format json  # JSON output for scripting
 - Parallel execution with configurable concurrency (default: 5)
 - Continue-on-error behavior (shows all results)
 - Structured output formats (text or JSON)
-- Uses lightweight repo path resolution (no full sync needed)
+- Uses lightweight repo path resolution through `repos status` (no full sync needed); a
+  configured repo that's missing fails the run, naming it
 
 ### Syncing repo metadata
 
 ```bash
 gro gitops_sync               # sync repos and generate UI data
-gro gitops_sync --download    # clone missing repos first
 ```
 
 ### Diagnostic commands (read-only)

@@ -4,9 +4,8 @@ import { map_concurrent_settled } from '@fuzdev/fuz_util/async.ts';
 import { spawn_out } from '@fuzdev/fuz_util/process.ts';
 import { writeFile } from 'node:fs/promises';
 import { styleText as st } from 'node:util';
-import { resolve } from 'node:path';
 
-import { get_repo_paths } from './repo_ops.ts';
+import { resolve_gitops_repos } from './gitops_task_helpers.ts';
 import { GITOPS_CONCURRENCY_DEFAULT, GITOPS_CONFIG_PATH_DEFAULT } from './gitops_constants.ts';
 
 export const Args = z.strictObject({
@@ -17,6 +16,13 @@ export const Args = z.strictObject({
 		.string()
 		.meta({ description: 'path to the gitops config file' })
 		.default(GITOPS_CONFIG_PATH_DEFAULT),
+	registry: z
+		.string()
+		.meta({
+			description:
+				'path to the repos.toml registry, when `repos` would not find it walking up from the cwd'
+		})
+		.optional(),
 	concurrency: z
 		.number()
 		.int()
@@ -46,20 +52,16 @@ export const task: Task<Args> = {
 	Args,
 	summary: 'run a shell command across all repos in parallel',
 	run: async ({ args, log }) => {
-		const { _, config, concurrency, format, outfile } = args;
+		const { _, config, registry, concurrency, format, outfile } = args;
 
 		const command = _.join(' ').trim();
 		if (!command) {
 			throw new TaskError('No command provided, e.g. `gro gitops_run "npm test"`');
 		}
 
-		// Get repo paths (lightweight, no library-metadata loading needed)
-		const config_path = resolve(config);
-		const repos = await get_repo_paths(config_path);
-
-		if (repos.length === 0) {
-			throw new TaskError('No repos found in config');
-		}
+		// Resolve repo paths through `repos status` (no library-metadata loading needed);
+		// a configured repo that's missing or not a repo fails the run, naming it
+		const { local_repo_paths: repos } = await resolve_gitops_repos({ config, registry, log });
 
 		log.info(
 			`Running ${st('cyan', command)} across ${repos.length} repos (concurrency: ${concurrency})`
@@ -70,8 +72,7 @@ export const task: Task<Args> = {
 		// Run command in parallel across all repos
 		const results = await map_concurrent_settled(repos, concurrency, async (repo) => {
 			const repo_start = performance.now();
-			const repo_name = repo.name;
-			const repo_dir = repo.path;
+			const { repo_name, repo_dir } = repo;
 
 			try {
 				// Parse command into cmd + args for spawn

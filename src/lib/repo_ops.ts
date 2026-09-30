@@ -2,22 +2,16 @@
  * Generic repository operations for scripts that work across repos.
  *
  * Provides lightweight utilities for:
- * - Getting repo paths from gitops config (without full git sync)
  * - Walking files in repos with sensible exclusions
  * - Common exclusion patterns for node/svelte projects
  *
- * For full git sync/clone functionality, use `get_gitops_ready()` from `gitops_task_helpers`.
+ * For the configured repos' paths, use `resolve_gitops_repos()` from `gitops_task_helpers`.
  *
  * @module
  */
 
-import { existsSync } from 'node:fs';
 import { readdir, stat } from 'node:fs/promises';
-import { join, resolve, dirname } from 'node:path';
-
-import { load_gitops_config } from './gitops_config.ts';
-import { DEFAULT_REPOS_DIR } from './paths.ts';
-import { GITOPS_CONFIG_PATH_DEFAULT } from './gitops_constants.ts';
+import { join } from 'node:path';
 
 /** Default directories to exclude from file walking */
 export const DEFAULT_EXCLUDE_DIRS = [
@@ -72,49 +66,6 @@ export interface WalkOptions {
 	/** Use only provided exclusions, ignoring defaults */
 	no_defaults?: boolean;
 }
-
-export interface RepoPath {
-	name: string;
-	path: string;
-	url: string;
-}
-
-/**
- * Get repo paths from gitops config without full git sync.
- * Lighter weight than `get_gitops_ready()` - just resolves paths.
- *
- * @param config_path - path to the gitops config file (defaults to `gitops.config.ts`)
- * @returns array of repo info with name, path, and url
- */
-export const get_repo_paths = async (config_path?: string): Promise<Array<RepoPath>> => {
-	const resolved_config_path = resolve(config_path ?? GITOPS_CONFIG_PATH_DEFAULT);
-	const config = await load_gitops_config(resolved_config_path);
-
-	if (!config) {
-		throw new Error(`No gitops config found at ${resolved_config_path}`);
-	}
-
-	const config_dir = dirname(resolved_config_path);
-	const repos_dir = resolve(config_dir, config.repos_dir || DEFAULT_REPOS_DIR);
-
-	const repos: Array<RepoPath> = [];
-
-	for (const repo_config of config.repos) {
-		const url = repo_config.repo_url;
-		const name = url.split('/').at(-1);
-		if (!name) continue;
-
-		const path = repo_config.repo_dir
-			? resolve(config_dir, repo_config.repo_dir)
-			: join(repos_dir, name);
-
-		if (existsSync(path)) {
-			repos.push({ name, path, url });
-		}
-	}
-
-	return repos;
-};
 
 /**
  * Check if a path should be excluded based on options.

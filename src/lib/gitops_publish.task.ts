@@ -23,9 +23,12 @@ export const Args = z.strictObject({
 		.string()
 		.meta({ description: 'path to the gitops config file, absolute or relative to the cwd' })
 		.default(GITOPS_CONFIG_PATH_DEFAULT),
-	dir: z
+	registry: z
 		.string()
-		.meta({ description: 'path containing the repos, defaults to the parent of the config dir' })
+		.meta({
+			description:
+				'path to the repos.toml registry, when `repos` would not find it walking up from the cwd'
+		})
 		.optional(),
 	peer_strategy: z
 		.enum(['exact', 'caret', 'tilde'])
@@ -75,7 +78,7 @@ export const task: Task<Args> = {
 	run: async ({ args, log }): Promise<void> => {
 		const {
 			config,
-			dir,
+			registry,
 			peer_strategy,
 			wetrun,
 			format,
@@ -93,8 +96,7 @@ export const task: Task<Args> = {
 		// a real publish (`--wetrun`) always syncs so preflight sees the canonical branches.
 		const { local_repos: repos } = await get_gitops_ready({
 			config,
-			dir,
-			download: false, // Don't download if missing
+			registry,
 			sync: sync || wetrun,
 			log
 		});

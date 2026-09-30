@@ -10,22 +10,17 @@ import {
 	repo_is_npm,
 	type LocalRepoPath
 } from '$lib/local_repo.ts';
-import { create_mock_git_ops, create_mock_npm_ops } from './test_helpers.ts';
+import {
+	create_mock_git_ops,
+	create_mock_npm_ops,
+	create_mock_repos_entry
+} from './test_helpers.ts';
 
-const create_local_repo_path = (name: string = 'test-repo'): LocalRepoPath => ({
-	type: 'local_repo_path',
+const create_local_repo_path = (name: string = 'test-repo', branch = 'main'): LocalRepoPath => ({
 	repo_name: name,
 	repo_dir: `/test/${name}`,
 	repo_url: `https://github.com/test/${name}`,
-	repo_git_ssh_url: `git@github.com:test/${name}.git`,
-	repo_config: {
-		repo_url: `https://github.com/test/${name}`,
-		repo_dir: null,
-		branch: 'main',
-		visibility: 'public',
-		ci: true,
-		archived: false
-	}
+	entry: create_mock_repos_entry({ key: name, branch })
 });
 
 // -- local_repo_load: operation-level failures --
@@ -148,9 +143,8 @@ test('has_file_changed failure propagates', async () => {
 test('pull is invoked with the configured branch', async () => {
 	// Regression: pull was called without a branch, so `git pull origin ''` targeted
 	// the remote's default branch (origin/HEAD) and rebased a non-default checkout
-	// onto it. The pull must target `repo_config.branch`.
-	const local_repo_path = create_local_repo_path();
-	local_repo_path.repo_config.branch = 'fuz-app';
+	// onto it. The pull must target the entry's `branch`.
+	const local_repo_path = create_local_repo_path('test-repo', 'fuz-app');
 	let pulled_branch: string | undefined = 'NOT_CALLED';
 	await assert_rejects(
 		() =>
@@ -171,6 +165,22 @@ test('pull is invoked with the configured branch', async () => {
 		/Failed to load library metadata/
 	);
 	assert.equal(pulled_branch, 'fuz-app');
+});
+
+test('syncing an entry that follows no branch fails before any git operation', async () => {
+	const local_repo_path = create_local_repo_path();
+	local_repo_path.entry = { ...local_repo_path.entry, branch: null };
+	await assert_rejects(
+		() =>
+			local_repo_load({
+				local_repo_path,
+				git_ops: create_mock_git_ops({
+					current_commit_hash: async () => ({ ok: false, message: 'should not be called' })
+				}),
+				npm_ops: create_mock_npm_ops()
+			}),
+		/follows no branch/
+	);
 });
 
 // -- local_repo_load: behavioral errors --
@@ -474,25 +484,16 @@ test('local_repos_load sequential mode throws on first failure', async () => {
 
 /** Builds a `LocalRepoPath` pointing at a real temp dir for the cargo divert tests. */
 const cargo_local_repo_path = (repo_dir: string, name = 'rust-repo'): LocalRepoPath => ({
-	type: 'local_repo_path',
 	repo_name: name,
 	repo_dir,
 	repo_url: `https://github.com/test/${name}`,
-	repo_git_ssh_url: `git@github.com:test/${name}.git`,
-	repo_config: {
-		repo_url: `https://github.com/test/${name}`,
-		repo_dir: null,
-		branch: 'main',
-		visibility: 'public',
-		ci: true,
-		archived: false
-	}
+	entry: create_mock_repos_entry({ key: name })
 });
 
-test('loads a workspace Cargo.toml (no package.json) as a cargo repo, falling back to URL', async () => {
+test('loads a workspace Cargo.toml (no package.json) as a cargo repo, falling back to the key and URL', async () => {
 	const dir = mkdtempSync(join(tmpdir(), 'gitops-cargo-'));
 	try {
-		// A workspace root has no `name` and (here) no `repository` — both fall back to the URL.
+		// A workspace root has no `name` and (here) no `repository` — both fall back to the entry's.
 		writeFileSync(join(dir, 'Cargo.toml'), '[workspace.package]\nversion = "0.4.2"\n');
 
 		const repo = await local_repo_load({
@@ -502,7 +503,7 @@ test('loads a workspace Cargo.toml (no package.json) as a cargo repo, falling ba
 
 		assert.strictEqual(repo.kind, 'cargo');
 		assert.strictEqual(repo_is_npm(repo), false);
-		assert.strictEqual(repo.library.name, 'rust-repo'); // from URL, not Cargo.toml
+		assert.strictEqual(repo.library.name, 'rust-repo'); // the registry key, not Cargo.toml
 		assert.strictEqual(repo.library.repo_url, 'https://github.com/test/rust-repo');
 		assert.strictEqual(repo.package_json.version, '0.4.2');
 		assert.strictEqual(repo.package_json.private, true);

@@ -235,6 +235,34 @@ export interface ProcessOperations {
 }
 
 /**
+ * What a `repos` command printed and how it exited, unparsed.
+ */
+export interface ReposCommandOutput {
+	stdout: string;
+	stderr: string;
+	/** `0` for a report, `2` for an error document, `1` for a fatal I/O error (maybe no JSON). */
+	exit_code: number;
+}
+
+/**
+ * Operations running the Rust `repos` binary, which owns fleet git state.
+ * Parsing its output is `repos_status_load.ts`'s, not the runner's.
+ */
+export interface ReposOperations {
+	/**
+	 * Runs `repos [--registry <path>] status <keys…> --json` in the process's
+	 * cwd and returns what it printed, whatever its exit code. Fails only when
+	 * the binary didn't run to an exit: `not_found` when it isn't on `PATH`.
+	 */
+	status: (options: {
+		keys: Array<string>;
+		registry?: string;
+	}) => Promise<
+		Result<{ output: ReposCommandOutput }, { kind: 'not_found' | 'failed'; message: string }>
+	>;
+}
+
+/**
  * Build operations for validating packages compile before publishing.
  */
 export interface BuildOperations {

@@ -85,8 +85,8 @@ production/peer takes priority for dependency graph calculations.
   auto-generated changesets, and no changes
 - No side effects - does not modify any files or state
 - Reads each repo's working tree **as-is** (whatever branch is checked out, even
-  with uncommitted changes). Pass `--sync` to switch to the configured branch and
-  pull first, or run `gro gitops_sync` beforehand, so the plan reflects the
+  with uncommitted changes). Pass `--sync` to switch to each repo's registry
+  branch and pull first, or run `gro gitops_sync` beforehand, so the plan reflects the
   canonical branches rather than your local checkout.
 
 ### `gro gitops_publish` (dry run, default)

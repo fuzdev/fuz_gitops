@@ -6,6 +6,7 @@ import type { LibraryJson } from '@fuzdev/fuz_util/library_json.ts';
 import { Library } from '@fuzdev/fuz_ui/library.svelte.ts';
 
 import type { LocalRepo } from '$lib/local_repo.ts';
+import { create_mock_repos_entry } from '../test_helpers.ts';
 import type { RepoFixtureSet, RepoFixtureData } from './repo_fixture_types.ts';
 
 /**
@@ -35,15 +36,7 @@ export const fixture_repo_to_local_repo = (repo_data: RepoFixtureData): LocalRep
 		library,
 		package_json,
 		repo_dir: `/fixtures/${repo_name}`, // Fake path - not used in tests
-		repo_git_ssh_url: `git@github.com:test/${repo_name}.git`,
-		repo_config: {
-			repo_url,
-			repo_dir: null,
-			branch: 'main',
-			visibility: 'public',
-			ci: true,
-			archived: false
-		}
+		entry: create_mock_repos_entry({ key: repo_name, url: repo_url })
 	};
 
 	// Add dependency maps if present

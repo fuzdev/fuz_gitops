@@ -35,9 +35,9 @@ word is load-bearing:
 
 - **deterministic** — no LLM in the loop. Same config plus same repo states
   produce the same plan. Everything here is reproducible and reviewable.
-- **config-driven** — the repo set comes from a declared list (a project's
-  `gitops.config.ts` for the TS tasks; a `repos.toml` registry for the Rust
-  `repos` tool), not from scanning a directory. Scanning only reports what the
+- **config-driven** — the repo set comes from a declared list (a `repos.toml`
+  registry, and a project's `gitops.config.ts` naming a subset of its keys for
+  the TS tasks), not from scanning a directory. Scanning only reports what the
   list misses.
 - **operations** — it acts, or faithfully previews acting. Observation that
   never leads to an action belongs in whatever tool owns your policy checks.
@@ -62,7 +62,7 @@ pushes.
 | --- | --- | --- |
 | nothing in git | **observe** | `repos status` (local refs), `repos status --brief`; `gitops_analyze`, `gitops_plan`, `gitops_publish` (dry run), `gitops_validate`, `gitops_run` with read-only commands |
 | remote-tracking refs only, plus the objects, `FETCH_HEAD`, and shallow boundary a fetch writes | **observe** (refreshed) | `repos status --fetch`; the fetch that starts `repos sync` and `repos push` |
-| local branches, working trees, new clones | **converge** | `repos sync` (fast-forwards, shallow moves, clones of missing entries, references refreshed when named or under `--references`); `gitops_sync` (clone with `--download`, switch branch, pull — a merge or rebase per git config — install), and the TS observe tasks under `--sync` |
+| local branches, working trees, new clones | **converge** | `repos sync` (fast-forwards, shallow moves, clones of missing entries, references refreshed when named or under `--references`); `gitops_sync` (switch branch, pull — a merge or rebase per git config — install), and the TS observe tasks under `--sync` |
 | remote branches, under policy | **gateway** | `repos push`, and the push step of `repos sync`: fast-forwards only, under a lease, to the registry's SSH URL, owned entries only, no tags or force; a new remote branch is `repos push --new-branch`, the user's |
 | releases: npm, git commits and tags, deploys | **publish** | `gitops_publish --wetrun`, and gro's own `publish` and `deploy` it runs — the user's |
 
@@ -196,10 +196,13 @@ only, no API calls:
   push
 
 TS keeps everything else: the dashboard, its data step (GitHub metadata and
-svelte-docinfo library analysis), and the publish cascade. The planned
-direction: the TS tasks stop cloning and pulling and read repo state from
-`repos status --json`, and a project's `gitops.config.ts` becomes a list of
-registry keys. Nothing is deprecated until its Rust replacement ships.
+svelte-docinfo library analysis), and the publish cascade. A project's
+`gitops.config.ts` is a list of registry keys, and every TS task resolves
+them through `repos status <keys…> --json` — each repo's dir, URL, branch,
+visibility, `ci`, and `archived` come from the registry, and the TS side
+clones nothing. What's left to hand over is the sync path: `gitops_sync`
+and `--sync` still switch branches, pull, and install in TS until they
+read readiness from the report instead.
 
 ## Core functionality
 
@@ -212,18 +215,27 @@ registry keys. Nothing is deprecated until its Rust replacement ships.
 ## Architecture
 
 ```
-gitops.config.ts -> local repos -> GitHub API -> repos.ts -> UI components
+gitops.config.ts (registry keys) -> repos status --json -> local repos -> GitHub API -> repos.ts -> UI components
 ```
 
 ### Key files
 
-- `gitops.config.ts` - user config defining repo collections
+- `gitops.config.ts` - user config listing the repos by registry key
+- `src/lib/gitops_config.ts` - config schema, loading, and the public-host
+  leak guard
+- `src/lib/gitops_task_helpers.ts` - `resolve_gitops_repos` (config keys →
+  `repos status` → checkouts) and `get_gitops_ready` (plus library loading),
+  shared by every task
+- `src/lib/repos_status_load.ts` - runs `repos status --json` through the
+  injected `ReposOperations` and parses its report or error document
 - `src/lib/gitops_sync.task.ts` - syncs local repos and generates UI data
 - `src/lib/gitops_analyze.task.ts` - analyzes dependencies and changesets
 - `src/lib/gitops_plan.task.ts` - generates publishing plan
 - `src/lib/gitops_publish.task.ts` - publishes repos in dependency order
 - `src/lib/gitops_validate.task.ts` - runs all validation checks
-- `src/lib/local_repo.ts` - manages local repo clones, branch switching
+- `src/lib/local_repo.ts` - resolves config keys against the report
+  (`local_repos_resolve`), loads libraries, and the sync path's branch
+  switching
 - `src/lib/github.ts` - GitHub API client for PRs, CI status
 - `src/lib/fetch_repo_data.ts` - fetches remote repo metadata
 - `src/routes/repos.ts` - generated data file with all repo info
@@ -295,17 +307,26 @@ conflicts on git commits and changeset files.
 
 ```ts
 // gitops.config.ts
-export default {
-	repos: [
-		'https://github.com/owner/repo',
-		{
-			repo_url: '...',
-			repo_dir: '...',
-			branch: 'main'
-		}
-	]
+import type { GitopsConfig } from '@fuzdev/fuz_gitops/gitops_config.ts';
+
+const config: GitopsConfig = {
+	repos: ['fuz_util', 'gro', 'fuz_ui'] // repos.toml registry keys, in display order
 };
+
+export default config;
 ```
+
+The config lists owned repos by their `repos.toml` key and nothing else: each
+repo's dir, URL, branch, visibility, `ci`, and `archived` come from the
+registry through `repos status <keys…> --json`, so the tasks need the `repos`
+binary on `PATH` (`cargo install --path crates/fuz_repos --locked`, from a
+fuz_gitops checkout — the npm package doesn't carry it) and a registry
+`repos` can find from the cwd, or `--registry <path>`. The default export
+may also be a function returning the config. Every task resolves the keys
+the same way and refuses to run, naming each problem, when a key is
+unknown, names a third-party reference, or its repo is missing (`repos sync
+<key>` clones it), isn't a git repo, or failed to probe. Repos keep the
+config's order.
 
 Requires `SECRET_GITHUB_API_TOKEN` in `.env` for API access.
 
@@ -313,14 +334,14 @@ Requires `SECRET_GITHUB_API_TOKEN` in `.env` for API access.
 
 ### `gro gitops_sync` Task
 
-1. Loads config from `gitops.config.ts`, and refuses to run when a public host
-   package's config lists private repos (`gitops_config_leaked_private_repos`) —
-   the generated `repos.json` is that package's public site data
-2. Resolves local repos (clones missing if `--download`)
-3. Switches branches and syncs as needed
-4. Fetches GitHub data (CI, PRs)
-5. Generates `src/routes/repos.ts`
-6. Updates cache
+1. Loads the config's registry keys and resolves them through `repos status`,
+   refusing to run when a public host package's config lists repos the
+   registry declares private (`gitops_config_leaked_private_repos`) — the
+   generated `repos.json` is that package's public site data
+2. Switches each repo to its entry's branch and syncs as needed
+3. Fetches GitHub data (CI, PRs)
+4. Generates `src/routes/repos.ts`
+5. Updates cache
 
 ### Local repo management
 
@@ -330,11 +351,9 @@ diagnostics load repos as-is via `get_gitops_ready({sync: false})` and skip all
 of the below. The shared `get_gitops_ready` helper (`gitops_task_helpers.ts`)
 gates this with its `sync` option, threaded down to `local_repo_load`.
 
-- Resolves repo URLs to local directories
-- Clones missing repos via SSH
-- Switches branches maintaining clean workspace (`--allow-dirty` to tolerate a dirty tree)
+- Switches to the branch the repo's registry entry follows, maintaining a clean
+  workspace (`--allow-dirty` to tolerate a dirty tree)
 - Automatically installs dependencies when package.json changes:
-  - After initial clone
   - After pulling latest changes
   - After switching branches (if package.json differs)
   - Uses `npm install` to ensure dependencies match package.json
@@ -515,18 +534,17 @@ interface LocalRepo {
 	library: Library;
 	package_json: PackageJson;
 	repo_dir: string;
-	repo_git_ssh_url: string;
-	repo_config: GitopsRepoConfig;
+	entry: ReposEntryStatus; // the registry entry as `repos status --json` reported it
 	dependencies?: Map<string, string>;
 	dev_dependencies?: Map<string, string>;
 	peer_dependencies?: Map<string, string>;
 }
 
 interface LocalRepoPath {
-	type: 'local_repo_path';
-	repo_name: string;
-	repo_dir: string;
+	repo_name: string; // the registry key
+	repo_dir: string; // the workspace root joined with the entry's dir
 	repo_url: string;
+	entry: ReposEntryStatus;
 }
 ```
 
@@ -536,7 +554,7 @@ A configured repo without a `package.json` but with a Rust `Cargo.toml` (e.g.
 `tsv`) loads as a `kind: 'cargo'` `LocalRepo`. It has no npm identity, so there's
 no `svelte-docinfo` analysis and no dependency graph — `local_repo.ts` synthesizes
 a lightweight `Library` from the `Cargo.toml` (best-effort name/version/description,
-via `cargo_toml.ts`) and the configured repo URL. These repos are still synced and
+via `cargo_toml.ts`), falling back to the registry key and URL. These repos are still synced and
 rendered on the dashboard (CI status, PRs, identity) but are excluded from
 publishing and dependency analysis: `generate_publishing_plan`, `analyze_repos`,
 and `execute_publishing_plan` filter to `repo_is_npm` first. A repo with neither
@@ -556,11 +574,11 @@ npm i -D @fuzdev/fuz_gitops
 
 # Data management
 gro gitops_sync               # sync repos and update local data
-gro gitops_sync --download    # clone missing repos
 gro gitops_sync --check       # verify repos are ready without fetching data
 gro gitops_sync --allow-dirty # sync (switch branch, pull) tolerating uncommitted changes
+gro gitops_sync --registry ../repos.toml # every task takes a registry repos wouldn't find from the cwd
 
-# Run commands across repos (reads repos as-is, no branch switch/pull)
+# Run commands across repos (reads repos as-is, no branch switch/pull; a missing repo fails the run)
 gro gitops_run "npm test"                          # run command in all repos (parallel, concurrency: 5)
 gro gitops_run "npm audit" --concurrency 3         # limit parallelism
 gro gitops_run "gro check" --format json           # JSON output (logged to stdout)
@@ -631,7 +649,7 @@ workspace with feature branches and uncommitted changes. They move no ref,
 though gro's `git status` may refresh a repo's index; they cache gro's library
 metadata at `.gro/library.json` in each repo at a clean commit, and
 `--outfile` writes where it's told. Pass `--sync` to refresh repos (switch to
-the configured branch, pull, install) first.
+each entry's branch, pull, install) first.
 
 - `gro gitops_analyze` - Analyze dependency graph, detect cycles
 - `gro gitops_plan` - Generate publishing plan showing version changes and
@@ -642,7 +660,6 @@ the configured branch, pull, install) first.
 **Data Sync (Local Changes Only):**
 
 - `gro gitops_sync` - Fetch repo metadata, generate src/routes/repos.ts
-  - Clones missing repos (with `--download`)
   - Switches branches and pulls latest changes
   - Installs dependencies if package.json changed
   - Verify repos ready without fetching (with `--check`)
@@ -685,7 +702,7 @@ the configured branch, pull, install) first.
 - Generates static JSON for fast client-side rendering
 - Caches API responses to minimize API calls
 - Atomic file updates with format checking
-- Supports both relative and absolute repo paths
+- Repo dirs come from the registry, never the config
 - Functional programming patterns (arrow functions, pure functions)
 - Changeset-driven versioning with auto-generation
 - Natural resumption via changeset consumption (no state files needed)
@@ -734,7 +751,9 @@ testable without mocks:
 operations pattern abstracts these into interfaces.
 
 **How:** See `src/lib/operations.ts` - all external dependencies (git, npm, fs,
-process, build) are defined as interfaces. Tests provide mock implementations.
+process, build, and the `repos` binary) are defined as interfaces. Tests provide
+mock implementations; `create_mock_repos_ops` injects a `repos status --json`
+document, so no test spawns the binary.
 
 **Benefits:**
 
@@ -793,7 +812,9 @@ reproducible integration tests:
 - `src/test/fixtures/repos/` - Auto-generated from fixture data (gitignored)
 - `src/test/fixtures/repo_fixtures/*.ts` - Source of truth for test repo definitions
 - `src/test/fixtures/generate_repos.ts` - Idempotent repo generation logic
-- `src/test/fixtures/configs/*.config.ts` - Isolated gitops config per fixture
+- `src/test/fixtures/configs/*.config.ts` - Each fixture's repos as a key-list
+  config, load-validated against the fixture (there's no fixture registry, so
+  the tasks don't run on them)
 
 **Fixture Scenarios (10 total):**
 
@@ -812,7 +833,6 @@ reproducible integration tests:
 
 **Structured Validation:**
 
-- `src/test/fixtures/configs/*.config.ts` - Isolated gitops config per fixture
 - `src/test/fixtures/check.test.ts` - Validates JSON output against fixture
   `expected_outcomes`
 - `src/test/fixtures/helpers.ts` - JSON command runner and assertion helpers
@@ -826,7 +846,7 @@ reproducible integration tests:
 Fixture repos are auto-generated on first test run if missing. To manually
 regenerate: `gro src/test/fixtures/generate_repos`
 
-Each fixture runs in isolation with its own config, validating:
+Each fixture runs in isolation, validating:
 
 - Publishing order (topological sort correctness)
 - Version changes (explicit, auto-generated, bump escalation scenarios)
@@ -840,7 +860,10 @@ The Rust test harness is described in [docs/repos.md](docs/repos.md#testing),
 along with the `repos --json` golden documents in
 `src/test/fixtures/repos_status/` (regenerated with `UPDATE_GOLDEN=1 cargo
 test --test golden`, never by hand). `src/test/repos_status.golden.test.ts`
-parses the status goldens with the strict schemas of `src/lib/repos_status.ts`.
+parses the status goldens with the strict schemas of `src/lib/repos_status.ts`,
+and the TS consumer's own tests take them as inputs: the parser
+(`repos_status_load.test.ts`, each error document mapped to its message) and
+the key resolution (`local_repo.resolve.test.ts`).
 
 ## Generated Files & Caches
 

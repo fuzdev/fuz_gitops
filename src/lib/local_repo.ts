@@ -1,20 +1,19 @@
-import { strip_end } from '@fuzdev/fuz_util/string.ts';
 import { to_error_message } from '@fuzdev/fuz_util/error.ts';
 import { library_json_from_modules, type LibraryJson } from '@fuzdev/fuz_util/library_json.ts';
 import type { PackageJson } from '@fuzdev/fuz_util/package_json.ts';
+import type { Result } from '@fuzdev/fuz_util/result.ts';
 import { Library } from '@fuzdev/fuz_ui/library.svelte.ts';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { TaskError } from '@fuzdev/gro';
 import { library_load_from_repo } from '@fuzdev/gro/library_load.ts';
 import type { Logger } from '@fuzdev/fuz_util/log.ts';
-import { spawn_out } from '@fuzdev/fuz_util/process.ts';
 import { map_concurrent_settled } from '@fuzdev/fuz_util/async.ts';
 import type { GitOperations, NpmOperations } from './operations.ts';
 import { default_git_operations, default_npm_operations } from './operations_defaults.ts';
 
-import type { GitopsConfig, GitopsRepoConfig } from './gitops_config.ts';
-import type { ResolvedGitopsConfig } from './resolved_gitops_config.ts';
+import { gitops_config_leaked_private_repos } from './gitops_config.ts';
+import type { ReposEntryStatus, ReposStatusReport } from './repos_status.ts';
 import { GITOPS_CONCURRENCY_DEFAULT } from './gitops_constants.ts';
 import { cargo_toml_load } from './cargo_toml.ts';
 
@@ -35,36 +34,101 @@ export interface LocalRepo {
 	/** The repo's full `package.json` (with `dependencies`/`devDependencies`). */
 	package_json: PackageJson;
 	repo_dir: string;
-	repo_git_ssh_url: string;
-	repo_config: GitopsRepoConfig;
+	/**
+	 * The repo's registry entry as `repos status --json` reported it: its
+	 * `branch`, `visibility`, `ci`, and `archived`, and its git state.
+	 */
+	entry: ReposEntryStatus;
 	dependencies?: Map<string, string>;
 	dev_dependencies?: Map<string, string>;
 	peer_dependencies?: Map<string, string>;
 }
 
 /**
- * A repo that has been located on the filesystem (path exists).
- * Used before loading - just filesystem/git concerns.
+ * A configured repo resolved through `repos status`: present on disk, before
+ * its library is loaded. See `local_repos_resolve`.
  */
 export interface LocalRepoPath {
-	type: 'local_repo_path';
-	repo_name: string; // from URL parsing (for display/logging before Library loaded)
+	/** The repo's registry key (for display/logging before `Library` is loaded). */
+	repo_name: string;
+	/** The workspace root joined with the entry's `dir`. */
 	repo_dir: string;
+	/** The registry's HTTPS URL for the repo. */
 	repo_url: string;
-	repo_git_ssh_url: string;
-	repo_config: GitopsRepoConfig;
+	/** The repo's registry entry as `repos status --json` reported it. */
+	entry: ReposEntryStatus;
 }
 
 /**
- * A repo that is missing from the filesystem (needs cloning).
+ * Resolves a gitops config's registry keys against a `repos status` report,
+ * in config order. Every key must name an owned repo that's present and was
+ * probed; each that doesn't is a problem, and any problem fails the whole
+ * resolve, naming them all.
+ *
+ * @param options.keys - the config's registry keys, in config order
+ * @param options.report - `repos status <keys…> --json`'s report
+ * @param options.host - the package whose generated data the run writes; when public, a private repo is a problem (`gitops_config_leaked_private_repos`)
+ * @param options.registry - the `--registry` the report was made with, repeated in the hints
+ * @returns the repos in config order, or a message listing every problem
  */
-export interface LocalRepoMissing {
-	type: 'local_repo_missing';
-	repo_name: string;
-	repo_url: string;
-	repo_git_ssh_url: string;
-	repo_config: GitopsRepoConfig;
-}
+export const local_repos_resolve = (options: {
+	keys: ReadonlyArray<string>;
+	report: ReposStatusReport;
+	host?: { name: string; private: boolean };
+	registry?: string;
+}): Result<{ value: Array<LocalRepoPath> }, { message: string; problems: Array<string> }> => {
+	const { keys, report, host, registry } = options;
+	const repos_command = registry === undefined ? 'repos' : `repos --registry ${registry}`;
+	const by_key = new Map(report.entries.map((e) => [e.key, e] as const));
+
+	const problems: Array<string> = [];
+	const resolved: Array<LocalRepoPath> = [];
+	for (const key of keys) {
+		const entry = by_key.get(key);
+		if (!entry) {
+			// `repos` also takes a dir name or path as a target, reporting the entry by its key
+			const by_dir = report.entries.find((e) => e.dir === key);
+			problems.push(
+				by_dir
+					? `\`${key}\` is the dir of \`${by_dir.key}\`, not a registry key — list \`${by_dir.key}\``
+					: `\`${key}\` isn't in the \`repos status\` report — is it a registry key?`
+			);
+			continue;
+		}
+		const repo_dir = join(report.workspace, entry.dir);
+		if (entry.kind === 'reference') {
+			problems.push(`\`${key}\` is a third-party reference, not an owned repo`);
+		} else if (entry.presence.kind === 'missing') {
+			problems.push(
+				`\`${key}\` is missing at ${repo_dir} — \`${repos_command} sync ${key}\` clones it`
+			);
+		} else if (entry.presence.kind === 'not_a_repo') {
+			problems.push(`\`${key}\`: ${repo_dir} isn't a git repo`);
+		} else if (entry.probe_error !== null) {
+			problems.push(`\`${key}\`: probing ${repo_dir} failed: ${entry.probe_error}`);
+		} else {
+			resolved.push({ repo_name: key, repo_dir, repo_url: entry.url, entry });
+		}
+	}
+
+	if (host) {
+		const configured = keys.map((k) => by_key.get(k)).filter((e) => e !== undefined);
+		for (const leaked of gitops_config_leaked_private_repos(configured, host.private)) {
+			problems.push(
+				`\`${leaked.key}\` is private, and ${host.name} is a public package whose generated repos.json would publish its metadata`
+			);
+		}
+	}
+
+	if (problems.length) {
+		return {
+			ok: false,
+			message: `${problems.length === 1 ? 'a configured repo' : 'configured repos'} can't be loaded:\n  ${problems.join('\n  ')}`,
+			problems
+		};
+	}
+	return { ok: true, value: resolved };
+};
 
 /**
  * Loads repo data, optionally syncing the working tree first.
@@ -76,7 +140,7 @@ export interface LocalRepoMissing {
  * feature branches checked out.
  *
  * When `sync` is `true` (used by `gitops_sync`), the working tree is brought in
- * line with the configured branch first:
+ * line with the branch its registry entry follows first:
  * 1. Records current commit hash (for detecting changes)
  * 2. Switches to target branch if needed (requires clean workspace unless `allow_dirty`)
  * 3. Pulls latest changes from remote (skipped for local-only repos)
@@ -87,7 +151,7 @@ export interface LocalRepoMissing {
  * 6. Loads `library_json` via `library_load_from_repo` (svelte-docinfo analysis)
  * 7. Creates `Library` and extracts dependency maps
  *
- * @param sync - sync the working tree to the configured branch before loading (default `true`)
+ * @param sync - sync the working tree to the entry's branch before loading (default `true`)
  * @param allow_dirty - when syncing, tolerate uncommitted changes instead of throwing (default `false`)
  * @throws {TaskError} if syncing fails (dirty workspace, branch switch, install) or analysis fails
  */
@@ -106,9 +170,16 @@ export const local_repo_load = async ({
 	sync?: boolean;
 	allow_dirty?: boolean;
 }): Promise<LocalRepo> => {
-	const { repo_config, repo_dir, repo_name, repo_git_ssh_url } = local_repo_path;
+	const { entry, repo_dir, repo_name } = local_repo_path;
 
 	if (sync) {
+		const { branch } = entry;
+		if (branch === null) {
+			throw new TaskError(
+				`Repo ${repo_name} follows no branch in the registry, so it can't be synced`
+			);
+		}
+
 		// Record commit hash before any changes
 		const commit_before_result = await git_ops.current_commit_hash({ cwd: repo_dir });
 		if (!commit_before_result.ok) {
@@ -124,7 +195,7 @@ export const local_repo_load = async ({
 			throw new TaskError(`Failed to get current branch in ${repo_dir}: ${branch_result.message}`);
 		}
 
-		const switched_branches = branch_result.value !== repo_config.branch;
+		const switched_branches = branch_result.value !== branch;
 		if (switched_branches) {
 			// Guard the switch on a clean workspace unless the caller opts into `allow_dirty`,
 			// in which case we let `git checkout` itself fail loudly if it can't proceed.
@@ -136,15 +207,15 @@ export const local_repo_load = async ({
 
 				if (!clean_result.value) {
 					throw new TaskError(
-						`Repo ${repo_dir} is not on branch "${repo_config.branch}" and the workspace is unclean, blocking switch`
+						`Repo ${repo_dir} is not on branch "${branch}" and the workspace is unclean, blocking switch`
 					);
 				}
 			}
 
-			const checkout_result = await git_ops.checkout({ branch: repo_config.branch, cwd: repo_dir });
+			const checkout_result = await git_ops.checkout({ branch, cwd: repo_dir });
 			if (!checkout_result.ok) {
 				throw new TaskError(
-					`Failed to checkout branch "${repo_config.branch}" in ${repo_dir}: ${checkout_result.message}`
+					`Failed to checkout branch "${branch}" in ${repo_dir}: ${checkout_result.message}`
 				);
 			}
 		}
@@ -156,10 +227,10 @@ export const local_repo_load = async ({
 		}
 
 		if (origin_result.value) {
-			// Pull the configured branch explicitly. Without a branch, `git pull origin`
+			// Pull the entry's branch explicitly. Without a branch, `git pull origin`
 			// targets the remote's default branch (origin/HEAD), which for a repo checked
 			// out on a non-default branch rebases the wrong branch onto it.
-			const pull_result = await git_ops.pull({ branch: repo_config.branch, cwd: repo_dir });
+			const pull_result = await git_ops.pull({ branch, cwd: repo_dir });
 			if (!pull_result.ok) {
 				throw new TaskError(`Failed to pull in ${repo_dir}: ${pull_result.message}`);
 			}
@@ -176,9 +247,7 @@ export const local_repo_load = async ({
 			}
 
 			if (!clean_after_result.value) {
-				throw new TaskError(
-					`Workspace ${repo_dir} is unclean after pulling branch "${repo_config.branch}"`
-				);
+				throw new TaskError(`Workspace ${repo_dir} is unclean after pulling branch "${branch}"`);
 			}
 		}
 
@@ -249,8 +318,7 @@ export const local_repo_load = async ({
 		library,
 		package_json,
 		repo_dir,
-		repo_git_ssh_url,
-		repo_config
+		entry
 	};
 
 	// Extract dependencies from the full package_json
@@ -278,7 +346,7 @@ export const repo_is_npm = (repo: LocalRepo): boolean => repo.kind === 'npm';
  * Loads a non-npm Rust repo as a dashboard-only `LocalRepo`. It has no
  * `package.json`, so there's no `svelte-docinfo` analysis and no npm dependency
  * graph — a lightweight `Library` is synthesized from the repo's `Cargo.toml`
- * (best-effort name/version/description) and its configured repo URL, which is
+ * (best-effort name/version/description) and its registry URL, which is
  * what the dashboard renders (CI status, PRs, identity). Marked `private` so it
  * never reads as an npm publish target, and tagged `cargo` so the publishing and
  * analysis paths skip it (see `repo_is_npm`).
@@ -288,12 +356,12 @@ const local_repo_load_cargo = async ({
 }: {
 	local_repo_path: LocalRepoPath;
 }): Promise<LocalRepo> => {
-	const { repo_config, repo_dir, repo_name, repo_url, repo_git_ssh_url } = local_repo_path;
+	const { entry, repo_dir, repo_name, repo_url } = local_repo_path;
 
 	const cargo = await cargo_toml_load(repo_dir);
 
-	// A Cargo workspace root has no `name`, so fall back to the repo name parsed from
-	// the URL; the config's `repo_url` is the authoritative `repository`.
+	// A Cargo workspace root has no `name` or `repository`, so fall back to the
+	// registry key and URL.
 	const package_json: PackageJson = {
 		name: cargo?.name ?? repo_name,
 		version: cargo?.version ?? '0.0.0',
@@ -309,59 +377,8 @@ const local_repo_load_cargo = async ({
 		library,
 		package_json,
 		repo_dir,
-		repo_git_ssh_url,
-		repo_config
+		entry
 	};
-};
-
-export const local_repos_ensure = async ({
-	resolved_config,
-	repos_dir,
-	gitops_config,
-	download,
-	log,
-	npm_ops = default_npm_operations
-}: {
-	resolved_config: ResolvedGitopsConfig;
-	repos_dir: string;
-	gitops_config: GitopsConfig;
-	download: boolean;
-	log?: Logger;
-	npm_ops?: NpmOperations;
-}): Promise<Array<LocalRepoPath>> => {
-	let local_repo_paths: Array<LocalRepoPath> | null = null;
-
-	if (!resolved_config.local_repos_missing) {
-		local_repo_paths = resolved_config.local_repo_paths;
-	} else {
-		if (download) {
-			const downloaded = await download_repos({
-				repos_dir,
-				local_repos_missing: resolved_config.local_repos_missing,
-				log,
-				npm_ops
-			});
-			local_repo_paths = (resolved_config.local_repo_paths ?? [])
-				.concat(downloaded)
-				.sort(
-					(a, b) =>
-						gitops_config.repos.findIndex((r) => r.repo_url === a.repo_url) -
-						gitops_config.repos.findIndex((r) => r.repo_url === b.repo_url)
-				);
-		} else {
-			log?.error(
-				`Failed to resolve local repos in ${repos_dir} - do you need to pass \`--download\` or configure the directory?`, // TODO leaking task impl details
-				resolved_config.local_repos_missing.map((r) => r.repo_url)
-			);
-			throw new TaskError('Failed to resolve local configs');
-		}
-	}
-
-	if (!local_repo_paths) {
-		throw new TaskError('No repos are configured in `gitops_config.ts`');
-	}
-
-	return local_repo_paths;
 };
 
 export const local_repos_load = async ({
@@ -427,76 +444,4 @@ export const local_repos_load = async ({
 	}
 
 	return loaded;
-};
-
-export const local_repo_locate = ({
-	repo_config,
-	repos_dir
-}: {
-	repo_config: GitopsRepoConfig;
-	repos_dir: string;
-}): LocalRepoPath | LocalRepoMissing => {
-	const { repo_url } = repo_config;
-	const repo_name = strip_end(repo_url, '/').split('/').at(-1);
-	if (!repo_name) throw Error('Invalid `repo_config.repo_url` ' + repo_url);
-
-	const repo_git_ssh_url = to_repo_git_ssh_url(repo_url);
-
-	const repo_dir = repo_config.repo_dir ?? join(repos_dir, repo_name);
-	if (!existsSync(repo_dir)) {
-		return { type: 'local_repo_missing', repo_name, repo_url, repo_git_ssh_url, repo_config };
-	}
-
-	return {
-		type: 'local_repo_path',
-		repo_name,
-		repo_dir,
-		repo_url,
-		repo_git_ssh_url,
-		repo_config
-	};
-};
-
-const to_repo_git_ssh_url = (repo_url: string): string => {
-	const url = new URL(repo_url);
-	return `git@${url.hostname}:${url.pathname.substring(1)}`;
-};
-
-const download_repos = async ({
-	repos_dir,
-	local_repos_missing,
-	log,
-	npm_ops = default_npm_operations
-}: {
-	repos_dir: string;
-	local_repos_missing: Array<LocalRepoMissing>;
-	log?: Logger;
-	npm_ops?: NpmOperations;
-}): Promise<Array<LocalRepoPath>> => {
-	const resolved: Array<LocalRepoPath> = [];
-	for (const { repo_config, repo_git_ssh_url } of local_repos_missing) {
-		log?.info(`cloning repo ${repo_git_ssh_url} to ${repos_dir}`);
-		const clone_result = await spawn_out('git', ['clone', repo_git_ssh_url], { cwd: repos_dir });
-		if (!clone_result.result.ok) {
-			throw new TaskError(
-				`Failed to clone repo ${repo_git_ssh_url} to ${repos_dir}${clone_result.stderr ? ': ' + clone_result.stderr.trim() : ''}`
-			);
-		}
-		const local_repo = local_repo_locate({ repo_config, repos_dir });
-		if (local_repo.type === 'local_repo_missing') {
-			throw new TaskError(
-				`Failed to clone repo ${repo_git_ssh_url} to ${repos_dir}: directory not found after clone`
-			);
-		}
-		// Always install dependencies after cloning
-		log?.info(`installing dependencies for newly cloned repo ${local_repo.repo_dir}`);
-		const install_result = await npm_ops.install({ cwd: local_repo.repo_dir });
-		if (!install_result.ok) {
-			throw new TaskError(
-				`Failed to install dependencies in ${local_repo.repo_dir}: ${install_result.message}${install_result.stderr ? `\n${install_result.stderr}` : ''}`
-			);
-		}
-		resolved.push(local_repo);
-	}
-	return resolved;
 };

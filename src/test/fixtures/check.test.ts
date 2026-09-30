@@ -307,7 +307,7 @@ describe('Error scenario fixtures', () => {
 
 /**
  * Test that configs can actually be loaded.
- * This ensures the config files are valid TypeScript.
+ * This ensures the config files are valid, and list their fixture's repos as keys.
  */
 describe('Config loading validation', () => {
 	const FIXTURES_DIR = dirname(dirname(fileURLToPath(import.meta.url)));
@@ -319,11 +319,13 @@ describe('Config loading validation', () => {
 			// Verify config file exists
 			assert.ok(existsSync(config_path), `Config file should exist at ${config_path}`);
 
-			// Try to load the config
+			// Load and validate the config: its keys are the fixture's repos, in order
 			const config = await load_gitops_config(config_path);
 			assert.ok(config, 'Config should load successfully');
-			assert.ok(Array.isArray(config.repos), 'Config should have repos array');
-			assert.ok(config.repos.length > 0, 'Config should have at least one repo');
+			assert.deepEqual(
+				config.repos,
+				fixture.repos.map((r) => r.repo_name)
+			);
 		});
 	}
 });

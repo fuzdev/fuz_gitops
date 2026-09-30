@@ -10,6 +10,38 @@ Common errors, solutions, and debugging tips for fuz_gitops.
 
 ## Common Errors
 
+### "the `repos` binary was not found on PATH" or "prints status format …"
+
+Every task reads repo state from `repos status --json`, and the `repos` binary
+isn't in the npm package. Install it from a checkout of this repo at the
+version of `@fuzdev/fuz_gitops` you use — its format version must match the
+package's:
+
+```bash
+cargo install --path crates/fuz_repos --locked
+```
+
+### "the gitops config lists `…`, which the registry (repos.toml) doesn't name"
+
+The config lists `repos.toml` keys, not URLs, dir names, or paths; the message
+suggests the keys it resembles.
+
+### "a configured repo can't be loaded" or "configured repos can't be loaded"
+
+Each problem names a key in `gitops.config.ts`:
+
+- **the dir of another entry, not a registry key** — list the key it names
+- **a third-party reference** — the config lists owned repos only
+- **missing** — `repos sync <key>` clones it
+- **isn't a git repo** or **probing failed** — `repos status <key>` shows what
+  it found
+- **private, and a public package** — `gitops_sync` writes each repo's
+  metadata into the host's public `repos.json`, so a public host can't list
+  repos the registry declares private
+
+When no `repos.toml` is found walking up from the cwd, pass
+`--registry <path>`.
+
 ### "Preflight checks failed: workspace has uncommitted changes"
 
 Commit or stash your changes before publishing:
@@ -119,11 +151,11 @@ The diagnostics (`gitops_analyze`, `gitops_plan`, `gitops_validate`,
 `gitops_publish` dry run) read each repo's working tree **as-is** — whatever
 branch is checked out, including uncommitted changes. They do not switch
 branches or pull, and move no ref (gro caches `.gro/library.json` and may
-refresh the index). To run against the configured branches with the latest
-changes:
+refresh the index). To run against each repo's registry branch with the
+latest changes:
 
 ```bash
-gro gitops_plan --sync   # switch to configured branch + pull + install first
+gro gitops_plan --sync   # switch to the registry branch + pull + install first
 # or refresh everything once, then run diagnostics as-is:
 gro gitops_sync
 gro gitops_plan

@@ -10,9 +10,16 @@ import type {
 	FsOperations,
 	NpmOperations,
 	BuildOperations,
-	ProcessOperations
+	ProcessOperations,
+	ReposCommandOutput,
+	ReposOperations
 } from '$lib/operations.ts';
 import type { BumpType } from '$lib/version_utils.ts';
+import {
+	REPOS_STATUS_FORMAT_VERSION,
+	type ReposEntryStatus,
+	type ReposStatusReport
+} from '$lib/repos_status.ts';
 
 export interface MockRepoOptions {
 	name: string;
@@ -70,15 +77,7 @@ export const create_mock_repo = (options: MockRepoOptions): LocalRepo => {
 		library: new Library(library_json),
 		package_json: create_mock_package_json(options),
 		repo_dir: `/test/${name}`,
-		repo_git_ssh_url: `git@github.com:test/${name}.git`,
-		repo_config: {
-			repo_url: `https://github.com/test/${name}`,
-			repo_dir: null,
-			branch: 'main',
-			visibility: 'public',
-			ci: true,
-			archived: false
-		},
+		entry: create_mock_repos_entry({ key: name }),
 		dependencies: new Map(Object.entries(deps)),
 		dev_dependencies: new Map(Object.entries(dev_deps)),
 		peer_dependencies: new Map(Object.entries(peer_deps))
@@ -361,5 +360,97 @@ export const create_tracking_process_ops = (): {
 			spawned_commands.filter((c) => c.cmd === 'gro' && c.args[0] === cmd_name),
 		get_package_names_from_cwd: (commands: Array<TrackedCommand>) =>
 			commands.map((c) => c.cwd.split('/').pop() || '')
+	};
+};
+
+/**
+ * Creates a mock `repos status` entry: an owned public repo, present, clean,
+ * and on its branch `main`, in sync with origin. `overrides` replace fields whole.
+ */
+export const create_mock_repos_entry = (
+	overrides: Partial<ReposEntryStatus> & { key: string }
+): ReposEntryStatus => {
+	const { key } = overrides;
+	const dir = overrides.dir ?? key;
+	return {
+		kind: 'repo',
+		dir,
+		url: `https://github.com/test/${key}`,
+		writable: true,
+		archived: false,
+		visibility: 'public',
+		ci: true,
+		branch: 'main',
+		pinned: false,
+		refresh: null,
+		presence: { kind: 'present' },
+		clone: null,
+		layout: { shallow: false, sparse: false, partial_filter: null },
+		checkouts: [
+			{
+				path: `/test/${dir}`,
+				primary: true,
+				head: { kind: 'branch', name: 'main' },
+				uncommitted: { staged: 0, unstaged: 0, untracked: 0, conflicted: 0 },
+				in_progress: null,
+				locked: false,
+				linked: false,
+				submodules: null,
+				busy: []
+			}
+		],
+		branches: [],
+		at_rest: { on_branch: true, clean: true, idle: true, followed: { kind: 'in_sync' } },
+		stashes: 0,
+		fetched_at: null,
+		needs_human: [],
+		probe_error: null,
+		unprobed_worktrees: [],
+		fetch_error: null,
+		visibility_check: null,
+		...overrides
+	};
+};
+
+/**
+ * Creates a mock `repos status --json` report over `entries`, its workspace `/test`.
+ */
+export const create_mock_repos_report = (
+	entries: Array<ReposEntryStatus>,
+	overrides: Partial<ReposStatusReport> = {}
+): ReposStatusReport => ({
+	version: REPOS_STATUS_FORMAT_VERSION,
+	workspace: '/test',
+	registry: '/test/repos.toml',
+	fetched: false,
+	sessions: { kind: 'available', unscoped: [] },
+	entries,
+	unregistered: null,
+	...overrides
+});
+
+/**
+ * Creates mock ReposOperations whose `status` prints `printed` (a document as
+ * JSON, or raw text) and records each call's options. It exits `2` for an
+ * error document, else `0`.
+ */
+export const create_mock_repos_ops = (
+	printed: object | string,
+	overrides: Partial<ReposOperations> = {}
+): ReposOperations & { calls: Array<{ keys: Array<string>; registry?: string }> } => {
+	const calls: Array<{ keys: Array<string>; registry?: string }> = [];
+	const stdout = typeof printed === 'string' ? printed : JSON.stringify(printed);
+	const output: ReposCommandOutput = {
+		stdout,
+		stderr: '',
+		exit_code: typeof printed === 'object' && 'error' in printed ? 2 : 0
+	};
+	return {
+		calls,
+		status: async (options) => {
+			calls.push(options);
+			return { ok: true, output };
+		},
+		...overrides
 	};
 };

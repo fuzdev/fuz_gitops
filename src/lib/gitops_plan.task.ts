@@ -18,9 +18,12 @@ export const Args = z.strictObject({
 		.string()
 		.meta({ description: 'path to the gitops config file, absolute or relative to the cwd' })
 		.default(GITOPS_CONFIG_PATH_DEFAULT),
-	dir: z
+	registry: z
 		.string()
-		.meta({ description: 'path containing the repos, defaults to the parent of the config dir' })
+		.meta({
+			description:
+				'path to the repos.toml registry, when `repos` would not find it walking up from the cwd'
+		})
 		.optional(),
 	format: z
 		.enum(['stdout', 'json', 'markdown'])
@@ -44,7 +47,7 @@ export type Args = z.infer<typeof Args>;
  *
  * Usage:
  *   `gro gitops_plan`
- *   `gro gitops_plan --dir ../repos`
+ *   `gro gitops_plan --registry ../repos.toml`
  *   `gro gitops_plan --config ./custom.config.ts`
  *
  * @nodocs
@@ -53,15 +56,14 @@ export const task: Task<Args> = {
 	summary: 'generate a publishing plan based on changesets',
 	Args,
 	run: async ({ args, log }): Promise<void> => {
-		const { dir, config, format, outfile, verbose, sync } = args;
+		const { config, registry, format, outfile, verbose, sync } = args;
 
 		log.info(st('cyan', 'Generating multi-repo publishing plan...'));
 
 		// Load local repos; read the working tree as-is unless `--sync`
 		const { local_repos } = await get_gitops_ready({
 			config,
-			dir,
-			download: false, // Don't download if missing
+			registry,
 			sync,
 			log
 		});

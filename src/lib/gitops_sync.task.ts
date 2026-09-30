@@ -10,9 +10,8 @@ import { existsSync } from 'node:fs';
 import { compactReplacer } from 'svelte-docinfo';
 
 import { fetch_repo_data } from './fetch_repo_data.ts';
-import { gitops_config_leaked_private_repos } from './gitops_config.ts';
 import { create_fs_fetch_value_cache } from './fs_fetch_value_cache.ts';
-import { get_gitops_ready, import_gitops_config } from './gitops_task_helpers.ts';
+import { get_gitops_ready } from './gitops_task_helpers.ts';
 import { GITOPS_CONFIG_PATH_DEFAULT } from './gitops_constants.ts';
 
 // TODO add flag to ignore or invalidate cache -- no-cache? clean?
@@ -23,15 +22,17 @@ export const Args = z.strictObject({
 		.string()
 		.meta({ description: 'path to the gitops config file, absolute or relative to the cwd' })
 		.default(GITOPS_CONFIG_PATH_DEFAULT),
-	dir: z
+	registry: z
 		.string()
-		.meta({ description: 'path containing the repos, defaults to the parent of the config dir' })
+		.meta({
+			description:
+				'path to the repos.toml registry, when `repos` would not find it walking up from the cwd'
+		})
 		.optional(),
 	outdir: z
 		.string()
 		.meta({ description: 'path to the directory for the generated files, defaults to $routes/' })
 		.optional(),
-	download: z.boolean().meta({ description: 'download all missing local repos' }).default(false),
 	check: z
 		.boolean()
 		.meta({ description: 'check repos are ready without fetching remote data' })
@@ -59,31 +60,22 @@ export const task: Task<Args> = {
 		// `ctx.svelte_config` is a lazy getter, so it's only read when `outdir` isn't provided
 		const {
 			config,
-			dir,
+			registry,
 			outdir = (await ctx.svelte_config).routes_path,
-			download,
 			check,
 			allow_dirty
 		} = args;
 
 		// The generated `repos.json` is the host project's site data, so a public host
-		// must never carry a private repo's metadata. Checked before any sync or fetch.
+		// must never carry a private repo's metadata: `host` refuses the private repos
+		// the registry declares, before any sync or fetch.
 		const package_json = await package_json_load();
-		const leaked = gitops_config_leaked_private_repos(
-			(await import_gitops_config(resolve(config))).repos,
-			package_json.private === true
-		);
-		if (leaked.length) {
-			throw new TaskError(
-				`refusing to sync: ${package_json.name} is a public package, and its config lists private repos whose metadata would be written into its public repos.json: ${leaked.map((r) => r.repo_url).join(', ')}`
-			);
-		}
 
 		// `gitops_sync` is the task whose job is to mutate working trees, so it always syncs.
 		const { local_repos } = await get_gitops_ready({
 			config,
-			dir,
-			download,
+			registry,
+			host: { name: package_json.name, private: package_json.private === true },
 			sync: true,
 			allow_dirty,
 			log

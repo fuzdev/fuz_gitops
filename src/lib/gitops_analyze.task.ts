@@ -21,9 +21,12 @@ export const Args = z.strictObject({
 		.string()
 		.meta({ description: 'path to the gitops config file, absolute or relative to the cwd' })
 		.default(GITOPS_CONFIG_PATH_DEFAULT),
-	dir: z
+	registry: z
 		.string()
-		.meta({ description: 'path containing the repos, defaults to the parent of the config dir' })
+		.meta({
+			description:
+				'path to the repos.toml registry, when `repos` would not find it walking up from the cwd'
+		})
 		.optional(),
 	format: z
 		.enum(['stdout', 'json', 'markdown'])
@@ -45,10 +48,10 @@ export const task: Task<Args> = {
 	Args,
 	summary: 'analyze dependency structure and relationships across repos',
 	run: async ({ args, log }) => {
-		const { config, dir, format, outfile, sync } = args;
+		const { config, registry, format, outfile, sync } = args;
 
-		// Get repos ready (without downloading); read the working tree as-is unless `--sync`
-		const { local_repos } = await get_gitops_ready({ config, dir, download: false, sync, log });
+		// Read the working tree as-is unless `--sync`
+		const { local_repos } = await get_gitops_ready({ config, registry, sync, log });
 
 		// Only npm packages form the dependency graph; note any non-npm repos (e.g. cargo)
 		// that are excluded so the omission isn't silent.

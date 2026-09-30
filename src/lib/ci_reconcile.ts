@@ -2,9 +2,9 @@
  * Reconciles each repo's declared `ci` flag against whether it actually has
  * GitHub Actions workflow files on disk.
  *
- * The gitops config derives `ci` from visibility (on for public repos, off for
- * private) with per-repo overrides; this check catches drift between that
- * declaration and reality —
+ * The registry (`repos.toml`) derives `ci` from visibility (on for public repos,
+ * off for private) with per-repo overrides; this check catches drift between
+ * that declaration and reality —
  * a repo that claims CI but ships no workflow, or one that disclaims CI yet
  * still carries one. Repos that aren't checked out locally can't be judged, so
  * the caller marks them uncheckable and they're skipped. Archived repos are
@@ -34,7 +34,7 @@ export interface CiDrift {
 
 export interface CiReconcileInput {
 	repo_url: string;
-	/** The declared/derived `ci` value from the gitops config. */
+	/** The declared/derived `ci` value from the registry. */
 	ci: boolean;
 	/** Whether the repo has at least one workflow file on disk. */
 	has_workflows: boolean;

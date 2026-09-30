@@ -1,31 +1,26 @@
-import type { CreateGitopsConfig } from './src/lib/gitops_config.js';
+import type { GitopsConfig } from './src/lib/gitops_config.ts';
 
-const config: CreateGitopsConfig = () => {
-	return {
-		repos: [
-			'https://github.com/fuzdev/fuz_app',
-			'https://github.com/fuzdev/fuz_css',
-			'https://github.com/fuzdev/fuz_ui',
-			'https://github.com/fuzdev/gro',
-			'https://github.com/fuzdev/fuz_util',
-			'https://github.com/fuzdev/fuz_template',
-			'https://github.com/fuzdev/fuz_blog',
-			'https://github.com/fuzdev/fuz_mastodon',
-			'https://github.com/fuzdev/fuz_code',
-			'https://github.com/fuzdev/mdz',
-			'https://github.com/fuzdev/svelte-docinfo',
-			'https://github.com/fuzdev/tsv',
-			'https://github.com/fuzdev/tsv.fuz.dev',
-			'https://github.com/fuzdev/zzz',
-			'https://github.com/fuzdev/fuz_docs',
-			{
-				repo_url: 'https://github.com/fuzdev/fuz_repos',
-				repo_dir: '../fuz_gitops',
-				branch: 'main'
-			}
-			// 'https://github.com/fuzdev/fuz.dev',
-		]
-	};
+// repos.toml registry keys; everything else about each repo comes from the registry
+const config: GitopsConfig = {
+	repos: [
+		'fuz_app',
+		'fuz_css',
+		'fuz_ui',
+		'gro',
+		'fuz_util',
+		'fuz_template',
+		'fuz_blog',
+		'fuz_mastodon',
+		'fuz_code',
+		'mdz',
+		'svelte-docinfo',
+		'tsv',
+		'tsv.fuz.dev',
+		'zzz',
+		'fuz_docs',
+		'fuz_gitops'
+		// 'fuz.dev',
+	]
 };
 
 export default config;

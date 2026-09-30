@@ -1,7 +1,7 @@
 /**
  * Production implementations of operations interfaces.
  *
- * Provides real git, npm, fs, and build operations for production use.
+ * Provides real git, npm, fs, build, and `repos` operations for production use.
  * For interface definitions and dependency injection pattern, see `operations.ts`.
  *
  * @module
@@ -41,7 +41,8 @@ import type {
 	PreflightOperations,
 	FsOperations,
 	BuildOperations,
-	GitopsOperations
+	GitopsOperations,
+	ReposOperations
 } from './operations.ts';
 
 /** Wrap an async function that returns a value */
@@ -226,6 +227,36 @@ export const default_process_operations: ProcessOperations = {
 		} catch (error) {
 			return { ok: false, message: String(error) };
 		}
+	}
+};
+
+export const default_repos_operations: ReposOperations = {
+	status: async (options) => {
+		const { keys, registry } = options;
+		const args = [...(registry === undefined ? [] : ['--registry', registry]), 'status'];
+		// `--` so a key can never read as a flag
+		args.push('--json', '--', ...keys);
+		const spawned = await spawn_out('repos', args);
+		const { result } = spawned;
+		if (result.kind === 'error') {
+			const not_found = (result.error as NodeJS.ErrnoException).code === 'ENOENT';
+			return {
+				ok: false,
+				kind: not_found ? 'not_found' : 'failed',
+				message: result.error.message
+			};
+		}
+		if (result.kind === 'signaled') {
+			return { ok: false, kind: 'failed', message: `repos was killed by ${result.signal}` };
+		}
+		return {
+			ok: true,
+			output: {
+				stdout: spawned.stdout ?? '',
+				stderr: spawned.stderr ?? '',
+				exit_code: result.code
+			}
+		};
 	}
 };
 

@@ -1,24 +1,8 @@
-import type { CreateGitopsConfig } from '$lib/gitops_config.ts';
-import { join, dirname } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import type { GitopsConfig } from '$lib/gitops_config.ts';
 
-import { basic_publishing } from '../repo_fixtures/basic_publishing.ts';
-
-// Get absolute path to fixtures directory
-const FIXTURES_DIR = dirname(dirname(fileURLToPath(import.meta.url)));
-
-const config: CreateGitopsConfig = () => {
-	const repos = [];
-
-	// Generate repo configs from this fixture only
-	for (const repo_data of basic_publishing.repos) {
-		repos.push({
-			repo_url: repo_data.repo_url,
-			repo_dir: join(FIXTURES_DIR, 'repos', basic_publishing.name, repo_data.repo_name)
-		});
-	}
-
-	return { repos };
+// the registry keys of the `basic_publishing` fixture's repos
+const config: GitopsConfig = {
+	repos: ['repo_a', 'repo_b', 'repo_c', 'repo_d', 'repo_e']
 };
 
 export default config;

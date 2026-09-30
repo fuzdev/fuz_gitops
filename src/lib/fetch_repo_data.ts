@@ -28,7 +28,7 @@ export const fetch_repo_data = async (
 	github_api_version?: string
 ): Promise<Array<RepoJson>> => {
 	const repos: Array<RepoJson> = [];
-	for (const { library, package_json, repo_config } of resolved_repos) {
+	for (const { library, package_json, entry } of resolved_repos) {
 		const repo_url = library.repo_url;
 
 		// CI status
@@ -38,7 +38,7 @@ export const fetch_repo_data = async (
 			log,
 			token,
 			api_version: github_api_version,
-			ref: repo_config.branch
+			ref: entry.branch ?? undefined
 		});
 		if (!check_runs) log?.error('failed to fetch CI status: ' + repo_url);
 
