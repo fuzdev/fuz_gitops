@@ -43,10 +43,9 @@
 //! hold on a push holds a creation, the failed fetch included. An agent is
 //! refused it before anything runs (`check_new_branch`).
 //!
-//! **An agent may run it** without `--new-branch`: it's what `sync`'s hold
-//! on an agent's pushes (`HeldBy::Gateway`) waits for, so its push is
-//! classified and made as a person's sync would make it, whoever runs it
-//! (`GATEWAY`).
+//! **An agent may run it** without `--new-branch`: its push is classified
+//! and made as a person's. It's the path agents push by; raw `git push` in
+//! an agent's Bash call is denied (`hook`).
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -66,11 +65,6 @@ use crate::sessions::{Caller, LiveSessions};
 use crate::state::{BranchNeedsHuman, BranchStatus, Head, Relation, SyncAction, Verdict};
 use crate::status::{Assess, EntryTiming, assess, probe_all};
 use crate::sync::{Actor, fetch_outcome};
-
-/// Who `repos push` classifies and acts for: a person, whoever runs it —
-/// it's the gateway `sync`'s hold on an agent's pushes waits for, so no
-/// push of its own is held for it.
-const GATEWAY: Caller = Caller::Person;
 
 /// How to run `push`.
 #[derive(Clone, Copy)]
@@ -202,7 +196,6 @@ pub fn push(
         &Assess {
             root,
             live: &(opts.read_live)(),
-            caller: GATEWAY,
             refresh: Refresh::Unasked,
             unregistered: &[],
         },
@@ -215,7 +208,6 @@ pub fn push(
         entries: &entries,
         checkouts: &assessed.checkouts,
         read_live: opts.read_live,
-        caller: GATEWAY,
     };
     // by repo and branch: a branch pushes once, however many targets name it
     let mut done: HashMap<(PathBuf, String), PushOutcome> = HashMap::new();

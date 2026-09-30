@@ -1592,7 +1592,7 @@ fn sync_json_is_the_versioned_outcome_report() {
 }
 
 #[test]
-fn an_agents_sync_holds_its_pushes_for_the_gateway() {
+fn an_agents_sync_pushes_as_a_persons_does() {
     let ws = sync_workspace();
     let blog_was = ws.git(&ws.bare("blog"), &["rev-parse", "main"]);
     let agent = |args: &[&str]| {
@@ -1602,58 +1602,25 @@ fn an_agents_sync_holds_its_pushes_for_the_gateway() {
             .output()
             .unwrap()
     };
-    // the preview says so
+    // the preview holds nothing for it
     let text = stdout(&agent(&["status"]));
     assert!(
-        text.starts_with(
-            "sync would    clone gone\nheld          push blog +1 (gateway)\n              \
-             hint: an agent pushes its own branch with repos push; the user's own repos sync \
-             pushes these\n"
-        ),
+        text.starts_with("sync would    push blog +1 · clone gone\n"),
         "{text}"
     );
     let out = agent(&["sync"]);
     assert_eq!(out.status.code(), Some(0), "stderr: {}", stderr(&out));
     let text = stdout(&out);
     let lines: Vec<&str> = text.lines().collect();
-    // an agent clones: a clone writes a new dir, never a remote
     assert_eq!(
         lines[..lines.len() - 1],
-        [
-            "synced        ff app −1 · clone gone",
-            "held          push blog +1 (gateway)",
-            "              hint: an agent pushes its own branch with repos push; the user's own \
-             repos sync pushes these",
-        ],
+        ["synced        push blog +1 · ff app −1 · clone gone"],
         "{text}"
     );
     ws.assert_head(&ws.dir("gone"), Some("main"));
-    assert_eq!(ws.git(&ws.bare("blog"), &["rev-parse", "main"]), blog_was);
-    let report = parse(&agent(&["sync", "--json"]));
-    assert_eq!(
-        report["entries"][1]["branches"][0],
-        serde_json::json!({
-            "name": "main",
-            "kind": "held",
-            "action": {"kind": "push", "commits": 1},
-            "by": "gateway",
-            "repeats": null,
-        })
-    );
-    assert_eq!(ws.git(&ws.bare("blog"), &["rev-parse", "main"]), blog_was);
-    // an empty value is no agent's
-    let out = ws
-        .command(REPOS, &ws.root())
-        .env("CLAUDECODE", "")
-        .args(["sync"])
-        .output()
-        .unwrap();
-    assert!(
-        stdout(&out).starts_with("synced        push blog +1\n"),
-        "{}",
-        stdout(&out)
-    );
-    assert_ne!(ws.git(&ws.bare("blog"), &["rev-parse", "main"]), blog_was);
+    let blog_tip = ws.git(&ws.dir("blog"), &["rev-parse", "main"]);
+    assert_ne!(blog_tip, blog_was);
+    assert_eq!(ws.git(&ws.bare("blog"), &["rev-parse", "main"]), blog_tip);
 }
 
 #[test]

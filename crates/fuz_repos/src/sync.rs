@@ -27,10 +27,11 @@
 //! there, is never touched (its verdicts never act), and a third-party
 //! reference only when the run refreshes it — named as a target, or under
 //! `--references` — and then never pushed. An entry whose probe failed has
-//! no verdicts, so nothing in it acts. An agent's pushes are held
-//! (`Caller::Agent`, `HeldBy::Gateway`): an agent pushes the branch it's on
-//! through `repos push` (the `push` module), and a person runs sync to push
-//! the rest. Both push through this module's one push (`Actor::act`).
+//! no verdicts, so nothing in it acts. An agent's run pushes as a person's
+//! does — every branch ahead that nothing holds, busy detection keeping it
+//! off live sessions' checkouts — and `repos push` (the `push` module)
+//! pushes one checkout's branch through this module's one push
+//! (`Actor::act`).
 //!
 //! **The verdict is a plan; git is the check.** Right before each action,
 //! sync re-reads the live sessions (a hold when busy detection has become
@@ -193,7 +194,7 @@ use crate::report::{
     BranchOutcome, BranchSync, CloneOutcome, EntryStatus, EntrySync, FetchOutcome, PushOutcome,
     SyncHold, UnregisteredClone,
 };
-use crate::sessions::{Caller, LiveSessions};
+use crate::sessions::LiveSessions;
 use crate::state::{
     BranchNeedsHuman, BranchStatus, CloneRecipe, CloneVerdict, Head, SyncAction, Verdict,
 };
@@ -221,9 +222,6 @@ pub struct SyncOptions<'a> {
     /// done, to classify, and again right before each action. A seam for
     /// tests.
     pub read_live: &'a (dyn Fn() -> LiveSessions + Sync),
-    /// Who runs the tool (`Caller::from_env`): an agent's pushes are held
-    /// for the gateway.
-    pub caller: Caller,
     /// A clone's timeout: `CLONE_TIMEOUT`, but in tests.
     pub clone_timeout: Duration,
     /// Which references the run refreshes (`Refresh`): a third-party one
@@ -242,7 +240,6 @@ impl std::fmt::Debug for SyncOptions<'_> {
         f.debug_struct("SyncOptions")
             .field("jobs", &self.jobs)
             .field("visibility_base", &self.visibility_base)
-            .field("caller", &self.caller)
             .field("clone_timeout", &self.clone_timeout)
             .field("refresh", &self.refresh)
             .field("unregistered", &self.unregistered)
@@ -301,7 +298,6 @@ pub fn sync(
         &Assess {
             root,
             live: &(opts.read_live)(),
-            caller: opts.caller,
             refresh: opts.refresh,
             unregistered: opts.unregistered.unwrap_or_default(),
         },
@@ -314,7 +310,6 @@ pub fn sync(
         entries,
         checkouts: &assessed.checkouts,
         read_live: opts.read_live,
-        caller: opts.caller,
     };
     let cloner = Cloner {
         git,
@@ -426,7 +421,6 @@ pub(crate) struct Actor<'a> {
     pub entries: &'a [Entry],
     pub checkouts: &'a [EntryCheckouts],
     pub read_live: &'a (dyn Fn() -> LiveSessions + Sync),
-    pub caller: Caller,
 }
 
 impl Actor<'_> {
@@ -500,15 +494,9 @@ impl Actor<'_> {
     ) -> BranchOutcome {
         let held = |by| BranchOutcome::Held { action, by };
         let failed = |message: String| BranchOutcome::Failed { action, message };
-        // classify held it already, so no verdict reaches here as an agent's
-        // push; a second line, before anything is read, should that slip
-        // (`an_agents_push_is_held_at_act_time_whatever_the_verdict`)
-        if matches!(action, SyncAction::Push { .. }) && self.caller == Caller::Agent {
-            return held(SyncHold::Gateway);
-        }
         // classify never makes a third-party reference's verdict a push (it
-        // reads local-only); a second line, as above
-        // (`a_third_party_push_fails_at_act_time_whatever_the_verdict`)
+        // reads local-only); a second line, before anything is read, should
+        // that slip (`a_third_party_push_fails_at_act_time_whatever_the_verdict`)
         if matches!(action, SyncAction::Push { .. }) && !self.entries[i].writable {
             return failed(format!(
                 "{} is a third-party reference's, which is never pushed",
@@ -1973,39 +1961,10 @@ mod tests {
         (facts, b)
     }
 
-    /// The act-time gateway hold, driven directly: classify holds an
-    /// agent's push before it becomes an `act` (so no run through `sync`
-    /// reaches this guard), and the guard is the second line should that
-    /// ever slip. It holds before anything is read — no facts, no sessions,
-    /// no git.
-    #[test]
-    fn an_agents_push_is_held_at_act_time_whatever_the_verdict() {
-        // a runner with no `PATH`: git can't even start
-        let git = Git::with_clean_env(Vec::new());
-        let read_live = || -> LiveSessions { panic!("the guard reads no sessions") };
-        let actor = Actor {
-            git: &git,
-            root: Path::new("/ws"),
-            entries: &[],
-            checkouts: &[],
-            read_live: &read_live,
-            caller: Caller::Agent,
-        };
-        let (facts, b) = ahead_main();
-        let action = SyncAction::Push { commits: 1 };
-        assert_eq!(
-            actor.act(0, &facts, &b, action),
-            BranchOutcome::Held {
-                action,
-                by: SyncHold::Gateway
-            }
-        );
-    }
-
-    /// The act-time third-party guard, driven directly as the gateway's is:
-    /// classify reads a third-party reference's branch ahead as local-only
-    /// work, never a push, and the guard fails one that ever slips, before
-    /// anything is read.
+    /// The act-time third-party guard, driven directly: classify reads a
+    /// third-party reference's branch ahead as local-only work, never a
+    /// push, and the guard fails one that ever slips, before anything is
+    /// read.
     #[test]
     fn a_third_party_push_fails_at_act_time_whatever_the_verdict() {
         let git = Git::with_clean_env(Vec::new());
@@ -2032,7 +1991,6 @@ mod tests {
             entries: &entries,
             checkouts: &[],
             read_live: &read_live,
-            caller: Caller::Person,
         };
         let (facts, b) = ahead_main();
         let action = SyncAction::Push { commits: 1 };

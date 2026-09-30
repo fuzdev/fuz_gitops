@@ -63,7 +63,7 @@ use fuz_repos::push::{PushOptions, PushRun, check_pushable, push};
 use fuz_repos::registry::{Entry, ValidRegistry};
 use fuz_repos::report::{EntryStatus, UnregisteredClone};
 use fuz_repos::scan::scan_unregistered;
-use fuz_repos::sessions::{Caller, LiveSessions, stat_starttime};
+use fuz_repos::sessions::{LiveSessions, stat_starttime};
 use fuz_repos::state::{BranchStatus, UnprobedWorktree};
 use fuz_repos::status::{StatusOptions, StatusRun, status};
 use fuz_repos::sync::{SyncOptions, SyncRun, sync};
@@ -179,7 +179,6 @@ fn real_exec_path() -> &'static Path {
 
 /// How `FixtureWorkspace::sync_full` runs `sync`.
 pub struct SyncRunOptions<'a> {
-    pub caller: Caller,
     pub jobs: usize,
     pub read_live: &'a (dyn Fn() -> LiveSessions + Sync),
     pub clone_timeout: Duration,
@@ -756,7 +755,6 @@ impl FixtureWorkspace {
                 jobs: 4,
                 visibility_base: Some(visibility_base),
                 live: &LiveSessions::Known(vec![]),
-                caller: Caller::Person,
             },
         );
         run.entries
@@ -783,37 +781,24 @@ impl FixtureWorkspace {
                 jobs: 4,
                 visibility_base: Some(&self.visibility_base()),
                 live,
-                caller: Caller::Person,
             },
         )
     }
 
     /// `sync` over every entry with `jobs` in flight, `read_live` reading
-    /// the live sessions each time sync asks, run by a person.
+    /// the live sessions each time sync asks.
     pub fn sync_with(&self, jobs: usize, read_live: &(dyn Fn() -> LiveSessions + Sync)) -> SyncRun {
-        self.sync_as(Caller::Person, jobs, read_live)
+        self.sync_timed(jobs, read_live, CLONE_TIMEOUT)
     }
 
-    /// `sync_with`, run by `caller`.
-    pub fn sync_as(
-        &self,
-        caller: Caller,
-        jobs: usize,
-        read_live: &(dyn Fn() -> LiveSessions + Sync),
-    ) -> SyncRun {
-        self.sync_timed(caller, jobs, read_live, CLONE_TIMEOUT)
-    }
-
-    /// `sync_as`, each clone under `clone_timeout`.
+    /// `sync_with`, each clone under `clone_timeout`.
     pub fn sync_timed(
         &self,
-        caller: Caller,
         jobs: usize,
         read_live: &(dyn Fn() -> LiveSessions + Sync),
         clone_timeout: Duration,
     ) -> SyncRun {
         self.sync_full(&SyncRunOptions {
-            caller,
             jobs,
             read_live,
             clone_timeout,
@@ -822,11 +807,10 @@ impl FixtureWorkspace {
         })
     }
 
-    /// `sync` by a person, no live session anywhere, refreshing the
+    /// `sync` with no live session anywhere, refreshing the
     /// references `refresh` asks for, with `jobs` in flight.
     pub fn sync_asked(&self, refresh: Refresh, jobs: usize) -> SyncRun {
         self.sync_full(&SyncRunOptions {
-            caller: Caller::Person,
             jobs,
             read_live: &|| LiveSessions::Known(vec![]),
             clone_timeout: CLONE_TIMEOUT,
@@ -835,11 +819,10 @@ impl FixtureWorkspace {
         })
     }
 
-    /// `sync` by a person, no live session anywhere, after the unregistered
+    /// `sync` with no live session anywhere, after the unregistered
     /// scan, as a run without targets makes it.
     pub fn sync_scanned(&self) -> SyncRun {
         self.sync_full(&SyncRunOptions {
-            caller: Caller::Person,
             jobs: 4,
             read_live: &|| LiveSessions::Known(vec![]),
             clone_timeout: CLONE_TIMEOUT,
@@ -862,7 +845,6 @@ impl FixtureWorkspace {
                 jobs: opts.jobs,
                 visibility_base: Some(&self.visibility_base()),
                 read_live: &opts.read_live,
-                caller: opts.caller,
                 clone_timeout: opts.clone_timeout,
                 refresh: opts.refresh,
                 unregistered: unregistered.as_deref(),

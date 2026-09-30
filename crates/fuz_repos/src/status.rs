@@ -22,7 +22,7 @@ use crate::remote::{
 };
 use crate::report::{EntryStatus, UnregisteredClone};
 use crate::scan::Scan;
-use crate::sessions::{Caller, LiveSessions};
+use crate::sessions::LiveSessions;
 use crate::state::{Checkout, Presence, Prune, RefreshVerdict};
 
 /// How to run `status`.
@@ -50,9 +50,6 @@ pub struct StatusOptions<'a> {
     /// The live sessions the run scopes to checkouts
     /// (`read_live_sessions`), read by the caller: a seam for tests.
     pub live: &'a LiveSessions,
-    /// Who runs the tool (`Caller::from_env`): an agent's pushes are
-    /// previewed held for the gateway, as its sync would hold them.
-    pub caller: Caller,
 }
 
 /// One entry's time, for `--timings`.
@@ -118,7 +115,6 @@ pub fn status(
         &Assess {
             root,
             live: opts.live,
-            caller: opts.caller,
             refresh: opts.refresh,
             unregistered: opts.unregistered.unwrap_or_default(),
         },
@@ -243,15 +239,14 @@ pub(crate) struct Assess<'a> {
     /// The workspace root, which missing entries' paths are under.
     pub root: &'a Path,
     pub live: &'a LiveSessions,
-    pub caller: Caller,
     pub refresh: Refresh,
     /// The unregistered scan's dirs; empty when it didn't run.
     pub unregistered: &'a [UnregisteredClone],
 }
 
 /// Scopes `cx.live` to the probed checkouts, so a session lands in the
-/// deepest of them all, and classifies each entry for `cx.caller` and
-/// `cx.refresh` — a missing one's clone against the sessions at its path
+/// deepest of them all, and classifies each entry for `cx.refresh` — a
+/// missing one's clone against the sessions at its path
 /// under the root, the gone worktrees the probed entries record, and the
 /// unregistered dirs (`classify_missing_at`).
 pub(crate) fn assess(entries: &[Entry], probes: Probes, cx: &Assess<'_>) -> Assessed {
@@ -277,7 +272,7 @@ pub(crate) fn assess(entries: &[Entry], probes: Probes, cx: &Assess<'_>) -> Asse
         assessed.fetches.push(run.fetch.clone());
         assessed
             .entries
-            .push(entry_status(entry, run, busy, cx.caller, cx.refresh));
+            .push(entry_status(entry, run, busy, cx.refresh));
         assessed.timings.push(timing);
     }
     for (i, check, time) in probes.checks {
@@ -335,12 +330,11 @@ pub(crate) fn entry_checkouts(probed: &Probed) -> EntryCheckouts {
 }
 
 /// Assembles an entry's report from its probe and the live sessions in its
-/// checkouts, classified for `caller` and `refresh`.
+/// checkouts, classified for `refresh`.
 pub fn entry_status(
     entry: &Entry,
     run: ProbeRun,
     sessions: &EntrySessions,
-    caller: Caller,
     refresh: Refresh,
 ) -> EntryStatus {
     let mut status = EntryStatus {
@@ -392,7 +386,7 @@ pub fn entry_status(
         }
         Probed::Present(facts) => {
             status.refresh = refresh_verdict(entry, refresh, &facts.config);
-            let classified = classify(entry, &facts, sessions, caller, refresh);
+            let classified = classify(entry, &facts, sessions, refresh);
             status.branches = classified.branches;
             status.needs_human = classified.needs_human;
             status.stashes = facts.status.stashes;

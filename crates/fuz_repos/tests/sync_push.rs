@@ -24,7 +24,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use fuz_repos::classify::NeedsHuman;
 use fuz_repos::remote::{RemoteFailure, UnreachableCause};
 use fuz_repos::report::{BranchOutcome, SyncHold};
-use fuz_repos::sessions::{Caller, LiveSessions, Session, SessionSource};
+use fuz_repos::sessions::{LiveSessions, Session, SessionSource};
 use fuz_repos::state::{BranchNeedsHuman, HeldBy, SyncAction, Verdict};
 use fuz_repos::sync::SyncRun;
 use support::{FixtureWorkspace, LiveChild, branch, find_entry, write_executable};
@@ -208,44 +208,6 @@ fn pushes_the_branch_ahead_and_nothing_else() {
     assert_eq!(outcome(&run, "app", "main"), &BranchOutcome::Untouched);
     assert_eq!(ws.ssh_log().len(), 1);
     assert!(!hooks_log.exists());
-}
-
-#[test]
-fn an_agents_pushes_are_held_for_the_gateway() {
-    let mut ws = FixtureWorkspace::new();
-    let (app, _) = ahead(&mut ws);
-    // a branch behind, to show the rest of sync goes on
-    ws.upstream_commit("app", "feat");
-    ws.git(&app, &["fetch", "-q", "origin"]);
-    ws.git(&app, &["branch", "-q", "--track", "feat", "origin/feat"]);
-    let feat_tip = ws.upstream_commit("app", "feat");
-    let remote_before = remote_refs(&ws, "app");
-    let local_before = ws.refs(&app);
-
-    let run = ws.sync_as(Caller::Agent, 4, &quiet);
-
-    let e = find_entry(&run.entries, "app");
-    assert_eq!(
-        branch(e, "main").verdict,
-        Verdict::Held {
-            action: push(1),
-            by: HeldBy::Gateway
-        }
-    );
-    assert_eq!(
-        outcome(&run, "app", "main"),
-        &held(push(1), SyncHold::Gateway)
-    );
-    assert!(matches!(
-        outcome(&run, "app", "feat"),
-        BranchOutcome::FastForwarded { .. }
-    ));
-    assert_eq!(remote_refs(&ws, "app"), remote_before);
-    assert_eq!(
-        ws.refs(&app),
-        ws.refs_after_fetch("app", &local_before, &[("refs/heads/feat", &feat_tip)])
-    );
-    assert_eq!(ws.ssh_log(), Vec::<String>::new());
 }
 
 #[test]

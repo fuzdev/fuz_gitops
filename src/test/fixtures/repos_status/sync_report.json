@@ -1,7 +1,7 @@
 {
-	"version": 6,
+	"version": 7,
 	"status": {
-		"version": 12,
+		"version": 13,
 		"workspace": "/home/me/dev",
 		"registry": "/home/me/dev/repos.toml",
 		"fetched": true,
@@ -201,26 +201,6 @@
 								"kind": "push",
 								"commits": 1
 							}
-						}
-					},
-					{
-						"name": "agent",
-						"upstream": "origin/agent",
-						"worktree": null,
-						"symref": null,
-						"unique_commits": 0,
-						"newest_commit_at": 1799827200,
-						"relation": {
-							"kind": "ahead",
-							"commits": 2
-						},
-						"verdict": {
-							"kind": "held",
-							"action": {
-								"kind": "push",
-								"commits": 2
-							},
-							"by": "gateway"
 						}
 					},
 					{
@@ -1123,16 +1103,6 @@
 						"commits": 1
 					},
 					"by": "push_url",
-					"repeats": null
-				},
-				{
-					"name": "agent",
-					"kind": "held",
-					"action": {
-						"kind": "push",
-						"commits": 2
-					},
-					"by": "gateway",
 					"repeats": null
 				},
 				{

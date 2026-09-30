@@ -227,11 +227,11 @@ impl SessionsSource {
 /// Who runs the tool: a person, or an agent — a Claude Code agent shell,
 /// which sets `CLAUDECODE`.
 ///
-/// An agent's `sync` pushes are held (`HeldBy::Gateway`): an agent pushes
-/// the branch it's on through the gateway, `repos push` with its policy,
-/// which classifies and pushes for anyone as for a person, and a person
-/// runs `repos sync` to push the rest. Guidance, not a boundary — an agent
-/// can unset the variable; the host's rules are the floor.
+/// It decides one thing: an agent is refused `repos push --new-branch`
+/// (`check_new_branch`), since creating a remote branch is the user's. An
+/// agent's `sync` and `push` otherwise run as a person's. Guidance, not a
+/// boundary — an agent can unset the variable (`repos hook pre-tool-use`
+/// denies the Bash calls that do); the host's rules are the floor.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Caller {
     Person,

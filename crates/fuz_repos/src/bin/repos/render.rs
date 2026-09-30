@@ -156,12 +156,6 @@ fn ref_gone_hint(fix: &RefGoneFix, dir: &str) -> String {
 const HOST_KEY_HINT: &str = "repos never asks to trust a host — check its key (or \
      certificate), then connect once by hand to record it";
 
-/// Pushes an agent's `sync` held: an agent pushes the branch it's on
-/// through the gateway, `repos push`, and the user's own sync pushes the
-/// rest. Said as what happens.
-const GATEWAY_HINT: &str =
-    "hint: an agent pushes its own branch with repos push; the user's own repos sync pushes these";
-
 /// `REF_GONE_HINT` for `repos push`, which has no `--verbose`.
 const PUSH_REF_GONE_HINT: &str = "a fetch refspec names a branch deleted or renamed on the \
      remote, so nothing was fetched — each entry's repair under repos status --fetch --verbose";
@@ -679,7 +673,6 @@ fn summary(
         let hint = format!("hint: {} (each under --verbose)", fixes.join(", or "));
         line("", Tone::Plain, Items::Singles(vec![hint]));
     }
-    let gateway = g.gateway.then(|| GATEWAY_HINT.to_owned());
     let act_label = if synced.is_some() {
         "synced"
     } else {
@@ -687,9 +680,6 @@ fn summary(
     };
     line(act_label, Tone::Green, Items::Runs(g.act.verbs(), " · "));
     line("held", Tone::Yellow, Items::Runs(g.held.verbs(), " · "));
-    if let Some(hint) = gateway {
-        line("", Tone::Plain, Items::Singles(vec![hint]));
-    }
     line("local-only", Tone::Plain, Items::Singles(g.local_only));
     line("uncommitted", Tone::Plain, Items::Singles(g.uncommitted));
     line("cleanup", Tone::Plain, Items::Singles(g.cleanup));
@@ -871,8 +861,6 @@ impl Actions {
 struct Groups {
     /// A sync report's: `act` is what sync did.
     synced: bool,
-    /// A push is held for the gateway: an agent runs the tool.
-    gateway: bool,
     visibility: Vec<String>,
     failed: Vec<String>,
     needs_human: Vec<String>,
@@ -985,7 +973,6 @@ impl Groups {
                 } => {}
                 Verdict::Act { action } => self.act.add(*action, &label(b), ""),
                 Verdict::Held { action, by } => {
-                    self.gateway |= *by == HeldBy::Gateway;
                     self.held.add(*action, &label(b), held_note(*by));
                 }
                 Verdict::NeedsHuman { reason } => {
@@ -1133,7 +1120,6 @@ impl Groups {
                 | BranchOutcome::Untouched,
             ) => {}
             Some(BranchOutcome::Held { action, by }) => {
-                self.gateway |= *by == SyncHold::Gateway;
                 self.held.add(*action, label, hold_note(*by));
             }
             Some(BranchOutcome::PushFailed { failure }) => {
@@ -2079,15 +2065,13 @@ fn fetches_elsewhere(fetch_url: &str) -> bool {
     fetch_url.starts_with("https://")
 }
 
-/// `held_note` for a hold sync found, the verdict's or its own; a push sync
-/// never makes carries none (a hint says it once).
+/// `held_note` for a hold sync found, the verdict's or its own.
 const fn hold_note(by: SyncHold) -> &'static str {
     match by {
         SyncHold::Pinned => " (pinned)",
         SyncHold::Entry => "",
         SyncHold::PushUrl => " (push URL)",
         SyncHold::OriginNotHttps => " (origin not HTTPS)",
-        SyncHold::Gateway => " (gateway)",
         SyncHold::FetchFailed => " (fetch failed)",
         SyncHold::DirtyCheckout => " (dirty)",
         SyncHold::UnprobedWorktree => " (unprobed worktree)",

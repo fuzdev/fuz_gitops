@@ -52,8 +52,8 @@ Publishing is the flagship vertical of the TS side, not the identity.
 ### Capability tiers
 
 Multi-repo work doesn't carry uniform risk. Four tiers, ordered by blast
-radius (`repos status`, `repos sync`, and `repos push` are built; the settings
-and hook that steer agents' raw `git push` to `repos push` are planned):
+radius (`repos status`, `repos sync`, and `repos push` are built, and `repos
+hook pre-tool-use` steers agents' raw `git push` to `repos push`):
 
 | Tier | Writes | Commands |
 | --- | --- | --- |
@@ -162,7 +162,8 @@ gitops.config.ts -> local repos -> GitHub API -> repos.ts -> UI components
 - `src/lib/fetch_repo_data.ts` - fetches remote repo metadata
 - `src/routes/repos.ts` - generated data file with all repo info
 - `crates/fuz_repos/` - the Rust `repos` tool: registry, git runner, probe,
-  unregistered scan, busy detection, classification, sync, push (library)
+  unregistered scan, busy detection, classification, sync, push, and the
+  `PreToolUse` hook with its shell reader (library)
   and the `repos` binary
 - `crates/fuz_repos/tests/` - its integration tests over fixture workspaces
   (`tests/support`)
@@ -545,6 +546,7 @@ repos sync --references      # refresh every third-party reference too (never a 
 repos push                   # the gateway: fetch, then push the branch checked out here as a fast-forward of what was fetched; exit 1 unless it ends in sync
 repos push app ../wt --json  # targets: a key or dir name (the entry's own checkout), or a path (the checkout holding it); --json prints the versioned outcome report
 repos push --new-branch      # the user's (refused under CLAUDECODE): create the branch on origin when it has no upstream there, and track it as git push -u does
+repos hook pre-tool-use      # Claude Code's PreToolUse hook: the hook's JSON on stdin; exit 2 denies a raw git push, else exit 0 in silence
 repos --version              # the crate version and the commit the binary was built from
 repos --registry <file> --root <dir> status # a registry kept outside the workspace
 
@@ -695,10 +697,11 @@ it has commits on no remote); the remote's own refusal or an unreachable host
 is `push_failed`, exit `1`. After a push (or finding the commit already
 there, another hand's push since the fetch) the remote-tracking ref moves to
 the commit by compare-and-swap on the fetched tip, so `status` reads the
-branch in sync without a refetch. **An agent's sync pushes are held**: under
-`CLAUDECODE` (Claude Code's agent shells) every push reads `held (gateway)`
-in `status` and `sync` alike; the agent pushes the branch it's on with
-`repos push`, and the person runs `repos sync` to push the rest. A branch
+branch in sync without a refetch. **An agent's sync pushes as a person's
+does**: under `CLAUDECODE` (Claude Code's agent shells) nothing is held for
+being an agent's — every branch ahead that nothing else holds is pushed,
+commits other, finished sessions made included — and busy detection keeps it
+off the checkouts live sessions work in. A branch
 that's a symbolic ref never acts. It never rebases, merges anything but a
 fast-forward, deletes a branch, or prunes a worktree (the fetch prunes only
 remote-tracking refs gone upstream), and never touches a pin. A failed fetch
@@ -723,8 +726,8 @@ does origin drift; a failed fetch or an entry-level reason (origin drift
 among them) holds even a branch that reads in sync, since its refs may not
 be origin's (a branch with no upstream configured reads `no_upstream`
 whatever the fetch, since that's its config); dirt doesn't matter, since a
-push moves refs alone. It runs for an agent as for a person — the agent
-hold is sync's. A branch with no upstream on origin reads `no_upstream`:
+push moves refs alone. It runs for an agent as for a person. A branch with no
+upstream on origin reads `no_upstream`:
 **creating the remote branch is the user's**, with `repos push
 --new-branch`, which an agent's shell (`CLAUDECODE`) is refused, exit `2`.
 It creates a branch with no upstream configured, or whose same-named
@@ -750,6 +753,32 @@ the cwd in no entry's checkout, a third-party or pinned target,
 `--new-branch` in an agent's shell). `--json` prints its own versioned outcome
 report: the targets' entries after the fetch, and one outcome per target
 checkout. The rustdoc of `push.rs` has the details.
+
+**`repos hook pre-tool-use` points agents at the gateway.** A user-scope
+`PreToolUse` hook with a `Bash` matcher runs it on every agent Bash call, the
+hook's JSON on stdin. It reads the call's command as shell — quoting removed,
+split at `&&`, `;`, `|`, newlines, subshells, and substitutions, past `VAR=`
+assignments and wrappers (`env`, `sudo`, `timeout`, `nice`, `xargs`, …), into
+`bash -c`, `eval`, here-documents fed to a shell, and a script the call writes
+and then runs — and denies a raw git push (`git push` or `send-pack` behind
+any path to git, git's global options, or a pushing alias), `repos push
+--new-branch`, and `repos push` run with `CLAUDECODE` unset or emptied: exit
+`2` with the reason on stderr and Claude Code's deny JSON on stdout, which
+names `repos push` (and, to update a local bare repo, fetching into it).
+Text it can't read is denied only where one command of it has a push word
+after a git word. Anything else, input it can't read as the hook's included,
+exits `0` in silence: a schema change must not wedge every Bash call. It
+reads stdin alone — no git, registry, network, or files — and bounds its
+work, so it costs little more than its process spawn. The settings run it
+guarded: they capture its stdout, and pass the deny on (print it, exit `2`)
+only when it exited `2` and printed `"permissionDecision":"deny"` — so a
+`repos` binary older than the subcommand, whose usage error also exits `2`,
+fails open instead of blocking every Bash call. They keep denying
+`Bash(git push:*)` (and `Bash(repos push --new-branch:*)`) — permission rules
+hold in every mode, and back the hook where it fails open — and allow
+`Bash(repos:*)`. Guidance, not a boundary: a script in a file, another
+language, or an alias defined elsewhere stays out of its reach. The rustdoc
+of `hook.rs` has the grammar and its limits.
 
 **Third-party references are like locked dependencies**: left as they are —
 never fetched, no branch compared against a remote, only local work

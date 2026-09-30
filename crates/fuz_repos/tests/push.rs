@@ -1461,31 +1461,20 @@ fn push_usage_errors_exit_two() {
 }
 
 #[test]
-fn an_agent_pushes_through_push_while_its_sync_holds() {
+fn an_agent_pushes_through_push() {
     let mut ws = FixtureWorkspace::new();
     let (app, tip) = ahead(&mut ws);
     let blog = ws.owned_repo("blog", &[]);
     ws.commit(&blog, "local");
     ws.write_registry();
     let blog_was = ws.git(&ws.bare("blog"), &["rev-parse", "main"]);
-    let agent = |cwd: &Path, args: &[&str]| {
-        ws.command(REPOS, cwd)
-            .env("CLAUDECODE", "1")
-            .args(args)
-            .output()
-            .unwrap()
-    };
 
-    let out = agent(&ws.root(), &["sync"]);
-    assert_eq!(out.status.code(), Some(0), "stderr: {}", stderr(&out));
-    assert!(
-        stdout(&out).starts_with("held          push app +1 (gateway), blog +1 (gateway)\n"),
-        "{}",
-        stdout(&out)
-    );
-    assert_ne!(ws.git(&ws.bare("app"), &["rev-parse", "main"]), tip);
-
-    let out = agent(&app, &["push"]);
+    let out = ws
+        .command(REPOS, &app)
+        .env("CLAUDECODE", "1")
+        .args(["push"])
+        .output()
+        .unwrap();
     assert_eq!(out.status.code(), Some(0), "stderr: {}", stderr(&out));
     assert!(
         stdout(&out).starts_with("pushed        app +1\n"),

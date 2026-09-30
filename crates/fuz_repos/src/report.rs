@@ -518,9 +518,6 @@ pub enum SyncHold {
     /// A live session may work there unseen — as classified, or found so
     /// right before acting (busy detection unavailable, among them).
     BusyUnknown,
-    /// A push by an agent's sync (`HeldBy::Gateway`): the agent pushes the
-    /// branch it's on with `repos push`, a person runs sync to push the rest.
-    Gateway,
     /// Found at the moment of acting: the branch or its checkout isn't as
     /// the probe read it — the checkout's HEAD left the branch, a shallow
     /// branch gained commits on no remote, a branch to move in place is
@@ -549,7 +546,6 @@ impl From<HeldBy> for SyncHold {
             HeldBy::SeveralCheckouts => Self::SeveralCheckouts,
             HeldBy::Busy => Self::Busy,
             HeldBy::BusyUnknown => Self::BusyUnknown,
-            HeldBy::Gateway => Self::Gateway,
         }
     }
 }

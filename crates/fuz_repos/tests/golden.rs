@@ -236,11 +236,10 @@ fn assert_sync_coverage(doc: &SyncReport) {
         SyncHold::SeveralCheckouts => 6,
         SyncHold::Busy => 7,
         SyncHold::BusyUnknown => 8,
-        SyncHold::Gateway => 9,
-        SyncHold::Changed => 10,
+        SyncHold::Changed => 9,
         // a refresh's hold alone, never a branch's: the targeted status
         // document carries it, as a refresh verdict's
-        SyncHold::OriginNotHttps => 11,
+        SyncHold::OriginNotHttps => 10,
     };
     let clone = |c: &CloneOutcome| match c {
         CloneOutcome::Cloned { .. } => 0,
@@ -276,7 +275,7 @@ fn assert_sync_coverage(doc: &SyncReport) {
                 })
                 .collect()
         ),
-        (0..11).collect()
+        (0..10).collect()
     );
 }
 
@@ -438,7 +437,6 @@ fn status_report_doc() -> StatusReport {
             fuz_ui(),
             uz(),
             pushy(),
-            agent_run(),
         ],
     );
     report.unregistered = Some(unregistered());
@@ -1000,15 +998,6 @@ fn sync_report_doc() -> SyncReport {
             BranchOutcome::Held {
                 action: push(1),
                 by: SyncHold::PushUrl,
-            },
-        ),
-        (
-            "agent",
-            Relation::Ahead { commits: 2 },
-            held_by(push(2), HeldBy::Gateway),
-            BranchOutcome::Held {
-                action: push(2),
-                by: SyncHold::Gateway,
             },
         ),
         (
@@ -2300,25 +2289,6 @@ fn pushy() -> EntryStatus {
             expected: "git@github.com:me/pushy".into(),
         }],
         ..entry("pushy", Some("main"))
-    }
-}
-
-/// An agent's run: a push nothing else holds waits for the gateway.
-fn agent_run() -> EntryStatus {
-    EntryStatus {
-        branches: vec![BranchStatus {
-            unique_commits: 2,
-            ..branch(
-                "main",
-                Some("origin/main"),
-                Relation::Ahead { commits: 2 },
-                Verdict::Held {
-                    action: SyncAction::Push { commits: 2 },
-                    by: HeldBy::Gateway,
-                },
-            )
-        }],
-        ..entry("agent_run", Some("main"))
     }
 }
 

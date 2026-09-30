@@ -13,7 +13,7 @@ use crate::porcelain::{BranchConfig, ConfigFacts, OriginKeys, OriginUrl, RefFact
 use crate::probe::{BranchFacts, RepoFacts};
 use crate::registry::{Entry, RepoUrl};
 use crate::report::{UnregisteredClone, UnregisteredKind};
-use crate::sessions::{Caller, Session};
+use crate::sessions::Session;
 use crate::state::{
     BranchNeedsHuman, BranchStatus, CleanupReason, CloneRecipe, CloneVerdict, Head, HeldBy,
     InProgressOp, Prune, PruneLoss, RefreshVerdict, Relation, SyncAction, UnprobedHead,
@@ -389,8 +389,7 @@ fn fetches_over_https(entry: &Entry, config: &ConfigFacts) -> bool {
 
 /// Classifies a present repo's facts against its registry entry.
 ///
-/// With the live sessions in its checkouts, who runs the tool (an agent's
-/// pushes are held for the gateway), and which references the run
+/// With the live sessions in its checkouts and which references the run
 /// refreshes. Owned entries get a relation per branch, and so does a
 /// third-party reference the run refreshes (`refresh_verdict`), whose
 /// branch ahead is local-only work: it's never pushed. Any other
@@ -401,7 +400,6 @@ pub fn classify(
     entry: &Entry,
     facts: &RepoFacts,
     sessions: &EntrySessions,
-    caller: Caller,
     refresh: Refresh,
 ) -> Classified {
     let needs_human = needs_human(entry, facts, sessions, refresh);
@@ -439,7 +437,6 @@ pub fn classify(
                 fetch_failed: facts.fetch_failed,
                 on: &on,
                 detection: sessions.detection,
-                gateway: caller == Caller::Agent,
             };
             // an alias never acts: git writes through it to its target,
             // unchecked (`BranchStatus::symref` says why nothing is lost)
@@ -663,9 +660,6 @@ struct Holds<'a, 'b> {
     fetch_failed: bool,
     on: &'b CheckoutsOn<'a>,
     detection: Detection,
-    /// An agent runs the tool, so its pushes are held: it pushes through the
-    /// gateway, `repos push`, which classifies as for a person.
-    gateway: bool,
 }
 
 impl Holds<'_, '_> {
@@ -677,11 +671,9 @@ impl Holds<'_, '_> {
     /// detection unavailable, which leaves every checkout in doubt, or one
     /// on the branch whose path can't be resolved or that the probe didn't
     /// find, or an unlisted git dir a session works through — holds every
-    /// action; and a push URL other than the registry's, or an agent running
-    /// the tool, holds a push. A pin names the hold before anything else,
-    /// since clearing the rest never releases it; the gateway after
-    /// everything else, so it says only that the person's sync would push;
-    /// otherwise the most specific reason names it.
+    /// action; and a push URL other than the registry's holds a push. A pin
+    /// names the hold before anything else, since clearing the rest never
+    /// releases it; otherwise the most specific reason names it.
     fn of(&self, action: SyncAction) -> Option<HeldBy> {
         let push = matches!(action, SyncAction::Push { .. });
         if self.pinned {
@@ -702,8 +694,6 @@ impl Holds<'_, '_> {
             Some(HeldBy::SeveralCheckouts)
         } else if self.on.maybe_busy || self.detection == Detection::Unavailable {
             Some(HeldBy::BusyUnknown)
-        } else if push && self.gateway {
-            Some(HeldBy::Gateway)
         } else {
             None
         }
@@ -1267,17 +1257,11 @@ mod tests {
     }
 
     fn relations(entry: &Entry, f: &RepoFacts) -> Vec<(String, Relation)> {
-        classify(
-            entry,
-            f,
-            &EntrySessions::idle(),
-            Caller::Person,
-            Refresh::Unasked,
-        )
-        .branches
-        .into_iter()
-        .map(|b| (b.name, b.relation))
-        .collect()
+        classify(entry, f, &EntrySessions::idle(), Refresh::Unasked)
+            .branches
+            .into_iter()
+            .map(|b| (b.name, b.relation))
+            .collect()
     }
 
     const O: Option<&str> = Some("origin");
@@ -1330,17 +1314,11 @@ mod tests {
     }
 
     fn verdicts(entry: &Entry, f: &RepoFacts) -> Vec<(String, Verdict)> {
-        classify(
-            entry,
-            f,
-            &EntrySessions::idle(),
-            Caller::Person,
-            Refresh::Unasked,
-        )
-        .branches
-        .into_iter()
-        .map(|b| (b.name, b.verdict))
-        .collect()
+        classify(entry, f, &EntrySessions::idle(), Refresh::Unasked)
+            .branches
+            .into_iter()
+            .map(|b| (b.name, b.verdict))
+            .collect()
     }
 
     fn named(want: &[(&str, Verdict)]) -> Vec<(String, Verdict)> {
@@ -1580,7 +1558,7 @@ mod tests {
     }
 
     fn verdicts_with(entry: &Entry, f: &RepoFacts, sessions: &EntrySessions) -> Vec<Verdict> {
-        classify(entry, f, sessions, Caller::Person, Refresh::Unasked)
+        classify(entry, f, sessions, Refresh::Unasked)
             .branches
             .into_iter()
             .map(|b| b.verdict)
@@ -1657,13 +1635,7 @@ mod tests {
             head: UnprobedHead::Unknown,
             ..unprobed("/ws/app-lost", None, UnprobedWhy::Missing)
         }];
-        let c = classify(
-            &e,
-            &f,
-            &busy_at(&["/ws/app-lost"]),
-            Caller::Person,
-            Refresh::Unasked,
-        );
+        let c = classify(&e, &f, &busy_at(&["/ws/app-lost"]), Refresh::Unasked);
         assert_eq!(
             c.branches
                 .iter()
@@ -1798,7 +1770,7 @@ mod tests {
             "/ws/sealed/app-old",
             "/ws/sealed/app-linked",
         ]);
-        let c = classify(&e, &f, &all, Caller::Person, Refresh::Unasked);
+        let c = classify(&e, &f, &all, Refresh::Unasked);
         let reason = |checkout: &str| NeedsHuman::CheckoutUnresolvable {
             checkout: checkout.into(),
             path: checkout.into(),
@@ -1941,13 +1913,7 @@ mod tests {
             unprobed("/ws/app-old", Some("old"), UnprobedWhy::Prunable),
         ];
         let e = owned(Mode::Follow("main"));
-        let classified = classify(
-            &e,
-            &f,
-            &busy_at(&["/ws/app-busy"]),
-            Caller::Person,
-            Refresh::Unasked,
-        );
+        let classified = classify(&e, &f, &busy_at(&["/ws/app-busy"]), Refresh::Unasked);
         let verdicts: Vec<(String, Verdict)> = classified
             .branches
             .into_iter()
@@ -2133,7 +2099,6 @@ mod tests {
             &owned(Mode::Follow("main")),
             &f,
             &EntrySessions::idle(),
-            Caller::Person,
             Refresh::Unasked,
         );
         assert_eq!(
@@ -2525,17 +2490,11 @@ mod tests {
         );
         let e = owned(Mode::Follow("main"));
         let reasons = |f: &RepoFacts| {
-            classify(
-                &e,
-                f,
-                &EntrySessions::idle(),
-                Caller::Person,
-                Refresh::Unasked,
-            )
-            .needs_human
-            .into_iter()
-            .filter(|r| matches!(r, NeedsHuman::PushUrlMismatch { .. }))
-            .collect::<Vec<_>>()
+            classify(&e, f, &EntrySessions::idle(), Refresh::Unasked)
+                .needs_human
+                .into_iter()
+                .filter(|r| matches!(r, NeedsHuman::PushUrlMismatch { .. }))
+                .collect::<Vec<_>>()
         };
         // the registry's repo over SSH, however spelled
         for url in [
@@ -2605,51 +2564,6 @@ mod tests {
         f.config.origin_urls = vec![OriginUrl::repo("git@github.com:me/app")];
         f.push_urls = None;
         assert_eq!(reasons(&f), []);
-    }
-
-    #[test]
-    fn an_agents_pushes_wait_for_the_gateway_after_every_other_hold() {
-        let push = SyncAction::Push { commits: 1 };
-        let held = |by| Verdict::Held { action: push, by };
-        let mut f = facts(
-            on("main"),
-            &[
-                b("main", O, true, Track::Ahead(1)),
-                b("feat", O, true, Track::Behind(1)),
-            ],
-        );
-        let e = owned(Mode::Follow("main"));
-        let agent = |f: &RepoFacts, sessions: &EntrySessions| -> Vec<Verdict> {
-            classify(&e, f, sessions, Caller::Agent, Refresh::Unasked)
-                .branches
-                .into_iter()
-                .map(|b| b.verdict)
-                .collect()
-        };
-        // fast-forwards go on
-        assert_eq!(
-            agent(&f, &EntrySessions::idle()),
-            [
-                held(HeldBy::Gateway),
-                act(SyncAction::FastForward { commits: 1 }),
-            ]
-        );
-        // a person's run pushes
-        assert_eq!(verdicts(&e, &f)[0].1, act(push));
-        // a dirty checkout holds no push: still the gateway
-        f.status.uncommitted.unstaged = 1;
-        assert_eq!(agent(&f, &EntrySessions::idle())[0], held(HeldBy::Gateway));
-        // anything else that holds it names it
-        assert_eq!(agent(&f, &busy_at(&["/ws/app"]))[0], held(HeldBy::Busy));
-        f.push_urls = Some(vec!["git@github.com:me/other".into()]);
-        assert_eq!(agent(&f, &EntrySessions::idle())[0], held(HeldBy::PushUrl));
-        f.fetch_failed = true;
-        assert_eq!(agent(&f, &EntrySessions::idle())[0], held(HeldBy::PushUrl));
-        f.push_urls = Some(vec!["git@github.com:me/app".into()]);
-        assert_eq!(
-            agent(&f, &EntrySessions::idle())[0],
-            held(HeldBy::FetchFailed)
-        );
     }
 
     #[test]
@@ -2849,7 +2763,7 @@ mod tests {
             f.config.origin_fetch_url = fetch_url.map(str::to_owned);
             for refresh in [Refresh::Named, Refresh::References] {
                 assert_eq!(refresh_verdict(&lib, refresh, &f.config), held, "{origin}");
-                let c = classify(&lib, &f, &EntrySessions::idle(), Caller::Person, refresh);
+                let c = classify(&lib, &f, &EntrySessions::idle(), refresh);
                 assert!(c.branches.is_empty(), "{:?}", c.branches);
                 assert_eq!(
                     c.needs_human,
@@ -2862,13 +2776,7 @@ mod tests {
                 );
             }
             // unasked: nothing said of it
-            let c = classify(
-                &lib,
-                &f,
-                &EntrySessions::idle(),
-                Caller::Person,
-                Refresh::Unasked,
-            );
+            let c = classify(&lib, &f, &EntrySessions::idle(), Refresh::Unasked);
             assert!(c.needs_human.is_empty(), "{:?}", c.needs_human);
         }
         // a fetch URL never read: held, failing closed
@@ -2888,13 +2796,7 @@ mod tests {
             refresh_verdict(&lib, Refresh::Named, &f.config),
             Some(RefreshVerdict::Held { by: HeldBy::Entry })
         );
-        let c = classify(
-            &lib,
-            &f,
-            &EntrySessions::idle(),
-            Caller::Person,
-            Refresh::Named,
-        );
+        let c = classify(&lib, &f, &EntrySessions::idle(), Refresh::Named);
         assert!(
             matches!(c.needs_human[..], [NeedsHuman::OriginMismatch { .. }]),
             "{:?}",
@@ -2919,7 +2821,6 @@ mod tests {
             &third_party(Mode::Head),
             &f,
             &EntrySessions::idle(),
-            Caller::Person,
             Refresh::Named,
         );
         let names: Vec<(&str, Relation)> = c
@@ -2969,9 +2870,7 @@ mod tests {
             ],
         );
         let lib = third_party(Mode::Head);
-        let refreshed = |f: &RepoFacts, refresh| {
-            classify(&lib, f, &EntrySessions::idle(), Caller::Person, refresh)
-        };
+        let refreshed = |f: &RepoFacts, refresh| classify(&lib, f, &EntrySessions::idle(), refresh);
         for refresh in [Refresh::Named, Refresh::References] {
             let c = refreshed(&f, refresh);
             assert!(c.needs_human.is_empty(), "{:?}", c.needs_human);
@@ -2993,23 +2892,6 @@ mod tests {
                 "{refresh:?}"
             );
         }
-        // an agent runs it: nothing to hold for the gateway, nothing pushed
-        let c = classify(
-            &lib,
-            &f,
-            &EntrySessions::idle(),
-            Caller::Agent,
-            Refresh::Named,
-        );
-        assert!(c.branches.iter().all(|b| !matches!(
-            b.verdict,
-            Verdict::Act {
-                action: SyncAction::Push { .. }
-            } | Verdict::Held {
-                action: SyncAction::Push { .. },
-                ..
-            }
-        )));
         // a dirty checkout holds the branch it's on, not the others
         f.status.uncommitted.untracked = 1;
         let c = refreshed(&f, Refresh::Named);
@@ -3043,17 +2925,11 @@ mod tests {
         let pinned = third_party(Mode::Pinned);
         assert_eq!(
             verdicts(&pinned, &f),
-            classify(
-                &pinned,
-                &f,
-                &EntrySessions::idle(),
-                Caller::Person,
-                Refresh::Named
-            )
-            .branches
-            .into_iter()
-            .map(|b| (b.name, b.verdict))
-            .collect::<Vec<_>>()
+            classify(&pinned, &f, &EntrySessions::idle(), Refresh::Named)
+                .branches
+                .into_iter()
+                .map(|b| (b.name, b.verdict))
+                .collect::<Vec<_>>()
         );
     }
 
@@ -3089,7 +2965,6 @@ mod tests {
             &third_party(Mode::Head),
             &f,
             &EntrySessions::idle(),
-            Caller::Person,
             Refresh::Named,
         );
         let got: Vec<_> = c
@@ -3474,7 +3349,6 @@ mod tests {
             &third_party(Mode::Pinned),
             &f,
             &EntrySessions::idle(),
-            Caller::Person,
             Refresh::Unasked,
         );
         assert_eq!(c.branches.len(), 1);
@@ -3495,28 +3369,14 @@ mod tests {
         let e = owned(Mode::Follow("main"));
         let missing = facts(on("dev"), &[b("dev", O, true, Track::Even)]);
         assert_eq!(
-            classify(
-                &e,
-                &missing,
-                &EntrySessions::idle(),
-                Caller::Person,
-                Refresh::Unasked
-            )
-            .needs_human,
+            classify(&e, &missing, &EntrySessions::idle(), Refresh::Unasked).needs_human,
             [NeedsHuman::DefaultBranchMissing {
                 branch: "main".into()
             }]
         );
         let no_upstream = facts(on("main"), &[b("main", None, false, Track::Even)]);
         assert_eq!(
-            classify(
-                &e,
-                &no_upstream,
-                &EntrySessions::idle(),
-                Caller::Person,
-                Refresh::Unasked
-            )
-            .needs_human,
+            classify(&e, &no_upstream, &EntrySessions::idle(), Refresh::Unasked).needs_human,
             [NeedsHuman::DefaultBranchNoUpstream {
                 branch: "main".into()
             }]
@@ -3526,14 +3386,7 @@ mod tests {
             &[b("main", Some("upstream"), true, Track::Even)],
         );
         assert_eq!(
-            classify(
-                &e,
-                &other_remote,
-                &EntrySessions::idle(),
-                Caller::Person,
-                Refresh::Unasked
-            )
-            .needs_human,
+            classify(&e, &other_remote, &EntrySessions::idle(), Refresh::Unasked).needs_human,
             [NeedsHuman::DefaultBranchNoUpstream {
                 branch: "main".into()
             }]
@@ -3541,15 +3394,9 @@ mod tests {
         // unmapped is a branch-level reason, not a missing upstream
         let unmapped = facts(on("main"), &[b("main", O, false, Track::Even)]);
         assert!(
-            classify(
-                &e,
-                &unmapped,
-                &EntrySessions::idle(),
-                Caller::Person,
-                Refresh::Unasked
-            )
-            .needs_human
-            .is_empty()
+            classify(&e, &unmapped, &EntrySessions::idle(), Refresh::Unasked)
+                .needs_human
+                .is_empty()
         );
         let detached = facts(
             Head::Detached {
@@ -3558,14 +3405,7 @@ mod tests {
             &[b("main", O, true, Track::Even)],
         );
         assert_eq!(
-            classify(
-                &e,
-                &detached,
-                &EntrySessions::idle(),
-                Caller::Person,
-                Refresh::Unasked
-            )
-            .needs_human,
+            classify(&e, &detached, &EntrySessions::idle(), Refresh::Unasked).needs_human,
             [NeedsHuman::UnexpectedDetached {
                 checkout: "/ws/app".into()
             }]
@@ -3579,15 +3419,9 @@ mod tests {
             ],
         );
         assert!(
-            classify(
-                &e,
-                &feature,
-                &EntrySessions::idle(),
-                Caller::Person,
-                Refresh::Unasked
-            )
-            .needs_human
-            .is_empty()
+            classify(&e, &feature, &EntrySessions::idle(), Refresh::Unasked)
+                .needs_human
+                .is_empty()
         );
     }
 
@@ -3606,38 +3440,20 @@ mod tests {
         // to say
         for f in [&detached, &on_main] {
             assert!(
-                classify(
-                    &pinned,
-                    f,
-                    &EntrySessions::idle(),
-                    Caller::Person,
-                    Refresh::Unasked
-                )
-                .needs_human
-                .is_empty()
+                classify(&pinned, f, &EntrySessions::idle(), Refresh::Unasked)
+                    .needs_human
+                    .is_empty()
             );
         }
         assert!(
-            classify(
-                &head,
-                &detached,
-                &EntrySessions::idle(),
-                Caller::Person,
-                Refresh::Unasked
-            )
-            .needs_human
-            .is_empty()
+            classify(&head, &detached, &EntrySessions::idle(), Refresh::Unasked)
+                .needs_human
+                .is_empty()
         );
         assert!(
-            classify(
-                &head,
-                &on_main,
-                &EntrySessions::idle(),
-                Caller::Person,
-                Refresh::Unasked
-            )
-            .needs_human
-            .is_empty()
+            classify(&head, &on_main, &EntrySessions::idle(), Refresh::Unasked)
+                .needs_human
+                .is_empty()
         );
     }
 
@@ -3645,14 +3461,7 @@ mod tests {
     fn a_pin_on_its_branch_expects_nothing_of_it() {
         let pinned = owned(Mode::PinnedOn("fork"));
         let reasons = |f: &RepoFacts| {
-            classify(
-                &pinned,
-                f,
-                &EntrySessions::idle(),
-                Caller::Person,
-                Refresh::Unasked,
-            )
-            .needs_human
+            classify(&pinned, f, &EntrySessions::idle(), Refresh::Unasked).needs_human
         };
         // on its branch, behind a stale remote-tracking ref: held, not
         // reported
@@ -3684,14 +3493,7 @@ mod tests {
         // the same branch, followed rather than pinned, has all three
         let followed = owned(Mode::Follow("fork"));
         let followed_reasons = |f: &RepoFacts| {
-            classify(
-                &followed,
-                f,
-                &EntrySessions::idle(),
-                Caller::Person,
-                Refresh::Unasked,
-            )
-            .needs_human
+            classify(&followed, f, &EntrySessions::idle(), Refresh::Unasked).needs_human
         };
         assert!(matches!(
             followed_reasons(&detached)[..],
@@ -3747,7 +3549,6 @@ mod tests {
                 &owned(Mode::PinnedOn("fork")),
                 &f,
                 &EntrySessions::idle(),
-                Caller::Person,
                 Refresh::Unasked,
             );
             assert!(c.needs_human.is_empty());
@@ -3921,7 +3722,7 @@ mod tests {
         );
         // an entry-level reason stays on the entry, the pin still named
         f.in_progress = Some(InProgressOp::Merge);
-        let c = classify(&pinned, &f, &busy, Caller::Person, Refresh::Unasked);
+        let c = classify(&pinned, &f, &busy, Refresh::Unasked);
         assert!(matches!(
             c.needs_human[..],
             [NeedsHuman::OperationInProgress { .. }]
@@ -3946,7 +3747,6 @@ mod tests {
                 &owned(Mode::Follow("main")),
                 &f,
                 &EntrySessions::idle(),
-                Caller::Person,
                 Refresh::Unasked
             )
             .needs_human,
@@ -3969,7 +3769,6 @@ mod tests {
                 &owned(Mode::Follow("main")),
                 &f,
                 &EntrySessions::idle(),
-                Caller::Person,
                 Refresh::Unasked
             )
             .needs_human
@@ -3988,7 +3787,6 @@ mod tests {
                 &owned(Mode::Follow("main")),
                 f,
                 &EntrySessions::idle(),
-                Caller::Person,
                 Refresh::Unasked,
             )
             .needs_human
@@ -4027,7 +3825,6 @@ mod tests {
                 &owned(Mode::Follow("main")),
                 f,
                 &EntrySessions::idle(),
-                Caller::Person,
                 Refresh::Unasked,
             )
             .needs_human
@@ -4141,7 +3938,6 @@ mod tests {
                     &owned(Mode::Follow("main")),
                     &f,
                     &EntrySessions::idle(),
-                    Caller::Person,
                     Refresh::Unasked
                 )
                 .needs_human,
@@ -4165,7 +3961,6 @@ mod tests {
                     &owned(Mode::Follow("main")),
                     &f,
                     &EntrySessions::idle(),
-                    Caller::Person,
                     Refresh::Unasked
                 )
                 .needs_human,
@@ -4193,7 +3988,6 @@ mod tests {
                 &owned(Mode::Follow("main")),
                 f,
                 &EntrySessions::idle(),
-                Caller::Person,
                 Refresh::Unasked,
             )
             .branches[0]
@@ -4239,7 +4033,6 @@ mod tests {
             &owned(Mode::Follow("main")),
             &f,
             &EntrySessions::idle(),
-            Caller::Person,
             Refresh::Unasked,
         );
         assert_eq!(
@@ -4292,15 +4085,9 @@ mod tests {
             },
         )];
         assert!(
-            classify(
-                &e,
-                &f,
-                &EntrySessions::idle(),
-                Caller::Person,
-                Refresh::Unasked
-            )
-            .needs_human
-            .is_empty()
+            classify(&e, &f, &EntrySessions::idle(), Refresh::Unasked)
+                .needs_human
+                .is_empty()
         );
 
         // a rebase in a linked worktree doesn't explain the primary's detach
@@ -4309,14 +4096,7 @@ mod tests {
         };
         f.worktrees[0].in_progress = Some(InProgressOp::Rebase);
         assert_eq!(
-            classify(
-                &e,
-                &f,
-                &EntrySessions::idle(),
-                Caller::Person,
-                Refresh::Unasked
-            )
-            .needs_human,
+            classify(&e, &f, &EntrySessions::idle(), Refresh::Unasked).needs_human,
             [
                 NeedsHuman::OperationInProgress {
                     checkout: "/ws/app-detached".into(),

@@ -195,8 +195,7 @@ fn says_behind_diverged_and_ahead_with_the_fetch_age() {
     ws.assert_track(&app, "main", "[ahead 1, behind 2]");
     assert_behind(&brief(&ws, &app), "diverged from origin/main +1 −2");
 
-    // ahead only: pushed nowhere yet; an agent's run says the same (its
-    // push is held for the gateway, but the commits are unpushed either way)
+    // ahead only: pushed nowhere yet; an agent's run says the same
     ws.git(&app, &["reset", "-q", "--hard", "origin/main"]);
     ws.commit(&app, "local-2");
     ws.commit(&app, "local-3");

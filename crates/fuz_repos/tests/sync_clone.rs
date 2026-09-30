@@ -18,7 +18,7 @@ use fuz_repos::classify::NeedsHuman;
 use fuz_repos::clone::temp_dir_name;
 use fuz_repos::remote::RemoteFailure;
 use fuz_repos::report::{CloneOutcome, EntrySync, FetchOutcome, SyncHold, UnregisteredKind};
-use fuz_repos::sessions::{Caller, LiveSessions, Session, SessionSource, Unavailable};
+use fuz_repos::sessions::{LiveSessions, Session, SessionSource, Unavailable};
 use fuz_repos::state::{CloneRecipe, CloneVerdict, HeldBy, Presence, Verdict};
 use fuz_repos::sync::SyncRun;
 use support::{FixtureWorkspace, LiveChild, OWNER, THIRD_PARTY, find_entry, write};
@@ -527,7 +527,7 @@ fn a_timed_out_clone_leaves_nothing_at_the_path() {
     ws.declare_repo("slow", "slow", "");
     ws.write_registry();
 
-    let run = ws.sync_timed(Caller::Person, 4, &quiet, Duration::from_secs(1));
+    let run = ws.sync_timed(4, &quiet, Duration::from_secs(1));
 
     assert_eq!(
         cloned(&run, "slow"),
@@ -705,17 +705,6 @@ fn unavailable_busy_detection_still_clones() {
     ws.declare_repo("app", "app", "");
     ws.write_registry();
     let run = ws.sync_with(4, &|| LiveSessions::Unavailable(Unavailable::HomeUnknown));
-    assert!(matches!(cloned(&run, "app"), CloneOutcome::Cloned { .. }));
-    ws.assert_head(&ws.dir("app"), Some("main"));
-}
-
-#[test]
-fn an_agent_clones() {
-    let mut ws = FixtureWorkspace::new();
-    ws.remote("app", &[]);
-    ws.declare_repo("app", "app", "");
-    ws.write_registry();
-    let run = ws.sync_as(Caller::Agent, 4, &quiet);
     assert!(matches!(cloned(&run, "app"), CloneOutcome::Cloned { .. }));
     ws.assert_head(&ws.dir("app"), Some("main"));
 }
