@@ -5,12 +5,11 @@
 //! own files read as git reads them (`gitdir`), the probe, the unregistered
 //! scan, the pure classification, what a remote's answers mean (fetch
 //! failures, the visibility check), busy detection — the live Claude
-//! Code sessions (`sessions`) and the checkouts they sit in (`busy`) — and
+//! Code sessions (`sessions`) and the checkouts they sit in (`busy`) —
 //! `sync`, which carries out the verdicts (a missing entry's through
 //! `clone`), and `push`, which carries out one checkout's branch's push
-//! through sync's own; and `hook`, Claude Code's `PreToolUse` hook, which
-//! reads an agent's Bash call (`shell`) and denies a raw git push. The
-//! `repos` binary parses arguments, renders reports, and owns exit codes.
+//! through sync's own. The `repos` binary parses arguments, renders
+//! reports, and owns exit codes.
 //!
 //! Unix-only: it takes git's paths as raw bytes, as git does. Busy
 //! detection reads `/proc`, so it works on Linux alone; elsewhere, with any
@@ -23,7 +22,6 @@ pub mod discover;
 pub mod error;
 pub mod git;
 mod gitdir;
-pub mod hook;
 pub mod porcelain;
 pub mod probe;
 pub mod push;
@@ -33,7 +31,6 @@ pub mod remote;
 pub mod report;
 pub mod scan;
 pub mod sessions;
-pub mod shell;
 pub mod state;
 pub mod status;
 pub mod sync;

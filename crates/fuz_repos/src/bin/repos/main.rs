@@ -30,10 +30,6 @@
 //! or not, and colors its group labels only when stdout is a terminal and
 //! `NO_COLOR` is unset or empty.
 //!
-//! `hook pre-tool-use` is Claude Code's `PreToolUse` hook (the `hook`
-//! module): it reads only stdin, exits `2` to deny a Bash call and `0`
-//! otherwise, and never `1`.
-//!
 //! `status --brief [<path>]` is the `SessionStart` nudge: at most one plain
 //! line on the checkout holding the path (default: the cwd), from local
 //! refs, probing that entry alone. It never fails its hook — every runtime
@@ -45,7 +41,7 @@
 mod render;
 
 use std::fmt::Write as _;
-use std::io::{self, IsTerminal as _, Read as _, Write as _};
+use std::io::{self, IsTerminal as _, Write as _};
 use std::path::Path;
 use std::process::ExitCode;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -59,7 +55,6 @@ use fuz_repos::discover::{
 };
 use fuz_repos::error::{Error, Result};
 use fuz_repos::git::Git;
-use fuz_repos::hook::check_pre_tool_use;
 use fuz_repos::probe::RegistryDirs;
 use fuz_repos::push::{PushOptions, check_new_branch, check_pushable, push};
 use fuz_repos::registry::{Entry, ValidRegistry};
@@ -104,7 +99,6 @@ enum Command {
     Status(StatusArgs),
     Sync(SyncArgs),
     Push(PushArgs),
-    Hook(HookArgs),
 }
 
 /// Report every entry's git state from local refs, grouped by what to do next.
@@ -222,32 +216,6 @@ struct PushArgs {
     timings: bool,
 }
 
-/// Hooks for Claude Code, run by its settings, never by hand.
-#[derive(FromArgs, Debug)]
-#[argh(subcommand, name = "hook")]
-struct HookArgs {
-    #[argh(subcommand)]
-    command: HookCommand,
-}
-
-#[derive(FromArgs, Debug)]
-#[argh(subcommand)]
-enum HookCommand {
-    PreToolUse(PreToolUseArgs),
-}
-
-/// Claude Code's PreToolUse hook: reads the hook's JSON on stdin and denies
-/// a Bash call that pushes with raw git (repos push is the gateway), runs
-/// repos push --new-branch (the user's), or runs repos with CLAUDECODE
-/// unset or emptied. A deny exits 2 with the reason on stderr and the
-/// hook's JSON on stdout; anything else, input it can't read included,
-/// exits 0 in silence. Reads nothing but stdin.
-// argh prints this as help text, so it names the event as Claude Code does
-#[allow(clippy::doc_markdown)]
-#[derive(FromArgs, Debug)]
-#[argh(subcommand, name = "pre-tool-use")]
-struct PreToolUseArgs {}
-
 fn main() -> ExitCode {
     let args = match utf8_args(std::env::args_os().skip(1)) {
         Ok(args) => args,
@@ -270,9 +238,6 @@ fn main() -> ExitCode {
             };
         }
     };
-    if let Some(Command::Hook(args)) = &cli.command {
-        return run_hook(args);
-    }
     if let Some(Command::Status(args)) = &cli.command
         && let Some(message) = brief_conflict(args)
     {
@@ -284,7 +249,7 @@ fn main() -> ExitCode {
         Some(Command::Status(args)) => args.json.then_some(STATUS_FORMAT_VERSION),
         Some(Command::Sync(args)) => args.json.then_some(SYNC_FORMAT_VERSION),
         Some(Command::Push(args)) => args.json.then_some(PUSH_FORMAT_VERSION),
-        Some(Command::Hook(_)) | None => None,
+        None => None,
     };
     let printed = match run(cli) {
         Ok(printed) => printed,
@@ -363,29 +328,8 @@ fn run(cli: Cli) -> Result<Printed> {
         Some(Command::Status(args)) => run_status(locate, &args),
         Some(Command::Sync(args)) => run_sync(locate, &args),
         Some(Command::Push(args)) => run_push(locate, &args),
-        // `main` runs it, before anything here
-        Some(Command::Hook(_)) => Ok(Printed::default()),
         None => Err(Error::MissingCommand),
     }
-}
-
-/// Runs a hook: its input on stdin, its verdict in the exit code — `2`
-/// denies, with the reason on stderr and the hook's JSON on stdout, and
-/// `0` has no opinion. It never exits `1`, which Claude Code would read as
-/// the hook failing.
-fn run_hook(args: &HookArgs) -> ExitCode {
-    let HookCommand::PreToolUse(_) = args.command;
-    let mut input = Vec::new();
-    if io::stdin().lock().read_to_end(&mut input).is_err() {
-        return ExitCode::SUCCESS;
-    }
-    let Some(denial) = check_pre_tool_use(&input) else {
-        return ExitCode::SUCCESS;
-    };
-    // a failed write still denies: the exit code is the verdict
-    let _ = writeln!(io::stdout().lock(), "{}", denial.hook_output());
-    let _ = writeln!(io::stderr().lock(), "{}", denial.reason());
-    ExitCode::from(2)
 }
 
 /// Where the global flags say the registry and the workspace root are.

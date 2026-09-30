@@ -230,8 +230,8 @@ impl SessionsSource {
 /// It decides one thing: an agent is refused `repos push --new-branch`
 /// (`check_new_branch`), since creating a remote branch is the user's. An
 /// agent's `sync` and `push` otherwise run as a person's. Guidance, not a
-/// boundary — an agent can unset the variable (`repos hook pre-tool-use`
-/// denies the Bash calls that do); the host's rules are the floor.
+/// boundary — an agent can unset the variable; the host's rules are the
+/// floor.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Caller {
     Person,

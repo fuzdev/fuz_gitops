@@ -44,8 +44,8 @@
 //! refused it before anything runs (`check_new_branch`).
 //!
 //! **An agent may run it** without `--new-branch`: its push is classified
-//! and made as a person's. It's the path agents push by; raw `git push` in
-//! an agent's Bash call is denied (`hook`).
+//! and made as a person's. It's the path agents push by: the user's Claude
+//! Code settings deny them raw `git push`.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};

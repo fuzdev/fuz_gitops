@@ -52,8 +52,7 @@ Publishing is the flagship vertical of the TS side, not the identity.
 ### Capability tiers
 
 Multi-repo work doesn't carry uniform risk. Four tiers, ordered by blast
-radius (`repos status`, `repos sync`, and `repos push` are built, and `repos
-hook pre-tool-use` steers agents' raw `git push` to `repos push`):
+radius (`repos status`, `repos sync`, and `repos push` are built):
 
 | Tier | Writes | Commands |
 | --- | --- | --- |
@@ -162,8 +161,7 @@ gitops.config.ts -> local repos -> GitHub API -> repos.ts -> UI components
 - `src/lib/fetch_repo_data.ts` - fetches remote repo metadata
 - `src/routes/repos.ts` - generated data file with all repo info
 - `crates/fuz_repos/` - the Rust `repos` tool: registry, git runner, probe,
-  unregistered scan, busy detection, classification, sync, push, and the
-  `PreToolUse` hook with its shell reader (library)
+  unregistered scan, busy detection, classification, sync, push (library)
   and the `repos` binary
 - `crates/fuz_repos/tests/` - its integration tests over fixture workspaces
   (`tests/support`)
@@ -546,7 +544,6 @@ repos sync --references      # refresh every third-party reference too (never a 
 repos push                   # the gateway: fetch, then push the branch checked out here as a fast-forward of what was fetched; exit 1 unless it ends in sync
 repos push app ../wt --json  # targets: a key or dir name (the entry's own checkout), or a path (the checkout holding it); --json prints the versioned outcome report
 repos push --new-branch      # the user's (refused under CLAUDECODE): create the branch on origin when it has no upstream there, and track it as git push -u does
-repos hook pre-tool-use      # Claude Code's PreToolUse hook: the hook's JSON on stdin; exit 2 denies a raw git push, else exit 0 in silence
 repos --version              # the crate version and the commit the binary was built from
 repos --registry <file> --root <dir> status # a registry kept outside the workspace
 
@@ -766,32 +763,13 @@ the cwd in no entry's checkout, a third-party or pinned target,
 report: the targets' entries after the fetch, and one outcome per target
 checkout. The rustdoc of `push.rs` has the details.
 
-**`repos hook pre-tool-use` points agents at the gateway.** A user-scope
-`PreToolUse` hook with a `Bash` matcher runs it on every agent Bash call, the
-hook's JSON on stdin. It reads the call's command as shell — quoting removed,
-split at `&&`, `;`, `|`, newlines, subshells, and substitutions, past `VAR=`
-assignments and wrappers (`env`, `sudo`, `timeout`, `nice`, `xargs`, …), into
-`bash -c`, `eval`, here-documents fed to a shell, and a script the call writes
-and then runs — and denies a raw git push (`git push` or `send-pack` behind
-any path to git, git's global options, or a pushing alias), `repos push
---new-branch`, and `repos push` run with `CLAUDECODE` unset or emptied: exit
-`2` with the reason on stderr and Claude Code's deny JSON on stdout, which
-names `repos push` (and, to update a local bare repo, fetching into it).
-Text it can't read is denied only where one command of it has a push word
-after a git word; brace expansion past its bounds, and a pipeline into a shell
-longer than it reads, are denied whatever they hold. Anything else, input it
-can't read as the hook's included, exits `0` in silence: a schema change must
-not wedge every Bash call. It reads stdin alone — no git, registry, network,
-or files — and bounds its work, so it costs little more than its process
-spawn. The settings run it guarded: they capture its stdout, and pass the deny
-on (print it, exit `2`) only when it exited `2` and printed
-`"permissionDecision":"deny"` — so a `repos` binary older than the subcommand,
-whose usage error also exits `2`, fails open instead of blocking every Bash
-call. They keep denying `Bash(git push:*)` (and `Bash(repos push
---new-branch:*)`) — permission rules hold in every mode, and back the hook
-where it fails open — and allow `Bash(repos:*)`. Guidance, not a boundary: a
-script in a file, another language, or an alias defined elsewhere stays out of
-its reach. The rustdoc of `hook.rs` has the grammar and its limits.
+**Agents push through `repos push`.** The user's Claude Code settings deny
+raw `git push` (a `Bash(git push:*)` prefix rule, with `Bash(repos push
+--new-branch:*)` beside it) and allow `Bash(repos:*)`, and agents are
+instructed to push with `repos push`. Permission rules hold in every
+permission mode but match a command's prefix alone, so a push spelled another
+way slips past them: guidance, not a boundary — the host's own rules are the
+floor.
 
 **Third-party references are like locked dependencies**: left as they are —
 never fetched, no branch compared against a remote, only local work
