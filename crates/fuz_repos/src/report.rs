@@ -220,9 +220,14 @@ pub struct EntryStatus {
     pub branches: Vec<BranchStatus>,
     pub stashes: u32,
     /// The newest non-empty `FETCH_HEAD`'s mtime across the repo's
-    /// worktrees, in unix seconds; `None` when never fetched — or when the
-    /// last fetch failed (git empties `FETCH_HEAD` then, so the remote view's
-    /// age is unknown) or found an empty remote.
+    /// worktrees, in unix seconds — or, when none of them has a `FETCH_HEAD`
+    /// at all, the time of `git clone`'s own reflog entry (a clone writes no
+    /// `FETCH_HEAD`; the time is the entry's ident date). `None` when never
+    /// fetched and no clone entry is left (a repo made by `git init` or
+    /// cloned empty, its refs in the reftable format, or its reflog expired)
+    /// — or when the last fetch failed (git empties
+    /// `FETCH_HEAD` then, so the remote view's age is unknown) or found an
+    /// empty remote.
     pub fetched_at: Option<u64>,
     pub needs_human: Vec<NeedsHuman>,
     /// A git call that failed after the repo was found; the facts above are

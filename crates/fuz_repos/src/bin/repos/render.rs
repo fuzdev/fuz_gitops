@@ -17,8 +17,8 @@ use fuz_repos::report::{
 };
 use fuz_repos::sessions::{Session, SessionSource, Unavailable};
 use fuz_repos::state::{
-    BranchNeedsHuman, BranchStatus, CleanupReason, CloneVerdict, Head, HeldBy, Presence, Prune,
-    PruneLoss, RefreshVerdict, Relation, SyncAction, Uncommitted, UnprobedHead, UnprobedWhy,
+    BranchNeedsHuman, BranchStatus, Checkout, CleanupReason, CloneVerdict, Head, HeldBy, Presence,
+    Prune, PruneLoss, RefreshVerdict, Relation, SyncAction, Uncommitted, UnprobedHead, UnprobedWhy,
     Verdict,
 };
 
@@ -739,21 +739,19 @@ impl Groups {
                 (UnprobedWhy::Missing, _) => {}
             }
         }
-        for c in &e.checkouts {
-            if !c.uncommitted.is_clean() {
-                let detail = if verbose {
-                    uncommitted_detail(&c.uncommitted)
-                } else {
-                    c.uncommitted.total().to_string()
-                };
-                // another worktree by its shown path, beside the primary's key
-                let label = if c.primary {
+        if verbose {
+            // each dirty checkout its own item, another worktree by its
+            // shown path beside the primary's key
+            for c in e.checkouts.iter().filter(|c| !c.uncommitted.is_clean()) {
+                let detail = uncommitted_detail(&c.uncommitted);
+                self.uncommitted.push(if c.primary {
                     format!("{key} ({detail})")
                 } else {
                     format!("{key} (worktree {}, {detail})", view.show(&c.path))
-                };
-                self.uncommitted.push(label);
+                });
             }
+        } else if let Some(item) = uncommitted_summary(key, &e.checkouts, view) {
+            self.uncommitted.push(item);
         }
         let said = self.len() > before;
         if verbose && e.stashes > 0 {
@@ -1840,6 +1838,58 @@ fn prune_loss_label(loss: &PruneLoss) -> String {
             git_dir_id(git_dir)
         ),
     }
+}
+
+/// An entry's dirt as one item: the primary's total, then another dirty
+/// worktree by its shown path, or several folded into a count with their
+/// summed total. `None` when every checkout is clean.
+fn uncommitted_summary(key: &str, checkouts: &[Checkout], view: View<'_>) -> Option<String> {
+    let total = |c: &Checkout| u64::from(c.uncommitted.total());
+    let primary = checkouts
+        .iter()
+        .filter(|c| c.primary)
+        .map(total)
+        .sum::<u64>();
+    let others = checkouts
+        .iter()
+        .filter(|c| !c.primary && !c.uncommitted.is_clean())
+        .collect::<Vec<_>>();
+    let more = others.iter().map(|c| total(c)).sum::<u64>();
+    let detail = match (primary, others.as_slice()) {
+        (0, []) => return None,
+        (n, []) => group_digits(n),
+        (0, [c]) => format!("worktree {}, {}", view.show(&c.path), group_digits(more)),
+        (n, [c]) => format!(
+            "{}; worktree {}, {} more",
+            group_digits(n),
+            view.show(&c.path),
+            group_digits(more)
+        ),
+        (n, many) => format!(
+            "{}; {} worktrees, {} more",
+            if n == 0 {
+                "clean".to_owned()
+            } else {
+                group_digits(n)
+            },
+            group_digits(many.len() as u64),
+            group_digits(more)
+        ),
+    };
+    Some(format!("{key} ({detail})"))
+}
+
+/// A count with its digits in groups of three, split by commas: `1,040`.
+fn group_digits(n: u64) -> String {
+    let digits = n.to_string();
+    let mut out = String::with_capacity(digits.len() + digits.len() / 3);
+    for (i, d) in digits.chars().enumerate() {
+        if i > 0 && (digits.len() - i).is_multiple_of(3) {
+            out.push(',');
+        }
+        out.push(d);
+    }
+    out
 }
 
 fn uncommitted_detail(u: &Uncommitted) -> String {
@@ -3380,7 +3430,7 @@ gro  repo · owned · public · ci · follow main
             "\
 failed        app (worktree ~/dev/app-broken: git status failed (128): fatal: not a git repository)
 held          ff app:feat −1 (dirty), app:usb −4 (unprobed worktree)
-uncommitted   app (worktree ~/dev/app-feat, 3)  app (worktree ~/wt/app-feat, 1)
+uncommitted   app (clean; 2 worktrees, 4 more)
 cleanup       app:old (upstream gone, worktree ~/wt/app-old removable)
               app (worktree ~/dev/app-gone gone — if it moved, move it back (or to the workspace root) and rerun repos status, else git -C ~/dev/app worktree remove ~/dev/app-gone)
               app (worktree ~/dev/app-spike gone — if it moved, move it back (or to the workspace root) and rerun repos status; removing discards its detached HEAD)
@@ -3399,6 +3449,83 @@ clean 0 · on branches 0 · pinned 0      ~/dev/repos.toml · fetched 3h ago
             render_summary(&r, VIEW, true)
                 .contains("uncommitted   app (worktree ~/dev/app-feat, 2 unstaged, 1 untracked)")
         );
+    }
+
+    #[test]
+    fn uncommitted_is_one_item_per_entry() {
+        let dirty = |path: &str, head: &str, n: u32| {
+            let mut c = linked(path, head);
+            c.uncommitted.untracked = n;
+            c
+        };
+        // the primary alone
+        let mut solo = entry("solo", main(), "main");
+        solo.checkouts[0].uncommitted.unstaged = 1_040;
+        // one other worktree stays named, with a clean primary or a dirty one
+        let mut one = entry("one", main(), "main");
+        one.checkouts
+            .push(dirty("/home/me/dev/one-feat", "feat", 2));
+        one.checkouts.push(linked("/home/me/dev/one-old", "old"));
+        let mut both = entry("both", main(), "main");
+        both.checkouts[0].uncommitted.staged = 3;
+        both.checkouts
+            .push(dirty("/home/me/dev/both-feat", "feat", 5));
+        // several fold into a count and their summed dirt
+        let mut app = entry("app", main(), "main");
+        app.checkouts.push(dirty("/home/me/dev/app-a", "a", 1));
+        app.checkouts.push(linked("/home/me/dev/app-b", "b"));
+        app.checkouts.push(dirty("/home/me/dev/app-c", "c", 3));
+        let mut big = entry("big", main(), "main");
+        big.checkouts[0].uncommitted.unstaged = 12;
+        for i in 0..1_001 {
+            big.checkouts
+                .push(dirty(&format!("/home/me/scratch/big-{i}"), "x", 2));
+        }
+        let r = report(vec![solo, one, both, app, big]);
+        let summary = render_summary(&r, VIEW, false);
+        assert_eq!(
+            summary
+                .lines()
+                .skip_while(|l| !l.starts_with("uncommitted"))
+                .take_while(|l| l.starts_with("uncommitted") || l.starts_with(' '))
+                .collect::<Vec<_>>(),
+            [
+                "uncommitted   solo (1,040)  one (worktree ~/dev/one-feat, 2)",
+                "              both (3; worktree ~/dev/both-feat, 5 more)  app (clean; 2 worktrees, 4 more)",
+                "              big (12; 1,001 worktrees, 2,002 more)",
+            ]
+        );
+        // `--verbose` keeps each dirty checkout its own item, in detail
+        let verbose = render_summary(&r, VIEW, true);
+        for item in [
+            "solo (1040 unstaged)",
+            "one (worktree ~/dev/one-feat, 2 untracked)",
+            "both (3 staged)",
+            "both (worktree ~/dev/both-feat, 5 untracked)",
+            "app (worktree ~/dev/app-a, 1 untracked)",
+            "app (worktree ~/dev/app-c, 3 untracked)",
+            "big (worktree ~/scratch/big-1000, 2 untracked)",
+        ] {
+            assert!(verbose.contains(item), "{item} in {verbose}");
+        }
+        assert!(!verbose.contains("worktrees,"));
+    }
+
+    #[test]
+    fn digits_group_by_three() {
+        for (n, grouped) in [
+            (0, "0"),
+            (7, "7"),
+            (999, "999"),
+            (1_000, "1,000"),
+            (1_040, "1,040"),
+            (12_345, "12,345"),
+            (123_456, "123,456"),
+            (1_234_567, "1,234,567"),
+            (u64::MAX, "18,446,744,073,709,551,615"),
+        ] {
+            assert_eq!(group_digits(n), grouped);
+        }
     }
 
     #[test]

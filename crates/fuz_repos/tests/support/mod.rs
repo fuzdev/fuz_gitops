@@ -1028,6 +1028,24 @@ impl FixtureWorkspace {
         assert_eq!(got, shallow.to_string(), "shallow {}", repo.display());
     }
 
+    /// The time of the repo's `git clone` entry, as git reads it: the oldest
+    /// in `HEAD`'s reflog, asserted to be a clone's.
+    pub fn clone_reflog_time(&self, repo: &Path) -> u64 {
+        let log = self.git(
+            repo,
+            &["reflog", "show", "--date=unix", "--format=%gd %gs", "HEAD"],
+        );
+        let oldest = log.lines().last().unwrap();
+        let (selector, subject) = oldest.split_once(' ').unwrap();
+        assert!(subject.starts_with("clone: from "), "{oldest}");
+        selector
+            .strip_prefix("HEAD@{")
+            .and_then(|s| s.strip_suffix('}'))
+            .unwrap()
+            .parse()
+            .unwrap()
+    }
+
     /// Asserts which branch HEAD is on (`None` when detached).
     pub fn assert_head(&self, repo: &Path, branch: Option<&str>) {
         let out = self.git_output(repo, &["symbolic-ref", "-q", "--short", "HEAD"]);

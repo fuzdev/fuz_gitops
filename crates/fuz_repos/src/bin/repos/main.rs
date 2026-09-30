@@ -102,8 +102,8 @@ struct StatusArgs {
     /// print the report as JSON
     #[argh(switch)]
     json: bool,
-    /// add stash counts, the uncommitted split, and a block per entry and per
-    /// unregistered dir
+    /// add stash counts, each dirty checkout's uncommitted split, and a block
+    /// per entry and per unregistered dir
     #[argh(switch)]
     verbose: bool,
     /// entries probed at once

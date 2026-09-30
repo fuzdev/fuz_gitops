@@ -531,7 +531,7 @@ SvelteKit app; gro never invokes cargo):
 cargo install --path crates/fuz_repos --locked # install the `repos` binary
 repos status                 # git state of every repos.toml entry, local refs only, plus unregistered clones
 repos status gro .           # narrow to targets: a key, a dir name, or a path inside a checkout (each names its entry); a named reference previews its refresh
-repos status --verbose       # plus stash counts, unscoped sessions, and a block per entry and unregistered dir
+repos status --verbose       # plus stash counts, unscoped sessions, each dirty worktree's own uncommitted item, and a block per entry and unregistered dir
 repos status --json          # the versioned report
 COLUMNS=80 repos status      # text wraps at COLUMNS (else 100); color only on a terminal without NO_COLOR
 repos status --fetch         # fetch owned entries (and references asked for) from origin first (writes remote-tracking refs), and check private repos
@@ -561,6 +561,18 @@ the root, unless `--root <dir>` names it. `rust-toolchain.toml` pins the
 toolchain (rustup fetches it on first build), and git must be 2.44 or newer
 (`GIT_NO_LAZY_FETCH` keeps a local `status` on a partial clone off the
 network).
+
+How fresh the remote view is (`fetched_at`, the footer's oldest and its
+`never` count) is the newest non-empty `FETCH_HEAD` across the repo's git
+dirs; a repo with no `FETCH_HEAD` at all — a fresh clone writes none — is
+dated by git's own `clone: from` entry, the first line of its `logs/HEAD`
+(none for a clone of an empty repo, or one whose refs are in the reftable
+format, which reads as never fetched).
+An empty `FETCH_HEAD` means the last fetch failed, so its age is unknown
+and reads as never fetched, clone or not. In the default view each entry's
+`uncommitted` item totals its primary checkout's dirt, then names its one
+other dirty worktree, or folds several into a count with their summed
+dirt; `--verbose` lists every dirty checkout with its dirt by kind.
 
 Under `--fetch`, each failed fetch gets a kind (`ref_gone`, `unreachable`,
 `repo_not_found`, `timed_out`, …, else `failed` with git's line), and each

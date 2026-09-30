@@ -248,6 +248,9 @@ fn an_owned_entry_is_cloned_over_ssh_on_its_branch() {
         "{:?}",
         e.branches
     );
+    // a clone writes no `FETCH_HEAD`: its own reflog entry dates it
+    assert!(!app.join(".git/FETCH_HEAD").exists());
+    assert_eq!(e.fetched_at, Some(ws.clone_reflog_time(&app)));
     // a second sync has nothing to clone, and fetches it instead — no tags
     let run = ws.sync();
     assert_eq!(outcomes(&run, "app").clone, None);
@@ -434,6 +437,9 @@ fn a_sparse_pin_is_cloned_to_its_cone_alone_then_held() {
     let e = find_entry(&run.entries, "wpt");
     assert!(e.pinned);
     assert!(e.layout.as_ref().is_some_and(|l| l.sparse && l.shallow));
+    // single-branch, shallow, and sparse, it's dated by its clone
+    assert!(!wpt.join(".git/FETCH_HEAD").exists());
+    assert_eq!(e.fetched_at, Some(ws.clone_reflog_time(&wpt)));
 }
 
 #[test]

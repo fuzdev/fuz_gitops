@@ -12,6 +12,7 @@
 //! (`gitdir`).
 
 use std::collections::{HashMap, HashSet};
+use std::io::{BufRead as _, Read as _};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{Duration, Instant, UNIX_EPOCH};
@@ -23,7 +24,7 @@ use crate::porcelain::{
     self, ConfigFacts, RefFacts, StatusFacts, Track, WorktreeHead, WorktreeRecord,
 };
 use crate::registry::Entry;
-use crate::regular_file::read_regular;
+use crate::regular_file::{open_regular, read_regular};
 use crate::remote::{RefspecContext, RemoteFailure};
 use crate::state::{
     Checkout, GitDirHolds, Head, InProgressOp, Layout, RefreshVerdict, UnprobedHead, UnprobedWhy,
@@ -190,9 +191,12 @@ pub struct RepoFacts {
     pub branches: Vec<BranchFacts>,
     pub layout: Layout,
     /// The newest `FETCH_HEAD` mtime across the repo's worktrees (each keeps
-    /// its own), in unix seconds; `None` when none holds a fetch's record
-    /// (`newest_fetch`): never fetched, or the last fetch failed or found an
-    /// empty remote.
+    /// its own), in unix seconds — or, when none has a `FETCH_HEAD` at all,
+    /// the time of `git clone`'s reflog entry, since a clone writes none
+    /// (`newest_fetch`). `None` when none holds a fetch's record and there's
+    /// no clone entry to stand in (a repo made by `git init` or cloned empty,
+    /// its refs in the reftable format, or its reflog expired), or the last
+    /// fetch failed or found an empty remote.
     pub fetched_at: Option<u64>,
     /// This run's fetch failed or was refused, so its remote-tracking refs
     /// weren't refreshed — and after a refusal (a refspec writing into them
@@ -1359,27 +1363,82 @@ fn realpath_forgiving(path: &Path) -> PathBuf {
 
 /// The newest `FETCH_HEAD` mtime across the repo: each worktree fetches into
 /// its own git dir — the primary's, the common dir (the main worktree's),
-/// and every linked one's.
+/// and every linked one's. When none of them has a `FETCH_HEAD` at all, the
+/// time of the repo's clone (`clone_time`), which writes none.
 ///
 /// An empty `FETCH_HEAD` doesn't count. A fetch that fails (a missing ref, a
 /// missing repo, no connection) still truncates it, freshening its mtime
 /// over stale refs, while a successful fetch writes a line per ref it
 /// fetched, changed or not. So a git dir whose last fetch failed reads as
 /// never fetched — how old its remote-tracking refs are is unknown — and so
-/// does one fetched only from an empty remote.
+/// does one fetched only from an empty remote; either way it has a
+/// `FETCH_HEAD`, so the clone's time never stands in for it.
 fn newest_fetch(git_dir: &Path, common_dir: &Path, admins: &[PathBuf]) -> Option<u64> {
-    [git_dir.to_owned(), common_dir.to_owned()]
+    let mut any = false;
+    let newest = [git_dir.to_owned(), common_dir.to_owned()]
         .into_iter()
         .chain(admins.iter().cloned())
         .filter_map(|d| {
-            let meta = std::fs::metadata(d.join("FETCH_HEAD")).ok()?;
+            let fetch_head = d.join("FETCH_HEAD");
+            // anything there, even one that can't be read, is a fetch's
+            match std::fs::symlink_metadata(&fetch_head) {
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => return None,
+                _ => any = true,
+            }
+            let meta = std::fs::metadata(fetch_head).ok()?;
             if meta.len() == 0 {
                 return None;
             }
             meta.modified().ok()
         })
         .map(|t| t.duration_since(UNIX_EPOCH).unwrap_or_default().as_secs())
-        .max()
+        .max();
+    if any { newest } else { clone_time(common_dir) }
+}
+
+/// The most of a reflog's first line `clone_time` reads. Git sets no limit;
+/// a clone's entry is two object ids, an ident, a time, and the URL.
+const MAX_REFLOG_LINE_BYTES: u64 = 64 * 1024;
+
+/// When the repo was cloned, in unix seconds: the time of `git clone`'s own
+/// entry in the common dir's `logs/HEAD` — its first line, `<old> <new>
+/// <ident> <time> <tz>\tclone: from <url>` — which every clone with a
+/// worktree and a commit to check out writes, whatever its branch, depth,
+/// or filter (a single-branch clone writes no `origin/HEAD` reflog, and the
+/// remote-tracking refs it packs get none). The time is the committer
+/// ident's date, not a file's mtime.
+///
+/// `None` when the first line isn't a clone's — the repo was made by `git
+/// init`, or cloned empty (its first entry is then its first commit's), or
+/// its reflog expired or was never written (a bare repo's, or under
+/// `core.logAllRefUpdates=false`) — or when its refs are in the reftable
+/// format (no `logs/HEAD` file), or when it can't be read or parsed, or has
+/// no line break within `MAX_REFLOG_LINE_BYTES`. Read directly, never
+/// through git, so nothing is written.
+fn clone_time(common_dir: &Path) -> Option<u64> {
+    let file = open_regular(&common_dir.join("logs/HEAD")).ok()?;
+    let mut line = Vec::new();
+    std::io::BufReader::new(file.take(MAX_REFLOG_LINE_BYTES))
+        .read_until(b'\n', &mut line)
+        .ok()?;
+    line.strip_suffix(b"\n").and_then(parse_clone_entry)
+}
+
+/// A reflog line's time, when its message is a clone's (`clone: `), read as
+/// git reads it: the ident ends at the line's first `>` (object ids never
+/// hold one), then a space, the unix seconds, a space, a `+hhmm` or `-hhmm`
+/// zone, and the tab before the message.
+fn parse_clone_entry(line: &[u8]) -> Option<u64> {
+    let email_end = line.iter().position(|&b| b == b'>')?;
+    let rest = line[email_end + 1..].strip_prefix(b" ")?;
+    let (time, rest) = rest.split_at(rest.iter().take_while(|b| b.is_ascii_digit()).count());
+    let (zone, rest) = rest.strip_prefix(b" ")?.split_at_checked(5)?;
+    let zone_ok = matches!(zone[0], b'+' | b'-') && zone[1..].iter().all(u8::is_ascii_digit);
+    let message = rest.strip_prefix(b"\t")?;
+    if !zone_ok || !message.starts_with(b"clone: ") {
+        return None;
+    }
+    std::str::from_utf8(time).ok()?.parse().ok()
 }
 
 /// Why a dir isn't a repo: empty (a clone that never started), files with no
@@ -1715,6 +1774,83 @@ mod tests {
             )
         };
         assert!(!could_carry_local_work(&alias));
+    }
+
+    #[test]
+    fn only_a_clone_entry_dates_a_clone() {
+        let zero = "0".repeat(40);
+        let oid = "1f8d9cf7b1e352f1b0c1a76e159204b8eedf07c7";
+        let line = |rest: &str| format!("{zero} {oid} A U Thor <a@example.com> {rest}");
+        for (rest, want) in [
+            (
+                "1790735590 -0400\tclone: from git@github.com:me/app",
+                Some(1_790_735_590),
+            ),
+            (
+                "1790735590 +0000\tclone: from /a path/with spaces",
+                Some(1_790_735_590),
+            ),
+            (
+                "1790735590 +0000\tclone: from https://h/a>b",
+                Some(1_790_735_590),
+            ),
+            // another entry, or a message that only mentions a clone
+            ("1790735590 +0000\tcheckout: moving from main to dev", None),
+            ("1790735590 +0000\tbranch: clone: x", None),
+            ("1790735590 +0000\tclone:from x", None),
+            ("1790735590 +0000\t", None),
+            ("1790735590 +0000", None),
+            // a time or zone git wouldn't have written
+            ("-1 +0000\tclone: from x", None),
+            ("1790735590 0000\tclone: from x", None),
+            ("1790735590 +00\tclone: from x", None),
+            ("1790735590 x0000\tclone: from x", None),
+            ("1790735590 +00a0\tclone: from x", None),
+            ("1790735590\tclone: from x", None),
+            ("x1790735590 +0000\tclone: from x", None),
+            (" 1790735590 +0000\tclone: from x", None),
+            ("99999999999999999999999 +0000\tclone: from x", None),
+        ] {
+            assert_eq!(parse_clone_entry(line(rest).as_bytes()), want, "{rest}");
+        }
+        // an ident with no email's end
+        let bare = format!("{zero} {oid} A U Thor 1790735590 +0000\tclone: from x");
+        assert_eq!(parse_clone_entry(bare.as_bytes()), None);
+        // a tab in the name is the ident's, not the message's
+        let tabbed = format!("{zero} {oid} A\tU <a@b> 1790735590 +0000\tclone: from x");
+        assert_eq!(parse_clone_entry(tabbed.as_bytes()), Some(1_790_735_590));
+    }
+
+    #[test]
+    fn a_clone_time_is_read_from_the_first_line_alone() {
+        let tmp = tempfile::tempdir().unwrap();
+        let logs = tmp.path().join("logs");
+        std::fs::create_dir(&logs).unwrap();
+        assert_eq!(clone_time(tmp.path()), None);
+        let entry = |time: u64, message: &str| {
+            format!(
+                "{} {} A <a@b> {time} +0000\t{message}\n",
+                "0".repeat(40),
+                "1".repeat(40)
+            )
+        };
+        let clone = entry(1_700_000_000, "clone: from x");
+        let checkout = entry(1_700_000_060, "checkout: moving from main to dev");
+        std::fs::write(logs.join("HEAD"), format!("{clone}{checkout}")).unwrap();
+        assert_eq!(clone_time(tmp.path()), Some(1_700_000_000));
+        std::fs::write(logs.join("HEAD"), format!("{checkout}{clone}")).unwrap();
+        assert_eq!(clone_time(tmp.path()), None);
+        // a line git never finished, or one past the limit
+        std::fs::write(logs.join("HEAD"), clone.trim_end()).unwrap();
+        assert_eq!(clone_time(tmp.path()), None);
+        let long = entry(
+            1_700_000_000,
+            &format!("clone: from {}", "x".repeat(70_000)),
+        );
+        std::fs::write(logs.join("HEAD"), long).unwrap();
+        assert_eq!(clone_time(tmp.path()), None);
+        std::fs::write(logs.join("HEAD"), "").unwrap();
+        assert_eq!(clone_time(tmp.path()), None);
     }
 
     #[test]

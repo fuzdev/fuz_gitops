@@ -134,7 +134,8 @@ fn a_clean_clone_reports_its_checkout_and_layout() {
     assert!(e.writable);
     assert!(e.needs_human.is_empty(), "{:?}", e.needs_human);
     assert_eq!(e.stashes, 0);
-    assert_eq!(e.fetched_at, None);
+    // dated by its clone's own reflog entry instead
+    assert_eq!(e.fetched_at, Some(ws.clone_reflog_time(&app)));
     let layout = e.layout.as_ref().unwrap();
     assert!(!layout.shallow && !layout.sparse);
     assert_eq!(layout.partial_filter, None);
@@ -863,13 +864,15 @@ fn fetch_updates_remote_tracking_refs_and_fetched_at() {
     // local refs only: nothing moved yet
     let entries = ws.status();
     let e = find_entry(&entries, "app");
-    assert_eq!(e.fetched_at, None);
+    let cloned_at = ws.clone_reflog_time(&app);
+    assert_eq!(e.fetched_at, Some(cloned_at));
     assert_eq!(branch(e, "main").relation, Relation::InSync);
 
     let entries = ws.status_with_fetch();
     let e = find_entry(&entries, "app");
     assert_eq!(e.fetch_error, None);
-    assert!(e.fetched_at.is_some());
+    // `FETCH_HEAD`'s mtime now: the machine's clock, past the fixture's
+    assert!(e.fetched_at.is_some_and(|at| at > cloned_at));
     assert_eq!(branch(e, "main").relation, Relation::Behind { commits: 1 });
     // remote-tracking refs only: the local branch stays put
     assert_eq!(ws.git(&app, &["rev-parse", "main"]), before);
@@ -879,7 +882,7 @@ fn fetch_updates_remote_tracking_refs_and_fetched_at() {
     // third-party and pinned entries aren't fetched
     for (key, repo) in [("lib", &lib), ("fork", &fork)] {
         let e = find_entry(&entries, key);
-        assert_eq!(e.fetched_at, None, "{key}");
+        assert_eq!(e.fetched_at, Some(ws.clone_reflog_time(repo)), "{key}");
         assert!(!repo.join(".git/FETCH_HEAD").exists(), "{key}");
         ws.assert_track(repo, "main", "");
     }

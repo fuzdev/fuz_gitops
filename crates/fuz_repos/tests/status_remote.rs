@@ -177,6 +177,107 @@ fn only_a_fetch_that_wrote_refs_counts_as_fetched() {
 }
 
 #[test]
+fn a_fresh_clone_is_dated_by_its_clone_entry() {
+    let mut ws = FixtureWorkspace::new();
+    for name in ["plain", "shallow", "single"] {
+        ws.remote(name, &[]);
+    }
+    ws.upstream_commit("single", "dev");
+    ws.declare_repo("plain", "plain", "");
+    ws.declare_repo("shallow", "shallow", "");
+    ws.declare_repo("single", "single", "branch = \"dev\"");
+    let plain = ws.clone_owned("plain", "plain", &[]);
+    let shallow = ws.clone_owned("shallow", "shallow", &["--depth", "1", "--no-tags"]);
+    let single = ws.clone_owned("single", "single", &["--single-branch", "--branch", "dev"]);
+    ws.assert_shallow(&shallow, true);
+    // a single-branch clone writes no `origin/HEAD` or its reflog; every
+    // clone writes `HEAD`'s
+    assert!(!ws.has_ref(&single, "refs/remotes/origin/HEAD"));
+    let entries = ws.status();
+    for (key, repo) in [
+        ("plain", &plain),
+        ("shallow", &shallow),
+        ("single", &single),
+    ] {
+        assert!(!repo.join(".git/FETCH_HEAD").exists(), "{key}");
+        let cloned_at = ws.clone_reflog_time(repo);
+        // the entry's ident date, the fixture's clock, not a file's mtime
+        assert!(
+            (support::CLOCK_START..support::CLOCK_START + 86_400).contains(&cloned_at),
+            "{key}: {cloned_at}"
+        );
+        assert_eq!(
+            find_entry(&entries, key).fetched_at,
+            Some(cloned_at),
+            "{key}"
+        );
+    }
+    // moving HEAD appends to its reflog: the clone's stays first
+    ws.git(&plain, &["checkout", "-q", "-b", "feat"]);
+    assert_eq!(
+        ws.entry("plain").fetched_at,
+        Some(ws.clone_reflog_time(&plain))
+    );
+}
+
+#[test]
+fn a_failed_fetch_after_a_clone_is_never_fetched() {
+    let mut ws = FixtureWorkspace::new();
+    let app = ws.owned_repo("app", &[]);
+    let lib = ws.owned_repo("lib", &[]);
+    let wt = ws.dir("lib-feat");
+    let admin = ws.add_worktree(&lib, &wt, &["-b", "feat"]);
+    // a failed fetch empties `FETCH_HEAD`: the remote view's age is
+    // unknown, so the clone's time doesn't stand in
+    for repo in [&app, &wt] {
+        let out = ws.git_output(repo, &["fetch", "-q", "origin", "refs/heads/nope"]);
+        assert!(!out.status.success());
+    }
+    assert_eq!(fetch_head(&app).0, 0);
+    // in any worktree's git dir alone
+    assert!(!lib.join(".git/FETCH_HEAD").exists());
+    assert_eq!(
+        std::fs::metadata(admin.join("FETCH_HEAD")).unwrap().len(),
+        0
+    );
+    let entries = ws.status();
+    for key in ["app", "lib"] {
+        assert_eq!(find_entry(&entries, key).fetched_at, None, "{key}");
+    }
+}
+
+#[test]
+fn a_repo_with_no_clone_entry_is_never_fetched() {
+    let mut ws = FixtureWorkspace::new();
+    // made by `git init`: no clone, no reflog yet
+    ws.remote("made", &[]);
+    ws.declare_repo("made", "made", "");
+    let made = ws.dir("made");
+    ws.git(&ws.root(), &["init", "-q", "made"]);
+    ws.git(
+        &made,
+        &["remote", "add", "origin", &support::owned_origin("made")],
+    );
+    ws.set_origin(&made, "made", &support::owned_origin("made"));
+    assert!(!made.join(".git/logs/HEAD").exists());
+    // cloned, but its reflog expired and HEAD moved since: the first entry
+    // is a checkout's
+    let old = ws.owned_repo("old", &[]);
+    ws.git(&old, &["reflog", "expire", "--expire=now", "--all"]);
+    ws.git(&old, &["checkout", "-q", "-b", "feat"]);
+    let first = std::fs::read_to_string(old.join(".git/logs/HEAD")).unwrap();
+    assert!(
+        first.lines().count() == 1 && first.contains("\tcheckout: "),
+        "{first}"
+    );
+    let entries = ws.status();
+    for (key, repo) in [("made", &made), ("old", &old)] {
+        assert!(!repo.join(".git/FETCH_HEAD").exists(), "{key}");
+        assert_eq!(find_entry(&entries, key).fetched_at, None, "{key}");
+    }
+}
+
+#[test]
 fn an_entry_without_an_origin_url_is_not_fetched() {
     let mut ws = FixtureWorkspace::new();
     for name in ["gone", "bare"] {

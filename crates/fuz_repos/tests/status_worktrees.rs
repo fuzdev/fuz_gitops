@@ -882,7 +882,8 @@ fn a_fetch_from_a_linked_worktree_counts_as_the_repos_fetch() {
     let admin = ws.add_worktree(&app, &wt, &["-b", "feat"]);
     let primary_fetch = app.join(".git/FETCH_HEAD");
     assert!(!primary_fetch.exists());
-    assert_eq!(ws.entry("app").fetched_at, None);
+    // no fetch yet: the clone's own reflog entry dates it
+    assert_eq!(ws.entry("app").fetched_at, Some(ws.clone_reflog_time(&app)));
     // each worktree fetches into its own git dir
     ws.git(&wt, &["fetch", "-q", "origin"]);
     let linked_fetch = admin.join("FETCH_HEAD");
@@ -906,6 +907,27 @@ fn a_fetch_from_a_linked_worktree_counts_as_the_repos_fetch() {
         ws.entry("app").fetched_at,
         Some(support::CLOCK_START + 2000)
     );
+}
+
+#[test]
+fn a_linked_primary_is_dated_by_its_repos_clone() {
+    let mut ws = FixtureWorkspace::new();
+    ws.remote("app", &[("a.txt", "a\n")]);
+    ws.declare_repo("app", "app", "");
+    let main_wt = ws.clone_owned("app-main", "app", &[]);
+    let app = ws.dir("app");
+    let admin = ws.add_worktree(&main_wt, &app, &["-b", "work"]);
+    // never fetched, from either
+    assert!(!admin.join("FETCH_HEAD").exists());
+    assert!(!main_wt.join(".git/FETCH_HEAD").exists());
+    // the primary's own reflog starts with its worktree's creation, not a
+    // clone: the clone's entry is the common dir's alone
+    let own = std::fs::read_to_string(admin.join("logs/HEAD")).unwrap();
+    assert!(!own.lines().next().unwrap().contains("\tclone: "), "{own}");
+
+    let e = ws.entry("app");
+    assert!(e.checkouts[0].primary && e.checkouts[0].linked);
+    assert_eq!(e.fetched_at, Some(ws.clone_reflog_time(&main_wt)));
 }
 
 #[test]
