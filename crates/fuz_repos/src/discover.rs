@@ -7,6 +7,7 @@ use std::path::{Path, PathBuf};
 use crate::classify::origin_matches;
 use crate::error::{Error, Result};
 use crate::git::{CallOptions, Git, GitError};
+use crate::gitdir::dot_git_target;
 use crate::registry::Entry;
 
 /// The registry's file name, found by walking up from the cwd.
@@ -267,8 +268,9 @@ pub fn check_discovered_root(loc: &RegistryLocation, entries: &[Entry], git: &Gi
 ///
 /// No targets selects every entry. A target is a registry key, else an
 /// entry's dir name, else a path (relative to `cwd`) inside a checkout —
-/// resolved through its git common dir, so a linked worktree outside the
-/// workspace resolves too.
+/// the entry whose own checkout it is, else resolved through its git common
+/// dir, so a linked worktree outside the workspace resolves too
+/// (`entry_of_repo`).
 ///
 /// # Errors
 ///
@@ -397,11 +399,12 @@ pub struct PathTarget {
 
 /// The entry whose checkout holds `path`, and that checkout's top level.
 ///
-/// The entry is resolved as a path target's is (`resolve_targets`: through
-/// its git common dir, so a linked worktree outside the workspace resolves
-/// too). `None` when `path` is in no entry's checkout — at the workspace
-/// root, in an unregistered clone, outside the workspace, or where git
-/// finds no work tree (inside a git dir).
+/// The entry is resolved as a path target's is (`entry_of_repo`: an
+/// entry's own checkout, else through its git common dir, so a linked
+/// worktree outside the workspace resolves too). `None` when `path` is in
+/// no entry's checkout — at the workspace root, in an unregistered clone,
+/// outside the workspace, or where git finds no work tree (inside a git
+/// dir).
 ///
 /// # Errors
 ///
@@ -412,19 +415,35 @@ pub fn resolve_checkout(
     path: &Path,
     git: &Git,
 ) -> Result<Option<PathTarget>> {
-    let Some(out) = rev_parse(path, &["--git-common-dir", "--show-toplevel"], git)? else {
+    let Some(out) = rev_parse(
+        path,
+        &["--git-dir", "--git-common-dir", "--show-toplevel"],
+        git,
+    )?
+    else {
         return Ok(None);
     };
     let mut lines = out.lines();
-    let (Some(common), Some(toplevel)) = (lines.next(), lines.next()) else {
+    let (Some(git_dir), Some(common), Some(toplevel)) = (lines.next(), lines.next(), lines.next())
+    else {
         return Ok(None);
     };
-    Ok(
-        entry_of_common_dir(entries, root, Path::new(common)).map(|i| PathTarget {
-            entry: entries[i].clone(),
-            checkout: PathBuf::from(toplevel),
-        }),
-    )
+    let toplevel = Path::new(toplevel);
+    let git_dir = Path::new(git_dir);
+    // a work tree elsewhere (`core.worktree`) is another checkout's files:
+    // no entry's checkout to name
+    if !owns_git_dir(toplevel, git_dir) {
+        return Ok(None);
+    }
+    let dirs = RepoDirs {
+        git_dir,
+        common: Path::new(common),
+        toplevel: Some(toplevel),
+    };
+    Ok(entry_of_repo(entries, root, &dirs).map(|i| PathTarget {
+        entry: entries[i].clone(),
+        checkout: toplevel.to_owned(),
+    }))
 }
 
 /// Resolves `repos push`'s targets to the checkouts they name, in the order
@@ -489,10 +508,30 @@ fn same_checkout(a: &Path, b: &Path) -> bool {
     matches!((a.canonicalize(), b.canonicalize()), (Ok(a), Ok(b)) if a == b)
 }
 
-/// The entry whose checkout holds `path`, compared canonicalized.
+/// The entry whose checkout holds `path` (`entry_of_repo`). Inside a git
+/// dir, where `--show-toplevel` fails, it's found without a top level.
 fn resolve_path(entries: &[Entry], root: &Path, path: &Path, git: &Git) -> Result<Option<usize>> {
-    Ok(rev_parse(path, &["--git-common-dir"], git)?
-        .and_then(|common| entry_of_common_dir(entries, root, Path::new(common.trim()))))
+    let out = match rev_parse(
+        path,
+        &["--git-dir", "--git-common-dir", "--show-toplevel"],
+        git,
+    )? {
+        Some(out) => out,
+        None => match rev_parse(path, &["--git-dir", "--git-common-dir"], git)? {
+            Some(out) => out,
+            None => return Ok(None),
+        },
+    };
+    let mut lines = out.lines();
+    let (Some(git_dir), Some(common)) = (lines.next(), lines.next()) else {
+        return Ok(None);
+    };
+    let dirs = RepoDirs {
+        git_dir: Path::new(git_dir),
+        common: Path::new(common),
+        toplevel: lines.next().map(Path::new),
+    };
+    Ok(entry_of_repo(entries, root, &dirs))
 }
 
 /// `git rev-parse --path-format=absolute` with `args`, run in `path`: its
@@ -512,13 +551,59 @@ fn rev_parse(path: &Path, args: &[&str], git: &Git) -> Result<Option<String>> {
     }
 }
 
-/// The entry whose dir is the repo of the git common dir `common` — the
-/// dir holding it — compared canonicalized.
-fn entry_of_common_dir(entries: &[Entry], root: &Path, common: &Path) -> Option<usize> {
-    let repo = common.parent().and_then(|p| p.canonicalize().ok())?;
-    entries
+/// Where git finds a path's repo, as `rev-parse --path-format=absolute`
+/// prints it: `--git-dir`, `--git-common-dir`, and `--show-toplevel` when
+/// the path has a work tree.
+struct RepoDirs<'a> {
+    git_dir: &'a Path,
+    common: &'a Path,
+    toplevel: Option<&'a Path>,
+}
+
+/// The entry `dirs` names, compared canonicalized: the first entry whose
+/// dir is the checkout's top level, when that checkout's `.git` names the
+/// path's git dir (`owns_git_dir`) — the checkout holding the path is an
+/// entry's own, wherever its git dir is (`--separate-git-dir`, or a linked
+/// worktree's), but a work tree a repo's `core.worktree` points at is
+/// another checkout's files — else the dir holding the common dir, when
+/// that's a `.git`: the main checkout of a linked worktree elsewhere, or of
+/// a path inside a `.git`.
+///
+/// Outside the workspace, a linked worktree of a repo whose common dir
+/// isn't a `.git` names no entry: of a `--separate-git-dir` repo, nothing
+/// in its git dirs says where the main checkout is (git's own worktree list
+/// prints the git dir in its place); of a bare repo, no entry's probe reads
+/// one (it has no work tree).
+fn entry_of_repo(entries: &[Entry], root: &Path, dirs: &RepoDirs<'_>) -> Option<usize> {
+    let main_checkout = dirs
+        .common
+        .parent()
+        .filter(|_| dirs.common.file_name().is_some_and(|n| n == ".git"));
+    let entry_dirs: Vec<Option<PathBuf>> = entries
         .iter()
-        .position(|e| root.join(&e.dir).canonicalize().is_ok_and(|d| d == repo))
+        .map(|e| root.join(&e.dir).canonicalize().ok())
+        .collect();
+    let own = dirs.toplevel.filter(|t| owns_git_dir(t, dirs.git_dir));
+    [own, main_checkout]
+        .into_iter()
+        .flatten()
+        .filter_map(|c| c.canonicalize().ok())
+        .find_map(|repo| entry_dirs.iter().position(|d| d.as_ref() == Some(&repo)))
+}
+
+/// Whether `toplevel`'s own `.git` names `git_dir` (`dot_git_target`),
+/// compared canonicalized: true of a main checkout, a linked worktree, and
+/// a `--separate-git-dir` checkout; false of a work tree a repo's
+/// `core.worktree` points at, whose `.git` is its own or none.
+fn owns_git_dir(toplevel: &Path, git_dir: &Path) -> bool {
+    let named = dot_git_target(&toplevel.join(".git")).ok();
+    match (
+        named.and_then(|d| d.canonicalize().ok()),
+        git_dir.canonicalize(),
+    ) {
+        (Some(named), Ok(git_dir)) => named == git_dir,
+        _ => false,
+    }
 }
 
 #[cfg(test)]

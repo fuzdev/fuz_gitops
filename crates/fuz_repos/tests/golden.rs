@@ -437,6 +437,7 @@ fn status_report_doc() -> StatusReport {
             fuz_ui(),
             uz(),
             pushy(),
+            renamed_default(),
         ],
     );
     report.unregistered = Some(unregistered());
@@ -1954,6 +1955,23 @@ fn zzz() -> EntryStatus {
             op: InProgressOp::Sequencer,
         },
     ];
+    e
+}
+
+/// Following `master`, whose upstream is gone from origin — the remote's
+/// default renamed to `main`: a person's, never cleanup.
+fn renamed_default() -> EntryStatus {
+    let mut e = entry("mageguild", Some("master"));
+    e.checkouts[0].head = on("master");
+    e.branches = vec![branch(
+        "master",
+        Some("origin/master"),
+        Relation::Gone,
+        Verdict::Quiet,
+    )];
+    e.needs_human = vec![NeedsHuman::DefaultBranchGone {
+        branch: "master".into(),
+    }];
     e
 }
 

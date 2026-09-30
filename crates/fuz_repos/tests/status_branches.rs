@@ -2,6 +2,7 @@
 
 mod support;
 
+use fuz_repos::classify::NeedsHuman;
 use fuz_repos::state::{BranchNeedsHuman, CleanupReason, HeldBy, Relation, SyncAction, Verdict};
 use support::{FixtureWorkspace, branch, branch_names, find_entry};
 
@@ -310,6 +311,44 @@ fn a_gone_upstream_with_and_without_unique_commits() {
             "{b}"
         );
     }
+}
+
+#[test]
+fn a_followed_branch_whose_upstream_is_gone_needs_a_human_never_cleanup() {
+    let mut ws = FixtureWorkspace::new();
+    ws.remote("app", &[]);
+    ws.declare_repo("app", "app", "branch = \"master\"");
+    // the remote's default was `master`, its clone following it, with a
+    // clean linked worktree on it besides the primary on `side`
+    let up = ws.upstream("app");
+    ws.git(&up, &["push", "-q", "origin", "main:master"]);
+    let app = ws.clone_owned("app", "app", &["--branch", "master"]);
+    ws.git(&app, &["checkout", "-q", "-b", "side"]);
+    let wt = ws.dir("app-master");
+    ws.add_worktree(&app, &wt, &["master"]);
+    // renamed upstream to `main` alone
+    ws.upstream_delete_branch("app", "master");
+    ws.git(&app, &["fetch", "-q", "--prune", "origin"]);
+    ws.assert_track(&app, "master", "[gone]");
+    ws.assert_count(&app, &["master", "--not", "--remotes"], 0);
+    ws.assert_clean(&wt);
+
+    let e = ws.entry("app");
+    assert_eq!(
+        e.needs_human,
+        [NeedsHuman::DefaultBranchGone {
+            branch: "master".into()
+        }]
+    );
+    let master = branch(&e, "master");
+    assert_eq!(master.relation, Relation::Gone);
+    // neither the branch nor the worktree it's in is offered for removal
+    assert_eq!(master.verdict, Verdict::Quiet);
+    // a local commit on it is local work
+    ws.commit(&wt, "local");
+    let e = ws.entry("app");
+    assert_eq!(branch(&e, "master").verdict, Verdict::LocalOnly);
+    assert_eq!(e.needs_human.len(), 1, "{:?}", e.needs_human);
 }
 
 #[test]

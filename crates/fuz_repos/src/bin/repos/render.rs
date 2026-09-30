@@ -185,6 +185,11 @@ const OTHER_UPSTREAM_HINT: &str =
 const MERGED_HINT: &str = "its commits are all on a remote and origin deleted it: recreating it is by hand, \
      never --new-branch";
 
+/// The branch the entry follows, its upstream gone from origin: the
+/// remote's default renamed or deleted, which `--new-branch` never undoes.
+const DEFAULT_GONE_HINT: &str = "the entry's own branch is gone from origin (its default renamed?): \
+     repoint the registry's branch and the checkout by hand; --new-branch never recreates it";
+
 /// A branch `--new-branch` found origin already has, which it never
 /// adopts.
 const EXISTS_HINT: &str =
@@ -328,7 +333,8 @@ pub fn render_push_summary(report: &PushReport, view: View<'_>) -> String {
     let (mut behind, mut diverged, mut unmapped, mut exists) = (false, false, false, false);
     // branches with no upstream on origin: ones --new-branch creates, merged
     // ones, and the rest
-    let (mut new_branch, mut merged, mut other_upstream) = (false, false, false);
+    let (mut new_branch, mut merged, mut own_gone, mut other_upstream) =
+        (false, false, false, false);
     for p in &report.pushes {
         let Some(e) = report.status.entries.iter().find(|e| e.key == p.key) else {
             failed.push(format!("{} (push: no status)", p.key));
@@ -388,13 +394,18 @@ pub fn render_push_summary(report: &PushReport, view: View<'_>) -> String {
                 needs_human.push(format!("{label} ({why})"));
             }
             PushOutcome::NoUpstream => {
-                let creatable = b.is_some_and(new_branch_creates);
-                let gone_merged =
-                    b.is_some_and(|b| b.relation == Relation::Gone && b.unique_commits == 0);
+                let default_gone = b.is_some_and(|b| e.default_branch_gone(&b.name));
+                let creatable = b.is_some_and(|b| new_branch_creates(e, b));
+                let gone_merged = !default_gone
+                    && b.is_some_and(|b| b.relation == Relation::Gone && b.unique_commits == 0);
                 new_branch |= creatable;
                 merged |= gone_merged;
-                other_upstream |= !creatable && !gone_merged;
+                own_gone |= default_gone;
+                other_upstream |= !creatable && !gone_merged && !default_gone;
                 let why = match b.map(|b| (b.relation, b.upstream.as_deref())) {
+                    Some((Relation::Gone, _)) if default_gone => {
+                        "the entry's branch, upstream gone from origin".to_owned()
+                    }
                     Some((Relation::Gone, _)) if gone_merged => {
                         "nothing unique, upstream gone from origin".to_owned()
                     }
@@ -469,6 +480,9 @@ pub fn render_push_summary(report: &PushReport, view: View<'_>) -> String {
     if merged {
         line("", Tone::Plain, hint(MERGED_HINT));
     }
+    if own_gone {
+        line("", Tone::Plain, hint(DEFAULT_GONE_HINT));
+    }
     if other_upstream {
         line("", Tone::Plain, hint(OTHER_UPSTREAM_HINT));
     }
@@ -479,10 +493,12 @@ pub fn render_push_summary(report: &PushReport, view: View<'_>) -> String {
 /// Whether `repos push --new-branch` would create `b` on origin, as its
 /// status reads: no upstream configured, or origin's same-named branch as
 /// its upstream, gone, with commits on no remote (with none, it was
-/// merged). (The run itself reads the merge ref as git resolves it.)
-fn new_branch_creates(b: &BranchStatus) -> bool {
+/// merged) — never the branch the entry follows (`default_branch_gone`).
+/// (The run itself reads the merge ref as git resolves it.)
+fn new_branch_creates(e: &EntryStatus, b: &BranchStatus) -> bool {
     match (b.relation, b.upstream.as_deref()) {
         (Relation::Untracked, upstream) => upstream.is_none(),
+        (Relation::Gone, _) if e.default_branch_gone(&b.name) => false,
         (Relation::Gone, Some(upstream)) => {
             b.unique_commits > 0 && upstream == format!("origin/{}", b.name)
         }
@@ -1009,9 +1025,19 @@ impl Groups {
                 }
             }
         }
+        // a git dir that can't be read is said once, as the needs-human
+        // reason that holds the entry — present whether or not a worktree
+        // in it was listed — never again as that worktree's failed probe
+        let unreadable = |path: &str| {
+            e.needs_human.iter().any(|r| {
+                matches!(r, NeedsHuman::WorktreeUnreadable { path: p }
+                    if Path::new(path).starts_with(p))
+            })
+        };
         for u in &e.unprobed_worktrees {
             let at = view.show(&u.worktree.path);
             match (&u.worktree.why, &u.prune) {
+                (UnprobedWhy::Failed { .. }, _) if unreadable(&u.worktree.path) => {}
                 (UnprobedWhy::Failed { error }, _) => self
                     .failed
                     .push(format!("{key} (worktree {at}: {})", first_line(error))),
@@ -1218,6 +1244,9 @@ fn needs_human_label(reason: &NeedsHuman, e: &EntryStatus, view: View<'_>) -> St
         NeedsHuman::DefaultBranchMissing { branch } => format!("no local {branch}"),
         NeedsHuman::DefaultBranchNoUpstream { branch } => {
             format!("{branch} has no origin upstream")
+        }
+        NeedsHuman::DefaultBranchGone { branch } => {
+            format!("{branch}'s upstream is gone from origin")
         }
         NeedsHuman::UnexpectedDetached { .. } => "detached".into(),
         NeedsHuman::CheckoutUnresolvable {
@@ -4796,6 +4825,54 @@ site-orphan  unregistered · no origin · orphaned worktree of site
         assert!(!use_color(true, Some(OsStr::new("0"))));
         assert!(!use_color(false, None));
         assert!(!use_color(false, Some(OsStr::new(""))));
+    }
+
+    #[test]
+    fn an_unreadable_git_dir_is_said_once_as_needing_a_person() {
+        let mut app = entry("app", main(), "main");
+        let failed = |path: &str| {
+            status(
+                UnprobedWorktree {
+                    head: UnprobedHead::Unknown,
+                    ..unprobed(
+                        path,
+                        None,
+                        UnprobedWhy::Failed {
+                            error: "not listed by git: reading …: Permission denied".into(),
+                        },
+                    )
+                },
+                None,
+            )
+        };
+        // the admin dir unreadable itself, one under an unreadable
+        // `worktrees/`, and one that failed for its own reason
+        app.unprobed_worktrees = vec![
+            failed("/home/me/dev/app/.git/worktrees/x"),
+            failed("/home/me/dev/lib/.git/worktrees/y"),
+            failed("/home/me/dev/app-broken"),
+        ];
+        app.needs_human = vec![
+            NeedsHuman::WorktreeUnreadable {
+                path: "/home/me/dev/app/.git/worktrees/x".into(),
+            },
+            NeedsHuman::WorktreeUnreadable {
+                path: "/home/me/dev/lib/.git/worktrees".into(),
+            },
+            NeedsHuman::DefaultBranchGone {
+                branch: "main".into(),
+            },
+        ];
+        assert_eq!(
+            render_summary(&report(vec![app]), VIEW, false),
+            "\
+failed        app (worktree ~/dev/app-broken: not listed by git: reading …: Permission denied)
+needs human   app (worktree git dir unreadable: ~/dev/app/.git/worktrees/x)
+              app (worktree git dir unreadable: ~/dev/lib/.git/worktrees)
+              app (main's upstream is gone from origin)
+clean 0 · on branches 0 · pinned 0      ~/dev/repos.toml · fetched 3h ago
+"
+        );
     }
 
     #[test]

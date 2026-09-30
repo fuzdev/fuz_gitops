@@ -13,8 +13,8 @@ use fuz_repos::classify::{NeedsHuman, Refresh};
 use fuz_repos::probe::RegistryDirs;
 use fuz_repos::sessions::LiveSessions;
 use fuz_repos::state::{
-    Checkout, CleanupReason, GitDirHolds, Head, HeldBy, InProgressOp, Prune, PruneLoss, SyncAction,
-    Uncommitted, UnprobedHead, UnprobedWhy, UnprobedWorktree, Verdict,
+    Checkout, CleanupReason, GitDirHolds, Head, HeldBy, InProgressOp, Prune, PruneLoss, Relation,
+    SyncAction, Uncommitted, UnprobedHead, UnprobedWhy, UnprobedWorktree, Verdict,
 };
 use fuz_repos::status::{StatusOptions, status};
 use support::{FixtureWorkspace, Unseal, branch, find_entry, unprobed_facts};
@@ -1413,6 +1413,115 @@ fn an_unreadable_worktrees_dir_holds_the_entry() {
 }
 
 #[test]
+fn an_unreadable_worktrees_dir_withholds_every_cleanup() {
+    use std::os::unix::fs::PermissionsExt;
+    let mut ws = FixtureWorkspace::new();
+    let app = app(&mut ws);
+    // `merged`: nothing unique, no upstream, checked out in a worktree;
+    // `gone`: its upstream deleted, a commit on no remote
+    ws.git(&app, &["branch", "-q", "merged"]);
+    ws.add_worktree(&app, &ws.dir("app-merged"), &["merged"]);
+    pushed_branch(&ws, &app, "gone");
+    ws.git(&app, &["checkout", "-q", "gone"]);
+    ws.commit(&app, "local-gone");
+    ws.git(&app, &["checkout", "-q", "main"]);
+    ws.upstream_delete_branch("app", "gone");
+    ws.git(&app, &["fetch", "-q", "--prune", "origin"]);
+    ws.assert_track(&app, "gone", "[gone]");
+    ws.assert_clean(&app);
+    let worktrees = app.join(".git/worktrees");
+    std::fs::set_permissions(&worktrees, std::fs::Permissions::from_mode(0o000)).unwrap();
+    let unseal = Unseal(worktrees.clone());
+    if std::fs::read_dir(&worktrees).is_ok() {
+        eprintln!("skipped: permissions don't bind this user (root)");
+        return;
+    }
+    // git no longer knows `merged` is checked out anywhere
+    let named = ws.git(
+        &app,
+        &[
+            "for-each-ref",
+            "--format=%(worktreepath)",
+            "refs/heads/merged",
+        ],
+    );
+    assert_eq!(named, "");
+
+    let e = ws.entry("app");
+    assert_eq!(
+        e.needs_human,
+        [NeedsHuman::WorktreeUnreadable {
+            path: path(&worktrees)
+        }]
+    );
+    assert_eq!(branch(&e, "merged").verdict, Verdict::Quiet);
+    assert_eq!(branch(&e, "gone").relation, Relation::Gone);
+    assert_eq!(branch(&e, "gone").verdict, Verdict::LocalOnly);
+    // readable again, each is cleanup as ever
+    drop(unseal);
+    let e = ws.entry("app");
+    assert!(e.needs_human.is_empty(), "{:?}", e.needs_human);
+    assert!(matches!(
+        branch(&e, "gone").verdict,
+        Verdict::Cleanup { .. }
+    ));
+}
+
+#[test]
+fn an_unreadable_admin_dir_withholds_cleanup_of_gone_branches() {
+    let mut ws = FixtureWorkspace::new();
+    let app = app(&mut ws);
+    // each checked out in its own worktree, its upstream deleted: `gone`
+    // with a commit on no remote, `gone0` with none
+    let mut admins = Vec::new();
+    for (name, commits) in [("gone", 1), ("gone0", 0)] {
+        pushed_branch(&ws, &app, name);
+        let wt = ws.dir(&format!("app-{name}"));
+        admins.push(ws.add_worktree(&app, &wt, &[name]));
+        for i in 0..commits {
+            ws.commit(&wt, &format!("{name}-{i}"));
+        }
+        ws.upstream_delete_branch("app", name);
+    }
+    ws.git(&app, &["fetch", "-q", "--prune", "origin"]);
+    ws.assert_track(&app, "gone", "[gone]");
+    ws.assert_track(&app, "gone0", "[gone]");
+    ws.assert_count(&app, &["gone", "--not", "--remotes"], 1);
+    ws.assert_count(&app, &["gone0", "--not", "--remotes"], 0);
+    let e = ws.entry("app");
+    for b in ["gone", "gone0"] {
+        assert!(
+            matches!(branch(&e, b).verdict, Verdict::Cleanup { .. }),
+            "{b}"
+        );
+    }
+    // one admin dir sealed: its worktree's HEAD is unknown, so it may be
+    // on either branch, and `git branch -D` would strand it
+    let Some(_sealed) = support::seal(&admins[0], 0o000) else {
+        return;
+    };
+    let list = ws.git(&app, &["worktree", "list", "--porcelain"]);
+    assert!(!list.contains("app-gone\n"), "{list}");
+
+    let e = ws.entry("app");
+    assert_eq!(
+        e.needs_human,
+        [NeedsHuman::WorktreeUnreadable {
+            path: path(&admins[0])
+        }]
+    );
+    let u = e
+        .unprobed_worktrees
+        .iter()
+        .find(|u| u.worktree.path == path(&admins[0]))
+        .unwrap();
+    assert_eq!(u.worktree.head, UnprobedHead::Unknown);
+    assert_eq!(branch(&e, "gone").relation, Relation::Gone);
+    assert_eq!(branch(&e, "gone").verdict, Verdict::LocalOnly);
+    assert_eq!(branch(&e, "gone0").verdict, Verdict::Quiet);
+}
+
+#[test]
 fn a_worktree_with_initialized_submodules_is_not_removable() {
     let mut ws = FixtureWorkspace::new();
     ws.remote("sub", &[]);
@@ -2186,6 +2295,116 @@ fn what_a_gone_worktrees_index_and_refs_hold() {
         )
     );
     assert_eq!(held(&bs), safe);
+}
+
+#[test]
+fn a_reftable_gone_worktrees_refs_are_read_from_git() {
+    let mut ws = FixtureWorkspace::new();
+    // a git that can't make reftable repos has nothing to read here
+    let probe = ws.outside("reftable-probe");
+    let made = ws.git_output(
+        ws.base(),
+        &[
+            "init",
+            "-q",
+            "--ref-format=reftable",
+            probe.to_str().unwrap(),
+        ],
+    );
+    if !made.status.success() {
+        eprintln!("skipped: this git makes no reftable repos");
+        return;
+    }
+    ws.remote("app", &[("tracked.txt", "one\n")]);
+    ws.declare_repo("app", "app", "");
+    let app = ws.clone_owned("app", "app", &["--ref-format=reftable"]);
+    assert_eq!(
+        ws.git(&app, &["rev-parse", "--show-ref-format"]),
+        "reftable"
+    );
+    // `plain` holds nothing of its own; `bs`, `wt`, and `rw` each a ref in
+    // one of git's per-worktree namespaces
+    let gone = |name: &str, per_worktree: Option<&str>| {
+        let wt = ws.outside(name);
+        let admin = ws.add_worktree(&app, &wt, &["-b", name]);
+        if let Some(r) = per_worktree {
+            ws.git(&wt, &["update-ref", r, "HEAD"]);
+        }
+        // every reftable worktree git dir holds a `refs/heads` stub
+        assert!(admin.join("reftable").is_dir(), "{name}");
+        assert!(admin.join("refs/heads").is_file(), "{name}");
+        std::fs::remove_dir_all(&wt).unwrap();
+        (wt, admin)
+    };
+    let (plain, plain_admin) = gone("plain", None);
+    let (bs, _) = gone("bs", Some("refs/bisect/bad"));
+    let (wt, _) = gone("wt", Some("refs/worktree/keep"));
+    let (rw, _) = gone("rw", Some("refs/rewritten/x"));
+    // the refs are that worktree's alone, invisible from the primary
+    assert_eq!(
+        ws.git(
+            &app,
+            &[
+                "for-each-ref",
+                "refs/bisect/",
+                "refs/worktree/",
+                "refs/rewritten/"
+            ]
+        ),
+        ""
+    );
+    let before = support::snapshot_git_dir(&plain_admin);
+
+    let e = ws.entry("app");
+    let held = |wt: &Path| {
+        let u = e
+            .unprobed_worktrees
+            .iter()
+            .find(|u| u.worktree.path == path(wt))
+            .unwrap();
+        assert_eq!(u.worktree.why, UnprobedWhy::Prunable);
+        (u.worktree.holds, u.prune.clone())
+    };
+    assert_eq!(held(&plain), (Some(NOTHING_HELD), Some(Prune::Safe)));
+    for wt in [&bs, &wt, &rw] {
+        assert_eq!(
+            held(wt),
+            (
+                Some(GitDirHolds {
+                    worktree_refs: true,
+                    ..NOTHING_HELD
+                }),
+                Some(Prune::Loses {
+                    losses: vec![PruneLoss::WorktreeRefs]
+                })
+            ),
+            "{}",
+            wt.display()
+        );
+    }
+    support::assert_git_dir_unchanged(&before, &support::snapshot_git_dir(&plain_admin));
+    // tables git can't read count as held: git lists nothing from them,
+    // and exits 0
+    std::fs::write(plain_admin.join("reftable/tables.list"), "garbage\n").unwrap();
+    let listed = ws.git_output(
+        &app,
+        &[
+            &format!("--git-dir={}", plain_admin.display()),
+            "for-each-ref",
+            "refs/",
+        ],
+    );
+    assert!(
+        listed.status.success() && listed.stdout.is_empty(),
+        "{listed:?}"
+    );
+    let e = ws.entry("app");
+    let u = e
+        .unprobed_worktrees
+        .iter()
+        .find(|u| u.worktree.path == path(&plain))
+        .unwrap();
+    assert!(u.worktree.holds.is_some_and(|h| h.worktree_refs), "{u:?}");
 }
 
 #[test]

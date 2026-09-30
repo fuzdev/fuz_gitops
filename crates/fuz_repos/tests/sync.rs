@@ -19,6 +19,7 @@ use std::path::Path;
 use std::process::Command;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
+use fuz_repos::classify::NeedsHuman;
 use fuz_repos::remote::RemoteFailure;
 use fuz_repos::report::{BranchOutcome, BranchSync, EntrySync, FetchOutcome, SyncHold};
 use fuz_repos::sessions::{LiveSessions, Session, SessionSource, Unavailable};
@@ -693,6 +694,57 @@ fn references_and_pins_are_never_fetched_or_moved() {
     }
     assert_eq!(ws.refs(&lib), lib_before);
     assert_eq!(ws.refs(&pin), pin_before);
+}
+
+#[test]
+fn an_owned_entry_with_origin_drift_is_never_fetched() {
+    let mut ws = FixtureWorkspace::new();
+    let app = ws.owned_repo("app", &[]);
+    ws.upstream_commit("app", "main");
+    ws.commit(&app, "local");
+    // origin names another repo, which a fetch would reach
+    ws.remote("other", &[("other.txt", "other\n")]);
+    ws.set_origin(&app, "other", "git@github.com:me/other");
+    ws.write_registry();
+    let before = ws.refs(&app);
+    assert!(!app.join(".git/FETCH_HEAD").exists());
+    let fetched = || {
+        assert!(!app.join(".git/FETCH_HEAD").exists());
+        assert_eq!(ws.refs(&app), before);
+    };
+
+    let e = find_entry(&ws.status_with_fetch(), "app").clone();
+    fetched();
+    assert_eq!(e.fetch_error, None);
+    assert!(
+        matches!(e.needs_human[..], [NeedsHuman::OriginMismatch { .. }]),
+        "{:?}",
+        e.needs_human
+    );
+    assert_eq!(
+        branch(&e, "main").verdict,
+        Verdict::Held {
+            action: SyncAction::Push { commits: 1 },
+            by: HeldBy::Entry
+        }
+    );
+
+    let run = ws.sync();
+    fetched();
+    assert_eq!(outcomes(&run, "app").fetch, FetchOutcome::NotFetched);
+    assert_eq!(
+        outcome(&run, "app", "main"),
+        &BranchOutcome::Held {
+            action: SyncAction::Push { commits: 1 },
+            by: SyncHold::Entry
+        }
+    );
+    assert_eq!(ws.ssh_log(), Vec::<String>::new());
+
+    // origin set back, it's fetched
+    ws.set_origin(&app, "app", &support::owned_origin("app"));
+    ws.sync();
+    assert!(app.join(".git/FETCH_HEAD").exists());
 }
 
 #[test]

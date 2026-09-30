@@ -5,6 +5,8 @@
 //! previews it, `sync` executes it, and JSON consumers read it rather than
 //! re-deriving policy from relations.
 
+use std::path::Path;
+
 use serde::Serialize;
 
 use crate::busy::{Detection, EntrySessions};
@@ -69,6 +71,15 @@ pub enum NeedsHuman {
         branch: String,
     },
     DefaultBranchNoUpstream {
+        branch: String,
+    },
+    /// The branch the entry follows tracks an origin branch that's gone
+    /// from origin — the remote's default branch renamed (`master` to
+    /// `main`) or deleted. Never cleanup: it's the branch the entry lives
+    /// on, and deleting it, or the worktree it's in, isn't the fix. The
+    /// branch itself reads `LocalOnly` or `Quiet`, as one with no upstream
+    /// does.
+    DefaultBranchGone {
         branch: String,
     },
     UnexpectedDetached {
@@ -150,6 +161,7 @@ impl NeedsHuman {
             | Self::ClonedUnregistered { .. } => true,
             Self::DefaultBranchMissing { .. }
             | Self::DefaultBranchNoUpstream { .. }
+            | Self::DefaultBranchGone { .. }
             | Self::UnexpectedDetached { .. }
             | Self::CheckoutUnresolvable { .. }
             | Self::UnlistedGitDir { .. }
@@ -387,6 +399,16 @@ fn fetches_over_https(entry: &Entry, config: &ConfigFacts) -> bool {
         .is_some_and(|u| u.starts_with("https://") && origin_matches(u, &entry.url))
 }
 
+/// Whether an entry's branches are compared against origin: owned, or a
+/// third-party reference the run refreshes (`refresh_verdict`).
+fn tracked(entry: &Entry, refresh: Refresh, config: &ConfigFacts) -> bool {
+    entry.writable
+        || matches!(
+            refresh_verdict(entry, refresh, config),
+            Some(RefreshVerdict::Act)
+        )
+}
+
 /// Classifies a present repo's facts against its registry entry.
 ///
 /// With the live sessions in its checkouts and which references the run
@@ -407,12 +429,14 @@ pub fn classify(
     let push_url = needs_human
         .iter()
         .any(|r| matches!(r, NeedsHuman::PushUrlMismatch { .. }));
-    // compared against origin: owned, or a third-party reference refreshed
-    let tracked = entry.writable
-        || matches!(
-            refresh_verdict(entry, refresh, &facts.config),
-            Some(RefreshVerdict::Act)
-        );
+    let tracked = tracked(entry, refresh, &facts.config);
+    // `<commondir>/worktrees/` itself can't be read: which branches its
+    // worktrees are on is unknown, so no branch is cleanup — as with any
+    // unprobed worktree whose HEAD is unknown (`CheckoutsOn::head_unknown`)
+    let worktrees_dir = facts.common_dir.join("worktrees");
+    let worktrees_unread = needs_human.iter().any(
+        |r| matches!(r, NeedsHuman::WorktreeUnreadable { path } if Path::new(path) == worktrees_dir),
+    );
     let branches = facts
         .branches
         .iter()
@@ -443,7 +467,14 @@ pub fn classify(
             let verdict = if b.branch.symref.is_some() {
                 Verdict::Quiet
             } else {
-                verdict(entry, b, relation, upstream.is_some(), &holds)
+                // any branch may be checked out in a worktree no one can
+                // see: deleting it would strand that worktree
+                let unseen = worktrees_unread || on.head_unknown;
+                match verdict(entry, b, relation, upstream.is_some(), &holds) {
+                    Verdict::Cleanup { .. } if unseen && b.unique_commits > 0 => Verdict::LocalOnly,
+                    Verdict::Cleanup { .. } if unseen => Verdict::Quiet,
+                    verdict => verdict,
+                }
             };
             Some(BranchStatus {
                 name: b.branch.name.clone(),
@@ -632,6 +663,9 @@ struct CheckoutsOn<'a> {
     maybe_busy: bool,
     dirty: bool,
     unprobed: bool,
+    /// Possibly on HEAD in an unprobed worktree whose HEAD couldn't be read
+    /// (its git dir unreadable, or its `HEAD`): it counts for every branch.
+    head_unknown: bool,
     /// On HEAD in more than one checkout, counting unprobed ones and
     /// unlisted git dirs that may be on it.
     several: bool,
@@ -765,6 +799,10 @@ fn checkouts_on<'a>(
         })
         .map(|u| u.path.as_str())
         .collect();
+    folded.head_unknown = facts
+        .unprobed
+        .iter()
+        .any(|u| u.head == UnprobedHead::Unknown);
     if !unprobed.is_empty() {
         count += unprobed.len();
         folded.unprobed = true;
@@ -844,6 +882,15 @@ fn verdict(
         Relation::Unmapped => Break(Verdict::NeedsHuman {
             reason: BranchNeedsHuman::Unmapped,
         }),
+        // the branch the entry follows is never cleanup: its gone upstream
+        // is the entry's `default_branch_gone` reason
+        Relation::Gone if Some(b.branch.name.as_str()) == entry.branch.as_deref() => {
+            Break(if b.unique_commits > 0 {
+                Verdict::LocalOnly
+            } else {
+                Verdict::Quiet
+            })
+        }
         Relation::Gone => Break(Verdict::Cleanup {
             reason: CleanupReason::UpstreamGone,
             removable_worktree: on.removable.map(str::to_owned),
@@ -939,8 +986,15 @@ fn needs_human(
     // the branch the entry follows; a pin's checkout is its consumer's,
     // wherever its HEAD is, so nothing is expected of it
     if let (Some(branch), false) = (&entry.branch, entry.pinned) {
-        if !facts.branches.iter().any(|b| b.branch.name == *branch) {
+        let followed = facts.branches.iter().find(|b| b.branch.name == *branch);
+        if followed.is_none() {
             reasons.push(NeedsHuman::DefaultBranchMissing {
+                branch: branch.clone(),
+            });
+        } else if followed.is_some_and(|b| {
+            tracked(entry, refresh, &facts.config) && relation(b, facts) == Relation::Gone
+        }) {
+            reasons.push(NeedsHuman::DefaultBranchGone {
                 branch: branch.clone(),
             });
         } else if !facts
@@ -979,7 +1033,7 @@ fn needs_human(
         facts
             .unreadable
             .iter()
-            .any(|p| std::path::Path::new(checkout).starts_with(p))
+            .any(|p| Path::new(checkout).starts_with(p))
     };
     let checkouts = std::iter::once(&facts.path)
         .chain(facts.worktrees.iter().map(|c| &c.path))
@@ -1820,8 +1874,8 @@ mod tests {
                 held(ff(2), HeldBy::UnprobedWorktree),
                 held(push(3), HeldBy::BusyUnknown),
                 held(push(4), HeldBy::BusyUnknown),
-                // (it may be on `old` too, so no worktree is removable)
-                gone(None),
+                // it may be on `old` too: deleting `old` could strand it
+                Verdict::Quiet,
             ]
         );
     }
@@ -2071,14 +2125,9 @@ mod tests {
                 ),
                 // a push only moves refs
                 ("ahead", act(SyncAction::Push { commits: 1 })),
-                // it might be checked out there too: not the one to remove
-                (
-                    "gone",
-                    Verdict::Cleanup {
-                        reason: CleanupReason::UpstreamGone,
-                        removable_worktree: None,
-                    }
-                ),
+                // it might be checked out there too: deleting it could
+                // strand that worktree, so it's no cleanup
+                ("gone", Verdict::Quiet),
                 // it might be checked out there: a fresh branch, not merged
                 ("merged", Verdict::Quiet),
             ])
@@ -3425,6 +3474,156 @@ mod tests {
         );
     }
 
+    /// The branch an entry follows, its upstream gone from origin (the
+    /// remote's default renamed), needs a person — never cleanup, never a
+    /// worktree to remove — and the branch itself reads as one with no
+    /// upstream does. Any other gone branch stays cleanup.
+    #[test]
+    fn a_followed_branch_whose_upstream_is_gone_needs_a_human() {
+        let e = owned(Mode::Follow("master"));
+        let reason = [NeedsHuman::DefaultBranchGone {
+            branch: "master".into(),
+        }];
+        let mut f = facts(
+            on("main"),
+            &[
+                b("main", O, true, Track::Even),
+                b("master", O, true, Track::Gone),
+                b("old", O, true, Track::Gone),
+            ],
+        );
+        // the followed branch in a clean linked worktree, as removable as
+        // `old` would be
+        f.worktrees = vec![linked("/ws/app-master", on("master"))];
+        let c = classify(&e, &f, &EntrySessions::idle(), Refresh::Unasked);
+        assert_eq!(c.needs_human, reason);
+        assert!(!reason[0].holds_entry());
+        assert_eq!(
+            verdicts(&e, &f),
+            named(&[
+                ("main", Verdict::Quiet),
+                ("master", Verdict::Quiet),
+                (
+                    "old",
+                    Verdict::Cleanup {
+                        reason: CleanupReason::UpstreamGone,
+                        removable_worktree: None,
+                    }
+                ),
+            ])
+        );
+        assert_eq!(branch_relation(&c, "master"), Relation::Gone);
+        // with commits on no remote, it's local work, never deletable
+        let unique = facts(on("master"), &[b("master", O, true, Track::Gone).unique(2)]);
+        assert_eq!(
+            classify(&e, &unique, &EntrySessions::idle(), Refresh::Unasked).needs_human,
+            reason
+        );
+        assert_eq!(
+            verdicts(&e, &unique),
+            named(&[("master", Verdict::LocalOnly)])
+        );
+        // following another branch, it's cleanup as ever
+        let main = owned(Mode::Follow("main"));
+        let gone = facts(
+            on("main"),
+            &[
+                b("main", O, true, Track::Even),
+                b("master", O, true, Track::Gone),
+            ],
+        );
+        assert!(
+            classify(&main, &gone, &EntrySessions::idle(), Refresh::Unasked)
+                .needs_human
+                .is_empty()
+        );
+        assert!(matches!(
+            verdicts(&main, &gone)[1].1,
+            Verdict::Cleanup { .. }
+        ));
+        // a pin's refs are stale by contract, and a reference the run
+        // doesn't refresh is compared against no remote: neither says it
+        for e in [
+            owned(Mode::PinnedOn("master")),
+            third_party(Mode::Follow("master")),
+        ] {
+            let c = classify(&e, &f, &EntrySessions::idle(), Refresh::Unasked);
+            assert!(
+                !c.needs_human
+                    .iter()
+                    .any(|r| matches!(r, NeedsHuman::DefaultBranchGone { .. })),
+                "{:?}",
+                c.needs_human
+            );
+        }
+        // a reference the run refreshes does
+        let mut refreshed = f;
+        refreshed.config.origin_urls = vec![OriginUrl::repo("https://github.com/them/lib")];
+        refreshed.config.origin_fetch_url = Some("https://github.com/them/lib".into());
+        refreshed.push_urls = None;
+        let lib = third_party(Mode::Follow("master"));
+        assert_eq!(
+            classify(&lib, &refreshed, &EntrySessions::idle(), Refresh::Named).needs_human,
+            reason
+        );
+    }
+
+    /// With `worktrees/` itself unreadable, or an unprobed worktree whose
+    /// HEAD is unknown, any branch may be checked out where no one can
+    /// see: none is cleanup. A gone worktree whose HEAD reads doesn't
+    /// withhold it.
+    #[test]
+    fn an_unreadable_worktrees_dir_withholds_cleanup() {
+        let e = owned(Mode::Follow("main"));
+        let mut f = facts(
+            on("main"),
+            &[
+                b("main", O, true, Track::Even),
+                b("gone", O, true, Track::Gone),
+                b("gone-work", O, true, Track::Gone).unique(1),
+                b("merged", None, false, Track::Even),
+            ],
+        );
+        f.unreadable = vec!["/ws/app/.git/worktrees".into()];
+        assert_eq!(
+            verdicts(&e, &f),
+            named(&[
+                ("main", Verdict::Quiet),
+                ("gone", Verdict::Quiet),
+                ("gone-work", Verdict::LocalOnly),
+                ("merged", Verdict::Quiet),
+            ])
+        );
+        let withheld = verdicts(&e, &f);
+        // one admin dir unreadable: its worktree's HEAD is unknown
+        f.unreadable = vec!["/ws/app/.git/worktrees/x".into()];
+        f.unprobed = vec![UnprobedWorktree {
+            head: UnprobedHead::Unknown,
+            ..unprobed(
+                "/ws/app/.git/worktrees/x",
+                None,
+                UnprobedWhy::Failed {
+                    error: "not listed by git".into(),
+                },
+            )
+        }];
+        assert_eq!(verdicts(&e, &f), withheld);
+        // a readable admin dir whose HEAD isn't
+        f.unreadable.clear();
+        assert_eq!(verdicts(&e, &f), withheld);
+        // a gone worktree on a known branch: cleanup as ever
+        f.unprobed = vec![unprobed("/ws/app-x", Some("main"), UnprobedWhy::Prunable)];
+        let cleanup = verdicts(&e, &f)
+            .into_iter()
+            .filter(|(_, v)| matches!(v, Verdict::Cleanup { .. }))
+            .count();
+        assert_eq!(cleanup, 3);
+    }
+
+    fn branch_relation(c: &Classified, name: &str) -> Relation {
+        c.branches.iter().find(|b| b.name == name).unwrap().relation
+    }
+
     #[test]
     fn pinned_and_head_modes() {
         let detached = facts(
@@ -3627,7 +3826,8 @@ mod tests {
                 ("behind", held(SyncAction::FastForward { commits: 3 })),
             ])
         );
-        // followed, the same refs are taken at their word
+        // followed, the same refs are taken at their word — the followed
+        // branch's gone upstream its entry's reason, never cleanup
         let gone = |removable_worktree| Verdict::Cleanup {
             reason: CleanupReason::UpstreamGone,
             removable_worktree,
@@ -3635,7 +3835,7 @@ mod tests {
         assert_eq!(
             verdicts(&owned(Mode::Follow("fork")), &f),
             named(&[
-                ("fork", gone(None)),
+                ("fork", Verdict::LocalOnly),
                 ("side", gone(None)),
                 ("diverged", needs(BranchNeedsHuman::Diverged)),
                 ("unmapped", needs(BranchNeedsHuman::Unmapped)),

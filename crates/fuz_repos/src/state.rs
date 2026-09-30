@@ -320,7 +320,11 @@ pub enum Verdict {
     /// `None` when it's in none, the one it's in is dirty (and its dirt
     /// shows as uncommitted), is a registry entry's dir, or is busy (a live
     /// session works in it) — or when busy detection is unavailable, so any
-    /// checkout may be.
+    /// checkout may be. Never while the repo's `worktrees/` can't be read
+    /// (a `worktree_unreadable` reason naming it), nor while an unprobed
+    /// worktree's HEAD is unknown (its git dir or its `HEAD` unreadable):
+    /// any branch may be checked out in a worktree no one can see, so the
+    /// branch reads `LocalOnly` with commits on no remote, else `Quiet`.
     Cleanup {
         reason: CleanupReason,
         removable_worktree: Option<String>,

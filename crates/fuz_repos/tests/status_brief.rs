@@ -275,6 +275,46 @@ fn reads_the_checkout_holding_the_path_a_linked_worktree_its_own() {
 }
 
 #[test]
+fn reads_a_separate_git_dir_checkout() {
+    let mut ws = FixtureWorkspace::new();
+    ws.remote("sep", &[]);
+    ws.declare_repo("sep", "sep", "");
+    let gits = ws.outside("gits");
+    std::fs::create_dir(&gits).unwrap();
+    let git_dir = gits.join("sep.git");
+    let sep = ws.clone_owned(
+        "sep",
+        "sep",
+        &["--separate-git-dir", git_dir.to_str().unwrap()],
+    );
+    assert!(sep.join(".git").is_file());
+    ws.write_registry();
+    ws.commit(&sep, "local");
+    let sub = sep.join("sub");
+    std::fs::create_dir(&sub).unwrap();
+
+    let said = "repos: sep — 1 ahead of origin/main (unpushed)\n";
+    assert_eq!(brief(&ws, &sep), said);
+    assert_eq!(brief_env(&ws, &sub, &[], &[]), said);
+}
+
+#[test]
+fn silent_in_a_repo_whose_work_tree_is_another_entrys() {
+    let mut ws = FixtureWorkspace::new();
+    let a = ws.owned_repo("a", &[]);
+    let b = ws.owned_repo("b", &[]);
+    ws.commit(&b, "local");
+    ws.git(&a, &["config", "core.worktree", b.to_str().unwrap()]);
+    ws.write_registry();
+    assert_eq!(brief(&ws, &a), "");
+    assert_eq!(brief_env(&ws, &a, &[], &[]), "");
+    assert_eq!(
+        brief(&ws, &b),
+        "repos: b — 1 ahead of origin/main (unpushed)\n"
+    );
+}
+
+#[test]
 fn speaks_for_the_workspace_a_registry_kept_in_a_repo_is_linked_at() {
     let mut ws = FixtureWorkspace::new();
     app(&mut ws);

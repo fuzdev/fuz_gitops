@@ -17,7 +17,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{Duration, Instant, UNIX_EPOCH};
 
-use crate::classify::{Refresh, refresh_intent, refresh_verdict};
+use crate::classify::{Refresh, origin_drift, refresh_intent, refresh_verdict};
 use crate::git::{CallOptions, Git, GitError, NetworkOptions};
 use crate::gitdir::{dot_git_target, read_head, read_worktree_gitdir};
 use crate::porcelain::{
@@ -252,12 +252,15 @@ const fn could_push(b: &BranchFacts, shallow: bool) -> bool {
 /// read.
 ///
 /// Owned and not pinned — a pin is never fetched, whatever branch it's on
-/// — or a third-party reference whose refresh verdict acts
-/// (`refresh_verdict`, which holds one whose origin isn't the registry's
-/// repo, or whose fetch wouldn't reach it over HTTPS): fetched over HTTPS
-/// alone. Classify decides; the probe obeys.
+/// — with an origin that's the registry's repo (`origin_drift`: a fetch
+/// from another URL would fill `refs/remotes/origin/*` with another repo's
+/// history, and with none there's nothing to fetch from; its
+/// `origin_mismatch` reason holds the entry); or a third-party reference
+/// whose refresh verdict acts (`refresh_verdict`, which holds one whose
+/// origin isn't the registry's repo, or whose fetch wouldn't reach it over
+/// HTTPS): fetched over HTTPS alone. Classify decides; the probe obeys.
 pub fn fetches(entry: &Entry, refresh: Refresh, config: &ConfigFacts) -> bool {
-    syncs_owned(entry)
+    (syncs_owned(entry) && origin_drift(entry, config).is_none())
         || matches!(
             refresh_verdict(entry, refresh, config),
             Some(RefreshVerdict::Act)
@@ -400,9 +403,9 @@ fn probe_present(
     let shallow_roots = read_shallow_roots(&common_dir);
     early.config = Some(config.clone());
 
-    // no `origin` URL, nothing to fetch from — origin drift reports it (a
-    // third-party reference's refresh is held for it, so never fetched)
-    if cx.fetch && fetches(entry, cx.refresh, &config) && config.origin_url().is_some() {
+    // an origin that isn't the registry's repo, or has no URL, is never
+    // fetched: origin drift reports it
+    if cx.fetch && fetches(entry, cx.refresh, &config) {
         let start = Instant::now();
         let mut args = FETCH_ARGS.to_vec();
         if !shallow_roots.is_empty() {
@@ -1061,9 +1064,11 @@ fn any_populated(path: &Path, gitlinks: &[String]) -> bool {
 }
 
 /// What a gone worktree's own git dir holds that its removal would drop,
-/// read without writing: `modules/` and `refs/` by listing, the index
-/// against HEAD by one `diff-index --cached` — not asked when its HEAD is
-/// unknown, and none needed when it has no index (added `--no-checkout`).
+/// read without writing: `modules/` by listing; its per-worktree refs by
+/// listing `refs/`, or from git for a reftable one (`worktree_refs`); the
+/// index against HEAD by one `diff-index --cached` — not asked when its
+/// HEAD is unknown, and none needed when it has no index (added
+/// `--no-checkout`).
 fn git_dir_holds(git: &Git, git_dir: &Path, head: &UnprobedHead) -> GitDirHolds {
     let staged = match git_dir.join("index").try_exists() {
         Ok(false) => Some(false),
@@ -1072,9 +1077,55 @@ fn git_dir_holds(git: &Git, git_dir: &Path, head: &UnprobedHead) -> GitDirHolds 
     };
     GitDirHolds {
         submodules: holds_any(&git_dir.join("modules"), false),
-        worktree_refs: holds_any(&git_dir.join("refs"), true),
+        worktree_refs: worktree_refs(git, git_dir),
         staged,
     }
+}
+
+/// Whether a worktree's own git dir holds a ref: one in git's per-worktree
+/// namespaces (`refs/worktree/`, `refs/bisect/`, `refs/rewritten/`), which
+/// may be the only ref to its commit.
+///
+/// The files format keeps them as files under `refs/`, listed. A reftable
+/// git dir (`reftable/`) keeps them in its tables, beside a `refs/heads`
+/// stub every one holds, so git lists them (`reftable_worktree_refs`).
+/// Anything that can't be read or told counts as held.
+fn worktree_refs(git: &Git, git_dir: &Path) -> bool {
+    match git_dir.join("reftable").try_exists() {
+        Ok(false) => holds_any(&git_dir.join("refs"), true),
+        Ok(true) => reftable_worktree_refs(git, git_dir).unwrap_or(true),
+        Err(_) => true,
+    }
+}
+
+/// `worktree_refs` for a reftable git dir, from one `for-each-ref` of the
+/// per-worktree namespaces, names only (a ref to a missing object is still
+/// listed), with `HEAD` asked for beside them (`--include-root-refs`): git
+/// lists nothing at all, and exits `0`, when it can't read the tables, so
+/// only a listed `HEAD` vouches that the list is whole. `None` when git
+/// can't tell — a failure (a git too old for the flag), no `HEAD` listed
+/// (the tables unreadable, or a `HEAD` on no ref), or a path git can't be
+/// given.
+fn reftable_worktree_refs(git: &Git, git_dir: &Path) -> Option<bool> {
+    let git_dir_arg = format!("--git-dir={}", git_dir.to_str()?);
+    let args = [
+        git_dir_arg.as_str(),
+        "for-each-ref",
+        "--include-root-refs",
+        // `HEAD` sorts first
+        "--count=2",
+        "--format=%(refname)",
+        "HEAD",
+        "refs/worktree/",
+        "refs/bisect/",
+        "refs/rewritten/",
+    ];
+    let out = git.run(git_dir, &args, CallOptions::default()).ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    let mut names = out.stdout.split(|&b| b == b'\n').filter(|l| !l.is_empty());
+    (names.next()? == b"HEAD").then(|| names.next().is_some())
 }
 
 /// Whether `dir` holds anything: any entry, or with `files`, anything but a

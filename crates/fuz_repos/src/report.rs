@@ -247,9 +247,9 @@ pub struct EntryStatus {
     /// (`refspec_outside_origin`, `origin_refs_shared`,
     /// `legacy_remotes_unreadable`). `None` when it
     /// succeeded or wasn't attempted — `--fetch` not given, an entry it
-    /// passes over, or one whose `origin` has no URL, which origin drift
-    /// reports instead. The rest of the entry is probed either way, from the
-    /// remote-tracking refs as they stand.
+    /// passes over, or one whose `origin` isn't the registry's repo or has
+    /// no URL, which origin drift reports instead. The rest of the entry is
+    /// probed either way, from the remote-tracking refs as they stand.
     pub fetch_error: Option<RemoteFailure>,
     /// What an anonymous read of the repo found, under `--fetch`, for a
     /// `[repos]` entry declared private; `None` when the check didn't run
@@ -258,6 +258,15 @@ pub struct EntryStatus {
 }
 
 impl EntryStatus {
+    /// Whether `branch` is the branch the entry follows, its upstream gone
+    /// from origin (its `default_branch_gone` reason, classify's): never
+    /// recreated on origin, and never cleanup.
+    pub fn default_branch_gone(&self, branch: &str) -> bool {
+        self.needs_human
+            .iter()
+            .any(|r| matches!(r, NeedsHuman::DefaultBranchGone { branch: b } if b == branch))
+    }
+
     /// The probed checkout at `path`, compared as the kernel resolves both
     /// (`busy::same_path`); `None` when none of them is.
     pub fn checkout_at(&self, path: &Path) -> Option<&Checkout> {
@@ -427,8 +436,9 @@ pub enum FetchOutcome {
     },
     /// Not attempted: an entry sync doesn't fetch (a third-party reference
     /// the run doesn't refresh, a pin), a repo that's missing (cloned
-    /// instead) or isn't one, one whose `origin` has no URL, or a probe that
-    /// failed before its fetch.
+    /// instead) or isn't one, one whose `origin` isn't the registry's repo
+    /// or has no URL (its `origin_mismatch` reason holds it), or a probe
+    /// that failed before its fetch.
     NotFetched,
 }
 

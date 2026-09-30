@@ -618,7 +618,9 @@ Under `--fetch`, each failed fetch gets a kind (`ref_gone`, `unreachable`,
 URL with no credential in reach — readable means it leaked, printed first as
 `visibility`. The fetch writes remote-tracking refs and nothing else, whatever
 the repo's config says; an entry whose refspecs could write outside
-`refs/remotes/origin/`, or another remote's into it, isn't fetched. Origin URLs
+`refs/remotes/origin/`, or another remote's into it, isn't fetched, and neither
+is one whose `origin` isn't the registry's repo (its origin-drift line says
+the fix): the fetch would bring in another repo's history. Origin URLs
 are redacted wherever shown, and registry URLs are strict (a plain DNS host, no
 userinfo or port). An origin or push URL names the registry's repo only when
 read as git connects for it: the host (to the first `/` after `scheme://`, or
@@ -704,7 +706,10 @@ commits other, finished sessions made included — and busy detection keeps it
 off the checkouts live sessions work in. A branch
 that's a symbolic ref never acts. It never rebases, merges anything but a
 fast-forward, deletes a branch, or prunes a worktree (the fetch prunes only
-remote-tracking refs gone upstream), and never touches a pin. A failed fetch
+remote-tracking refs gone upstream), and never touches a pin. A branch whose
+upstream is gone reads as cleanup, to delete by hand, except the branch the
+entry follows: its upstream gone (the remote's default renamed, say) needs a
+person. A failed fetch
 holds that entry's moves and pushes (its remote-tracking refs weren't
 refreshed), and a branch on HEAD in several checkouts holds its fast-forward
 or move. The rustdoc of `sync.rs` has the details.
@@ -732,7 +737,9 @@ upstream on origin reads `no_upstream`:
 --new-branch`, which an agent's shell (`CLAUDECODE`) is refused, exit `2`.
 It creates a branch with no upstream configured, or whose same-named
 upstream on origin is gone while it has commits on no remote (with none —
-merged, say — `no_upstream`, recreated by hand only), as `refs/heads/<b>` on
+merged, say — `no_upstream`, recreated by hand only; never the branch the
+entry follows, whose upstream gone is the remote's default renamed or
+deleted: `no_upstream`, repointed by hand), as `refs/heads/<b>` on
 the registry's repo — the same send-pack, under a lease that no such ref exists
 (`--force-with-lease=<ref>:`), so one created there since the fetch is
 held, never overwritten — then, as `git push -u`, the remote-tracking ref

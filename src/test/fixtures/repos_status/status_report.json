@@ -1,5 +1,5 @@
 {
-	"version": 13,
+	"version": 14,
 	"workspace": "/home/me/dev",
 	"registry": "/home/me/dev/repos.toml",
 	"fetched": true,
@@ -1959,6 +1959,77 @@
 						"https://***@mirror.example.com/me/pushy"
 					],
 					"expected": "git@github.com:me/pushy"
+				}
+			],
+			"probe_error": null,
+			"unprobed_worktrees": [],
+			"fetch_error": null,
+			"visibility_check": null
+		},
+		{
+			"key": "mageguild",
+			"kind": "repo",
+			"dir": "mageguild",
+			"url": "https://github.com/me/mageguild",
+			"writable": true,
+			"archived": false,
+			"visibility": "public",
+			"ci": true,
+			"branch": "master",
+			"pinned": false,
+			"refresh": null,
+			"presence": {
+				"kind": "present"
+			},
+			"clone": null,
+			"layout": {
+				"shallow": false,
+				"sparse": false,
+				"partial_filter": null
+			},
+			"checkouts": [
+				{
+					"path": "/home/me/dev/mageguild",
+					"primary": true,
+					"head": {
+						"kind": "branch",
+						"name": "master"
+					},
+					"uncommitted": {
+						"staged": 0,
+						"unstaged": 0,
+						"untracked": 0,
+						"conflicted": 0
+					},
+					"in_progress": null,
+					"locked": false,
+					"linked": false,
+					"submodules": null,
+					"busy": []
+				}
+			],
+			"branches": [
+				{
+					"name": "master",
+					"upstream": "origin/master",
+					"worktree": null,
+					"symref": null,
+					"unique_commits": 0,
+					"newest_commit_at": 1799827200,
+					"relation": {
+						"kind": "gone"
+					},
+					"verdict": {
+						"kind": "quiet"
+					}
+				}
+			],
+			"stashes": 0,
+			"fetched_at": 1799913600,
+			"needs_human": [
+				{
+					"kind": "default_branch_gone",
+					"branch": "master"
 				}
 			],
 			"probe_error": null,

@@ -22,6 +22,7 @@ use std::process::{Command, Output};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use fuz_repos::PUSH_FORMAT_VERSION;
+use fuz_repos::classify::NeedsHuman;
 use fuz_repos::push::PushRun;
 use fuz_repos::report::{FetchOutcome, PushOutcome, SyncHold};
 use fuz_repos::sessions::{LiveSessions, Session, SessionSource};
@@ -491,6 +492,39 @@ fn no_upstream_reads_so_when_the_fetch_fails() {
     assert_eq!(pushes_served(&ws), Vec::<String>::new());
 }
 
+/// `a`'s repo with its work tree pointed at `b`'s checkout
+/// (`core.worktree`): from inside `a`, git's top level is `b`, whose files
+/// are another entry's. No checkout of `a`'s to push, and never `b`'s.
+#[test]
+fn a_work_tree_elsewhere_names_no_checkout_to_push() {
+    let mut ws = FixtureWorkspace::new();
+    let a = ws.owned_repo("a", &[]);
+    let b = ws.owned_repo("b", &[]);
+    ws.commit(&b, "local");
+    ws.assert_track(&b, "main", "[ahead 1]");
+    ws.git(&a, &["config", "core.worktree", b.to_str().unwrap()]);
+    assert_eq!(
+        ws.git(&a, &["rev-parse", "--show-toplevel"]),
+        b.to_str().unwrap()
+    );
+    ws.write_registry();
+    let before = (remote_refs(&ws, "a"), remote_refs(&ws, "b"));
+
+    let out = repos(&ws, &a, &["push"]);
+    assert_eq!(out.status.code(), Some(2), "stdout: {}", stdout(&out));
+    assert!(
+        stderr(&out).starts_with("error: ") && stderr(&out).contains("checkout"),
+        "{}",
+        stderr(&out)
+    );
+    assert_eq!((remote_refs(&ws, "a"), remote_refs(&ws, "b")), before);
+    assert_eq!(pushes_served(&ws), Vec::<String>::new());
+    // from `b` itself it's `b`'s to push
+    let out = repos(&ws, &b, &["push"]);
+    assert_eq!(out.status.code(), Some(0), "stderr: {}", stderr(&out));
+    assert_eq!(pushes_served(&ws), ["git-receive-pack 'me/b'"]);
+}
+
 // --- --new-branch ---
 
 /// `app` with a local `topic` checked out, no upstream, a commit on it;
@@ -634,6 +668,64 @@ fn new_branch_never_recreates_a_merged_branch_origin_deleted() {
     );
     assert_eq!(lines.len(), 3, "{text}");
     assert!(!ws.has_ref(&bare, "refs/heads/feat"));
+}
+
+/// The branch the entry follows, renamed away on origin (`master` to
+/// `main`) with a local commit on it: a person repoints it, and neither a
+/// push nor `--new-branch` puts it back.
+#[test]
+fn new_branch_never_recreates_the_entrys_own_branch_gone_from_origin() {
+    let mut ws = FixtureWorkspace::new();
+    ws.remote("app", &[]);
+    ws.declare_repo("app", "app", "branch = \"master\"");
+    let up = ws.upstream("app");
+    ws.git(&up, &["push", "-q", "origin", "main:master"]);
+    let app = ws.clone_owned("app", "app", &["--branch", "master"]);
+    ws.upstream_delete_branch("app", "master");
+    ws.git(&app, &["fetch", "-q", "--prune", "origin"]);
+    ws.commit(&app, "local");
+    ws.assert_track(&app, "master", "[gone]");
+    ws.assert_count(&app, &["master", "--not", "--remotes"], 1);
+    ws.write_registry();
+    let remote_before = remote_refs(&ws, "app");
+    assert!(!remote_before.contains_key("refs/heads/master"));
+    let config_before = ws.git(&app, &["config", "--get-regexp", "^branch\\."]);
+
+    for run in [ws.push(&["app"]), ws.push_new_branch(&["app"])] {
+        assert_eq!(only(&run), (Some("master"), &PushOutcome::NoUpstream));
+        let e = find_entry(&run.entries, "app");
+        assert_eq!(
+            e.needs_human,
+            [NeedsHuman::DefaultBranchGone {
+                branch: "master".into()
+            }]
+        );
+    }
+    assert_eq!(remote_refs(&ws, "app"), remote_before);
+    assert_eq!(
+        ws.git(&app, &["config", "--get-regexp", "^branch\\."]),
+        config_before
+    );
+    assert_eq!(pushes_served(&ws), Vec::<String>::new());
+    // the summary says why, never to create it
+    for args in [&["push"][..], &["push", "--new-branch"]] {
+        let out = repos(&ws, &app, args);
+        assert_eq!(out.status.code(), Some(1), "stderr: {}", stderr(&out));
+        let text = stdout(&out);
+        let lines: Vec<&str> = text.lines().collect();
+        assert_eq!(
+            lines[..lines.len() - 1],
+            [
+                "needs human   app (master's upstream is gone from origin)",
+                "not pushed    app (the entry's branch, upstream gone from origin)",
+                "              hint: the entry's own branch is gone from origin (its default \
+                 renamed?): repoint the registry's branch and the checkout by hand; \
+                 --new-branch never recreates it",
+            ],
+            "{text}"
+        );
+    }
+    assert_eq!(remote_refs(&ws, "app"), remote_before);
 }
 
 #[test]

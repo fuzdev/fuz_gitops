@@ -43,7 +43,8 @@ pub struct RepoEntry {
     pub url: RepoUrl,
     pub dir: Option<String>,
     pub upstream: Option<RepoUrl>,
-    /// The default branch; absent means `main`.
+    /// The default branch; absent means `main`. Never empty (`parse_branch`).
+    #[serde(default, deserialize_with = "parse_branch")]
     pub branch: Option<String>,
     pub visibility: Visibility,
     /// Whether the repo runs CI; absent means it does iff it's public.
@@ -76,7 +77,9 @@ pub struct ReferenceEntry {
     #[serde(default, deserialize_with = "parse_sparse")]
     pub sparse: Option<String>,
     /// Where the checkout lives: the branch a clone takes, whose history
-    /// holds the commits the checkout sits on. Absent leaves HEAD alone.
+    /// holds the commits the checkout sits on. Absent leaves HEAD alone;
+    /// never empty (`parse_branch`).
+    #[serde(default, deserialize_with = "parse_branch")]
     pub branch: Option<String>,
     /// Who moves HEAD: its consumer, never the tool — independent of
     /// `branch`, detached or on a branch.
@@ -201,6 +204,23 @@ fn parse_sparse<'de, D: serde::Deserializer<'de>>(
              character)",
             path.escape_debug()
         )))
+    }
+}
+
+/// An entry's `branch`, checked as it's parsed: not empty. An empty one
+/// names no branch — not the default, which is the field left out — and
+/// would reach git as an empty ref name (`--branch ""`, `refs/heads/`).
+/// The error has its position.
+fn parse_branch<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> std::result::Result<Option<String>, D::Error> {
+    let branch = String::deserialize(deserializer)?;
+    if branch.is_empty() {
+        Err(serde::de::Error::custom(
+            "branch is empty; name a branch, or leave `branch` out",
+        ))
+    } else {
+        Ok(Some(branch))
     }
 }
 
@@ -860,6 +880,25 @@ pinned = "yes"
         .unwrap_err()
         .to_string();
         assert!(e.contains("line 6"), "{e}");
+    }
+
+    #[test]
+    fn an_empty_branch_is_an_error_with_position() {
+        for (table, extra) in [("repos", "visibility = \"public\"\n"), ("references", "")] {
+            let src = format!(
+                "owners = [\"me\"]\n[{table}.x]\nurl = \"https://github.com/me/x\"\n\
+                 purpose = \"x\"\n{extra}branch = \"\"\n"
+            );
+            let e = Registry::parse(&src).unwrap_err().to_string();
+            assert!(e.contains("branch is empty"), "{table}: {e}");
+            let line = if extra.is_empty() { 5 } else { 6 };
+            assert!(e.contains(&format!("line {line}")), "{table}: {e}");
+            // a named branch parses, and none is the default
+            let named = src.replace("branch = \"\"", "branch = \"trunk\"");
+            assert!(Registry::parse(&named).is_ok(), "{table}");
+            let absent = src.replace("branch = \"\"\n", "");
+            assert!(Registry::parse(&absent).is_ok(), "{table}");
+        }
     }
 
     #[test]

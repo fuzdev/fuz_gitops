@@ -7,7 +7,7 @@
 
 mod support;
 
-use fuz_repos::discover::resolve_targets;
+use fuz_repos::discover::{resolve_checkout, resolve_targets};
 use fuz_repos::error::Error;
 use support::FixtureWorkspace;
 
@@ -137,4 +137,118 @@ fn an_unregistered_repo_in_the_workspace_is_unknown() {
     )
     .unwrap_err();
     assert!(matches!(e, Error::UnknownEntry { .. }), "{e}");
+}
+
+#[test]
+fn a_path_in_a_separate_git_dir_checkout() {
+    let mut ws = workspace();
+    ws.remote("sep", &[("src/lib.rs", "\n")]);
+    ws.declare_repo("sep", "sep", "");
+    let gits = ws.outside("gits");
+    std::fs::create_dir(&gits).unwrap();
+    let git_dir = gits.join("sep.git");
+    let sep = ws.clone_owned(
+        "sep",
+        "sep",
+        &["--separate-git-dir", git_dir.to_str().unwrap()],
+    );
+    assert!(sep.join(".git").is_file());
+    // its common dir is the git dir elsewhere, not a `.git` in the checkout
+    assert_eq!(
+        ws.git(
+            &sep,
+            &["rev-parse", "--path-format=absolute", "--git-common-dir"]
+        ),
+        git_dir.to_str().unwrap()
+    );
+    assert_eq!(keys(&ws, &ws.root(), &["./sep"]), ["sep"]);
+    assert_eq!(keys(&ws, &ws.root(), &["sep/src"]), ["sep"]);
+    assert_eq!(keys(&ws, &sep.join("src"), &["."]), ["sep"]);
+    // one of its linked worktrees in the workspace is no entry's checkout,
+    // and nothing says where its main checkout is: unknown
+    let wt = ws.dir("sep-feat");
+    ws.add_worktree(&sep, &wt, &["-b", "feat"]);
+    let e = resolve_targets(
+        &ws.entries(),
+        &ws.root(),
+        &wt,
+        &[".".to_owned()],
+        &ws.runner(),
+    )
+    .unwrap_err();
+    assert!(matches!(e, Error::UnknownEntry { .. }), "{e}");
+    // a git dir kept in an entry's checkout isn't that entry's repo: only
+    // a `.git`'s parent is its main checkout
+    ws.remote("other", &[]);
+    let kept = ws.dir("lib").join("other.git");
+    let other = ws.outside("other");
+    ws.git(
+        ws.base(),
+        &[
+            "clone",
+            "-q",
+            "--separate-git-dir",
+            kept.to_str().unwrap(),
+            &format!("file://{}", ws.bare("other").display()),
+            other.to_str().unwrap(),
+        ],
+    );
+    let e = resolve_targets(
+        &ws.entries(),
+        &ws.root(),
+        &other,
+        &[".".to_owned()],
+        &ws.runner(),
+    )
+    .unwrap_err();
+    assert!(matches!(e, Error::UnknownEntry { .. }), "{e}");
+}
+
+#[test]
+fn a_path_in_an_entrys_own_checkout_names_it_wherever_its_git_dir_is() {
+    let mut ws = workspace();
+    // `feat`'s dir is a linked worktree of `app`'s repo, and `side`'s one
+    // of a bare repo outside the workspace
+    ws.declare_repo("feat", "app", "dir = \"feat\"");
+    let feat = ws.dir("feat");
+    ws.add_worktree(&ws.dir("app-dir"), &feat, &["-b", "feat"]);
+    ws.remote("side", &[]);
+    ws.declare_repo("side", "side", "");
+    let bare = ws.outside("side.git");
+    let url = format!("file://{}", ws.bare("side").display());
+    ws.git(
+        ws.base(),
+        &["clone", "-q", "--bare", &url, bare.to_str().unwrap()],
+    );
+    let side = ws.dir("side");
+    ws.add_worktree(&bare, &side, &["-b", "side"]);
+    assert_eq!(keys(&ws, &ws.root(), &["./feat"]), ["feat"]);
+    assert_eq!(keys(&ws, &feat, &["."]), ["feat"]);
+    assert_eq!(keys(&ws, &ws.root(), &["./side"]), ["side"]);
+    // the main checkout's `.git` is still its own
+    assert_eq!(keys(&ws, &ws.root(), &["app-dir/.git"]), ["app"]);
+}
+
+#[test]
+fn a_work_tree_elsewhere_is_not_its_entrys_checkout() {
+    let ws = workspace();
+    let app = ws.dir("app-dir");
+    let lib = ws.dir("lib");
+    // `app`'s repo keeps its files in `lib`'s checkout (`core.worktree`)
+    ws.git(&app, &["config", "core.worktree", lib.to_str().unwrap()]);
+    assert_eq!(
+        ws.git(&app, &["rev-parse", "--show-toplevel"]),
+        lib.to_str().unwrap()
+    );
+    // a path in `app`'s dir names `app`, never `lib`
+    assert_eq!(keys(&ws, &app, &["."]), ["app"]);
+    assert_eq!(keys(&ws, &ws.root(), &["./app-dir"]), ["app"]);
+    // but no checkout of it: `lib`'s files are `lib`'s
+    let checkout = |path: &std::path::Path| {
+        resolve_checkout(&ws.entries(), &ws.root(), path, &ws.runner())
+            .unwrap()
+            .map(|t| (t.entry.key, t.checkout))
+    };
+    assert_eq!(checkout(&app), None);
+    assert_eq!(checkout(&lib), Some(("lib".to_owned(), lib.clone())));
 }

@@ -322,7 +322,7 @@ fn target_outcome(
         return (branch, PushOutcome::Held { by: (*by).into() });
     }
     let create = if t.new_branch {
-        creatable(facts, b)
+        creatable(facts, t.status, b)
     } else {
         None
     };
@@ -383,11 +383,15 @@ fn target_outcome(
 /// is a person's to push, and a gone one with nothing on no remote was
 /// merged and deleted there (GitHub deletes a merged PR's branch), so it
 /// reads as it would without the flag: recreating it is by hand. A
-/// squash-merged branch keeps its commits unique, so it's recreated.
-fn creatable(facts: &RepoFacts, b: &BranchStatus) -> Option<bool> {
+/// squash-merged branch keeps its commits unique, so it's recreated —
+/// unless it's the branch the entry follows (`default_branch_gone`): its
+/// upstream gone is the remote's default renamed or deleted, a person's to
+/// repoint, never put back.
+fn creatable(facts: &RepoFacts, status: &EntryStatus, b: &BranchStatus) -> Option<bool> {
     let config = facts.config.branches.get(&b.name);
     match b.relation {
         Relation::Untracked => config.is_none_or(|c| c.merge.is_none()).then_some(true),
+        Relation::Gone if status.default_branch_gone(&b.name) => None,
         Relation::Gone => {
             let refs = facts.branches.iter().find(|f| f.branch.name == b.name)?;
             let same = refs.branch.upstream_ref.as_deref()
