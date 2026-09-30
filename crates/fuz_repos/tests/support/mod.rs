@@ -20,9 +20,9 @@
 //! so nothing ever leaves the tempdir. Any other origin (a third-party
 //! clone's HTTPS URL, an owned one set otherwise) has a repo-local
 //! `url.<file URL>.insteadOf` sending fetches to the local bare remote, and
-//! an identity `pushInsteadOf` exempting pushes from it. `GIT_ALLOW_PROTOCOL=file:ssh` makes
-//! any other transport an error (unless a test widens it,
-//! `allow_transport`). A call that sets its own allowlist — a third-party
+//! an identity `pushInsteadOf` exempting pushes from it.
+//! `GIT_ALLOW_PROTOCOL=file:ssh` makes any other transport an error (unless a
+//! test widens it, `allow_transport`). A call that sets its own allowlist — a third-party
 //! clone allows `https` alone — still reaches no host: `GIT_EXEC_PATH` is
 //! the fixture's, git's own programs linked but the curl helpers for
 //! `https`, `ftp`, and `ftps`, and its `git-remote-https` refuses every URL
@@ -47,6 +47,13 @@
 // assertion would
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
+pub mod busy;
+pub mod cli;
+pub mod push;
+pub mod remote;
+pub mod unregistered;
+pub mod worktrees;
+
 use std::cell::Cell;
 use std::collections::BTreeMap;
 use std::ffi::OsString;
@@ -66,7 +73,7 @@ use fuz_repos::registry::{Entry, ValidRegistry};
 use fuz_repos::report::{EntryStatus, UnregisteredClone};
 use fuz_repos::scan::scan_unregistered;
 use fuz_repos::sessions::{LiveSessions, stat_starttime};
-use fuz_repos::state::{BranchStatus, UnprobedWorktree};
+use fuz_repos::state::{BranchStatus, SyncAction, UnprobedWorktree};
 use fuz_repos::status::{StatusOptions, StatusRun, status};
 use fuz_repos::sync::{SyncOptions, SyncRun, sync};
 use tempfile::TempDir;
@@ -1447,4 +1454,12 @@ pub fn set_mtime(path: &Path, at: SystemTime) {
         .unwrap()
         .set_modified(at)
         .unwrap();
+}
+
+pub const fn ff(commits: u32) -> SyncAction {
+    SyncAction::FastForward { commits }
+}
+
+pub fn path(p: &Path) -> String {
+    p.to_str().unwrap().to_owned()
 }

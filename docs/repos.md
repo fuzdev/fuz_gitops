@@ -530,7 +530,13 @@ system config, fixed identities and dates) and no network:
 - busy detection reads fixture config dirs whose session files name the
   tests' own child processes
 
-They need git 2.44 or newer on `PATH`, and Linux (`/proc`,
+The test files split by command and aspect: `status_*.rs`, `sync.rs` and
+`sync_*.rs`, `push_*.rs`, `cli_*.rs` (the binary's documents, text, and exit
+codes), `targets.rs`, `registry_real.rs`, and `golden.rs` with its
+`golden/` modules. Helpers a family shares sit beside `support/mod.rs` in
+`support/` (`busy`, `cli`, `push`, `remote`, `unregistered`, `worktrees`).
+
+The tests need git 2.44 or newer on `PATH`, and Linux (`/proc`,
 `/etc/machine-id`). CI runs these fmt, clippy, and test commands (with
 `--locked`, and `--no-fail-fast` on tests) in the `rust` job of
 `.github/workflows/check.yml`, beside the gro check.

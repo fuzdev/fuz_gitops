@@ -2,7 +2,7 @@
 //! its upstream on the registry's repo — the exact commit classified,
 //! nothing else — and every way a push is held, refused, or fails, each run
 //! followed by the exact refs it should leave on both sides. (`repos push`
-//! makes the same push: `push.rs` has its own.)
+//! makes the same push: the `push_*` tests have their own.)
 //!
 //! Pushes reach the local bare remotes over the fixture's own `ssh`, which
 //! serves the registry's SSH URLs (the support module says how), so the
