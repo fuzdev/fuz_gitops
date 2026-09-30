@@ -115,10 +115,11 @@ version bumps.
 
 ### "analyze/plan show stale data or the wrong branch"
 
-The read-only diagnostics (`gitops_analyze`, `gitops_plan`, `gitops_validate`,
+The diagnostics (`gitops_analyze`, `gitops_plan`, `gitops_validate`,
 `gitops_publish` dry run) read each repo's working tree **as-is** — whatever
 branch is checked out, including uncommitted changes. They do not switch
-branches or pull. To run against the configured branches with the latest
+branches or pull, and move no ref (gro caches `.gro/library.json` and may
+refresh the index). To run against the configured branches with the latest
 changes:
 
 ```bash

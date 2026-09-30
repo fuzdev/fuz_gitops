@@ -17,7 +17,7 @@ algorithms that power fuz_gitops publishing.
 ## Quick Start
 
 ```bash
-# 1. Validate configuration (no side effects)
+# 1. Validate configuration (moves no ref; gro caches .gro/library.json)
 gro gitops_validate
 
 # 2. Review what will be published
@@ -221,7 +221,7 @@ Packages with `"private": true` in package.json never publish:
 Before publishing, always validate your configuration:
 
 ```bash
-# 1. Run comprehensive validation (no side effects)
+# 1. Run comprehensive validation (moves no ref; gro caches .gro/library.json)
 gro gitops_validate
 
 # 2. Review analyze output

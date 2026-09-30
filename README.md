@@ -26,10 +26,10 @@ With fuz_gitops you can:
 fuz_gitops runs **deterministic, config-driven operations over a declared set
 of repos** — no LLM in the loop, and the repo set comes from a declared list
 (`gitops.config.ts` today). Publishing is its flagship capability, not its whole
-identity. A Rust `repos` tool is being built in this repo (`crates/fuz_repos`)
-— reporting every declared repo's git state (`repos status`), syncing them
-(`repos sync`), and acting as the gateway agents push through (`repos push`)
-— along with a rename to `fuz_repos`.
+identity. The Rust `repos` tool in this repo (`crates/fuz_repos`) reports
+every declared repo's git state (`repos status`), syncs them (`repos sync`),
+and is the gateway agents push through (`repos push`); the package is
+renaming to `fuz_repos`.
 
 Deliberately out of scope: single-repo build work (that's [gro](https://github.com/fuzdev/gro)),
 work whose resolution differs per repo and needs judgment, machine and server
@@ -37,8 +37,8 @@ state, and **secrets** — fuz_gitops never stores, transports, or reads secret
 material as data, including env-file contents. Its own GitHub API token
 (noted below) is the one credential it uses, to authenticate itself.
 
-See [CLAUDE.md](CLAUDE.md#scope-and-boundaries) for the capability tiers, the
-known gaps, and the TS/Rust split.
+See [CLAUDE.md](CLAUDE.md#scope-and-boundaries) for the capability tiers, what
+`repos` never does, the known gaps, and the TS/Rust split.
 
 ## Usage
 
@@ -137,6 +137,21 @@ gro gitops_publish --wetrun --no-plan  # skip plan confirmation
 
 **Note:** If publishing fails, simply re-run the same command. Already-published packages are automatically skipped (changesets consumed), failed packages retried naturally.
 
+### The `repos` tool
+
+A Rust CLI over the repos a `repos.toml` registry declares. It moves refs it
+didn't author — fetch, fast-forward, clone, push — and never commits, rebases,
+merges anything but a fast-forward, force-pushes, or pushes tags. It needs git
+2.44 or newer, and Linux for its detection of live Claude Code sessions.
+
+```bash
+cargo install --path crates/fuz_repos --locked # install the `repos` binary
+repos status          # git state of every entry, from local refs
+repos status --fetch  # fetch from origin first (remote-tracking refs only)
+repos sync            # fetch, then fast-forward, push, and clone what's safe
+repos push            # push the branch checked out here, as a fast-forward
+```
+
 **Documentation:**
 
 - ./CLAUDE.md - Architecture, commands, testing patterns
@@ -144,6 +159,7 @@ gro gitops_publish --wetrun --no-plan  # skip plan confirmation
   semantics, examples
 - ./docs/troubleshooting.md - Common errors and
   debugging tips
+- ./docs/repos.md - The `repos` command reference
 
 Getting started as a dev? Start with [Gro](https://github.com/fuzdev/gro)
 and the [Fuz template](https://github.com/fuzdev/fuz_template).

@@ -11,6 +11,21 @@
 //! through sync's own. The `repos` binary parses arguments, renders
 //! reports, and owns exit codes.
 //!
+//! **What it writes.** The tool moves refs it didn't author and reports git
+//! state: it fetches, fast-forwards, moves shallow branches with no local
+//! commits, clones, and pushes commits that already exist. It never makes a
+//! commit or a tag, merges anything but a fast-forward, force-pushes,
+//! deletes a branch, or prunes a worktree. `status` writes nothing, and
+//! `status --fetch`'s fetch writes remote-tracking refs and what a fetch
+//! needs behind them (objects, `FETCH_HEAD`, the shallow boundary) — never
+//! a tag; `sync` writes the branch it acts on, the checkout that branch is
+//! on, and new clones; a push writes one remote branch of an owned entry,
+//! under a lease (on the fetched tip, or on none for `--new-branch`), then
+//! its remote-tracking ref (and, for `--new-branch`, the upstream config).
+//! Authoring content — commits, changesets,
+//! release tags — and package meaning (npm, the dependency graph, the
+//! GitHub API) are left to the tools around it.
+//!
 //! Unix-only: it takes git's paths as raw bytes, as git does. Busy
 //! detection reads `/proc`, so it works on Linux alone; elsewhere, with any
 //! session recorded, it fails closed.
