@@ -23,7 +23,6 @@ import {
 	git_tag,
 	git_push_tag,
 	git_has_changes,
-	git_list_uncommitted_files,
 	git_has_file_changed,
 	git_stash,
 	git_stash_pop,
@@ -170,11 +169,6 @@ export const default_git_operations: GitOperations = {
 		return wrap_with_value(() => git_has_changes(cwd ? { cwd } : undefined));
 	},
 
-	list_uncommitted_files: async (options) => {
-		const { cwd } = options ?? EMPTY_OBJECT;
-		return wrap_with_value(() => git_list_uncommitted_files(cwd ? { cwd } : undefined));
-	},
-
 	// Tagging
 	tag: async (options) => {
 		const { tag_name, message, cwd } = options;
@@ -232,8 +226,9 @@ export const default_process_operations: ProcessOperations = {
 
 export const default_repos_operations: ReposOperations = {
 	status: async (options) => {
-		const { keys, registry } = options;
+		const { keys, registry, fetch } = options;
 		const args = [...(registry === undefined ? [] : ['--registry', registry]), 'status'];
+		if (fetch) args.push('--fetch');
 		// `--` so a key can never read as a flag
 		args.push('--json', '--', ...keys);
 		const spawned = await spawn_out('repos', args);
@@ -391,5 +386,6 @@ export const default_gitops_operations: GitopsOperations = {
 	npm: default_npm_operations,
 	preflight: default_preflight_operations,
 	fs: default_fs_operations,
-	build: default_build_operations
+	build: default_build_operations,
+	repos: default_repos_operations
 };

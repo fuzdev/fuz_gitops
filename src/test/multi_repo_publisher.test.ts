@@ -18,7 +18,9 @@ import {
 	create_tracking_process_ops,
 	create_mock_git_ops,
 	create_preflight_mock,
-	create_populated_fs_ops
+	create_populated_fs_ops,
+	create_mock_repos_entry,
+	create_ready_repos_ops
 } from './test_helpers.ts';
 
 test('wetrun=false predicts versions without publishing', async () => {
@@ -1109,6 +1111,134 @@ describe('execute_publishing_plan', () => {
 
 		assert.strictEqual(result.ok, false);
 		assert.deepEqual(result.plan_errors, ['boom']);
+	});
+
+	test('publishes with `gro publish --no-build --no-pull --branch <the entry branch>`', async () => {
+		const main_repo = create_mock_repo({ name: 'pkg', version: '1.0.0' });
+		const develop_repo = create_mock_repo({ name: 'pkg_b', version: '1.0.0' });
+		develop_repo.entry = { ...develop_repo.entry, branch: 'develop' };
+		const repos = [main_repo, develop_repo];
+		const plan = make_plan({
+			publishing_order: ['pkg', 'pkg_b'],
+			version_changes: [
+				make_version_change({ package_name: 'pkg' }),
+				make_version_change({ package_name: 'pkg_b' })
+			]
+		});
+
+		const { ops: process_ops, get_commands_by_type } = create_tracking_process_ops();
+		await execute_publishing_plan(repos, plan, {
+			wetrun: true,
+			ops: create_mock_gitops_ops({
+				preflight: create_preflight_mock(['pkg', 'pkg_b']),
+				fs: create_populated_fs_ops(repos),
+				process: process_ops
+			})
+		});
+
+		assert.deepEqual(
+			get_commands_by_type('publish').map((c) => c.args),
+			[
+				['publish', '--no-build', '--no-pull', '--branch', 'main'],
+				['publish', '--no-build', '--no-pull', '--branch', 'develop']
+			]
+		);
+	});
+
+	describe('the re-check right before each `gro publish`', () => {
+		const setup = (b_entry?: ReturnType<typeof create_mock_repos_entry>) => {
+			const a = create_mock_repo({ name: 'a', version: '1.0.0' });
+			const b = create_mock_repo({ name: 'b', version: '1.0.0', deps: { a: '^1.0.0' } });
+			const repos = [a, b];
+			const plan = make_plan({
+				publishing_order: ['a', 'b'],
+				version_changes: [
+					make_version_change({ package_name: 'a' }),
+					make_version_change({ package_name: 'b' })
+				],
+				dependency_updates: [
+					{
+						dependent_package: 'b',
+						updated_dependency: 'a',
+						current_version: '^1.0.0',
+						new_version: '^1.0.1',
+						type: 'dependencies'
+					}
+				]
+			});
+			const repos_ops = create_ready_repos_ops(b_entry ? { b: b_entry } : {});
+			const tracking = create_tracking_process_ops();
+			const ops = create_mock_gitops_ops({
+				preflight: create_preflight_mock(['a', 'b']),
+				fs: create_populated_fs_ops(repos),
+				process: tracking.ops,
+				repos: repos_ops
+			});
+			return { repos, plan, ops, repos_ops, tracking };
+		};
+
+		test('ready repos proceed, each re-checked with a fetch first', async () => {
+			const { repos, plan, ops, repos_ops, tracking } = setup();
+			const result = await execute_publishing_plan(repos, plan, { wetrun: true, ops });
+			assert.ok(result.ok);
+			assert.deepEqual(repos_ops.calls, [
+				{ keys: ['a'], registry: undefined, fetch: true },
+				{ keys: ['b'], registry: undefined, fetch: true }
+			]);
+			assert.deepEqual(
+				tracking.get_package_names_from_cwd(tracking.get_commands_by_type('publish')),
+				['a', 'b']
+			);
+		});
+
+		test('origin moved mid-cascade: that repo aborts before its `gro publish`', async () => {
+			const { repos, plan, ops, tracking } = setup(
+				create_mock_repos_entry({
+					key: 'b',
+					at_rest: {
+						on_branch: true,
+						clean: true,
+						idle: true,
+						followed: { kind: 'diverged', ahead: 1, behind: 1 }
+					}
+				})
+			);
+			const result = await execute_publishing_plan(repos, plan, { wetrun: true, ops });
+			assert.ok(!result.ok);
+			// `a` published; nothing was spawned for `b`
+			assert.deepEqual(tracking.get_package_names_from_cwd(tracking.get_spawned_commands()), ['a']);
+			assert.strictEqual(result.failed[0]!.name, 'b');
+			assert.include(result.failed[0]!.error.message, 'diverged from origin');
+			const failure = result.events.find((e) => e.event === 'package_failed');
+			assert.ok(failure?.event === 'package_failed');
+			assert.strictEqual(failure.code, 'not_ready');
+		});
+
+		test("ahead from the executor's own dependency-rewrite commit proceeds", async () => {
+			const { repos, plan, ops, tracking } = setup(
+				create_mock_repos_entry({
+					key: 'b',
+					at_rest: {
+						on_branch: true,
+						clean: true,
+						idle: true,
+						followed: { kind: 'ahead', commits: 1 }
+					}
+				})
+			);
+			const result = await execute_publishing_plan(repos, plan, { wetrun: true, ops });
+			assert.ok(result.ok);
+			assert.deepEqual(
+				tracking.get_package_names_from_cwd(tracking.get_commands_by_type('publish')),
+				['a', 'b']
+			);
+		});
+
+		test('a dry run re-checks nothing', async () => {
+			const { repos, plan, ops, repos_ops } = setup();
+			await execute_publishing_plan(repos, plan, { wetrun: false, ops });
+			assert.deepEqual(repos_ops.calls, []);
+		});
 	});
 
 	test('deploy builds fresh — spawns `gro deploy` without --no-build', async () => {

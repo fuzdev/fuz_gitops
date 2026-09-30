@@ -138,9 +138,10 @@ gro gitops_publish --preview  # show the ordered side-effects a --wetrun would p
 
 These read each repo's working tree exactly as it sits on disk — no branch
 switching, pulling, or installing — so they're safe to run with feature
-branches checked out and uncommitted changes. Pass `--sync` to refresh repos
-(switch to the configured branch, pull, install) before running, or run
-`gro gitops_sync` first.
+branches checked out and uncommitted changes. Each prints the repos that
+aren't at rest (off their registry branch, dirty, mid-rebase, or not in sync
+with origin as of the last fetch); run `repos sync` first to read them at
+rest.
 
 ### Publishing packages
 
@@ -149,7 +150,17 @@ gro gitops_publish --wetrun  # actually publish all repos with changesets
 gro gitops_publish --wetrun --no-plan  # skip plan confirmation
 ```
 
-**Note:** If publishing fails, simply re-run the same command. Already-published packages are automatically skipped (changesets consumed), failed packages retried naturally.
+Before it shows the plan for confirmation, a real publish fetches every npm repo
+(`repos status --fetch`) and refuses unless each is on its registry branch,
+clean, idle, and in sync with origin or ahead of it, with no other live
+session in its checkout — naming each problem and its fix. It moves nothing to
+get there, and re-checks each repo the same way right before publishing it.
+
+**Note:** If publishing fails, simply re-run the same command.
+Already-published packages are automatically skipped (changesets consumed),
+failed packages retried naturally. Repos the run left ahead of origin (its
+dependency-rewrite commits) push with their own release, or stay unpushed until
+`repos sync` or `repos push` if they don't publish.
 
 ### The `repos` tool
 

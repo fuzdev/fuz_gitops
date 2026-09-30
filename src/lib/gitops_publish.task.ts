@@ -4,7 +4,15 @@ import { z } from 'zod';
 import { createInterface } from 'node:readline/promises';
 import { styleText as st } from 'node:util';
 
-import { get_gitops_ready } from './gitops_task_helpers.ts';
+import {
+	gate_publish_readiness,
+	get_gitops_ready,
+	log_readiness_block,
+	type GetGitopsReadyOptions
+} from './gitops_task_helpers.ts';
+import type { LocalRepo } from './local_repo.ts';
+import type { GitopsOperations, ReposOperations } from './operations.ts';
+import { default_gitops_operations, default_repos_operations } from './operations_defaults.ts';
 import {
 	execute_publishing_plan,
 	type PublishingOptions,
@@ -57,13 +65,6 @@ export const Args = z.strictObject({
 		.boolean()
 		.meta({ description: 'show additional details in plan output' })
 		.default(false),
-	sync: z
-		.boolean()
-		.meta({
-			description:
-				'sync repos (switch branch, pull, install) before the dry run instead of reading the working tree as-is; always on for --wetrun'
-		})
-		.default(false),
 	preview: z
 		.boolean()
 		.meta({ description: 'show the ordered side-effects a --wetrun would perform' })
@@ -76,114 +77,176 @@ export const task: Task<Args> = {
 	summary: 'publish all repos in dependency order',
 	Args,
 	run: async ({ args, log }): Promise<void> => {
-		const {
-			config,
-			registry,
-			peer_strategy,
-			wetrun,
-			format,
-			deploy,
-			plan,
-			max_wait,
-			emit_json,
-			outfile,
-			verbose,
-			sync,
-			preview
-		} = args;
-
-		// Load repos. A dry run reads the working tree as-is unless `--sync`;
-		// a real publish (`--wetrun`) always syncs so preflight sees the canonical branches.
-		const { local_repos: repos } = await get_gitops_ready({
-			config,
-			registry,
-			sync: sync || wetrun,
-			log
-		});
-
-		// Generate the plan once; the executor consumes this exact plan (no second pass).
-		const publishing_plan = await generate_publishing_plan(repos, { verbose });
-		const preview_steps = preview ? derive_publish_steps(publishing_plan, { deploy }) : null;
-
-		// Decide whether to show the plan + confirm, block, or proceed (the decision table lives
-		// in `decide_publish_gate`; readline + exit stay here at the edge).
-		const gate = decide_publish_gate({ wetrun, show_plan: plan, plan: publishing_plan });
-
-		// A real publish that shows its plan prints it first — including before a `blocked` throw,
-		// so the operator sees the errors that blocked it.
-		if (gate.action !== 'proceed') {
-			log.info(st('cyan', 'Publishing Plan'));
-			log_publishing_plan(publishing_plan, log, { verbose });
-		}
-
-		if (gate.action === 'blocked') {
-			throw new Error(gate.message);
-		} else if (gate.action === 'confirm') {
-			if (preview_steps) log_preview(preview_steps, log);
-
-			// Ask for confirmation
-			log.info(st('yellow', '⚠️  This will publish the packages shown above.'));
-			process.stdout.write('Continue with publishing? (y/n): ');
-			const confirmed = await prompt_for_confirmation();
-			if (!confirmed) {
-				log.info('Publishing cancelled');
-				process.exit(0);
-			}
-		} else if (preview_steps && format === 'stdout') {
-			// proceed (dry run or --no-plan): only render to stdout for the human format;
-			// json/markdown carry the preview in their structured output, so logging here too
-			// would corrupt that stream.
-			log_preview(preview_steps, log);
-		}
-
-		// Publishing options
-		const options: PublishingOptions = {
-			wetrun,
-			version_strategy: peer_strategy,
-			deploy,
-			max_wait,
-			log,
-			// Live JSON-lines stream when requested; events also surface on the result.
-			events: emit_json ? stdout_handler() : undefined
-		};
-
-		// Execute publishing (may throw on fatal errors like circular dependencies)
-		let result: PublishingResult;
-		let fatal_error: Error | null = null;
-
-		try {
-			result = await execute_publishing_plan(repos, publishing_plan, options);
-		} catch (error) {
-			// Construct a failure result for fatal errors so output can still be generated
-			fatal_error = error instanceof Error ? error : new Error(String(error));
-			result = {
-				ok: false,
-				published: [],
-				// Note: FATAL_ERROR is a placeholder - only fatal_error.message is displayed in output
-				failed: [{ name: 'FATAL_ERROR', error: fatal_error }],
-				duration: 0,
-				events: [],
-				summary: { total: 0, published: 0, failed: 1, skipped: 0, duration: 0 },
-				plan_errors: publishing_plan.errors,
-				plan_warnings: publishing_plan.warnings
-			};
-		}
-
-		// Format and output result (always runs, even on fatal errors)
-		// Note: stdout format is handled by the executor's logging
-		if (format !== 'stdout') {
-			await format_and_output({ result, fatal_error, preview_steps }, create_publish_formatters(), {
-				format,
-				outfile,
-				log
-			});
-		}
-
-		// Exit with error if failed
-		if (publish_run_failed(result, fatal_error)) {
+		const outcome = await run_gitops_publish(args, log);
+		if (outcome === 'cancelled') {
+			process.exit(0);
+		} else if (outcome === 'failed') {
 			process.exit(1);
 		}
 	}
+};
+
+/**
+ * The side effects `run_gitops_publish` reaches through, injectable so the
+ * order of its steps is testable.
+ *
+ * @nodocs
+ */
+export interface GitopsPublishDeps {
+	/** Loads the configured repos as they sit; `get_gitops_ready` without syncing. */
+	load_repos: (options: GetGitopsReadyOptions) => Promise<{ local_repos: Array<LocalRepo> }>;
+	/** Runs `repos status` for the readiness gate. */
+	repos_ops: ReposOperations;
+	/** The executor's operations. */
+	ops: GitopsOperations;
+	/** Asks the operator to confirm the plan. */
+	confirm: () => Promise<boolean>;
+}
+
+const default_gitops_publish_deps: GitopsPublishDeps = {
+	load_repos: get_gitops_ready,
+	repos_ops: default_repos_operations,
+	ops: default_gitops_operations,
+	confirm: async () => {
+		process.stdout.write('Continue with publishing? (y/n): ');
+		return prompt_for_confirmation();
+	}
+};
+
+/**
+ * Runs `gro gitops_publish`, in order: load the repos as they sit (no sync),
+ * generate the plan, and — for `--wetrun` — run the readiness gate
+ * (`gate_publish_readiness`, read-only: `repos status --fetch`) before
+ * printing the plan and asking to confirm, so a refusal or a "no" changes
+ * nothing. Then preflight and the executor. A dry run skips the gate and
+ * prints the diagnostics' readiness block instead.
+ *
+ * @returns `cancelled` when the operator declines, `failed` when the run failed (its output already written), else `done`
+ * @throws {TaskError} when the readiness gate refuses or loading fails
+ * @nodocs
+ */
+export const run_gitops_publish = async (
+	args: Args,
+	log: Logger,
+	deps: Partial<GitopsPublishDeps> = {}
+): Promise<'done' | 'cancelled' | 'failed'> => {
+	const { load_repos, repos_ops, ops, confirm } = { ...default_gitops_publish_deps, ...deps };
+	const {
+		config,
+		registry,
+		peer_strategy,
+		wetrun,
+		format,
+		deploy,
+		plan,
+		max_wait,
+		emit_json,
+		outfile,
+		verbose,
+		preview
+	} = args;
+
+	// Load repos as they sit: nothing switches branches or pulls. A real publish gates on their
+	// state below rather than moving them.
+	const { local_repos: repos } = await load_repos({ config, registry, sync: false, log });
+
+	// Generate the plan once; the executor consumes this exact plan (no second pass).
+	const publishing_plan = await generate_publishing_plan(repos, { verbose, ops: ops.changeset });
+	const preview_steps = preview ? derive_publish_steps(publishing_plan, { deploy }) : null;
+
+	// Decide whether to show the plan + confirm, block, or proceed (the decision table lives
+	// in `decide_publish_gate`; readline + exit stay at the edge).
+	const gate = decide_publish_gate({ wetrun, show_plan: plan, plan: publishing_plan });
+
+	if (wetrun) {
+		// The readiness gate: fetch, then refuse unless every npm repo is ready. Read-only, and
+		// before the prompt and any side effect. A plan with errors is refused without fetching:
+		// below when the plan is shown, else by the executor before anything else it does.
+		if (publishing_plan.errors.length === 0) {
+			await gate_publish_readiness({
+				local_repos: repos,
+				registry,
+				publishing: new Set(publishing_plan.version_changes.map((vc) => vc.package_name)),
+				log,
+				repos_ops
+			});
+		}
+	} else {
+		log_readiness_block(repos, log);
+	}
+
+	// A real publish that shows its plan prints it first — including before a `blocked` throw,
+	// so the operator sees the errors that blocked it.
+	if (gate.action !== 'proceed') {
+		log.info(st('cyan', 'Publishing Plan'));
+		log_publishing_plan(publishing_plan, log, { verbose });
+	}
+
+	if (gate.action === 'blocked') {
+		throw new Error(gate.message);
+	} else if (gate.action === 'confirm') {
+		if (preview_steps) log_preview(preview_steps, log);
+
+		// Ask for confirmation
+		log.info(st('yellow', '⚠️  This will publish the packages shown above.'));
+		const confirmed = await confirm();
+		if (!confirmed) {
+			log.info('Publishing cancelled');
+			return 'cancelled';
+		}
+	} else if (preview_steps && format === 'stdout') {
+		// proceed (dry run or --no-plan): only render to stdout for the human format;
+		// json/markdown carry the preview in their structured output, so logging here too
+		// would corrupt that stream.
+		log_preview(preview_steps, log);
+	}
+
+	// Publishing options
+	const options: PublishingOptions = {
+		wetrun,
+		version_strategy: peer_strategy,
+		deploy,
+		max_wait,
+		log,
+		ops,
+		registry,
+		// Live JSON-lines stream when requested; events also surface on the result.
+		events: emit_json ? stdout_handler() : undefined
+	};
+
+	// Execute publishing (may throw on fatal errors like circular dependencies)
+	let result: PublishingResult;
+	let fatal_error: Error | null = null;
+
+	try {
+		result = await execute_publishing_plan(repos, publishing_plan, options);
+	} catch (error) {
+		// Construct a failure result for fatal errors so output can still be generated
+		fatal_error = error instanceof Error ? error : new Error(String(error));
+		result = {
+			ok: false,
+			published: [],
+			// Note: FATAL_ERROR is a placeholder - only fatal_error.message is displayed in output
+			failed: [{ name: 'FATAL_ERROR', error: fatal_error }],
+			duration: 0,
+			events: [],
+			summary: { total: 0, published: 0, failed: 1, skipped: 0, duration: 0 },
+			plan_errors: publishing_plan.errors,
+			plan_warnings: publishing_plan.warnings
+		};
+	}
+
+	// Format and output result (always runs, even on fatal errors)
+	// Note: stdout format is handled by the executor's logging
+	if (format !== 'stdout') {
+		await format_and_output({ result, fatal_error, preview_steps }, create_publish_formatters(), {
+			format,
+			outfile,
+			log
+		});
+	}
+
+	return publish_run_failed(result, fatal_error) ? 'failed' : 'done';
 };
 
 interface PublishResultData {

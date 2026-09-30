@@ -8,6 +8,7 @@ algorithms that power fuz_gitops publishing.
 - [Quick Start](#quick-start)
 - [Changeset Semantics](#changeset-semantics)
 - [Plan vs Dry Run](#plan-vs-dry-run)
+- [Readiness](#readiness)
 - [Publishing Flow](#publishing-flow)
 - [Publishing Algorithms](#publishing-algorithms)
 - [Private Packages](#private-packages)
@@ -23,7 +24,10 @@ gro gitops_validate
 # 2. Review what will be published
 gro gitops_plan
 
-# 3. Publish (after dry run looks good)
+# 3. Fast-forward what's behind (repos off their branch or dirty are yours to move)
+repos sync
+
+# 4. Publish (after dry run looks good)
 gro gitops_publish --wetrun
 ```
 
@@ -85,16 +89,18 @@ production/peer takes priority for dependency graph calculations.
   auto-generated changesets, and no changes
 - No side effects - does not modify any files or state
 - Reads each repo's working tree **as-is** (whatever branch is checked out, even
-  with uncommitted changes). Pass `--sync` to switch to each repo's registry
-  branch and pull first, or run `gro gitops_sync` beforehand, so the plan reflects the
-  canonical branches rather than your local checkout.
+  with uncommitted changes), and prints a readiness block naming each repo not
+  at rest (see [Readiness](#readiness)), so a plan over a feature branch says
+  so. Run `repos sync` beforehand so the plan reflects the canonical branches
+  rather than your local checkout.
 
 ### `gro gitops_publish` (dry run, default)
 
 - **Plan-driven preview** - The dry run reports the same plan as `gro
 gitops_plan`, so it shows the full cascade: explicit changesets, bump
   escalations, and auto-generated changesets
-- Skips preflight checks (workspace, branch, npm auth)
+- Skips the readiness gate and preflight checks (npm auth, builds), and prints
+  the same readiness block as `gro gitops_plan`
 - No side effects - reports what `--wetrun` would publish without touching git or
   npm
 - The dry-run count matches `gro gitops_plan`; the difference between them is
@@ -102,6 +108,50 @@ gitops_plan`, so it shows the full cascade: explicit changesets, bump
   publish command in preview mode)
 - Add `--preview` to print the ordered side-effects (publishes, npm waits,
   dependency rewrites, dev-dep updates, deploys) the cascade would perform
+
+## Readiness
+
+A real publish reads every npm repo as it sits and commits and pushes there, so
+before it prints the plan and asks to confirm, `gro gitops_publish --wetrun`
+fetches them (`repos status <keys…> --fetch --json`, which writes
+remote-tracking refs and nothing else) and refuses unless each is ready:
+
+- on the branch its registry entry follows, clean (untracked files count), and
+  with no rebase, merge, or other operation in progress
+- that branch in sync with origin, as the fetch just saw it, or ahead of it —
+  not behind or diverged — and the fetch didn't fail
+- no other live Claude Code session working in its checkout, and busy
+  detection able to vouch for every session
+- nothing `repos status` leaves to a person (`needs_human`: origin drift, a
+  branch with no upstream, …)
+
+It gates every npm repo in the config, not just the ones the plan publishes or
+rewrites, because the plan reads each one's changesets, version, and
+dependency ranges: a repo off its branch or behind origin can hide a changeset
+and leave the plan wrong. The refusal names each repo, what's wrong, and the
+fix, and nothing has changed — the gate never moves a repo. `repos sync`
+fast-forwards what's behind; the rest (switching branch, committing, stashing,
+or discarding changes, finishing a rebase) is yours.
+
+A branch **ahead** of origin is ready: origin's tip is an ancestor, so the
+plan misses nothing, and `gro publish`'s push is still a fast-forward. The gate
+logs each one before the prompt — `` `main` is 2 commits ahead of origin —
+publishing pushes them with the release`` — or, for a repo the plan doesn't
+publish, that those commits stay unpushed until `repos sync` or `repos push`.
+
+The gate runs before the prompt; a cascade's npm waits can stretch the time
+after it to many minutes, and `gro publish --no-pull` wouldn't notice origin
+moving until its push is rejected — after the version is already on npm. So
+the executor **re-checks each repo right before its `gro publish`** (a
+`repos status --fetch` of that repo alone, the same predicate) and aborts
+before touching npm unless it's still ready — in sync or ahead, since the
+executor's own dependency-rewrite commit leaves a dependent ahead. The abort is
+a `not_ready` failure: the dirty state stays, and re-running resumes.
+
+The diagnostics (`gitops_plan`, `gitops_analyze`, `gitops_validate`, and the
+dry run) read the same facts from local refs, without fetching, and print the
+repos not at rest as warnings. They still run: a plan over a feature branch is
+useful, it just isn't the plan a real publish would run.
 
 ## Publishing Flow
 
@@ -111,12 +161,17 @@ executor re-derives nothing and fails loud rather than diverge from it.
 
 ```mermaid
 flowchart TD
-    A["gro gitops_publish --wetrun"] --> B["Generate plan (fixed-point cascade)"]
+    A["gro gitops_publish --wetrun"] --> B["Load repos as they sit; generate plan (fixed-point cascade)"]
     B --> C{"plan has errors?"}
     C -->|yes| X["Abort — fail loud"]
-    C -->|no| D["Preflight: clean tree, branch, npm auth, build"]
+    C -->|no| R{"readiness gate: every npm repo fetched, on its branch, clean, in sync or ahead, not busy?"}
+    R -->|no| W["Refuse — nothing changed"]
+    R -->|yes| P["Show plan, confirm"]
+    P --> D["Preflight: changesets, build, npm auth"]
     D --> E{"next package in topological order"}
-    E -->|package| H["gro publish --no-build (installs + ETARGET-heals internally)"]
+    E -->|package| Q{"re-check: this repo still ready?"}
+    Q -->|no| V["Abort — not_ready, before npm"]
+    Q -->|yes| H["gro publish --no-build --no-pull (installs + ETARGET-heals internally)"]
     H --> I{"published version matches plan?"}
     I -->|no| Y["Abort — plan drift"]
     I -->|yes| J["Wait for npm propagation"]
@@ -129,7 +184,9 @@ flowchart TD
     N --> Z
 ```
 
-Each `gro publish --no-build` step is itself a pipeline: it syncs, installs (this
+Each `gro publish --no-build --no-pull` step is itself a pipeline: it checks out the
+branch the registry entry follows (`--branch`), skips its own `git pull` (the
+re-check just found the branch in sync with origin or ahead), syncs, installs (this
 install self-heals npm's stale-cache ETARGET — clear the cache and retry once when a
 just-published version isn't visible yet), runs `gro check` (typecheck + tests against
 the freshly-installed dependency versions), bumps the version, installs again to refresh

@@ -14,7 +14,7 @@ import type {
 } from '$lib/operations.ts';
 import type { RepoFixtureSet } from './repo_fixture_types.ts';
 import { create_mock_changeset_ops } from './mock_changeset_operations.ts';
-import { create_mock_fs_ops } from '../test_helpers.ts';
+import { create_mock_fs_ops, create_ready_repos_ops } from '../test_helpers.ts';
 
 /* eslint-disable @typescript-eslint/require-await */
 
@@ -77,7 +77,6 @@ export const create_mock_git_ops = (): GitOperations => ({
 
 	// Change detection - fixtures never change
 	has_changes: async () => ({ ok: true, value: false }),
-	list_uncommitted_files: async () => ({ ok: true, value: [] }),
 	has_file_changed: async () => ({ ok: true, value: false }),
 
 	// Tags - no-op for fixtures
@@ -189,7 +188,8 @@ export const create_mock_gitops_ops = (fixture: RepoFixtureSet): GitopsOperation
 	process: create_mock_process_ops(),
 	fs: create_fixture_fs_ops(fixture),
 	build: create_mock_build_ops(),
-	preflight: create_mock_preflight_ops(fixture)
+	preflight: create_mock_preflight_ops(fixture),
+	repos: create_ready_repos_ops()
 });
 
 /**
@@ -254,10 +254,6 @@ export const create_configurable_git_ops = (
 	has_changes: async () => ({
 		ok: true,
 		value: config.has_changes || false
-	}),
-	list_uncommitted_files: async () => ({
-		ok: true,
-		value: config.has_changes ? ['package.json'] : []
 	}),
 	has_file_changed: async () => ({
 		ok: true,
@@ -384,30 +380,13 @@ export const create_configurable_gitops_ops = (
 	process: create_mock_process_ops(),
 	fs: create_fixture_fs_ops(fixture),
 	build: create_configurable_build_ops(config.build),
-	preflight: create_configurable_preflight_ops(fixture, config.preflight)
+	preflight: create_configurable_preflight_ops(fixture, config.preflight),
+	repos: create_ready_repos_ops()
 });
 
 //
 // Specific failure scenario factories
 //
-
-/**
- * Create git operations that simulate a dirty workspace.
- */
-export const create_dirty_workspace_git_ops = (): GitOperations => ({
-	...create_mock_git_ops(),
-	check_clean_workspace: async () => ({ ok: true, value: false }),
-	has_changes: async () => ({ ok: true, value: true }),
-	list_uncommitted_files: async () => ({ ok: true, value: ['package.json', 'src/index.ts'] })
-});
-
-/**
- * Create git operations that simulate being on wrong branch.
- */
-export const create_wrong_branch_git_ops = (): GitOperations => ({
-	...create_mock_git_ops(),
-	current_branch_name: async () => ({ ok: true, value: 'feature-branch' })
-});
 
 /**
  * Create npm operations that simulate authentication failure.

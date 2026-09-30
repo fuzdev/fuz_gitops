@@ -134,7 +134,10 @@ re-deriving it from the checkout and its branches:
 `at_rest` itself is `null` exactly when `checkouts` is empty: the entry is
 missing or not a repo, or its probe failed (`probe_error`). A pin's facts are
 decided as any entry's; that it's pinned is its own field. The text
-summary's `clean · on branches · pinned` counts read `on_branch`.
+summary's `clean · on branches · pinned` counts read `on_branch`. The gitops
+tasks read readiness from these facts: `gro gitops_publish --wetrun` refuses
+a repo not at rest (see [Publishing](publishing.md#readiness)), and the
+diagnostics list them.
 
 Readiness wants `followed` too: a followed branch that's unborn (no commit
 yet) reads `on_branch` true, clean, idle, and `followed` `null`, beside a

@@ -2,7 +2,7 @@ import type { Task } from '@fuzdev/gro';
 import { z } from 'zod';
 import { styleText as st } from 'node:util';
 
-import { get_gitops_ready } from './gitops_task_helpers.ts';
+import { get_gitops_ready, log_readiness_block } from './gitops_task_helpers.ts';
 import { analyze_repos, type DependencyAnalysis } from './graph_validation.ts';
 import {
 	generate_publishing_plan,
@@ -27,14 +27,7 @@ export const Args = z.strictObject({
 				'path to the repos.toml registry, when `repos` would not find it walking up from the cwd'
 		})
 		.optional(),
-	verbose: z.boolean().meta({ description: 'show additional details' }).default(false),
-	sync: z
-		.boolean()
-		.meta({
-			description:
-				'sync repos (switch branch, pull, install) before validating instead of reading the working tree as-is'
-		})
-		.default(false)
+	verbose: z.boolean().meta({ description: 'show additional details' }).default(false)
 });
 export type Args = z.infer<typeof Args>;
 
@@ -44,7 +37,7 @@ export const task: Task<Args> = {
 	summary:
 		'validate gitops configuration by running all read-only commands and checking for issues',
 	run: async ({ args, log }) => {
-		const { config, registry, verbose, sync } = args;
+		const { config, registry, verbose } = args;
 
 		log.info(st('cyan', 'Running Gitops Validation Suite'));
 		log.info(st('dim', 'This runs all read-only commands and checks for consistency.'));
@@ -62,10 +55,11 @@ export const task: Task<Args> = {
 
 		const start_time = Date.now();
 
-		// Load repos once (shared by all commands); read the working tree as-is unless `--sync`
+		// Load repos once (shared by all commands), as they sit, and say which aren't at rest
 		log.info(st('dim', 'Loading repositories...'));
-		const { local_repos } = await get_gitops_ready({ config, registry, sync, log });
+		const { local_repos } = await get_gitops_ready({ config, registry, sync: false, log });
 		log.info(st('dim', `   Found ${local_repos.length} local repos`));
+		log_readiness_block(local_repos, log);
 
 		// 1. Run gitops_analyze
 		log.info(st('yellow', 'Running gitops_analyze...'));

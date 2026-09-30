@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { styleText as st } from 'node:util';
 import type { Logger } from '@fuzdev/fuz_util/log.ts';
 
-import { get_gitops_ready } from './gitops_task_helpers.ts';
+import { get_gitops_ready, log_readiness_block } from './gitops_task_helpers.ts';
 import type { DependencyGraph } from './dependency_graph.ts';
 import { repo_is_npm } from './local_repo.ts';
 import { analyze_repos, type DependencyAnalysis } from './graph_validation.ts';
@@ -32,14 +32,7 @@ export const Args = z.strictObject({
 		.enum(['stdout', 'json', 'markdown'])
 		.meta({ description: 'output format' })
 		.default('stdout'),
-	outfile: z.string().meta({ description: 'write output to file instead of logging' }).optional(),
-	sync: z
-		.boolean()
-		.meta({
-			description:
-				'sync repos (switch branch, pull, install) before analyzing instead of reading the working tree as-is'
-		})
-		.default(false)
+	outfile: z.string().meta({ description: 'write output to file instead of logging' }).optional()
 });
 export type Args = z.infer<typeof Args>;
 
@@ -48,10 +41,11 @@ export const task: Task<Args> = {
 	Args,
 	summary: 'analyze dependency structure and relationships across repos',
 	run: async ({ args, log }) => {
-		const { config, registry, format, outfile, sync } = args;
+		const { config, registry, format, outfile } = args;
 
-		// Read the working tree as-is unless `--sync`
-		const { local_repos } = await get_gitops_ready({ config, registry, sync, log });
+		// Read the working trees as they sit, and say which aren't at rest
+		const { local_repos } = await get_gitops_ready({ config, registry, sync: false, log });
+		log_readiness_block(local_repos, log);
 
 		// Only npm packages form the dependency graph; note any non-npm repos (e.g. cargo)
 		// that are excluded so the omission isn't silent.

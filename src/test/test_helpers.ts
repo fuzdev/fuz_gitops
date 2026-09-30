@@ -96,6 +96,7 @@ export const create_mock_gitops_ops = (
 		preflight: Partial<GitopsOperations['preflight']>;
 		fs: Partial<GitopsOperations['fs']>;
 		build: Partial<GitopsOperations['build']>;
+		repos: Partial<GitopsOperations['repos']>;
 	}> = {}
 ): GitopsOperations => ({
 	changeset: {
@@ -131,7 +132,8 @@ export const create_mock_gitops_ops = (
 		exists: async () => true,
 		...overrides.fs
 	},
-	build: create_mock_build_ops(overrides.build)
+	build: create_mock_build_ops(overrides.build),
+	repos: { ...create_ready_repos_ops(), ...overrides.repos }
 });
 
 /**
@@ -216,7 +218,6 @@ export const create_mock_git_ops = (overrides: Partial<GitOperations> = {}): Git
 	commit: async () => ({ ok: true }),
 	add_and_commit: async () => ({ ok: true }),
 	has_changes: async () => ({ ok: true, value: false }),
-	list_uncommitted_files: async () => ({ ok: true, value: [] }),
 	tag: async () => ({ ok: true }),
 	push_tag: async () => ({ ok: true }),
 	stash: async () => ({ ok: true }),
@@ -437,8 +438,10 @@ export const create_mock_repos_report = (
 export const create_mock_repos_ops = (
 	printed: object | string,
 	overrides: Partial<ReposOperations> = {}
-): ReposOperations & { calls: Array<{ keys: Array<string>; registry?: string }> } => {
-	const calls: Array<{ keys: Array<string>; registry?: string }> = [];
+): ReposOperations & {
+	calls: Array<{ keys: Array<string>; registry?: string; fetch?: boolean }>;
+} => {
+	const calls: Array<{ keys: Array<string>; registry?: string; fetch?: boolean }> = [];
 	const stdout = typeof printed === 'string' ? printed : JSON.stringify(printed);
 	const output: ReposCommandOutput = {
 		stdout,
@@ -452,5 +455,29 @@ export const create_mock_repos_ops = (
 			return { ok: true, output };
 		},
 		...overrides
+	};
+};
+
+/**
+ * Creates mock ReposOperations whose `status` reports every requested key as a
+ * ready entry (`create_mock_repos_entry`), fetched when asked to fetch, and
+ * records each call. `entries` replaces the entry for a key.
+ */
+export const create_ready_repos_ops = (
+	entries: Record<string, ReposEntryStatus> = {}
+): ReposOperations & {
+	calls: Array<{ keys: Array<string>; registry?: string; fetch?: boolean }>;
+} => {
+	const calls: Array<{ keys: Array<string>; registry?: string; fetch?: boolean }> = [];
+	return {
+		calls,
+		status: async (options) => {
+			calls.push(options);
+			const report = create_mock_repos_report(
+				options.keys.map((key) => entries[key] ?? create_mock_repos_entry({ key })),
+				{ fetched: options.fetch === true }
+			);
+			return { ok: true, output: { stdout: JSON.stringify(report), stderr: '', exit_code: 0 } };
+		}
 	};
 };

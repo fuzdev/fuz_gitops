@@ -9,8 +9,6 @@ import { load_gitops_config } from '$lib/gitops_config.ts';
 import { publish_repos } from '$lib/multi_repo_publisher.ts';
 import {
 	create_mock_gitops_ops,
-	create_dirty_workspace_git_ops,
-	create_wrong_branch_git_ops,
 	create_unauthenticated_npm_ops,
 	create_unavailable_registry_npm_ops,
 	create_failing_build_ops,
@@ -335,26 +333,6 @@ describe('Config loading validation', () => {
  * These tests validate that our mock operations correctly simulate various error states.
  */
 describe('Error condition tests', () => {
-	// Test that failure scenario mocks behave correctly
-	test('dirty workspace mock returns expected values', async () => {
-		const git_ops = create_dirty_workspace_git_ops();
-		// Test the mock behavior
-		const clean_result = await git_ops.check_clean_workspace();
-		assert.ok(clean_result.ok);
-		assert.equal(clean_result.value, false, 'Should report dirty workspace');
-
-		const changes_result = await git_ops.has_changes();
-		assert.ok(changes_result.ok);
-		assert.equal(changes_result.value, true, 'Should have changes');
-	});
-
-	test('wrong branch mock returns expected values', async () => {
-		const git_ops = create_wrong_branch_git_ops();
-		const result = await git_ops.current_branch_name();
-		assert.ok(result.ok);
-		assert.equal(result.value, 'feature-branch', 'Should be on wrong branch');
-	});
-
 	test('npm auth failure mock returns expected values', async () => {
 		const npm_ops = create_unauthenticated_npm_ops();
 		const result = await npm_ops.check_auth();

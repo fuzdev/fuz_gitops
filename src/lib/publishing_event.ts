@@ -30,6 +30,9 @@ export const PublishingErrorCode = z.enum([
 	// invariant violation, distinct from an ordinary publish failure (see fail-loud
 	// drift detection in `multi_repo_publisher.ts`)
 	'drift',
+	// the repo wasn't ready when re-checked right before its `gro publish` (origin moved,
+	// a tracked edit, a live session, …) — aborted before any npm side effect
+	'not_ready',
 	'other'
 ]);
 export type PublishingErrorCode = z.infer<typeof PublishingErrorCode>;

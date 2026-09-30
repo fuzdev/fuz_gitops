@@ -12,6 +12,9 @@ import {
 	type PublishingPlan
 } from './publishing_plan.ts';
 import type { PreflightOptions } from './preflight_checks.ts';
+import { load_repos_status } from './repos_status_load.ts';
+import { check_publish_readiness } from './repo_readiness.ts';
+import type { Result } from '@fuzdev/fuz_util/result.ts';
 import type { GitopsOperations } from './operations.ts';
 import { default_gitops_operations } from './operations_defaults.ts';
 import { GITOPS_NPM_WAIT_TIMEOUT_DEFAULT } from './gitops_constants.ts';
@@ -33,6 +36,8 @@ export interface PublishingOptions {
 	max_wait?: number;
 	log?: Logger;
 	ops?: GitopsOperations;
+	/** A `repos.toml` for the per-repo readiness re-check, when `repos` wouldn't find it from the cwd. */
+	registry?: string;
 	/** Structured event sink; defaults to capture-only (events surface on the result). */
 	events?: PublishingEventHandler;
 }
@@ -110,17 +115,16 @@ export const execute_publishing_plan = async (
 		events_handler.emit(event);
 	};
 
-	// Preflight checks (skip for dry runs since we're not actually publishing)
+	// Preflight checks (skip for dry runs since we're not actually publishing). Repo git state
+	// isn't preflight's: `gitops_publish --wetrun` gates on it before its confirmation prompt.
 	if (wetrun) {
 		const preflight_options: PreflightOptions = {
 			skip_changesets: false, // Always check for changesets
-			required_branch: 'main',
 			log
 		};
 		const preflight = await ops.preflight.run_preflight_checks({
 			repos,
 			preflight_options,
-			git_ops: ops.git,
 			npm_ops: ops.npm,
 			build_ops: ops.build,
 			changeset_ops: ops.changeset
@@ -172,6 +176,26 @@ export const execute_publishing_plan = async (
 
 		const repo = repo_by_name.get(pkg_name);
 		if (!repo) continue;
+
+		// Re-check the repo right before its `gro publish`: the gate ran before the prompt, and a
+		// cascade's npm waits leave a long window. `--no-pull` means gro won't notice origin
+		// moving until its push is rejected — after `changeset publish` put the version on npm —
+		// and its `commit -a` would sweep a tracked edit made since into the release commit.
+		// Aborting here, before any npm side effect, leaves the dirty state resumption expects.
+		if (wetrun) {
+			const recheck = await recheck_publish_readiness(repo, options.registry, ops);
+			if (!recheck.ok) {
+				const err = new Error(
+					`${pkg_name} isn't ready to publish, re-checked right before \`gro publish\`: ` +
+						`${recheck.message}. Aborting before it touches npm — fix it, then re-run ` +
+						`'gro gitops_publish --wetrun' to re-plan from the current state.`
+				);
+				failed.set(pkg_name, err);
+				emit({ event: 'package_failed', name: pkg_name, error: err.message, code: 'not_ready' });
+				log?.error(st('red', `  ❌ ${err.message}`));
+				break;
+			}
+		}
 
 		// An earlier publish may have rewritten this package's dependency ranges. No install is
 		// needed here: `gro publish` runs its own install (which self-heals npm's stale-cache
@@ -469,10 +493,12 @@ export const execute_publishing_plan = async (
  * Publishes a single repo using `gro publish`.
  *
  * Dry run mode: reports the precomputed plan entry without side effects.
- * Real mode: runs `gro publish --no-build` (builds already validated in preflight),
- * reads the new version from `package.json`, and returns it alongside the plan's
- * predicted bump metadata. The caller compares the read-back version to the plan to
- * detect drift.
+ * Real mode: runs `gro publish --no-build --no-pull --branch <entry branch>` (builds
+ * already validated in preflight; the readiness re-check just found the branch in sync
+ * with origin or ahead of it, so gro's own `git pull` is skipped, and gro checks out the branch the
+ * registry entry follows rather than its `main` default), reads the new version from
+ * `package.json`, and returns it alongside the plan's predicted bump metadata. The
+ * caller compares the read-back version to the plan to detect drift.
  *
  * @throws {Error} if the publish, version read-back, or commit-hash lookup fails
  */
@@ -498,10 +524,9 @@ const publish_single_repo = async (
 		};
 	}
 
-	// Run gro publish with --no-build (builds were validated in preflight checks)
 	const publish_result = await ops.process.spawn({
 		cmd: 'gro',
-		args: ['publish', '--no-build'],
+		args: gro_publish_args(repo),
 		cwd: repo.repo_dir
 	});
 
@@ -540,6 +565,48 @@ const publish_single_repo = async (
 		commit,
 		tag: `v${new_version}`
 	};
+};
+
+/**
+ * Re-checks one repo's readiness right before its `gro publish`: `repos status
+ * --fetch --json <key>` through `ops.repos`, then `check_publish_readiness` on
+ * that entry — the gate's predicate, so a branch ahead of origin (the
+ * executor's own dependency-rewrite commit leaves a dependent ahead) is ready.
+ *
+ * @returns ok, or the problems found (or why the check couldn't run), joined
+ */
+const recheck_publish_readiness = async (
+	repo: LocalRepo,
+	registry: string | undefined,
+	ops: GitopsOperations
+): Promise<Result<object, { message: string }>> => {
+	const key = repo.entry.key;
+	const loaded = await load_repos_status({
+		keys: [key],
+		registry,
+		fetch: true,
+		repos_ops: ops.repos
+	});
+	if (!loaded.ok) return { ok: false, message: `the check didn't run: ${loaded.message}` };
+	const checked = check_publish_readiness({
+		report: loaded.report,
+		keys: [key],
+		repos_command: registry === undefined ? 'repos' : `repos --registry ${registry}`
+	});
+	return checked.ok ? { ok: true } : { ok: false, message: checked.lines.join('; ') };
+};
+
+/**
+ * The `gro publish` arguments the executor runs in a repo: `--no-build`, since
+ * preflight validated the build; `--no-pull`, since the readiness re-check right
+ * before found the branch in sync with origin or ahead of it, so a pull would only
+ * move what the check vouched for; and `--branch` naming the branch the registry entry follows,
+ * which gro checks out (its default is `main`).
+ */
+export const gro_publish_args = (repo: Pick<LocalRepo, 'entry'>): Array<string> => {
+	const args = ['publish', '--no-build', '--no-pull'];
+	if (repo.entry.branch !== null) args.push('--branch', repo.entry.branch);
+	return args;
 };
 
 /**

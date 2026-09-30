@@ -134,20 +134,22 @@ export const format_repos_status_error = (error: ReposStatusErrorBody): string =
  *
  * @param options.keys - the registry keys to report on; must not be empty, since no targets means every entry
  * @param options.registry - a `repos.toml` to use instead of the one found walking up from the cwd
+ * @param options.fetch - fetch each entry from origin first (`--fetch`), which writes remote-tracking refs and nothing else
  * @param options.repos_ops - the `repos` runner
  * @returns the report, or a message saying what went wrong and what to change
  */
 export const load_repos_status = async (options: {
 	keys: Array<string>;
 	registry?: string;
+	fetch?: boolean;
 	repos_ops: ReposOperations;
 }): Promise<Result<{ report: ReposStatusReport }, ReposStatusLoadFailure>> => {
-	const { keys, registry, repos_ops } = options;
+	const { keys, registry, fetch, repos_ops } = options;
 	if (keys.length === 0) {
 		// `repos status` with no targets reports every entry
 		return { ok: false, message: 'no registry keys to report on' };
 	}
-	const ran = await repos_ops.status({ keys, registry });
+	const ran = await repos_ops.status(fetch ? { keys, registry, fetch } : { keys, registry });
 	if (!ran.ok) {
 		return {
 			ok: false,

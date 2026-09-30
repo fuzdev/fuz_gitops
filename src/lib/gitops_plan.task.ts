@@ -2,7 +2,7 @@ import type { Task } from '@fuzdev/gro';
 import { z } from 'zod';
 import { styleText as st } from 'node:util';
 
-import { get_gitops_ready } from './gitops_task_helpers.ts';
+import { get_gitops_ready, log_readiness_block } from './gitops_task_helpers.ts';
 import {
 	generate_publishing_plan,
 	log_publishing_plan,
@@ -30,14 +30,7 @@ export const Args = z.strictObject({
 		.meta({ description: 'output format' })
 		.default('stdout'),
 	outfile: z.string().meta({ description: 'write output to file instead of logging' }).optional(),
-	verbose: z.boolean().meta({ description: 'show additional details' }).default(false),
-	sync: z
-		.boolean()
-		.meta({
-			description:
-				'sync repos (switch branch, pull, install) before planning instead of reading the working tree as-is'
-		})
-		.default(false)
+	verbose: z.boolean().meta({ description: 'show additional details' }).default(false)
 });
 export type Args = z.infer<typeof Args>;
 
@@ -56,17 +49,13 @@ export const task: Task<Args> = {
 	summary: 'generate a publishing plan based on changesets',
 	Args,
 	run: async ({ args, log }): Promise<void> => {
-		const { config, registry, format, outfile, verbose, sync } = args;
+		const { config, registry, format, outfile, verbose } = args;
 
 		log.info(st('cyan', 'Generating multi-repo publishing plan...'));
 
-		// Load local repos; read the working tree as-is unless `--sync`
-		const { local_repos } = await get_gitops_ready({
-			config,
-			registry,
-			sync,
-			log
-		});
+		// Load local repos as they sit, and say which aren't at rest
+		const { local_repos } = await get_gitops_ready({ config, registry, sync: false, log });
+		log_readiness_block(local_repos, log);
 
 		if (local_repos.length === 0) {
 			log.error('No local repos found');

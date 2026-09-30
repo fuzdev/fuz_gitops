@@ -42,24 +42,43 @@ Each problem names a key in `gitops.config.ts`:
 When no `repos.toml` is found walking up from the cwd, pass
 `--registry <path>`.
 
-### "Preflight checks failed: workspace has uncommitted changes"
+### "not publishing, and nothing was changed: … each must be ready"
 
-Commit or stash your changes before publishing:
+`gro gitops_publish --wetrun` fetches every npm repo in the config and refuses
+unless each is ready. It moves nothing to get there, so the refusal changes
+nothing; each line names a repo, what's wrong, and the fix:
 
-```bash
-git status
-git add .
-git commit -m "prepare for publish"
-```
+- **on `feature`, not `main`** (or **detached at …**) — the primary checkout
+  isn't on the branch the registry entry follows: switch back once the work
+  there is committed or stashed
+- **uncommitted changes (… staged, … unstaged, … untracked, … conflicted)** —
+  commit, stash, or discard them; untracked files count. After a failed
+  publish, see [Uncommitted changes after a failed `changeset publish`](#uncommitted-changes-after-a-failed-changeset-publish)
+  before committing
+- **a rebase is in progress** (or merge, cherry-pick, …) — finish or abort it
+- **`main` is N commits behind origin** — `repos sync <key>` fast-forwards it
+- **`main` has diverged from origin** — rebase or merge by hand, then push
+- **`main` tracks no upstream on origin**, **tracks an upstream gone from
+  origin**, or **isn't compared with origin** — set or repoint its upstream;
+  `repos status <key>` says what it found
+- **fetching origin failed (…)** — fix the remote (network, auth, a gone ref)
+  and rerun; `repos status --fetch <key>` retries the fetch
+- **another live Claude Code session works in its checkout (pid …)** — the
+  publish commits there, so wait for that session to finish
+- **busy detection is unavailable (…)** — a session file couldn't be read or
+  vouched for, so no checkout can be ruled out; `repos status` says why
+- **origin isn't the registry's repo**, or another `needs_human` reason —
+  `repos status <key>` names the fix
 
-### "Preflight checks failed: not on main branch"
+A branch ahead of origin isn't refused: the gate logs it, saying whether its
+release push carries the commits or they stay unpushed until `repos sync` or
+`repos push`.
 
-Switch to main branch:
-
-```bash
-git checkout main
-git pull
-```
+It gates every npm repo, not just the ones being published: the plan reads
+each one's changesets and versions, so a repo off its branch or behind origin
+could make it wrong. The diagnostics (`gitops_plan`, `gitops_analyze`,
+`gitops_validate`, the dry run) print the same problems as warnings, from
+local refs, before you try.
 
 ### "npm authentication failed"
 
@@ -101,6 +120,34 @@ plan, e.g.:
 
 Solution: re-run `gro gitops_publish --wetrun`. It re-plans from the current
 working tree (already-published packages drop out) and continues.
+
+### "… isn't ready to publish, re-checked right before `gro publish`"
+
+Right before each `gro publish`, the executor re-checks that repo as the gate
+did (a fresh `repos status --fetch`) and aborts before touching npm unless it's
+still ready. Something changed after the gate — another session pushed to
+origin, a tracked file was edited, a session started working there. The
+failure's code is `not_ready`; packages published before it stay published.
+Fix what it names, then re-run `gro gitops_publish --wetrun` to resume.
+
+### A release commit and tag left local (the push was rejected)
+
+`gro publish` doesn't check its own `git push`. If origin moved in the seconds
+between the executor's re-check and that push, git rejects it, but `gro
+publish` still succeeds: the version is on npm and the cascade carries on.
+Git's rejection in the output is the only sign. The release commit and its
+`vX.Y.Z` tag stay local, on a branch now diverged from origin, and the next
+publish's gate refuses it. Merge origin's branch in (a rebase would leave the
+tag on a commit the branch no longer holds), push the branch with `repos
+push`, and push the tag by hand, since `repos` never pushes tags.
+
+### Uncommitted changes after a failed `changeset publish`
+
+A `gro publish` that fails partway through `changeset version` or `changeset
+publish` can leave the tree dirty with the consumed changesets deleted. gro's
+own advice there is `git reset --hard`: committing would drop the changesets,
+so the retry would have nothing to publish. The readiness gate reports the dirt
+without knowing which case it is — check `git status` before choosing.
 
 ### "Circular dependency detected in production dependencies"
 
@@ -151,21 +198,18 @@ The diagnostics (`gitops_analyze`, `gitops_plan`, `gitops_validate`,
 `gitops_publish` dry run) read each repo's working tree **as-is** — whatever
 branch is checked out, including uncommitted changes. They do not switch
 branches or pull, and move no ref (gro caches `.gro/library.json` and may
-refresh the index). To run against each repo's registry branch with the
-latest changes:
+refresh the index). Each prints a "not at rest" block naming the repos off
+their registry branch, dirty, mid-operation, or out of sync with origin as of
+the last fetch. To run against each repo's registry branch with the latest
+changes:
 
 ```bash
-gro gitops_plan --sync   # switch to the registry branch + pull + install first
-# or refresh everything once, then run diagnostics as-is:
-gro gitops_sync
-gro gitops_plan
+repos sync       # fetch, fast-forward what's behind, push what's ahead
+gro gitops_plan  # then read the repos at rest
 ```
 
-If a sync fails because a repo has uncommitted changes you want to keep:
-
-```bash
-gro gitops_sync --allow-dirty  # pull/switch tolerating a dirty workspace
-```
+`repos sync` never switches a branch or touches uncommitted work: a repo off
+its branch or dirty stays as it is until you move it.
 
 ### "Package not publishing even though I have a changeset"
 
@@ -187,13 +231,16 @@ Resumption is **automatic** and **natural**:
    - It re-plans from the current working tree
    - Already-published packages have no changesets → drop out of the new plan
    - Failed packages still have changesets → retried automatically
+   - Repos left ahead of origin by the run's own commits pass the gate: their
+     release pushes them, or, if they don't publish, they stay unpushed until
+     `repos sync` or `repos push`
 4. No state files needed, just re-run the same command!
 
 This is safer than explicit state tracking because:
 
 - No stale state files to confuse users
 - No need to remember `--resume` flag
-- Git workspace checks catch incomplete operations
+- The readiness gate catches incomplete operations
 - Changeset consumption provides natural, foolproof resumption
 
 ## Debugging Tips

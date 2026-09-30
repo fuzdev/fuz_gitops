@@ -1,17 +1,9 @@
 import type { Logger } from '@fuzdev/fuz_util/log.ts';
-import type { Result } from '@fuzdev/fuz_util/result.ts';
-import { spawn_out } from '@fuzdev/fuz_util/process.ts';
 import { styleText as st } from 'node:util';
 
 import type { LocalRepo } from './local_repo.ts';
-import type {
-	GitOperations,
-	NpmOperations,
-	BuildOperations,
-	ChangesetOperations
-} from './operations.ts';
+import type { NpmOperations, BuildOperations, ChangesetOperations } from './operations.ts';
 import {
-	default_git_operations,
 	default_npm_operations,
 	default_build_operations,
 	default_changeset_operations
@@ -20,8 +12,6 @@ import {
 export interface PreflightOptions {
 	skip_changesets?: boolean;
 	skip_build_validation?: boolean; // Skip build validation (useful for tests)
-	required_branch?: string;
-	check_remote?: boolean; // Check if git remote is reachable
 	estimate_time?: boolean; // Estimate total publish time
 	log?: Logger;
 }
@@ -39,23 +29,22 @@ export interface PreflightResult {
 export interface RunPreflightChecksOptions {
 	repos: Array<LocalRepo>;
 	preflight_options?: PreflightOptions;
-	git_ops?: GitOperations;
 	npm_ops?: NpmOperations;
 	build_ops?: BuildOperations;
 	changeset_ops?: ChangesetOperations;
 }
 
 /**
- * Validates all requirements before publishing can proceed.
- *
- * Performs comprehensive pre-flight validation:
- * - Clean workspaces (100% clean required - no uncommitted changes)
- * - Correct branch (usually main)
+ * Validates the publish-time requirements beyond repo git state:
  * - Changesets present (unless `skip_changesets`=true)
  * - Builds successful (fail-fast to prevent broken state)
- * - Git remote reachability
  * - NPM authentication with username
  * - NPM registry connectivity
+ *
+ * Git state — each repo on its registry branch, clean, idle, in sync with
+ * origin or ahead of it, and no live session in its checkout — is the readiness gate's,
+ * which `gitops_publish --wetrun` runs before the plan's confirmation prompt
+ * (`repo_readiness.ts`), so preflight reads no git.
  *
  * Build validation runs BEFORE any publishing to prevent the scenario where
  * version is bumped but build fails, leaving repo in broken state.
@@ -65,7 +54,6 @@ export interface RunPreflightChecksOptions {
 export const run_preflight_checks = async ({
 	repos,
 	preflight_options = {},
-	git_ops = default_git_operations,
 	npm_ops = default_npm_operations,
 	build_ops = default_build_operations,
 	changeset_ops = default_changeset_operations
@@ -73,8 +61,6 @@ export const run_preflight_checks = async ({
 	const {
 		skip_changesets = false,
 		skip_build_validation = false,
-		required_branch = 'main',
-		check_remote = true,
 		estimate_time = true,
 		log
 	} = preflight_options;
@@ -88,50 +74,7 @@ export const run_preflight_checks = async ({
 
 	log?.info(st('cyan', '✅ Running preflight checks...'));
 
-	// 1. Check clean workspaces - must be 100% clean before publishing
-	log?.info('  Checking workspace cleanliness...');
-	for (const repo of repos) {
-		const clean_result = await git_ops.check_clean_workspace({ cwd: repo.repo_dir });
-		if (!clean_result.ok) {
-			errors.push(`${repo.library.name} failed workspace check: ${clean_result.message}`);
-			continue;
-		}
-
-		if (!clean_result.value) {
-			// Get list of changed files for better error message
-			const files_result = await git_ops.list_uncommitted_files({ cwd: repo.repo_dir });
-			if (files_result.ok) {
-				// No filtering - workspace must be 100% clean
-				const unexpected_files = files_result.value;
-
-				if (unexpected_files.length > 0) {
-					errors.push(
-						`${repo.library.name} has uncommitted changes in: ${unexpected_files.slice(0, 3).join(', ')}${unexpected_files.length > 3 ? ` and ${unexpected_files.length - 3} more` : ''}`
-					);
-				}
-			} else {
-				errors.push(`${repo.library.name} has uncommitted changes`);
-			}
-		}
-	}
-
-	// 2. Check correct branch
-	log?.info(`  Checking branches (expecting ${required_branch})...`);
-	for (const repo of repos) {
-		const branch_result = await git_ops.current_branch_name({ cwd: repo.repo_dir });
-		if (!branch_result.ok) {
-			errors.push(`${repo.library.name} failed branch check: ${branch_result.message}`);
-			continue;
-		}
-
-		if (branch_result.value !== required_branch) {
-			errors.push(
-				`${repo.library.name} is on branch '${branch_result.value}', expected '${required_branch}'`
-			);
-		}
-	}
-
-	// 3. Check changesets (unless skipped)
+	// 1. Check changesets (unless skipped)
 	if (!skip_changesets) {
 		log?.info('  Checking for changesets...');
 		for (const repo of repos) {
@@ -154,7 +97,7 @@ export const run_preflight_checks = async ({
 		}
 	}
 
-	// 4. Validate builds for packages with changesets
+	// 2. Validate builds for packages with changesets
 	if (!skip_build_validation && repos_with_changesets.size > 0) {
 		log?.info(st('cyan', `  Validating builds for ${repos_with_changesets.size} package(s)...`));
 		const repos_to_build = repos.filter((repo) => repos_with_changesets.has(repo.library.name));
@@ -181,17 +124,7 @@ export const run_preflight_checks = async ({
 		}
 	}
 
-	// 5. Check git remote reachability (skip in tests when check_remote is false)
-	if (check_remote && repos.length > 0) {
-		log?.info('  Checking git remote connectivity...');
-		// Only check first repo to avoid slowing down tests with multiple remote checks
-		const remote_result = await check_git_remote(repos[0]!.repo_dir);
-		if (!remote_result.ok) {
-			warnings.push(`git remote may not be reachable - ${remote_result.message}`);
-		}
-	}
-
-	// 6. Check npm authentication with username
+	// 3. Check npm authentication with username
 	log?.info('  Checking npm authentication...');
 	const npm_auth_result = await npm_ops.check_auth();
 	if (!npm_auth_result.ok) {
@@ -201,14 +134,14 @@ export const run_preflight_checks = async ({
 		log?.info(st('dim', `    Logged in as: ${npm_username}`));
 	}
 
-	// 7. Check network connectivity (npm registry)
+	// 4. Check network connectivity (npm registry)
 	log?.info('  Checking npm registry connectivity...');
 	const registry_result = await npm_ops.check_registry();
 	if (!registry_result.ok) {
 		warnings.push(`npm registry check failed: ${registry_result.message}`);
 	}
 
-	// 8. Estimate total publish time
+	// 5. Estimate total publish time
 	if (estimate_time) {
 		const packages_to_publish = repos_with_changesets.size;
 		if (packages_to_publish > 0) {
@@ -253,17 +186,4 @@ export const run_preflight_checks = async ({
 		estimated_duration,
 		npm_username
 	};
-};
-
-const check_git_remote = async (cwd: string): Promise<Result<object, { message: string }>> => {
-	try {
-		// Try to fetch refs from remote without downloading objects
-		const result = await spawn_out('git', ['ls-remote', '--heads', 'origin'], { cwd });
-		if (result.stdout || result.stderr) {
-			return { ok: true };
-		}
-		return { ok: false, message: 'No response from git remote' };
-	} catch (error) {
-		return { ok: false, message: String(error) };
-	}
 };

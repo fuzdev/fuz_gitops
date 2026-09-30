@@ -163,20 +163,11 @@ export interface GitOperations {
 
 	/**
 	 * Checks whether the working tree has any changes — staged, unstaged, or
-	 * untracked (`git status --porcelain`). Broader than `list_uncommitted_files`,
-	 * which reports only tracked working-tree changes relative to HEAD.
+	 * untracked (`git status --porcelain`).
 	 */
 	has_changes: (options?: {
 		cwd?: string;
 	}) => Promise<Result<{ value: boolean }, { message: string }>>;
-
-	/**
-	 * Lists uncommitted files in the working tree (`git diff --name-only HEAD`),
-	 * i.e. working-tree changes relative to HEAD (not a diff between two refs).
-	 */
-	list_uncommitted_files: (options?: {
-		cwd?: string;
-	}) => Promise<Result<{ value: Array<string> }, { message: string }>>;
 
 	/**
 	 * Creates a git tag.
@@ -250,13 +241,16 @@ export interface ReposCommandOutput {
  */
 export interface ReposOperations {
 	/**
-	 * Runs `repos [--registry <path>] status <keys…> --json` in the process's
-	 * cwd and returns what it printed, whatever its exit code. Fails only when
-	 * the binary didn't run to an exit: `not_found` when it isn't on `PATH`.
+	 * Runs `repos [--registry <path>] status [--fetch] <keys…> --json` in the
+	 * process's cwd and returns what it printed, whatever its exit code. With
+	 * `fetch`, `repos` fetches each entry from origin first, which writes
+	 * remote-tracking refs and nothing else. Fails only when the binary didn't
+	 * run to an exit: `not_found` when it isn't on `PATH`.
 	 */
 	status: (options: {
 		keys: Array<string>;
 		registry?: string;
+		fetch?: boolean;
 	}) => Promise<
 		Result<{ output: ReposCommandOutput }, { kind: 'not_found' | 'failed'; message: string }>
 	>;
@@ -310,8 +304,9 @@ export interface NpmOperations {
 }
 
 /**
- * Preflight validation operations to ensure repos are ready for publishing.
- * Validates workspace state, branches, builds, and npm authentication.
+ * Preflight validation operations run before publishing: changesets, builds,
+ * and npm authentication. Repo git state is the readiness gate's, before
+ * preflight (see `repo_readiness.ts`).
  */
 export interface PreflightOperations {
 	/**
@@ -320,7 +315,6 @@ export interface PreflightOperations {
 	run_preflight_checks: (options: {
 		repos: Array<LocalRepo>;
 		preflight_options: PreflightOptions;
-		git_ops?: GitOperations;
 		npm_ops?: NpmOperations;
 		build_ops?: BuildOperations;
 		changeset_ops?: ChangesetOperations;
@@ -371,4 +365,6 @@ export interface GitopsOperations {
 	preflight: PreflightOperations;
 	fs: FsOperations;
 	build: BuildOperations;
+	/** `repos status`, for the executor's re-check of each repo right before its publish. */
+	repos: ReposOperations;
 }
