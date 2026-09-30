@@ -19,7 +19,8 @@ const config: CreateGitopsConfig = () => {
 			'https://github.com/fuzdev/zzz',
 			'https://github.com/fuzdev/fuz_docs',
 			{
-				repo_url: 'https://github.com/fuzdev/fuz_gitops',
+				repo_url: 'https://github.com/fuzdev/fuz_repos',
+				repo_dir: '../fuz_gitops',
 				branch: 'main'
 			}
 			// 'https://github.com/fuzdev/fuz.dev',
