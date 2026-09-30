@@ -778,19 +778,20 @@ any path to git, git's global options, or a pushing alias), `repos push
 `2` with the reason on stderr and Claude Code's deny JSON on stdout, which
 names `repos push` (and, to update a local bare repo, fetching into it).
 Text it can't read is denied only where one command of it has a push word
-after a git word. Anything else, input it can't read as the hook's included,
-exits `0` in silence: a schema change must not wedge every Bash call. It
-reads stdin alone — no git, registry, network, or files — and bounds its
-work, so it costs little more than its process spawn. The settings run it
-guarded: they capture its stdout, and pass the deny on (print it, exit `2`)
-only when it exited `2` and printed `"permissionDecision":"deny"` — so a
-`repos` binary older than the subcommand, whose usage error also exits `2`,
-fails open instead of blocking every Bash call. They keep denying
-`Bash(git push:*)` (and `Bash(repos push --new-branch:*)`) — permission rules
-hold in every mode, and back the hook where it fails open — and allow
-`Bash(repos:*)`. Guidance, not a boundary: a script in a file, another
-language, or an alias defined elsewhere stays out of its reach. The rustdoc
-of `hook.rs` has the grammar and its limits.
+after a git word; brace expansion past its bounds, and a pipeline into a shell
+longer than it reads, are denied whatever they hold. Anything else, input it
+can't read as the hook's included, exits `0` in silence: a schema change must
+not wedge every Bash call. It reads stdin alone — no git, registry, network,
+or files — and bounds its work, so it costs little more than its process
+spawn. The settings run it guarded: they capture its stdout, and pass the deny
+on (print it, exit `2`) only when it exited `2` and printed
+`"permissionDecision":"deny"` — so a `repos` binary older than the subcommand,
+whose usage error also exits `2`, fails open instead of blocking every Bash
+call. They keep denying `Bash(git push:*)` (and `Bash(repos push
+--new-branch:*)`) — permission rules hold in every mode, and back the hook
+where it fails open — and allow `Bash(repos:*)`. Guidance, not a boundary: a
+script in a file, another language, or an alias defined elsewhere stays out of
+its reach. The rustdoc of `hook.rs` has the grammar and its limits.
 
 **Third-party references are like locked dependencies**: left as they are —
 never fetched, no branch compared against a remote, only local work

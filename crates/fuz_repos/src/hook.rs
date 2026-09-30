@@ -38,14 +38,15 @@
 //! `eval`, `su -c`, `flock -c`, `env -S`, `watch`, `find -exec`, `xargs`
 //! (its command gets an argument it can't know), `gro gitops_run`, and a
 //! shell reading stdin from a here-document, a here-string, or a pipe (the
-//! words of the commands before it in the pipeline). A command name whose
-//! basename can't be known (`$g`, `$(which git)`) is read as git that
-//! pushes only with a literal `push`, and as a shell only with `-c`. Any
-//! other command name is looked past for the first word that's git, a
-//! shell, `eval`, `repos`, or a wrapper, so an unknown wrapper still
-//! reveals `git push` — but for commands whose arguments are text
-//! (`echo`, `printf`, `grep`, `rg`, `man`, `which`, `test`, …): a quoted
-//! string is a command only where a shell would run it.
+//! words of the commands before it in the pipeline, up to `MAX_PIPELINE`
+//! back). A command name whose basename can't be known (`$g`, `$(which
+//! git)`) is read as git that pushes only with a literal `push`, and as a
+//! shell only with `-c`. Any other command name is looked past for the
+//! first word that's git, a shell, `eval`, `repos`, or a wrapper, so an
+//! unknown wrapper still reveals `git push` — but for commands whose
+//! arguments are text (`echo`, `printf`, `grep`, `rg`, `man`, `which`,
+//! `test`, …): a quoted string is a command only where a shell would run
+//! it.
 //!
 //! **Fails toward a deny** where the text can't be read — an unterminated
 //! quote or substitution, nesting past the reader's `MAX_NESTING`, scripts
@@ -57,7 +58,9 @@
 //! message. So does brace expansion past the reader's bounds, whatever the
 //! words (`Script::unexpanded`): the words it leaves unexpanded, or drops
 //! past its word cap, can't be known, command names included
-//! (`{git,push}`), and a command that size is never an ordinary one.
+//! (`{git,push}`), and a command that size is never an ordinary one — and
+//! a pipeline into a shell longer than `MAX_PIPELINE`, whose earlier
+//! commands pipe in text it doesn't read.
 //!
 //! **Out of reach**, as for any reading of a command: scripts in files,
 //! other languages (`python -c`, `perl -e`), aliases and functions defined
@@ -235,10 +238,21 @@ const XARGS_VALUES: &[&str] = &[
 ];
 
 /// The text on a command's stdin the script holds, when asked.
-type Stdin<'a> = &'a dyn Fn() -> Vec<String>;
+type Stdin<'a> = &'a dyn Fn() -> Piped;
 
-const fn no_stdin() -> Vec<String> {
-    Vec::new()
+const fn no_stdin() -> Piped {
+    Piped {
+        texts: Vec::new(),
+        cut: false,
+    }
+}
+
+/// The text on a command's stdin the script holds (`stdin_of`).
+struct Piped {
+    texts: Vec<String>,
+    /// The pipeline feeding it runs past `MAX_PIPELINE`: text from the
+    /// commands further back reaches it unread.
+    cut: bool,
 }
 
 /// How many commands back a pipeline is read for a shell's stdin.
@@ -707,7 +721,10 @@ impl Scan {
         match args.get(i) {
             Some(file) if !reads_stdin && file != "-" => self.run_written(file, depth, cleared),
             _ => {
-                for text in stdin() {
+                let piped = stdin();
+                // what the unread commands pipe in can't be known
+                self.maybe_push |= piped.cut;
+                for text in piped.texts {
                     self.script(&text, depth + 1, cleared);
                 }
             }
@@ -778,7 +795,8 @@ fn past_options(args: &[String], values: &[&str]) -> usize {
         }
         i += if values.contains(&a.as_str()) { 2 } else { 1 };
     }
-    i
+    // a value-taking option last: its value is missing
+    i.min(args.len())
 }
 
 /// `env`'s options and assignments, noting when they clear `CLAUDECODE`.
@@ -797,7 +815,10 @@ fn env(args: &[String], cleared: &mut bool) -> Next {
                 i += 2;
             }
             "-C" | "--chdir" => i += 2,
-            "-S" | "--split-string" => return split_string(args.get(i + 1), &args[i + 2..]),
+            "-S" | "--split-string" => {
+                let rest = args.get(i + 2..).unwrap_or_default();
+                return split_string(args.get(i + 1), rest);
+            }
             s if s.starts_with("--split-string=") => {
                 return split_string(
                     Some(&s["--split-string=".len()..].to_owned()),
@@ -950,7 +971,9 @@ fn xargs(args: &[String]) -> Vec<String> {
             1
         };
     }
-    let mut argv: Vec<String> = args[i..]
+    let mut argv: Vec<String> = args
+        .get(i..)
+        .unwrap_or_default()
         .iter()
         .map(|w| match &replace {
             Some(r) if !r.is_empty() => w.replace(r.as_str(), &DYN.to_string()),
@@ -984,8 +1007,9 @@ fn find_execs(args: &[String]) -> Vec<Vec<String>> {
 /// The text on a command's stdin that the script holds: its own
 /// here-documents and here-strings, and, when it reads a pipe, the words
 /// and stdin of each command before it in the pipeline (`echo 'git push' |
-/// bash`), up to `MAX_PIPELINE` back, `\n` in them read as a newline.
-fn stdin_of(script: &Script, i: usize) -> Vec<String> {
+/// bash`), up to `MAX_PIPELINE` back, `\n` in them read as a newline —
+/// past it, `cut`.
+fn stdin_of(script: &Script, i: usize) -> Piped {
     let commands = &script.commands;
     let mut stdin = commands[i].stdin.clone();
     let mut at = i;
@@ -999,7 +1023,10 @@ fn stdin_of(script: &Script, i: usize) -> Vec<String> {
         }
         stdin.extend(s.iter().cloned());
     }
-    stdin
+    Piped {
+        texts: stdin,
+        cut: commands[at].piped && at > 0,
+    }
 }
 
 #[cfg(test)]
@@ -1054,6 +1081,19 @@ mod tests {
             "eval \"git push\"",
             "bash <<'EOF'\ngit push\nEOF",
             "/usr/lib/git-core/git-push",
+            // brace expansion, letter sequences and words it empties
+            "git pus{h..h}",
+            "gi{t..t} push",
+            "{g..g}it push",
+            "git {p..p}ush origin main",
+            "sudo gi{t..t} pus{h..h}",
+            "git {p..z..10}ush",
+            // not a sequence to bash: `-C` takes `{a..b}`
+            "git -C {a..''b} push",
+            "{git,} push",
+            "git {,} push",
+            "git -C {,} . push",
+            "x=; git $x push",
         ] {
             denied(c, Denial::GitPush);
         }
@@ -1162,6 +1202,18 @@ mod tests {
             "printf 'cd x\\ngit push\\n' >> p.sh && source ./p.sh",
             "echo 'git push' | bash",
             "printf 'cd x\\ngit push\\n' | sh",
+            "echo 'git push' |\nbash",
+            "echo 'git push' | # then\nbash",
+            "echo 'git push' | (bash)",
+            "echo 'git push' | { bash; }",
+            "echo 'git push' | (cat) | bash",
+            "echo 'git push' | { true; bash; }",
+            "echo 'git push' | (true; (bash))",
+            "cat <<$x\n$(git push)\n$x",
+            "x=Q; cat <<\"$x\"\n$x\ngit push\nQ",
+            "cat <<$(x)\nhi\n$(x)\ngit push",
+            // a backquoted delimiter is taken as written, backquotes and all
+            "cat <<`a b`\nhi\n`a b`\ngit push",
             "echo `git push`",
             "x=$(git push)",
             "echo \"$(git push)\"",
@@ -1266,6 +1318,252 @@ mod tests {
         }
     }
 
+    /// A shell's stdin is read `MAX_PIPELINE` commands back; past that,
+    /// what the rest pipe in can't be known.
+    #[test]
+    fn a_pipeline_past_its_bound_is_unreadable() {
+        let cats = |n: usize| "| cat ".repeat(n);
+        denied(
+            &format!("echo 'git push' {}| bash", cats(MAX_PIPELINE - 1)),
+            Denial::GitPush,
+        );
+        denied(
+            &format!("echo 'git push' {}| bash", cats(MAX_PIPELINE)),
+            Denial::Unreadable,
+        );
+        denied(
+            &format!("echo hi {}| sh -s", cats(MAX_PIPELINE)),
+            Denial::Unreadable,
+        );
+        // a newline or group after a pipe doesn't end it
+        denied(
+            &format!("echo 'git push' {}|\n(bash)", cats(MAX_PIPELINE)),
+            Denial::Unreadable,
+        );
+        denied(
+            &format!(
+                "echo 'git push' {}| {{ true; bash; }}",
+                cats(MAX_PIPELINE - 2)
+            ),
+            Denial::GitPush,
+        );
+        // what reads no stdin as a script passes, however long
+        passes(&format!("echo 'git push' {}", cats(MAX_PIPELINE * 2)));
+        passes(&format!("echo hi {}| bash -c 'wc -l'", cats(MAX_PIPELINE)));
+        passes(&format!("echo hi {}| bash run.sh", cats(MAX_PIPELINE)));
+    }
+
+    /// Every wrapper and command read, with each of its options last:
+    /// a value it takes is missing.
+    const TRAILING: &[(&str, &[&str])] = &[
+        (
+            "env",
+            &[
+                "-u",
+                "--unset",
+                "-C",
+                "--chdir",
+                "-S",
+                "--split-string",
+                "-i",
+                "-",
+            ],
+        ),
+        ("sudo", SUDO_VALUES),
+        ("doas", &["-u", "-C"]),
+        ("timeout", &["-s", "-k", "--signal", "--kill-after", "5"]),
+        ("nice", &["-n", "--adjustment"]),
+        ("ionice", &["-c", "-n", "--class", "--classdata"]),
+        ("time", &["-f", "-o", "--format", "--output"]),
+        ("exec", &["-a"]),
+        (
+            "stdbuf",
+            &["-i", "-o", "-e", "--input", "--output", "--error"],
+        ),
+        (
+            "chrt",
+            &[
+                "-T",
+                "-P",
+                "-D",
+                "--sched-runtime",
+                "--sched-period",
+                "--sched-deadline",
+                "5",
+            ],
+        ),
+        ("taskset", &["-p", "3"]),
+        (
+            "flock",
+            &[
+                "-w",
+                "--timeout",
+                "-E",
+                "--conflict-exit-code",
+                "-c",
+                "--command",
+                "f",
+            ],
+        ),
+        ("su", &["-c", "--command", "--session-command", "-"]),
+        (
+            "watch",
+            &["-n", "--interval", "-q", "--equexit", "-x", "--exec"],
+        ),
+        ("xargs", XARGS_VALUES),
+        ("xargs", &["-I", "--replace", "-i", "-0", "--"]),
+        ("find", &[".", "-exec", "-execdir", "-ok", "-okdir"]),
+        (
+            "git",
+            &[
+                "-C",
+                "-c",
+                "--git-dir",
+                "--work-tree",
+                "--namespace",
+                "--attr-source",
+                "--super-prefix",
+                "--config-env",
+                "config",
+                "submodule",
+                "bisect",
+                "rebase",
+                "-x",
+                "--exec",
+            ],
+        ),
+        (
+            "bash",
+            &[
+                "-c",
+                "-o",
+                "-O",
+                "--rcfile",
+                "--init-file",
+                "--command",
+                "-s",
+                "-",
+            ],
+        ),
+        ("repos", &["push", "--registry"]),
+        ("command", &["-v", "-p"]),
+        ("gro", &["gitops_run"]),
+        ("nohup", &["--"]),
+        ("setsid", &["-w"]),
+        ("eval", &[""]),
+        ("source", &[""]),
+        ("unset", &["-v"]),
+        ("export", &["-n"]),
+    ];
+
+    /// No input panics: the release build aborts on one, and an abort is
+    /// an exit Claude Code doesn't block on — the hook would fail open.
+    #[test]
+    fn no_input_panics() {
+        for (name, options) in TRAILING {
+            for option in *options {
+                for command in [
+                    format!("git push; {name} {option}"),
+                    format!("{name} {option}"),
+                    format!("git push; {name} {{,}} {option}"),
+                    format!("echo 'git push' | {name} {option}"),
+                    format!("git push; sudo {name} x {option}"),
+                ] {
+                    let denial = check_command(&command);
+                    if command.starts_with("git push") {
+                        assert_eq!(denial, Some(Denial::GitPush), "{command}");
+                    }
+                }
+            }
+        }
+        // every prefix of commands that use much of the grammar
+        let seeds = [
+            "cd x && env -S 'git -C y push' | xargs -I{} sh -c \"echo {}\" && timeout -s 9 5 git pu{sh,ll}",
+            "cat <<'EOF' | bash\ngit push $(echo `x`)\nEOF\nx=$(( 1 + ${y%%q} )); ((z++))",
+            "echo \"${a:-$(b <<-X\n\tq\n\tX\n)}\" <(c) >(d) $'\\x70' $\"e\" 2>&1 >>f &>g <<<h",
+            "( { git -c alias.p=push p; } ) || watch -n 1 -x git push; find . -exec git push \\;",
+            "for i in {1..3} {a..c}; do sudo -u me nice -n 5 flock f -c 'git push'; done # x",
+            "f() { git -C \"$1\" push; }; export CLAUDECODE=; repos push --new-branch",
+        ];
+        for seed in seeds {
+            for (at, _) in seed.char_indices() {
+                check_command(&seed[..at]);
+                check_command(&seed[at..]);
+            }
+        }
+        // random commands of the grammar's pieces
+        let pieces: Vec<&str> = TRAILING
+            .iter()
+            .flat_map(|(name, options)| std::iter::once(*name).chain(options.iter().copied()))
+            .chain([
+                "git",
+                "push",
+                "sh",
+                "'",
+                "\"",
+                "\\",
+                "$(",
+                ")",
+                "(",
+                "{",
+                "}",
+                "{a,b}",
+                "{,}",
+                "{a..c}",
+                "{z..a..2}",
+                ",",
+                "..",
+                "|",
+                "||",
+                "&&",
+                ";",
+                "&",
+                "<<",
+                "<<-",
+                "<<<",
+                "EOF",
+                "$x",
+                "${",
+                "${x:-",
+                "`",
+                "#",
+                "=",
+                "x=",
+                "CLAUDECODE=",
+                "$'",
+                "$\"",
+                "\n",
+                ">",
+                "2>&1",
+                "--",
+                "-",
+                "((",
+                "$((",
+                "$[",
+                "]",
+                "{a..{b,c}}",
+                "\\,",
+                "--new-branch",
+            ])
+            .collect();
+        let mut state = 0x9e37_79b9_7f4a_7c15_u64;
+        let mut next = |n: usize| {
+            state ^= state << 13;
+            state ^= state >> 7;
+            state ^= state << 17;
+            usize::try_from(state % n as u64).unwrap_or(0)
+        };
+        for _ in 0..5_000 {
+            let len = 1 + next(12);
+            let mut command = String::new();
+            for _ in 0..len {
+                command.push_str(pieces[next(pieces.len())]);
+                command.push_str([" ", "", " ", "\n"][next(4)]);
+            }
+            check_command(&command);
+        }
+    }
+
     #[test]
     fn a_shell_that_only_checks_syntax_runs_nothing() {
         passes("bash -n s.sh");
@@ -1288,7 +1586,6 @@ mod tests {
             "echo \"$(".repeat(5_000) + &")\"".repeat(5_000),
             "echo ".to_owned() + &"{".repeat(50_000),
             "$(".repeat(100_000) + "git status" + &")".repeat(100_000),
-            "echo git status | ".repeat(20_000) + "bash",
             "cat <<EOF | bash\n".to_owned() + &"echo $(echo $(echo x))\n".repeat(20_000) + "EOF",
         ];
         for input in &inputs {
@@ -1298,6 +1595,14 @@ mod tests {
             // generous for an unoptimized build on a slow runner
             assert!(took.as_secs() < 5, "{took:?}: {}", &input[..40]);
         }
+        // a pipeline into a shell past `MAX_PIPELINE`: bounded, and denied
+        // as unreadable
+        let start = std::time::Instant::now();
+        denied(
+            &("echo git status | ".repeat(20_000) + "bash"),
+            Denial::Unreadable,
+        );
+        assert!(start.elapsed().as_secs() < 5);
         // brace expansion past a budget: bounded, and denied as unreadable,
         // since what the words left unexpanded run can't be known — a
         // command that size is never an ordinary one
@@ -1420,6 +1725,8 @@ mod tests {
             "rg 'git push' src",
             "git stash push",
             "git stash push -m wip -- src",
+            // a `{` past a command's start is an argument: `bash` reads no pipe
+            "echo 'git push' | grep { ; bash",
             "git remote set-url --push origin git@github.com:me/x",
             "git config push.default simple",
             "git config --get alias.push",
@@ -1443,6 +1750,8 @@ mod tests {
             "git commit -m 'git push is denied'",
             "git status # then git push",
             "cat <<'EOF'\ngit push\nEOF",
+            "cat <<\"$x\"\n$(git push)\n$x",
+            "echo 'git push' | (true); bash",
             "cat > notes.md <<'EOF'\nthen git push\nEOF",
             "cat > p.sh <<'EOF'\ngit push\nEOF\nbash other.sh",
             "echo 'git push' > p.sh; cat p.sh",
@@ -1468,6 +1777,11 @@ mod tests {
             "CLAUDECODE=1 repos status",
             "env CLAUDECODE=1 repos push",
             "echo $CLAUDECODE; repos status",
+            "echo {a..z}",
+            "for c in {a..e}; do echo $c; done",
+            "echo {1..1000}",
+            "touch f{1..500}.txt",
+            "for i in {1..1000}; do git status; done",
             "",
             "   ",
         ] {

@@ -8,9 +8,14 @@
 //!
 //! - **Words**: single quotes, double quotes (with their backslash rules),
 //!   backslash escapes and line continuations, `$'…'` (ANSI-C escapes),
-//!   `$"…"`, and brace expansion (`pu{sh,ll}`, unquoted braces alone, not
-//!   `{a..b}`) as bash reads them — past a budget on how much it reads, a
-//!   word it would expand is `DYN`.
+//!   `$"…"`, and brace expansion (`pu{sh,ll}`, letter sequences
+//!   `{a..e..2}`, unquoted braces alone) as bash reads them, a word that
+//!   expands to nothing dropped unless a quote opened in it (`{git,}
+//!   push`, `x=; git $x push`) — past a budget on how much it reads, or at
+//!   a group it can't read as bash would (a sequence through the
+//!   non-letters between `Z` and `a`), a word it would expand is `DYN`.
+//!   Number sequences (`{1..9}`) stay literal: their words differ only in
+//!   digits and a sign, which spell no command or git subcommand.
 //! - **Expansions**: `$NAME` and `${NAME}` take the value a plain
 //!   assignment earlier in the same script gave (`g=git; $g push`, `export`,
 //!   `declare`, `local`, `readonly`; `unset` forgets); any other expansion —
@@ -20,12 +25,16 @@
 //! - **Commands** end at `;` `&` `&&` `||` `|` `|&` a newline `(` `)`, and
 //!   at an unquoted word that is exactly `{` or `}`; `NAME=value` words
 //!   before the command name are its assignments. A `#` starting a word
-//!   comments out the rest of its line.
+//!   comments out the rest of its line. A pipe reaches the next command
+//!   past newlines, and every command of a `(…)` or `{ …; }` group it
+//!   feeds (`a | { b; c; }`).
 //! - **Redirections** (`<` `>` `>>` `>|` `<>` `<&` `>&` `&>` `&>>`, an fd
 //!   number before them) drop their target from the argv; a here-document
-//!   (`<<`, `<<-`, its body expanded when the delimiter is unquoted) and a
-//!   here-string (`<<<`) become the command's stdin text, and an output
-//!   redirection's target a file it writes.
+//!   (`<<`, `<<-`) and a here-string (`<<<`) become the command's stdin
+//!   text, and an output redirection's target a file it writes. A
+//!   here-document's delimiter is never expanded (`<<$x` ends at a `$x`
+//!   line); quoted anywhere, its quotes are removed and its body isn't
+//!   expanded.
 //!
 //! - **Arithmetic** — `$((…))`, a `((…))` command (`for ((…))` too), and
 //!   `$[…]` — is read to its closing parens or bracket with no
@@ -34,9 +43,10 @@
 //!
 //! Anything it can't delimit — an unterminated quote, substitution, or
 //! `${`, or nesting past `MAX_NESTING` — is `Unreadable`. Not modelled:
-//! aliases, functions, `{a..b}`, arrays (`a=(…)` splits as a subshell),
-//! `case` patterns beyond their `)`, and a `)` inside `$(…)` that no `(`
-//! opened.
+//! aliases, functions, word splitting of an unquoted expansion's value
+//! (`x='git push'; $x` reads as one word), arrays (`a=(…)` splits as a
+//! subshell), `case` patterns beyond their `)`, and a `)` inside `$(…)`
+//! that no `(` opened.
 
 use std::collections::HashMap;
 
@@ -65,6 +75,13 @@ pub struct SimpleCommand {
     redirected: bool,
 }
 
+impl SimpleCommand {
+    /// Nothing read yet: no word, assignment, or redirection.
+    const fn is_empty(&self) -> bool {
+        self.words.is_empty() && self.assigns.is_empty() && !self.redirected
+    }
+}
+
 /// A script read as commands.
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct Script {
@@ -72,9 +89,9 @@ pub struct Script {
     /// The scripts substitutions hold, which run wherever they appear.
     pub substitutions: Vec<String>,
     /// Some word's brace groups were left unexpanded, past a budget
-    /// (`MAX_BRACE_CHARS`, `MAX_PARSE_BRACE_CHARS`), or its expansion cut
-    /// short (`MAX_BRACE_WORDS`): what it runs can't be known, not even its
-    /// command names.
+    /// (`MAX_BRACE_CHARS`, `MAX_PARSE_BRACE_CHARS`) or at a group the
+    /// reading can't know, or its expansion cut short (`MAX_BRACE_WORDS`):
+    /// what it runs can't be known, not even its command names.
     pub unexpanded: bool,
 }
 
@@ -129,18 +146,44 @@ const MAX_BRACE_CHARS: usize = 1 << 16;
 /// push, and `{git,push}` as git pushing).
 const MAX_PARSE_BRACE_CHARS: usize = 1 << 22;
 
-/// A word being read: each char, and whether it was unquoted (brace
-/// expansion and assignment only see unquoted syntax).
+/// Where a char of a word being read came from. A quote leaves a mark
+/// where it opens, a char with no text, so the word reads as bash reads
+/// its raw text: `{a.''.c}` holds no `..`, `{a..''c}` is no sequence, and
+/// `""` is a word though it's empty.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Src {
+    /// Unquoted: brace expansion and assignment only see these.
+    Bare,
+    Quoted,
+    /// Quoted by a backslash outside quotes (`\,`).
+    Escaped,
+    /// Where a quote opened: none of the word's text.
+    Mark,
+}
+
+/// A word being read: each char, and where it came from.
 #[derive(Debug, Default, Clone)]
 struct Word {
     chars: Vec<char>,
-    bare: Vec<bool>,
+    src: Vec<Src>,
 }
 
 impl Word {
     fn push(&mut self, c: char, bare: bool) {
         self.chars.push(c);
-        self.bare.push(bare);
+        self.src.push(if bare { Src::Bare } else { Src::Quoted });
+    }
+
+    fn push_escaped(&mut self, c: char) {
+        self.chars.push(c);
+        self.src.push(Src::Escaped);
+    }
+
+    /// A quote opening here.
+    fn mark(&mut self) {
+        // a mark's char is never read
+        self.chars.push('\'');
+        self.src.push(Src::Mark);
     }
 
     fn push_quoted(&mut self, s: &str) {
@@ -150,17 +193,17 @@ impl Word {
     }
 
     fn text(&self) -> String {
-        self.chars.iter().collect()
+        Made::default().with(&self.chars, &self.src).text
     }
 
     fn is_bare(&self, s: &str) -> bool {
-        self.bare.iter().all(|b| *b) && self.chars.iter().copied().eq(s.chars())
+        self.src.iter().all(|s| *s == Src::Bare) && self.chars.iter().copied().eq(s.chars())
     }
 
     /// As an assignment, when its name and `=` are unquoted.
     fn assignment(&self) -> Option<(String, String)> {
         let eq = self.chars.iter().position(|c| *c == '=')?;
-        if !self.bare[..=eq].iter().all(|b| *b) {
+        if !self.src[..=eq].iter().all(|s| *s == Src::Bare) {
             return None;
         }
         let text = self.text();
@@ -170,25 +213,81 @@ impl Word {
 
     /// The words brace expansion makes of it, reading from `budget`, what's
     /// left of the text's (`MAX_PARSE_BRACE_CHARS`); `unexpanded` is set
-    /// when a group is left unexpanded past it.
+    /// when a group is left unexpanded past it. A word that expands to
+    /// nothing is dropped, as bash drops it, unless a quote opened in it.
     fn expand_braces(&self, budget: &mut usize, unexpanded: &mut bool) -> Vec<String> {
         let mut out = Vec::new();
         let mut left = MAX_BRACE_CHARS.min(*budget);
         let start = left;
-        expand_braces_into(&self.chars, &self.bare, &mut out, &mut left, unexpanded);
+        expand_braces_into(
+            &Made::default(),
+            &self.chars,
+            &self.src,
+            &mut out,
+            &mut left,
+            unexpanded,
+        );
         *budget -= start - left;
-        out
+        out.into_iter()
+            .filter(|made| made.quoted || !made.text.is_empty())
+            .map(|made| made.text)
+            .collect()
     }
 }
 
-/// Expands the first unquoted `{…,…}` group of `chars`, then each result's
-/// next, into `out`, up to `MAX_BRACE_WORDS` and the chars `budget` has
-/// left: past the words, the rest are dropped, and past the chars, a word
-/// with a group left is `DYN` — either way, `unexpanded` set.
+/// A word as far as brace expansion has made it: its text, and whether a
+/// quote opened in it.
+#[derive(Debug, Default, Clone)]
+struct Made {
+    text: String,
+    quoted: bool,
+}
+
+impl Made {
+    /// This, then the text of `chars`.
+    fn with(&self, chars: &[char], src: &[Src]) -> Self {
+        let mut made = self.clone();
+        for (c, s) in chars.iter().zip(src) {
+            if *s == Src::Mark {
+                made.quoted = true;
+            } else {
+                made.text.push(*c);
+            }
+        }
+        made
+    }
+
+    /// This, then `next`.
+    fn and(&self, next: &Self) -> Self {
+        Self {
+            text: format!("{}{}", self.text, next.text),
+            quoted: self.quoted || next.quoted,
+        }
+    }
+
+    fn unknown() -> Self {
+        Self {
+            text: DYN.to_string(),
+            quoted: false,
+        }
+    }
+}
+
+/// Expands `chars` as bash does, after `done`, a start already expanded,
+/// into `out`, up to `MAX_BRACE_WORDS` and the chars `budget` has left:
+/// past the words, the rest are dropped, and past the chars, or at a group
+/// bash may read two ways, a word with a group left is `DYN` — either way,
+/// `unexpanded` set.
+///
+/// Bash's reading: its first group (`brace_group`) splits a word into a
+/// start, the words the group makes, and a rest; each word it makes
+/// follows the start, and the rest is expanded after each, never
+/// the start again.
 fn expand_braces_into(
+    done: &Made,
     chars: &[char],
-    bare: &[bool],
-    out: &mut Vec<String>,
+    src: &[Src],
+    out: &mut Vec<Made>,
     budget: &mut usize,
     unexpanded: &mut bool,
 ) {
@@ -197,64 +296,210 @@ fn expand_braces_into(
         *unexpanded = true;
         return;
     }
-    let within = *budget >= chars.len();
+    let cost = done.text.len() + chars.len();
+    let within = *budget >= cost;
     if within {
-        *budget -= chars.len();
+        *budget -= cost;
     }
-    let Some((open, commas, close)) = brace_group(chars, bare) else {
-        out.push(chars.iter().collect());
+    let Some(group) = brace_group(chars, src) else {
+        out.push(done.with(chars, src));
         return;
     };
-    // out of budget with a group left: what it expands to can't be known
-    if !within {
-        out.push(DYN.to_string());
-        *unexpanded = true;
-        return;
-    }
-    let mut bounds = vec![open];
-    bounds.extend(commas);
-    bounds.push(close);
-    for pair in bounds.windows(2) {
-        let (start, end) = (pair[0] + 1, pair[1]);
-        let mut c: Vec<char> = chars[..open].to_vec();
-        let mut b: Vec<bool> = bare[..open].to_vec();
-        c.extend_from_slice(&chars[start..end]);
-        b.extend_from_slice(&bare[start..end]);
-        c.extend_from_slice(&chars[close + 1..]);
-        b.extend_from_slice(&bare[close + 1..]);
-        expand_braces_into(&c, &b, out, budget, unexpanded);
+    let makes = if within {
+        group.makes(chars, src)
+    } else {
+        Makes::Unknown
+    };
+    let start = done.with(&chars[..group.open], &src[..group.open]);
+    let (rest, rest_src) = (&chars[group.close + 1..], &src[group.close + 1..]);
+    match makes {
+        Makes::Parts(parts) => {
+            for (from, to) in parts {
+                let mut made = Vec::new();
+                let (part, part_src) = (&chars[from..to], &src[from..to]);
+                expand_braces_into(
+                    &Made::default(),
+                    part,
+                    part_src,
+                    &mut made,
+                    budget,
+                    unexpanded,
+                );
+                for m in &made {
+                    expand_braces_into(&start.and(m), rest, rest_src, out, budget, unexpanded);
+                }
+            }
+        }
+        Makes::Letters(letters) => {
+            // each letter costs the group's text at least: fewer chars
+            // than a comma group's make as many words
+            let charge = letters.len() * (group.close + 1 - group.open);
+            if *budget < charge {
+                out.push(Made::unknown());
+                *unexpanded = true;
+                return;
+            }
+            *budget -= charge;
+            for c in letters {
+                let letter = Made {
+                    text: c.to_string(),
+                    quoted: false,
+                };
+                expand_braces_into(&start.and(&letter), rest, rest_src, out, budget, unexpanded);
+            }
+        }
+        Makes::Itself => {
+            let group_src = &src[group.open..=group.close];
+            let start = start.with(&chars[group.open..=group.close], group_src);
+            expand_braces_into(&start, rest, rest_src, out, budget, unexpanded);
+        }
+        // what it expands to can't be known
+        Makes::Unknown => {
+            out.push(Made::unknown());
+            *unexpanded = true;
+        }
     }
 }
 
-/// The first unquoted brace group with a comma at its own depth: its `{`,
-/// its commas, and its `}`. One pass, pairing braces on a stack; of the
-/// groups with a comma, the leftmost `{` wins, as bash expands them.
-fn brace_group(chars: &[char], bare: &[bool]) -> Option<(usize, Vec<usize>, usize)> {
-    let mut open: Vec<(usize, Vec<usize>)> = Vec::new();
-    let mut first: Option<(usize, Vec<usize>, usize)> = None;
+/// A brace group bash expands: its `{`, the commas at its own depth, and
+/// its `}`.
+#[derive(Debug)]
+struct Group {
+    open: usize,
+    commas: Vec<usize>,
+    close: usize,
+}
+
+/// What a brace group makes of a word.
+#[derive(Debug)]
+enum Makes {
+    /// Each part's expansions, by the part's range of chars.
+    Parts(Vec<(usize, usize)>),
+    /// A letter sequence's letters.
+    Letters(Vec<char>),
+    /// The group itself, braces and all.
+    Itself,
+    /// Something the reading can't know.
+    Unknown,
+}
+
+impl Group {
+    fn makes(&self, chars: &[char], src: &[Src]) -> Makes {
+        let (from, to) = (self.open + 1, self.close);
+        if !self.commas.is_empty() {
+            let mut bounds = vec![self.open];
+            bounds.extend(&self.commas);
+            bounds.push(self.close);
+            return Makes::Parts(bounds.windows(2).map(|p| (p[0] + 1, p[1])).collect());
+        }
+        // a `..` group: with a comma anywhere inside, bash drops its braces
+        // and expands the inside as one part (`{a..{b,c}}` is `a..b a..c`)
+        // — a quote's comma too (unless a backslash in the quote is just
+        // before it, which this reading doesn't keep: unknown), but not an
+        // escaped one
+        let inside = &chars[from..to];
+        let comma = |s: Src| inside.iter().zip(&src[from..to]).any(|p| p == (&',', &s));
+        if comma(Src::Bare) {
+            return Makes::Parts(vec![(from, to)]);
+        }
+        if comma(Src::Quoted) {
+            return Makes::Unknown;
+        }
+        if src[from..to].iter().any(|s| *s != Src::Bare) {
+            return Makes::Itself;
+        }
+        match letter_sequence(inside) {
+            // bash expands `{Z..a}` through `\` and a backtick, which it
+            // then reads as quoting and a substitution
+            Some(letters) if !letters.iter().all(char::is_ascii_alphabetic) => Makes::Unknown,
+            Some(letters) => Makes::Letters(letters),
+            None => Makes::Itself,
+        }
+    }
+}
+
+/// The first group bash expands in `chars`: the leftmost unquoted `{`
+/// whose `}` holds, at its own depth, a comma, or a `..` not just before
+/// the `}`. One pass, pairing braces on a stack.
+fn brace_group(chars: &[char], src: &[Src]) -> Option<Group> {
+    let bare = |i: usize, c: char| chars.get(i) == Some(&c) && src[i] == Src::Bare;
+    // each open `{`, its commas, and whether it holds a `..`
+    let mut open: Vec<(usize, Vec<usize>, bool)> = Vec::new();
+    let mut first: Option<Group> = None;
     for (i, c) in chars.iter().enumerate() {
-        if !bare[i] {
+        if src[i] != Src::Bare {
             continue;
         }
         match c {
-            '{' => open.push((i, Vec::new())),
+            '{' => open.push((i, Vec::new(), false)),
             ',' => {
-                if let Some((_, commas)) = open.last_mut() {
+                if let Some((_, commas, _)) = open.last_mut() {
                     commas.push(i);
                 }
             }
+            '.' if bare(i + 1, '.') && !bare(i + 2, '}') => {
+                if let Some((_, _, dots)) = open.last_mut() {
+                    *dots = true;
+                }
+            }
             '}' => {
-                if let Some((at, commas)) = open.pop()
-                    && !commas.is_empty()
-                    && first.as_ref().is_none_or(|f| at < f.0)
+                if let Some((at, commas, dots)) = open.pop()
+                    && (dots || !commas.is_empty())
+                    && first.as_ref().is_none_or(|f| at < f.open)
                 {
-                    first = Some((at, commas, i));
+                    first = Some(Group {
+                        open: at,
+                        commas,
+                        close: i,
+                    });
                 }
             }
             _ => {}
         }
     }
     first
+}
+
+/// The letters of a sequence, `a..e` or `a..e..2`, as bash makes them:
+/// one ASCII letter at each end, from the first toward the last by the
+/// step (1 when none or 0), the last only when a step lands on it. `None`
+/// for what bash leaves literal, and for a number sequence, left literal
+/// here: its words differ only in digits and a sign, which spell no
+/// command, git subcommand, or option the hook reads, and expanding one
+/// would put an ordinary loop (`for i in {1..1000}`) past the word cap.
+fn letter_sequence(inside: &[char]) -> Option<Vec<char>> {
+    let text: String = inside.iter().collect();
+    let (first, rest) = text.split_once("..")?;
+    let mut first = first.chars();
+    let a = first.next().filter(char::is_ascii_alphabetic)?;
+    let mut rest = rest.chars();
+    let b = rest.next().filter(char::is_ascii_alphabetic)?;
+    if first.next().is_some() {
+        return None;
+    }
+    let step: i64 = match rest.as_str() {
+        "" => 1,
+        // read as `strtoimax` reads it: blanks, a sign, digits
+        more => more
+            .strip_prefix("..")?
+            .trim_start_matches([' ', '\t', '\n', '\x0b', '\x0c', '\r'])
+            .parse()
+            .ok()?,
+    };
+    // bash won't negate the least step toward a later letter
+    if a < b && step == i64::MIN {
+        return None;
+    }
+    let step = usize::try_from(step.unsigned_abs())
+        .unwrap_or(usize::MAX)
+        .max(1);
+    let (a, b) = (u8::try_from(a).ok()?, u8::try_from(b).ok()?);
+    let bytes: Vec<u8> = if a <= b {
+        (a..=b).step_by(step).collect()
+    } else {
+        (b..=a).rev().step_by(step).collect()
+    };
+    Some(bytes.into_iter().map(char::from).collect())
 }
 
 /// What `balanced` reads the inside of: commands, where here-documents
@@ -290,6 +535,17 @@ struct Lexer {
     brace_budget: usize,
     /// A word's groups were left unexpanded (`Script::unexpanded`).
     unexpanded: bool,
+    /// The `(…)` and `{ …; }` groups the cursor is inside.
+    groups: Vec<CommandGroup>,
+}
+
+/// A `(…)` subshell or `{ …; }` group being read.
+#[derive(Debug, Clone, Copy)]
+struct CommandGroup {
+    /// Opened by `(` (else `{`).
+    paren: bool,
+    /// Its stdin is a pipe: every command in it reads that pipe.
+    piped: bool,
 }
 
 /// How deeply quotes, substitutions, and `${…}`s may nest in one text
@@ -310,6 +566,7 @@ impl Lexer {
             nesting: 0,
             brace_budget: MAX_PARSE_BRACE_CHARS,
             unexpanded: false,
+            groups: Vec::new(),
         }
     }
 
@@ -389,9 +646,15 @@ impl Lexer {
                     let body = self.balanced('(', ')', Inside::Arithmetic)?;
                     self.substitutions.push(body);
                 }
-                '(' | ')' => {
+                '(' => {
                     self.pos += 1;
                     self.finish(&mut script, &mut cur, false);
+                    self.open_group(&cur, true);
+                }
+                ')' => {
+                    self.pos += 1;
+                    self.finish(&mut script, &mut cur, false);
+                    self.close_group(true);
                 }
                 '<' | '>' if self.peek_at(1) == Some('(') => {
                     self.pos += 2;
@@ -408,8 +671,16 @@ impl Lexer {
                 }
                 _ => {
                     let w = self.word()?;
-                    if w.is_bare("{") || w.is_bare("}") {
+                    let (open, close) = (w.is_bare("{"), w.is_bare("}"));
+                    if open || close {
+                        // a reserved word only where a command starts
+                        let starts = cur.is_empty();
                         self.finish(&mut script, &mut cur, false);
+                        if starts && open {
+                            self.open_group(&cur, false);
+                        } else if starts {
+                            self.close_group(false);
+                        }
                     } else {
                         self.add_word(&mut cur, &w);
                     }
@@ -456,13 +727,32 @@ impl Lexer {
     }
 
     /// Ends the command being read, if it has anything, and records the
-    /// variables it assigns; the next one reads a pipe when `piped`.
+    /// variables it assigns; the next one reads a pipe when `piped`, or
+    /// when this one read one and had nothing (a newline or a group after
+    /// the `|`).
     fn finish(&mut self, script: &mut Script, cur: &mut SimpleCommand, piped: bool) {
-        if !cur.words.is_empty() || !cur.assigns.is_empty() || cur.redirected {
-            self.record_vars(cur);
-            script.commands.push(std::mem::take(cur));
+        if cur.is_empty() {
+            cur.piped |= piped;
+            return;
         }
+        cur.piped |= self.groups.last().is_some_and(|g| g.piped);
+        self.record_vars(cur);
+        script.commands.push(std::mem::take(cur));
         cur.piped = piped;
+    }
+
+    /// Opens a group at the command `cur` starts: piped when `cur` reads a
+    /// pipe or the group it's in does.
+    fn open_group(&mut self, cur: &SimpleCommand, paren: bool) {
+        let piped = cur.piped || self.groups.last().is_some_and(|g| g.piped);
+        self.groups.push(CommandGroup { paren, piped });
+    }
+
+    /// Closes the innermost group, when a `)` (`paren`) or `}` closes it.
+    fn close_group(&mut self, paren: bool) {
+        if self.groups.last().is_some_and(|g| g.paren == paren) {
+            self.groups.pop();
+        }
     }
 
     fn record_vars(&mut self, cur: &SimpleCommand) {
@@ -504,16 +794,20 @@ impl Lexer {
         if self.peek().is_none_or(|c| " \t\n;&|()<>".contains(c)) {
             return Ok(());
         }
+        if matches!(op, "<<" | "<<-") {
+            let (delimiter, quoted) = self.delimiter()?;
+            self.heredocs.push(Heredoc {
+                delimiter,
+                strip_tabs: op == "<<-",
+                expand: !quoted,
+                command: script.commands.len(),
+            });
+            return Ok(());
+        }
         let target = self.word()?;
         match op {
             "<<<" => cur.stdin.push(target.text()),
             ">" | ">>" | ">|" | "&>" | "&>>" => cur.writes.push(target.text()),
-            "<<" | "<<-" => self.heredocs.push(Heredoc {
-                delimiter: target.text(),
-                strip_tabs: op == "<<-",
-                expand: target.bare.iter().all(|b| *b),
-                command: script.commands.len(),
-            }),
             _ => {}
         }
         Ok(())
@@ -574,6 +868,7 @@ impl Lexer {
                 ' ' | '\t' | '\n' | ';' | '&' | '|' | '(' | ')' | '<' | '>' => break,
                 '\'' => {
                     self.pos += 1;
+                    w.mark();
                     loop {
                         match self.next().ok_or(Unreadable)? {
                             '\'' => break,
@@ -583,13 +878,14 @@ impl Lexer {
                 }
                 '"' => {
                     self.pos += 1;
+                    w.mark();
                     self.double_quoted(&mut w, Some('"'))?;
                 }
                 '\\' => {
                     self.pos += 1;
                     match self.next() {
                         Some('\n') => {}
-                        Some(c) => w.push(c, false),
+                        Some(c) => w.push_escaped(c),
                         None => w.push('\\', false),
                     }
                 }
@@ -669,10 +965,12 @@ impl Lexer {
             }
             Some('\'') if !quoted => {
                 self.pos += 1;
+                w.mark();
                 self.ansi_c(w)?;
             }
             Some('"') if !quoted => {
                 self.pos += 1;
+                w.mark();
                 self.double_quoted(w, Some('"'))?;
             }
             Some(c) if c == '_' || c.is_ascii_alphabetic() => {
@@ -864,9 +1162,9 @@ impl Lexer {
                         Some('<') => self.pos += 1,
                         Some('-') => {
                             self.pos += 1;
-                            heredocs.push((self.delimiter(), true));
+                            heredocs.push((self.delimiter()?.0, true));
                         }
-                        _ => heredocs.push((self.delimiter(), false)),
+                        _ => heredocs.push((self.delimiter()?.0, false)),
                     }
                 }
                 '\n' => {
@@ -886,36 +1184,110 @@ impl Lexer {
         }
     }
 
-    /// A here-document's delimiter word at the cursor, past blanks, its
-    /// quoting removed.
-    fn delimiter(&mut self) -> String {
+    /// A here-document's delimiter word at the cursor, past blanks, as bash
+    /// reads it: a word as any other is (substitutions and `${…}` its
+    /// units), nothing in it expanded, and whether a quote or backslash
+    /// outside those units quotes it — then the body isn't expanded, and
+    /// its text is the word with quotes removed, inside the units too
+    /// (`<<"$(a "b")"` ends at `$(a b)`); unquoted, it's the word as
+    /// written (`<<$x` ends at a `$x` line).
+    fn delimiter(&mut self) -> Read<(String, bool)> {
         while matches!(self.peek(), Some(' ' | '\t')) {
             self.pos += 1;
         }
-        let mut delimiter = String::new();
+        let start = self.pos;
+        let mut quoted = false;
         while let Some(c) = self.peek() {
+            self.pos += 1;
             match c {
-                ' ' | '\t' | '\n' | ';' | '&' | '|' | '(' | ')' | '<' | '>' => break,
-                '\'' | '"' => {
-                    self.pos += 1;
-                    while let Some(q) = self.next() {
-                        if q == c {
-                            break;
-                        }
-                        delimiter.push(q);
-                    }
+                ' ' | '\t' | '\n' | ';' | '&' | '|' | '(' | ')' | '<' | '>' => {
+                    self.pos -= 1;
+                    break;
+                }
+                '\'' => {
+                    quoted = true;
+                    while self.next().ok_or(Unreadable)? != '\'' {}
+                }
+                '"' => {
+                    quoted = true;
+                    self.skip_double_quoted()?;
                 }
                 '\\' => {
-                    self.pos += 1;
-                    delimiter.extend(self.next());
+                    quoted = true;
+                    self.next();
                 }
-                c => {
-                    self.pos += 1;
-                    delimiter.push(c);
-                }
+                '`' => self.skip_backtick()?,
+                '$' => match self.peek() {
+                    Some('\'') => {
+                        quoted = true;
+                        self.pos += 1;
+                        self.ansi_c(&mut Word::default())?;
+                    }
+                    Some('"') => {
+                        quoted = true;
+                        self.pos += 1;
+                        self.skip_double_quoted()?;
+                    }
+                    Some('(') => {
+                        self.pos += 1;
+                        self.balanced_parens()?;
+                    }
+                    Some('{') => {
+                        self.pos += 1;
+                        self.balanced_braces()?;
+                    }
+                    Some('[') => {
+                        self.pos += 1;
+                        self.balanced_brackets()?;
+                    }
+                    _ => {}
+                },
+                _ => {}
             }
         }
-        delimiter
+        let word: String = self.chars[start..self.pos].iter().collect();
+        if !quoted {
+            return Ok((word, false));
+        }
+        Ok((Self::new(&word, HashMap::new()).quotes_removed()?, true))
+    }
+
+    /// The text with its quotes removed, as bash removes a quoted
+    /// here-document delimiter's: char by char, never reading
+    /// substitutions as units, `$'…'` decoded.
+    fn quotes_removed(mut self) -> Read<String> {
+        let mut text = String::new();
+        let mut in_double = false;
+        while let Some(c) = self.next() {
+            match c {
+                '\\' => match self.next() {
+                    None => text.push('\\'),
+                    Some(e) => {
+                        if in_double && !matches!(e, '$' | '`' | '"' | '\\' | '\n') {
+                            text.push('\\');
+                        }
+                        text.push(e);
+                    }
+                },
+                '\'' if !in_double => loop {
+                    match self.next() {
+                        Some('\'') | None => break,
+                        Some(q) => text.push(q),
+                    }
+                },
+                '"' => in_double = !in_double,
+                '$' if !in_double && self.peek() == Some('\'') => {
+                    self.pos += 1;
+                    let mut w = Word::default();
+                    self.ansi_c(&mut w)?;
+                    text.push_str(&w.text());
+                }
+                // `$"…"` is `"…"`
+                '$' if !in_double && self.peek() == Some('"') => {}
+                c => text.push(c),
+            }
+        }
+        Ok(text)
     }
 
     /// Passes a here-document's body, the cursor at its first line: up to
@@ -1098,6 +1470,119 @@ mod tests {
         let at_cap = parse(&"{a,b}".repeat(8)).unwrap();
         assert_eq!(at_cap.commands[0].words.len(), MAX_BRACE_WORDS);
         assert!(!at_cap.unexpanded);
+        // bash's first group wins, and what it leaves before it is never
+        // read again: `{x..c}` here isn't a sequence
+        assert_eq!(one("{x.{.,y}c}"), ["{x..c}", "{x.yc}"]);
+        assert_eq!(one("{{a..c},x}"), ["a", "b", "c", "x"]);
+        assert_eq!(one("{a..c}{1,2}"), ["a1", "a2", "b1", "b2", "c1", "c2"]);
+        assert_eq!(one("{a..b}{c..d}"), ["ac", "ad", "bc", "bd"]);
+        assert_eq!(one("{a..c}} {{a..c}"), ["a}", "b}", "c}", "{a", "{b", "{c"]);
+        // a `..` group that's no sequence stays whole, braces and all, and
+        // the rest of the word is still expanded
+        assert_eq!(one("{a..zz}{x,y}"), ["{a..zz}x", "{a..zz}y"]);
+        assert_eq!(one("{x..{a..b}}"), ["{x..{a..b}}"]);
+        assert_eq!(one("{{a..a}..c}"), ["{{a..a}..c}"]);
+        // with a comma anywhere inside, bash drops a `..` group's braces
+        assert_eq!(
+            one("{a..c{x,y}} {a..{b,c}}"),
+            ["a..cx", "a..cy", "a..b", "a..c"]
+        );
+        assert_eq!(one("{a..c,d}"), ["a..c", "d"]);
+        // a `..` just before the `}` makes no group
+        assert_eq!(
+            one("{{a,b}..} {{a,b}...}"),
+            ["{a..}", "{b..}", "a...", "b..."]
+        );
+        // a quoted comma there counts, an escaped one doesn't; one a
+        // backslash in its quote may escape is unknown
+        assert!(parse("echo {a..c','}").unwrap().unexpanded);
+        assert!(parse("echo {a..c'\\,'}").unwrap().unexpanded);
+        assert_eq!(one("{a..c\\,}"), ["{a..c,}"]);
+        assert_eq!(one("{a..\\\\,c}"), ["a..\\", "c"]);
+    }
+
+    #[test]
+    fn letter_sequences() {
+        assert_eq!(one("git pus{h..h}"), ["git", "push"]);
+        assert_eq!(one("{g..g}it gi{t..t}"), ["git", "git"]);
+        assert_eq!(one("{a..e}"), ["a", "b", "c", "d", "e"]);
+        assert_eq!(one("{e..a}"), ["e", "d", "c", "b", "a"]);
+        assert_eq!(one("{a..z..5}"), ["a", "f", "k", "p", "u", "z"]);
+        assert_eq!(one("{a..e..3} {z..a..12}"), ["a", "d", "z", "n", "b"]);
+        // the step's sign never turns it around; 0 is 1; strtoimax's
+        // blanks and `+` and leading zeros
+        assert_eq!(one("{a..e..-2} {e..a..2}"), ["a", "c", "e", "e", "c", "a"]);
+        assert_eq!(one("{a..c..0} {a..c..-0}"), ["a", "b", "c", "a", "b", "c"]);
+        assert_eq!(
+            one("{a..e..+2} {a..e..02} {a..e..\r2}"),
+            ["a", "c", "e"].repeat(3)
+        );
+        assert_eq!(one("{a..e..9223372036854775807}"), ["a"]);
+        assert_eq!(one("{e..a..-9223372036854775808}"), ["e"]);
+        // what bash leaves literal
+        for literal in [
+            "{a..zz}",
+            "{ab..c}",
+            "{a..}",
+            "{..a}",
+            "{a...c}",
+            "{-a..c}",
+            "{a..1}",
+            "{1..a}",
+            "{a..e.}",
+            "{a..e..}",
+            "{a..e..x}",
+            "{a..e..2x}",
+            "{a..e..2.}",
+            "{a..e..+-2}",
+            "{a..c..2..3}",
+            "{a..e..9223372036854775808}",
+            "{a..e..-9223372036854775808}",
+            "{\u{e9}..f}",
+        ] {
+            assert_eq!(one(literal), [literal], "{literal}");
+        }
+        // quoting anywhere inside leaves it literal, as bash reads the
+        // quotes in the raw text
+        assert_eq!(
+            one("{a..'e'} {a..\\e} {a.''.c} {a..c\"\"}"),
+            ["{a..e}", "{a..e}", "{a..c}", "{a..c}"]
+        );
+        // numbers stay literal
+        assert_eq!(
+            one("{1..3} {-1..2} x{a..b}{1..2}"),
+            ["{1..3}", "{-1..2}", "xa{1..2}", "xb{1..2}"]
+        );
+        // through `[` `\` `]` `^` `_` and a backtick, bash's words are
+        // quoting and substitutions: unknown
+        for s in ["{Z..a}", "{a..Z}", "{Y..b..2}", "{A..z..10}"] {
+            let script = parse(s).unwrap();
+            assert!(script.unexpanded, "{s}");
+            assert_eq!(script.commands[0].words, ["\0"], "{s}");
+        }
+        assert!(!parse("{A..Z}{a..z..4}").unwrap().unexpanded);
+        // the word cap counts a sequence's words
+        assert_eq!(one("{a..p}{a..p}").len(), MAX_BRACE_WORDS);
+        assert!(!parse("{a..p}{a..p}").unwrap().unexpanded);
+        assert!(parse("{a..z}{a..z}").unwrap().unexpanded);
+        // each letter costs the group's text against the text's budget
+        let letters = |n: usize| parse(&"{a..z} ".repeat(n)).unwrap().unexpanded;
+        let words = MAX_PARSE_BRACE_CHARS / (26 * "{a..z}".len());
+        assert!(!letters(words * 4 / 5));
+        assert!(letters(words + 1));
+    }
+
+    #[test]
+    fn a_word_that_expands_to_nothing_is_dropped() {
+        assert_eq!(one("{git,} push"), ["git", "push"]);
+        assert_eq!(one("a {,} b"), ["a", "b"]);
+        assert_eq!(argvs("x=; git $x push ${x}")[1], ["git", "push"]);
+        // unless a quote opened in it
+        assert_eq!(one("'' \"\" $'' $\"\""), ["", "", "", ""]);
+        assert_eq!(one("\"\"{,} {\"\",}"), ["", "", ""]);
+        assert_eq!(argvs("x=; \"$x\" \"${x}\"")[1], ["", ""]);
+        // a quote before an `=` makes no assignment
+        assert_eq!(argvs("a''=b"), [vec!["a=b"]]);
     }
 
     #[test]
@@ -1109,6 +1594,76 @@ mod tests {
     }
 
     #[test]
+    fn a_pipe_reaches_past_newlines_and_into_groups() {
+        let piped = |text: &str| -> Vec<bool> {
+            parse(text)
+                .unwrap()
+                .commands
+                .iter()
+                .map(|c| c.piped)
+                .collect()
+        };
+        assert_eq!(piped("a |\nb"), [false, true]);
+        assert_eq!(piped("a | # c\nb"), [false, true]);
+        assert_eq!(piped("a | (b)"), [false, true]);
+        assert_eq!(piped("a | { b; }"), [false, true]);
+        assert_eq!(piped("a | (b) | c"), [false, true, true]);
+        // every command in a piped group reads the pipe
+        assert_eq!(piped("a | { b; c; }"), [false, true, true]);
+        assert_eq!(piped("a | (b; (c; d))"), [false, true, true, true]);
+        assert_eq!(piped("a | { echo }; c; }"), [false, true, true]);
+        // a `)` closes no `{` (a `case` pattern's)
+        assert_eq!(
+            piped("a | { case x in y) b;; esac; c; }"),
+            [false, true, true, true, true]
+        );
+        // and none after it
+        assert_eq!(piped("a | { b; }; c"), [false, true, false]);
+        assert_eq!(piped("a | (b); c"), [false, true, false]);
+        assert_eq!(piped("a; (b); { c; }"), [false, false, false]);
+        assert_eq!(piped("a | b\nc"), [false, true, false]);
+    }
+
+    #[test]
+    fn here_document_delimiters_are_never_expanded() {
+        // unquoted: the delimiter as written, the body expanded
+        let s = parse("cat <<$x\n$(y)\n$x\nz").unwrap();
+        assert_eq!(s.commands[0].stdin, ["\0\n"]);
+        assert_eq!(s.substitutions, ["y"]);
+        assert_eq!(s.commands[1].words, ["z"]);
+        let s = parse("cat <<$(x)\nhi\n$\n$(x)\nz").unwrap();
+        assert_eq!(s.commands[0].stdin, ["hi\n$\n"]);
+        assert!(s.substitutions.is_empty());
+        assert_eq!(s.commands[1].words, ["z"]);
+        for (text, delimiter) in [("${y}z", "${y}z"), ("`q`", "`q`"), ("$(x 'y')", "$(x 'y')")] {
+            let s = parse(&format!("cat <<{delimiter}\nb\n{delimiter}\nz")).unwrap();
+            assert_eq!(s.commands[0].stdin, ["b\n"], "{text}");
+            assert_eq!(s.commands[1].words, ["z"], "{text}");
+        }
+        // quoted anywhere outside its substitutions: quotes removed, even
+        // inside them, and the body as it is
+        let s = parse("x=Q; cat <<\"$x\"\n$x\nz\nQ").unwrap();
+        // the body ends at the `$x` line, as bash ends it
+        assert_eq!(s.commands[1].stdin, [""]);
+        assert_eq!(s.commands[2].words, ["z"]);
+        assert_eq!(s.commands[3].words, ["Q"]);
+        for (quoted, delimiter) in [
+            ("a\\b", "ab"),
+            ("\"a\\$b\"", "a$b"),
+            ("\"a\\zb\"", "a\\zb"),
+            ("'a'\"b\"c", "abc"),
+            ("$'a\\x41'", "aA"),
+            ("$\"Q\"", "Q"),
+            ("\"$(x \"y\")\"", "$(x y)"),
+        ] {
+            let s = parse(&format!("cat <<{quoted}\n$(q)\n{delimiter}\nz")).unwrap();
+            assert_eq!(s.commands[0].stdin, ["$(q)\n"], "{quoted}");
+            assert!(s.substitutions.is_empty(), "{quoted}");
+            assert_eq!(s.commands[1].words, ["z"], "{quoted}");
+        }
+    }
+
+    #[test]
     fn here_documents_and_strings_are_stdin() {
         let s = parse("bash <<'EOF' | cat\ngit $x\nEOF\nnext").unwrap();
         assert_eq!(s.commands[0].stdin, ["git $x\n"]);
@@ -1116,6 +1671,10 @@ mod tests {
         let s = parse("g=git; bash <<EOF\n$g push $(y)\nEOF").unwrap();
         assert_eq!(s.commands[1].stdin, ["git push \0\n"]);
         assert_eq!(s.substitutions, ["y"]);
+        // a delimiter quoted anywhere, even by an empty quote, is quoted
+        let s = parse("cat <<''X\n$(y)\nX").unwrap();
+        assert_eq!(s.commands[0].stdin, ["$(y)\n"]);
+        assert!(s.substitutions.is_empty());
         let s = parse("cat <<-X\n\tbody\n\tX").unwrap();
         assert_eq!(s.commands[0].stdin, ["body\n"]);
         // unterminated: the rest of the text
