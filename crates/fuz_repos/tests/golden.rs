@@ -987,6 +987,7 @@ fn primary(dir: &str, head: Head) -> Checkout {
         linked: false,
         submodules: None,
         busy: vec![],
+        working: vec![],
     }
 }
 
@@ -1074,6 +1075,7 @@ fn app() -> EntryStatus {
         linked: true,
         submodules: None,
         busy: vec![],
+        working: vec![],
     });
     e.checkouts.push(Checkout {
         path: path("app/.claude/worktrees/agent"),
@@ -1089,6 +1091,7 @@ fn app() -> EntryStatus {
             process_cwd: Some(path("app/.claude/worktrees/agent/src")),
             ..Session::at(4242, 0, WORKSPACE.into(), SessionSource::SessionFile)
         }],
+        working: vec![],
     });
     e.checkouts.push(Checkout {
         path: "/home/me/wt/app-old".into(),
@@ -1100,6 +1103,7 @@ fn app() -> EntryStatus {
         linked: true,
         submodules: Some(false),
         busy: vec![],
+        working: vec![],
     });
     e.checkouts.push(Checkout {
         path: path("app-fix"),
@@ -1118,6 +1122,7 @@ fn app() -> EntryStatus {
         linked: true,
         submodules: Some(true),
         busy: vec![],
+        working: vec![],
     });
     e.branches = vec![
         BranchStatus {
@@ -1765,6 +1770,7 @@ fn gro() -> EntryStatus {
         linked: true,
         submodules: None,
         busy: vec![],
+        working: vec![],
     });
     e.branches = vec![BranchStatus {
         worktree: Some(path("gro")),

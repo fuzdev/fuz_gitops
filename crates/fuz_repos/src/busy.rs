@@ -56,7 +56,10 @@
 //! (resolved, by path component) — those paths exactly: never a subdir's,
 //! which Claude Code doesn't use, nor a linked worktree's own. A session
 //! in a `--separate-git-dir` primary holds the git dir's too, which Claude
-//! Code roots only its linked worktrees' sessions at.
+//! Code roots only its linked worktrees' sessions at. Those checkouts are
+//! busy with it for the holds, but it doesn't work in them itself, so they
+//! aren't in its entry's `working`: a subagent's worktree there is known
+//! as its own by the lock Claude Code puts on it (below).
 //!
 //! **Attribution** (`attributed`): a checkout's files needn't be at its
 //! path. A worktree moved with a plain `mv` (git lists it prunable at the
@@ -206,6 +209,14 @@ pub struct EntrySessions {
     /// By checkout path, as the probe's facts spell it: the primary's,
     /// each probed worktree's, each unprobed one's.
     pub busy: BTreeMap<String, Vec<Session>>,
+    /// The sessions `busy` holds that work in the checkout itself, keyed
+    /// like it: placed there by a place of theirs (its path, or the git dir
+    /// found from it) or by the lock Claude Code wrote naming them — `busy`
+    /// less what the agent-worktrees rule alone adds (a session elsewhere
+    /// in the repo, for the subagent worktrees it may have under
+    /// `.claude/worktrees/`). What a checkout's own session is told
+    /// (`status --brief`); holds go by `busy`.
+    pub working: BTreeMap<String, Vec<Session>>,
     /// Its checkouts whose paths couldn't be resolved, however detection
     /// went, keyed like `busy`.
     pub unresolved: BTreeMap<String, UnresolvedCheckout>,
@@ -230,6 +241,7 @@ impl EntrySessions {
         Self {
             detection,
             busy: BTreeMap::new(),
+            working: BTreeMap::new(),
             unresolved: BTreeMap::new(),
             unlisted: BTreeMap::new(),
         }
@@ -238,6 +250,11 @@ impl EntrySessions {
     /// The sessions in the checkout at `path`.
     pub fn at(&self, path: &str) -> &[Session] {
         self.busy.get(path).map_or(&[], Vec::as_slice)
+    }
+
+    /// The sessions working in the checkout at `path` itself (`working`).
+    pub fn working_at(&self, path: &str) -> &[Session] {
+        self.working.get(path).map_or(&[], Vec::as_slice)
     }
 
     /// Whether the checkout at `path` couldn't be resolved, so it may be
@@ -632,13 +649,6 @@ fn scope_known(
         roots.extend(at.iter().filter_map(|&(e, _)| known.roots[e].clone()));
         roots.sort_unstable();
         roots.dedup();
-        for root in &roots {
-            at.extend(
-                nested_worktrees(root, reals())
-                    .into_iter()
-                    .map(|i| (candidates[i].entry, candidates[i].checkout)),
-            );
-        }
         // the checkouts Claude Code locked for it, wherever they are
         at.extend(
             locks
@@ -646,6 +656,18 @@ fn scope_known(
                 .filter(|l| l.lock.names(session))
                 .map(|l| (l.entry, l.checkout)),
         );
+        // where it works itself; the roots' agent worktrees are busy
+        // besides, for subagents it may have there
+        let mut working = at.clone();
+        working.sort_unstable();
+        working.dedup();
+        for root in &roots {
+            at.extend(
+                nested_worktrees(root, reals())
+                    .into_iter()
+                    .map(|i| (candidates[i].entry, candidates[i].checkout)),
+            );
+        }
         at.sort_unstable();
         at.dedup();
         if at.is_empty() && !placed {
@@ -654,6 +676,13 @@ fn scope_known(
         for (e, checkout) in at {
             per_entry[e]
                 .busy
+                .entry(checkout.to_owned())
+                .or_default()
+                .push(session.clone());
+        }
+        for (e, checkout) in working {
+            per_entry[e]
+                .working
                 .entry(checkout.to_owned())
                 .or_default()
                 .push(session.clone());
@@ -1131,5 +1160,43 @@ mod tests {
             busy(&per_entry[1]),
             [("/nonexistent-ws/lib".to_owned(), vec![2])]
         );
+    }
+
+    #[test]
+    fn working_is_busy_less_the_agent_worktrees_a_session_elsewhere_holds() {
+        let s =
+            |pid, start, cwd: &str| Session::at(pid, start, cwd.into(), SessionSource::SessionFile);
+        let app = "/nonexistent-ws/app";
+        let wt1 = "/nonexistent-ws/app/.claude/worktrees/wt1";
+        let wt2 = "/nonexistent-ws/app/.claude/worktrees/wt2";
+        let live = LiveSessions::Known(vec![
+            // in the primary
+            s(1, 10, app),
+            // in one agent worktree
+            s(2, 20, &format!("{wt1}/src")),
+            // at the root, with the other agent worktree locked for it
+            s(3, 30, "/nonexistent-ws"),
+        ]);
+        let checkouts = vec![EntryCheckouts {
+            paths: vec![app.to_owned(), wt1.to_owned(), wt2.to_owned()],
+            common_dir: Some(PathBuf::from(format!("{app}/.git"))),
+            locks: vec![(
+                wt2.to_owned(),
+                "claude agent wt2 (pid 3 start 30)".to_owned(),
+            )],
+            ..EntryCheckouts::default()
+        }];
+        let (report, per_entry) = scope_sessions(&live, &checkouts);
+        assert_eq!(report, Sessions::Available { unscoped: vec![] });
+        let pids = |sessions: &[Session]| sessions.iter().map(|s| s.pid).collect::<Vec<_>>();
+        let e = &per_entry[0];
+        // busy: every session in the repo holds both agent worktrees
+        assert_eq!(pids(e.at(app)), [1]);
+        assert_eq!(pids(e.at(wt1)), [1, 2]);
+        assert_eq!(pids(e.at(wt2)), [1, 2, 3]);
+        // working: each where it is, or where its lock is
+        assert_eq!(pids(e.working_at(app)), [1]);
+        assert_eq!(pids(e.working_at(wt1)), [2]);
+        assert_eq!(pids(e.working_at(wt2)), [3]);
     }
 }

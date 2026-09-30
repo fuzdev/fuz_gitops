@@ -50,6 +50,14 @@ pub struct Checkout {
     /// is unavailable, which the report's `sessions` says. A busy checkout
     /// holds every action on its branch, pushes included.
     pub busy: Vec<Session>,
+    /// Those of `busy` working in it themselves: placed by a place of
+    /// theirs or by their lock, not by `.claude/worktrees/` alone — the
+    /// agent worktrees a session elsewhere in the repo may have subagents
+    /// in, which Claude Code locks for them (`EntrySessions::working`).
+    /// What `status --brief` tells the checkout's own session; not in the
+    /// report.
+    #[serde(skip)]
+    pub working: Vec<Session>,
 }
 
 /// A worktree that couldn't be probed as a checkout.

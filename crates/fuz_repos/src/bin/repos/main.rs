@@ -22,6 +22,14 @@
 //! The text summary wraps at `COLUMNS` (100 when unset or under 40), piped
 //! or not, and colors its group labels only when stdout is a terminal and
 //! `NO_COLOR` is unset or empty.
+//!
+//! `status --brief [<path>]` is the `SessionStart` nudge: at most one plain
+//! line on the checkout holding the path (default: the cwd), from local
+//! refs, probing that entry alone. It never fails its hook — every runtime
+//! condition (no registry, the path in no entry, git missing, a failed
+//! probe) exits `0` in silence — and only a flag it can't take, or a
+//! second path, is a usage error (exit `2`, plain text on stderr, as
+//! argh's own are).
 
 mod render;
 
@@ -34,7 +42,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use argh::{EarlyExit, FromArgs};
 use fuz_repos::classify::Refresh;
 use fuz_repos::clone::CLONE_TIMEOUT;
-use fuz_repos::discover::{RegistryLocation, find_registry, resolve_targets};
+use fuz_repos::discover::{RegistryLocation, find_registry, resolve_checkout, resolve_targets};
 use fuz_repos::error::{Error, Result};
 use fuz_repos::git::Git;
 use fuz_repos::probe::RegistryDirs;
@@ -42,13 +50,13 @@ use fuz_repos::registry::{Entry, ValidRegistry};
 use fuz_repos::report::{ErrorReport, StatusReport, SyncReport};
 use fuz_repos::scan::{Scan, scan_unregistered};
 use fuz_repos::sessions::{Caller, SessionsSource, read_live_sessions};
-use fuz_repos::status::{EntryTiming, StatusOptions, mark_moved_worktrees, status};
+use fuz_repos::status::{EntryTiming, StatusOptions, StatusRun, mark_moved_worktrees, status};
 use fuz_repos::sync::{SyncOptions, sync};
 use fuz_repos::{STATUS_FORMAT_VERSION, SYNC_FORMAT_VERSION};
 
 use crate::render::{
-    View, render_entry, render_summary, render_sync_summary, render_unregistered, summary_width,
-    use_color,
+    View, render_brief, render_entry, render_summary, render_sync_summary, render_unregistered,
+    summary_width, use_color,
 };
 
 /// The build's identity: the crate version, and the commit the binary was
@@ -113,6 +121,13 @@ struct StatusArgs {
     /// stderr
     #[argh(switch)]
     timings: bool,
+    /// print at most one line on the checkout holding the one target, a
+    /// path (default: the cwd) — another live session working there, an
+    /// operation in progress, its branch behind or ahead of origin — or
+    /// nothing; for a session-start hook, so it never fails: anything but a
+    /// usage error exits 0 in silence
+    #[argh(switch)]
+    brief: bool,
 }
 
 /// Fetch, then fast-forward each branch behind, move each stale shallow one,
@@ -172,6 +187,12 @@ fn main() -> ExitCode {
             };
         }
     };
+    if let Some(Command::Status(args)) = &cli.command
+        && let Some(message) = brief_conflict(args)
+    {
+        eprintln!("error: {message}");
+        return ExitCode::from(2);
+    }
     // the version of the document `--json` prints, when it's given
     let json = match &cli.command {
         Some(Command::Status(args)) => args.json.then_some(STATUS_FORMAT_VERSION),
@@ -294,6 +315,28 @@ fn load(locate: Locate<'_>, targets: &[String]) -> Result<Loaded> {
         all,
         entries,
     })
+}
+
+/// Why `status --brief` can't run as asked, when it can't: a flag that
+/// changes what it prints, or more than one path. Checked right after
+/// parsing, as argh's own errors are, so `--brief --json` prints no
+/// document: `--brief` has none.
+fn brief_conflict(args: &StatusArgs) -> Option<String> {
+    if !args.brief {
+        return None;
+    }
+    let flag = [
+        (args.json, "--json"),
+        (args.fetch, "--fetch"),
+        (args.verbose, "--verbose"),
+        (args.references, "--references"),
+    ]
+    .into_iter()
+    .find_map(|(given, flag)| given.then_some(flag));
+    if let Some(flag) = flag {
+        return Some(format!("--brief takes no {flag}"));
+    }
+    (args.targets.len() > 1).then(|| "--brief takes one path at most".to_owned())
 }
 
 /// Which references a run refreshes: the named ones — every entry of a run
@@ -457,6 +500,9 @@ fn run_sync(locate: Locate<'_>, args: &SyncArgs) -> Result<Printed> {
 }
 
 fn run_status(locate: Locate<'_>, args: &StatusArgs) -> Result<Printed> {
+    if args.brief {
+        return Ok(run_brief(locate, args));
+    }
     let start = Instant::now();
     let refresh = refresh_asked(&args.targets, args.references)?;
     let loaded = load(locate, &args.targets)?;
@@ -543,6 +589,109 @@ fn run_status(locate: Locate<'_>, args: &StatusArgs) -> Result<Printed> {
         });
     }
     Ok(printed)
+}
+
+/// `status --brief`: its line, or nothing — every error is silence
+/// (`brief`).
+fn run_brief(locate: Locate<'_>, args: &StatusArgs) -> Printed {
+    let start = Instant::now();
+    let path = args.targets.first().map_or(".", String::as_str);
+    let Ok(Some(brief)) = brief(locate, Path::new(path), start) else {
+        return Printed::default();
+    };
+    let mut printed = Printed {
+        stdout: brief.line.unwrap_or_default(),
+        ..Printed::default()
+    };
+    if args.timings {
+        printed.stderr = render_timings(&Timings {
+            load: brief.load,
+            probe: brief.run.elapsed,
+            act: None,
+            scan: None,
+            render: brief.render,
+            total: start.elapsed(),
+            jobs: 1,
+            spawns: brief.spawns,
+            entries: &brief.run.timings,
+        });
+    }
+    printed
+}
+
+/// What `brief` found, and its times.
+struct Brief {
+    /// `None` when there's nothing to say.
+    line: Option<String>,
+    run: StatusRun,
+    load: Duration,
+    render: Duration,
+    spawns: u32,
+}
+
+/// The line on the checkout holding `path` (relative to the cwd); `None`
+/// when `path` is in no entry's checkout, or the one it's in wasn't probed.
+///
+/// The registry is found walking up from `path`, not the cwd — a hook's
+/// cwd needn't be its session's — and `--registry` and `--root` are still
+/// relative to the cwd. Only that entry is probed, from local refs, without
+/// the unregistered scan; the live sessions are read, the caller's
+/// excluded, to find the others working in the checkout.
+fn brief(locate: Locate<'_>, path: &Path, start: Instant) -> Result<Option<Brief>> {
+    let cwd = std::env::current_dir().map_err(|source| Error::Io {
+        context: "failed to read the current directory".into(),
+        source,
+    })?;
+    let path = cwd.join(path);
+    let git = Git::new();
+    git.check_version(&cwd)?;
+    let registry = locate.registry.map(|r| cwd.join(r));
+    let root = locate.root.map(|r| cwd.join(r));
+    let loc = find_registry(&path, registry.as_deref(), root.as_deref(), &git)?;
+    let all = ValidRegistry::load(&loc.path)?.entries();
+    let Some(target) = resolve_checkout(&all, &loc.root, &path, &git)? else {
+        return Ok(None);
+    };
+    let load = start.elapsed();
+
+    let live = read_live_sessions(&SessionsSource::from_env());
+    let run = status(
+        std::slice::from_ref(&target.entry),
+        &RegistryDirs::new(&loc.root, &all),
+        &loc.root,
+        &git,
+        StatusOptions {
+            fetch: false,
+            // a reference stays as a run that doesn't ask about it sees it
+            refresh: Refresh::Unasked,
+            unregistered: None,
+            jobs: 1,
+            visibility_base: None,
+            live: &live,
+            caller: Caller::from_env(),
+        },
+    );
+    let render_start = Instant::now();
+    let Some(entry) = run.entries.first() else {
+        return Ok(None);
+    };
+    let Some(checkout) = entry.checkout_at(&target.checkout) else {
+        return Ok(None);
+    };
+    let home = std::env::var("HOME").ok();
+    // one plain line, whatever the terminal
+    let view = View {
+        color: false,
+        ..view(home.as_deref(), false)
+    };
+    let line = render_brief(entry, checkout, view);
+    Ok(Some(Brief {
+        line,
+        load,
+        render: render_start.elapsed(),
+        spawns: git.spawns(),
+        run,
+    }))
 }
 
 /// Writes to stdout, treating a closed pipe (`repos status | head`) as done.

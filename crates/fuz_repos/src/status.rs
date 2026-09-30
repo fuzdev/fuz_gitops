@@ -398,6 +398,7 @@ pub fn entry_status(
             status.stashes = facts.status.stashes;
             status.fetched_at = facts.fetched_at;
             let primary_busy = sessions.at(&facts.path).to_vec();
+            let primary_working = sessions.working_at(&facts.path).to_vec();
             status.checkouts.push(Checkout {
                 path: facts.path,
                 primary: true,
@@ -409,11 +410,13 @@ pub fn entry_status(
                 // never removed: not checked
                 submodules: None,
                 busy: primary_busy,
+                working: primary_working,
             });
             status
                 .checkouts
                 .extend(facts.worktrees.into_iter().map(|mut c| {
                     c.busy = sessions.at(&c.path).to_vec();
+                    c.working = sessions.working_at(&c.path).to_vec();
                     c
                 }));
             status.unprobed_worktrees = classified.unprobed;

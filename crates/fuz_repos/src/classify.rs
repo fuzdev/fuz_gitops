@@ -1478,6 +1478,7 @@ mod tests {
             linked: true,
             submodules: Some(false),
             busy: Vec::new(),
+            working: Vec::new(),
         }
     }
 

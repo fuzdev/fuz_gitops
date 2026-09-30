@@ -537,6 +537,7 @@ COLUMNS=80 repos status      # text wraps at COLUMNS (else 100); color only on a
 repos status --fetch         # fetch owned entries (and references asked for) from origin first (writes remote-tracking refs), and check private repos
 repos status --references    # preview refreshing every third-party reference, as sync --references would (no targets with it)
 repos status --jobs 4 --timings # parallelism (default 16), and per-phase timings on stderr
+repos status --brief [<path>] # one line on the checkout holding the path (default: the cwd), or nothing — a SessionStart hook's nudge
 repos sync                   # fetch as status --fetch does, then fast-forward, move, push, and clone what's safe; report outcomes
 repos sync gro --json        # narrowed to targets; --json prints the versioned outcome report
 repos sync typescript prettier # a named third-party reference is refreshed: fetched over HTTPS, then ff'd or moved where clean
@@ -573,6 +574,28 @@ and reads as never fetched, clone or not. In the default view each entry's
 `uncommitted` item totals its primary checkout's dirt, then names its one
 other dirty worktree, or folds several into a count with their summed
 dirt; `--verbose` lists every dirty checkout with its dirt by kind.
+
+`repos status --brief [<path>]` is the nudge a user-scope `SessionStart`
+hook runs as `repos status --brief "$CLAUDE_PROJECT_DIR"`: its stdout lands
+in the new session's context, so it prints nothing unless the checkout
+holding the path has something that session should know, and one plain line
+otherwise — `repos: <key> — …` naming, in order, the other live sessions
+working in that checkout itself (placed there by where they are or by the
+lock Claude Code put on it for them — not a session elsewhere in the repo,
+which sync still counts busy in the `.claude/worktrees/` checkouts, for the
+subagents it may have there), an operation in progress there, and its branch
+behind or diverged from its origin upstream (with how long ago the repo was
+fetched), then ahead of it (unpushed). Behind and ahead are said only for an
+owned entry that isn't pinned, and dirt never (the session sees its own
+working tree). It probes that entry alone, from local refs — no fetch, no
+unregistered scan, nothing written — and finds the registry walking up from
+the path rather than the cwd. The caller is excluded from the sessions as
+anywhere (`CLAUDE_PID`, which Claude Code sets for its hooks too), and with
+busy detection unavailable it says nothing of sessions. It never fails its
+hook: no registry, a path in no entry (the workspace root, an unregistered
+clone, outside the workspace), git missing, or a failed probe all exit `0`
+in silence; only a flag it can't take (`--json`, `--fetch`, `--verbose`,
+`--references`) or a second path is a usage error, exit `2`.
 
 Under `--fetch`, each failed fetch gets a kind (`ref_gone`, `unreachable`,
 `repo_not_found`, `timed_out`, …, else `failed` with git's line), and each

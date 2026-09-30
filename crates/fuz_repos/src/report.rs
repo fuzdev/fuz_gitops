@@ -1,9 +1,11 @@
 //! The `--json` documents — `repos status`'s report, `repos sync`'s, and a
 //! fatal error's — and what the text renderer reads.
 
+use std::path::Path;
+
 use serde::Serialize;
 
-use crate::busy::Sessions;
+use crate::busy::{Sessions, same_path};
 use crate::classify::NeedsHuman;
 use crate::error::{Error, ErrorKind};
 use crate::registry::{EntryKind, Visibility};
@@ -255,6 +257,14 @@ pub struct EntryStatus {
 }
 
 impl EntryStatus {
+    /// The probed checkout at `path`, compared as the kernel resolves both
+    /// (`busy::same_path`); `None` when none of them is.
+    pub fn checkout_at(&self, path: &Path) -> Option<&Checkout> {
+        self.checkouts
+            .iter()
+            .find(|c| same_path(Path::new(&c.path), path))
+    }
+
     /// Whether the probe failed on a partial clone (its layout, read before
     /// any call that needs objects, carries a filter): a call may have
     /// needed an object the clone lacks, and the probe never fetches one on

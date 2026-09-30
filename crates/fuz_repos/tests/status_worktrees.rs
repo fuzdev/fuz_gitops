@@ -98,6 +98,7 @@ fn a_clean_linked_worktree_leaves_its_branch_to_sync() {
             // not on a branch whose upstream is gone: not checked
             submodules: None,
             busy: vec![],
+            working: vec![],
         }
     );
     let feat = branch(&e, "feat");

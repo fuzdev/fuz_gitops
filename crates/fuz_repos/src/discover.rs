@@ -232,26 +232,78 @@ fn edit_distance(a: &str, b: &str) -> usize {
     prev[b.len()]
 }
 
+/// A path resolved down to the checkout holding it (`resolve_checkout`).
+#[derive(Debug, Clone)]
+pub struct PathTarget {
+    /// The entry the path names, as a path target names it.
+    pub entry: Entry,
+    /// The top level of the checkout holding the path, as git finds it
+    /// from there: a linked worktree's own, not the entry's dir.
+    pub checkout: PathBuf,
+}
+
+/// The entry whose checkout holds `path`, and that checkout's top level.
+///
+/// The entry is resolved as a path target's is (`resolve_targets`: through
+/// its git common dir, so a linked worktree outside the workspace resolves
+/// too). `None` when `path` is in no entry's checkout — at the workspace
+/// root, in an unregistered clone, outside the workspace, or where git
+/// finds no work tree (inside a git dir).
+///
+/// # Errors
+///
+/// `GitNotFound` when `path` can't be resolved for lack of git.
+pub fn resolve_checkout(
+    entries: &[Entry],
+    root: &Path,
+    path: &Path,
+    git: &Git,
+) -> Result<Option<PathTarget>> {
+    let Some(out) = rev_parse(path, &["--git-common-dir", "--show-toplevel"], git)? else {
+        return Ok(None);
+    };
+    let mut lines = out.lines();
+    let (Some(common), Some(toplevel)) = (lines.next(), lines.next()) else {
+        return Ok(None);
+    };
+    Ok(
+        entry_of_common_dir(entries, root, Path::new(common)).map(|i| PathTarget {
+            entry: entries[i].clone(),
+            checkout: PathBuf::from(toplevel),
+        }),
+    )
+}
+
 /// The entry whose checkout holds `path`, compared canonicalized.
 fn resolve_path(entries: &[Entry], root: &Path, path: &Path, git: &Git) -> Result<Option<usize>> {
+    Ok(rev_parse(path, &["--git-common-dir"], git)?
+        .and_then(|common| entry_of_common_dir(entries, root, Path::new(common.trim()))))
+}
+
+/// `git rev-parse --path-format=absolute` with `args`, run in `path`: its
+/// stdout, or `None` when `path` doesn't exist or git fails there.
+fn rev_parse(path: &Path, args: &[&str], git: &Git) -> Result<Option<String>> {
     if !path.exists() {
         return Ok(None);
     }
-    let common = match git.output_string(
-        path,
-        &["rev-parse", "--path-format=absolute", "--git-common-dir"],
-        CallOptions::default(),
-    ) {
-        Ok(out) => PathBuf::from(out.trim()),
-        Err(GitError::NotFound) => return Err(Error::GitNotFound),
-        Err(_) => return Ok(None),
-    };
-    let Some(repo) = common.parent().and_then(|p| p.canonicalize().ok()) else {
-        return Ok(None);
-    };
-    Ok(entries
+    let args: Vec<&str> = ["rev-parse", "--path-format=absolute"]
+        .into_iter()
+        .chain(args.iter().copied())
+        .collect();
+    match git.output_string(path, &args, CallOptions::default()) {
+        Ok(out) => Ok(Some(out)),
+        Err(GitError::NotFound) => Err(Error::GitNotFound),
+        Err(_) => Ok(None),
+    }
+}
+
+/// The entry whose dir is the repo of the git common dir `common` — the
+/// dir holding it — compared canonicalized.
+fn entry_of_common_dir(entries: &[Entry], root: &Path, common: &Path) -> Option<usize> {
+    let repo = common.parent().and_then(|p| p.canonicalize().ok())?;
+    entries
         .iter()
-        .position(|e| root.join(&e.dir).canonicalize().is_ok_and(|d| d == repo)))
+        .position(|e| root.join(&e.dir).canonicalize().is_ok_and(|d| d == repo))
 }
 
 #[cfg(test)]

@@ -1,6 +1,7 @@
-//! Text rendering of a `StatusReport` — the grouped summary and
-//! `--verbose`'s per-entry blocks — and of a `SyncReport`, whose summary is
-//! the same with what sync did in place of what it would do.
+//! Text rendering of a `StatusReport` — the grouped summary,
+//! `--verbose`'s per-entry blocks, and `--brief`'s line on one checkout —
+//! and of a `SyncReport`, whose summary is the same with what sync did in
+//! place of what it would do.
 
 use std::borrow::Cow;
 use std::ffi::OsStr;
@@ -229,6 +230,73 @@ pub fn render_summary(report: &StatusReport, view: View<'_>, verbose: bool) -> S
 /// `failed` what it didn't.
 pub fn render_sync_summary(report: &SyncReport, view: View<'_>, verbose: bool) -> String {
     summary(&report.status, Some(&report.entries), view, verbose)
+}
+
+/// `status --brief`'s one line on the checkout `c` of `e`, for a session
+/// starting in it: `None` when there's nothing to say, or when the probe
+/// failed (its facts are incomplete).
+///
+/// It says, in order: the other live sessions working in the checkout
+/// itself (its `working`: by where they are, or by the lock Claude Code put
+/// on it for them — not a session elsewhere in the repo, which `busy` adds
+/// for the agent worktrees under `.claude/worktrees/`; and none when busy
+/// detection is unavailable — a nudge doesn't guess); an operation in
+/// progress in it; and the relation of the branch it's on to that branch's
+/// origin upstream — behind (with how old the remote view is) or diverged,
+/// then ahead (unpushed). Behind and ahead only where every fetching run
+/// fetches, an owned entry that isn't pinned: a third-party reference is
+/// fetched only when asked, and a pin never is, its consumer moving it.
+/// Every other relation — in sync, gone, shallow, unmapped, untracked — and
+/// a detached HEAD say nothing, and neither does dirt, which the session
+/// sees for itself. Plain text on one line, never wrapped or colored.
+pub fn render_brief(e: &EntryStatus, c: &Checkout, view: View<'_>) -> Option<String> {
+    if e.probe_error.is_some() {
+        return None;
+    }
+    let mut items = Vec::new();
+    match c.working.len() {
+        0 => {}
+        1 => items.push("another live session is working in this checkout".to_owned()),
+        n => items.push(format!(
+            "{n} other live sessions are working in this checkout"
+        )),
+    }
+    if let Some(op) = c.in_progress {
+        items.push(format!("{} in progress", op.label()));
+    }
+    let branch = match &c.head {
+        Head::Branch { name } if e.writable && !e.pinned => {
+            e.branches.iter().find(|b| b.name == *name)
+        }
+        _ => None,
+    };
+    if let Some(b) = branch {
+        // a relation to origin implies an origin upstream
+        let upstream = b.upstream.as_deref().unwrap_or("origin");
+        let fetched = e
+            .fetched_at
+            .map(|at| format!(" (fetched {} ago)", view.age(at)))
+            .unwrap_or_default();
+        match b.relation {
+            Relation::Behind { commits } => {
+                items.push(format!("{commits} behind {upstream}{fetched}"));
+            }
+            Relation::Diverged { ahead, behind } => {
+                items.push(format!(
+                    "diverged from {upstream} +{ahead} −{behind}{fetched}"
+                ));
+            }
+            Relation::Ahead { commits } => {
+                items.push(format!("{commits} ahead of {upstream} (unpushed)"));
+            }
+            Relation::InSync
+            | Relation::Shallow
+            | Relation::Gone
+            | Relation::Unmapped
+            | Relation::Untracked => {}
+        }
+    }
+    (!items.is_empty()).then(|| format!("repos: {} — {}\n", e.key, items.join("; ")))
 }
 
 /// The summary of `report`, and with `synced` (one per entry, in order) of
@@ -2040,6 +2108,7 @@ mod tests {
                 linked: false,
                 submodules: None,
                 busy: vec![],
+                working: vec![],
             }],
             branches: vec![],
             stashes: 0,
@@ -2119,6 +2188,7 @@ mod tests {
             linked: true,
             submodules: Some(false),
             busy: vec![],
+            working: vec![],
         }
     }
 
@@ -4401,6 +4471,194 @@ sync would    push grimoire +13, setup +2,
               clone blake3, corpora
 "
             )
+        );
+    }
+
+    /// `--brief`'s line: what it selects, in its order, and its words.
+    #[test]
+    fn brief_says_sessions_operation_behind_then_ahead() {
+        let brief = |e: &EntryStatus| render_brief(e, &e.checkouts[0], VIEW);
+        let with = |relation| {
+            let mut e = entry("app", main(), "main");
+            e.branches = vec![branch(
+                "main",
+                Some("origin/main"),
+                relation,
+                0,
+                Verdict::Quiet,
+            )];
+            e
+        };
+        let session = |pid| {
+            Session::at(
+                pid,
+                0,
+                "/home/me/dev/app".into(),
+                SessionSource::SessionFile,
+            )
+        };
+
+        // nothing to say: in sync and idle, and every relation it passes over
+        for relation in [
+            Relation::InSync,
+            Relation::Shallow,
+            Relation::Gone,
+            Relation::Unmapped,
+            Relation::Untracked,
+        ] {
+            assert_eq!(brief(&with(relation)), None, "{relation:?}");
+        }
+        // dirt is the session's to see
+        let mut dirty = with(Relation::InSync);
+        dirty.checkouts[0].uncommitted.unstaged = 3;
+        assert_eq!(brief(&dirty), None);
+
+        assert_eq!(
+            brief(&with(Relation::Behind { commits: 3 })).as_deref(),
+            Some("repos: app — 3 behind origin/main (fetched 3h ago)\n")
+        );
+        assert_eq!(
+            brief(&with(Relation::Ahead { commits: 2 })).as_deref(),
+            Some("repos: app — 2 ahead of origin/main (unpushed)\n")
+        );
+        assert_eq!(
+            brief(&with(Relation::Diverged {
+                ahead: 1,
+                behind: 4
+            }))
+            .as_deref(),
+            Some("repos: app — diverged from origin/main +1 −4 (fetched 3h ago)\n")
+        );
+        // no fetch time known: the age is left out, never guessed
+        let mut unfetched = with(Relation::Behind { commits: 3 });
+        unfetched.fetched_at = None;
+        assert_eq!(
+            brief(&unfetched).as_deref(),
+            Some("repos: app — 3 behind origin/main\n")
+        );
+
+        // every signal, in order, on one line however narrow the view
+        let mut all = with(Relation::Diverged {
+            ahead: 2,
+            behind: 1,
+        });
+        // busy for a session elsewhere in the repo alone (an agent
+        // worktree's): it works somewhere else, so nothing's said of it
+        all.checkouts[0].busy = vec![session(9)];
+        all.checkouts[0].in_progress = Some(InProgressOp::Rebase);
+        assert_eq!(
+            brief(&all).as_deref(),
+            Some(
+                "repos: app — rebase in progress; diverged from origin/main +2 −1 (fetched 3h ago)\n"
+            )
+        );
+        all.checkouts[0].busy.push(session(10));
+        all.checkouts[0].working = vec![session(10)];
+        let line = render_brief(&all, &all.checkouts[0], View { width: 40, ..VIEW }).unwrap();
+        assert_eq!(
+            line,
+            "repos: app — another live session is working in this checkout; rebase in \
+             progress; diverged from origin/main +2 −1 (fetched 3h ago)\n"
+        );
+        all.checkouts[0].busy.push(session(11));
+        all.checkouts[0].working.push(session(11));
+        assert!(
+            brief(&all)
+                .unwrap()
+                .starts_with("repos: app — 2 other live sessions are working in this checkout; "),
+        );
+
+        // a failed probe says nothing, whatever it read
+        let mut failed = all.clone();
+        failed.probe_error = Some("fatal: bad object".into());
+        assert_eq!(brief(&failed), None);
+    }
+
+    /// `--brief` on a checkout other than the primary, a detached HEAD, a
+    /// reference, and a pin.
+    #[test]
+    fn brief_reads_its_own_checkout_and_compares_only_owned_branches() {
+        let mut e = entry("app", main(), "main");
+        e.checkouts.push(linked("/home/me/dev/app-wt", "feat"));
+        e.branches = vec![
+            branch(
+                "main",
+                Some("origin/main"),
+                Relation::Behind { commits: 5 },
+                0,
+                Verdict::Quiet,
+            ),
+            branch(
+                "feat",
+                Some("origin/feat"),
+                Relation::Ahead { commits: 1 },
+                1,
+                act(SyncAction::Push { commits: 1 }),
+            ),
+        ];
+        e.checkouts[1].in_progress = Some(InProgressOp::CherryPick);
+        // the worktree's own branch and operation, never the primary's
+        assert_eq!(
+            render_brief(&e, &e.checkouts[1], VIEW).as_deref(),
+            Some("repos: app — cherry-pick in progress; 1 ahead of origin/feat (unpushed)\n")
+        );
+        assert_eq!(
+            render_brief(&e, &e.checkouts[0], VIEW).as_deref(),
+            Some("repos: app — 5 behind origin/main (fetched 3h ago)\n")
+        );
+        // detached: no branch to compare
+        e.checkouts[0].head = Head::Detached {
+            commit: "0123456789abcdef0123456789abcdef01234567".into(),
+        };
+        assert_eq!(render_brief(&e, &e.checkouts[0], VIEW), None);
+
+        // a third-party reference, and a pin, owned or not: sessions and
+        // operations only
+        let session = Session::at(10, 0, "/home/me/dev/app".into(), SessionSource::SessionFile);
+        for (writable, mode) in [
+            (false, main()),
+            (false, Mode::PinnedOn("main")),
+            (true, Mode::PinnedOn("main")),
+        ] {
+            let mut e = entry("lib", mode, "main");
+            e.kind = EntryKind::Reference;
+            e.writable = writable;
+            e.branches = vec![branch(
+                "main",
+                Some("origin/main"),
+                Relation::Diverged {
+                    ahead: 1,
+                    behind: 1,
+                },
+                1,
+                Verdict::LocalOnly,
+            )];
+            assert_eq!(render_brief(&e, &e.checkouts[0], VIEW), None, "{mode:?}");
+            e.checkouts[0].busy = vec![session.clone()];
+            e.checkouts[0].working = vec![session.clone()];
+            e.checkouts[0].in_progress = Some(InProgressOp::Merge);
+            assert_eq!(
+                render_brief(&e, &e.checkouts[0], VIEW).as_deref(),
+                Some(
+                    "repos: lib — another live session is working in this checkout; merge in \
+                     progress\n"
+                ),
+                "{mode:?}"
+            );
+        }
+        // an owned reference that isn't pinned is fetched as a repo is
+        let mut fork = entry("fork", main(), "main");
+        fork.kind = EntryKind::Reference;
+        fork.branches = vec![branch(
+            "main",
+            Some("origin/main"),
+            Relation::Behind { commits: 2 },
+            0,
+            Verdict::Quiet,
+        )];
+        assert_eq!(
+            render_brief(&fork, &fork.checkouts[0], VIEW).as_deref(),
+            Some("repos: fork — 2 behind origin/main (fetched 3h ago)\n")
         );
     }
 

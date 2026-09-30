@@ -961,6 +961,7 @@ fn probe_record(
                 submodules,
                 // filled once the live sessions are scoped (`status`)
                 busy: Vec::new(),
+                working: Vec::new(),
             });
         }
         Err(why) => {
