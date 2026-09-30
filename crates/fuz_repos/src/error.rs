@@ -30,6 +30,18 @@ pub enum Error {
     /// No `repos.toml` in the start dir or any ancestor.
     #[error("no repos.toml found in {} or any parent directory", start.display())]
     RegistryNotFound { start: PathBuf },
+    /// The root found walking up is at or inside a checkout of the
+    /// registry's entry `key` (`check_discovered_root`).
+    #[error(
+        "the registry found at {} would root the workspace at {}, a checkout of entry `{key}`",
+        registry.display(),
+        root.display()
+    )]
+    RootInEntry {
+        root: PathBuf,
+        registry: PathBuf,
+        key: String,
+    },
     /// The registry exists but couldn't be read.
     #[error("failed to read the registry at {}", path.display())]
     RegistryRead {
@@ -79,6 +91,7 @@ impl Error {
             | Self::ReferencesWithTargets
             | Self::RootNotFound { .. }
             | Self::RegistryNotFound { .. }
+            | Self::RootInEntry { .. }
             | Self::RegistryRead { .. }
             | Self::RegistryParse { .. }
             | Self::RegistryInvalid { .. }
@@ -101,6 +114,10 @@ impl Error {
             Self::RegistryNotFound { .. } => {
                 "run inside the workspace or a checkout of one of its repos, or pass \
                  `--registry <path>`"
+            }
+            Self::RootInEntry { .. } => {
+                "run from the workspace root, link the registry there (a repos.toml \
+                 symlink to it), or pass `--root <dir>` or `--registry <path>`"
             }
             Self::GitNotFound => "install git 2.44 or newer",
             Self::GitTooOld { .. } => {
@@ -146,6 +163,7 @@ impl Error {
             Self::ReferencesWithTargets => ErrorKind::ReferencesWithTargets,
             Self::RootNotFound { .. } => ErrorKind::RootNotFound,
             Self::RegistryNotFound { .. } => ErrorKind::RegistryNotFound,
+            Self::RootInEntry { key, .. } => ErrorKind::RootInEntry { key: key.clone() },
             Self::RegistryRead { .. } => ErrorKind::RegistryRead,
             Self::RegistryParse { .. } => ErrorKind::RegistryParse,
             Self::RegistryInvalid { issues, .. } => ErrorKind::RegistryInvalid {
@@ -177,6 +195,10 @@ pub enum ErrorKind {
     ReferencesWithTargets,
     RootNotFound,
     RegistryNotFound,
+    /// The entry whose checkout the root found walking up is in.
+    RootInEntry {
+        key: String,
+    },
     RegistryRead,
     RegistryParse,
     /// Every integrity issue found, each tagged by its own `kind`.
@@ -223,6 +245,11 @@ mod tests {
             },
             Error::RegistryNotFound {
                 start: PathBuf::from("/x"),
+            },
+            Error::RootInEntry {
+                root: PathBuf::from("/x/meta"),
+                registry: PathBuf::from("/x/meta/repos.toml"),
+                key: "meta".into(),
             },
             Error::RegistryParse {
                 path: PathBuf::from("/x/repos.toml"),
@@ -330,6 +357,21 @@ mod tests {
             }),
             serde_json::json!({"kind": "git_too_old", "found": "2.40.0", "required": "2.44.0"})
         );
+        let root_in_entry = Error::RootInEntry {
+            root: PathBuf::from("/x/meta"),
+            registry: PathBuf::from("/x/meta/repos.toml"),
+            key: "meta".into(),
+        };
+        assert_eq!(
+            json(&root_in_entry),
+            serde_json::json!({"kind": "root_in_entry", "key": "meta"})
+        );
+        assert_eq!(
+            root_in_entry.message(),
+            "the registry found at /x/meta/repos.toml would root the workspace at /x/meta, a \
+             checkout of entry `meta`"
+        );
+        assert!(root_in_entry.hint().is_some_and(|h| h.contains("--root")));
         assert_eq!(
             json(&Error::ReferencesWithTargets),
             serde_json::json!({"kind": "references_with_targets"})

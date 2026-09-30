@@ -652,6 +652,17 @@ impl FixtureWorkspace {
         path
     }
 
+    /// Writes the registry in `dir` — one of the workspace's repos, say —
+    /// and links it at the root by its absolute path; returns the file.
+    pub fn write_registry_in(&self, dir: &Path) -> PathBuf {
+        let path = dir.join(REGISTRY_FILE);
+        write(dir, REGISTRY_FILE, &self.registry_toml());
+        let link = self.root().join(REGISTRY_FILE);
+        std::os::unix::fs::symlink(&path, &link).unwrap();
+        assert_eq!(link.canonicalize().unwrap(), path);
+        path
+    }
+
     /// Writes the registry and loads its entries the way the binary does:
     /// found by walking up from the root.
     pub fn entries(&self) -> Vec<Entry> {

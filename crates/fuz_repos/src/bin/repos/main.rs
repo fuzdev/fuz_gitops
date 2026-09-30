@@ -42,7 +42,9 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use argh::{EarlyExit, FromArgs};
 use fuz_repos::classify::Refresh;
 use fuz_repos::clone::CLONE_TIMEOUT;
-use fuz_repos::discover::{RegistryLocation, find_registry, resolve_checkout, resolve_targets};
+use fuz_repos::discover::{
+    RegistryLocation, check_discovered_root, find_registry, resolve_checkout, resolve_targets,
+};
 use fuz_repos::error::{Error, Result};
 use fuz_repos::git::Git;
 use fuz_repos::probe::RegistryDirs;
@@ -67,7 +69,8 @@ const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), " (", env!("REPOS_BUILD
 #[derive(FromArgs, Debug)]
 struct Cli {
     /// path to the registry (default: the first repos.toml in the cwd or a
-    /// parent)
+    /// parent; found in a checkout, the nearest parent above it holding that
+    /// same file, and refused in a checkout of one of its entries)
     #[argh(option)]
     registry: Option<String>,
     /// the workspace root entry dirs resolve against (default: the dir
@@ -307,6 +310,7 @@ fn load(locate: Locate<'_>, targets: &[String]) -> Result<Loaded> {
     // validated before targets resolve and anything is probed
     let registry = ValidRegistry::load(&loc.path)?;
     let all = registry.entries();
+    check_discovered_root(&loc, &all, &git)?;
     let entries = resolve_targets(&all, &loc.root, &cwd, targets, &git)?;
     Ok(Loaded {
         git,
@@ -633,10 +637,13 @@ struct Brief {
 /// when `path` is in no entry's checkout, or the one it's in wasn't probed.
 ///
 /// The registry is found walking up from `path`, not the cwd — a hook's
-/// cwd needn't be its session's — and `--registry` and `--root` are still
-/// relative to the cwd. Only that entry is probed, from local refs, without
-/// the unregistered scan; the live sessions are read, the caller's
-/// excluded, to find the others working in the checkout.
+/// cwd needn't be its session's — over its physical path, so `..` after a
+/// symlink goes where the kernel takes it; `--registry` and `--root` are
+/// still relative to the cwd. A refused root (`check_discovered_root`) is
+/// an error, which `run_brief` keeps silent as it does every other. Only
+/// that entry is probed, from local refs, without the unregistered scan;
+/// the live sessions are read, the caller's excluded, to find the others
+/// working in the checkout.
 fn brief(locate: Locate<'_>, path: &Path, start: Instant) -> Result<Option<Brief>> {
     let cwd = std::env::current_dir().map_err(|source| Error::Io {
         context: "failed to read the current directory".into(),
@@ -649,6 +656,7 @@ fn brief(locate: Locate<'_>, path: &Path, start: Instant) -> Result<Option<Brief
     let root = locate.root.map(|r| cwd.join(r));
     let loc = find_registry(&path, registry.as_deref(), root.as_deref(), &git)?;
     let all = ValidRegistry::load(&loc.path)?.entries();
+    check_discovered_root(&loc, &all, &git)?;
     let Some(target) = resolve_checkout(&all, &loc.root, &path, &git)? else {
         return Ok(None);
     };

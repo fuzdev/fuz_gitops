@@ -4,6 +4,7 @@
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
+use crate::classify::origin_matches;
 use crate::error::{Error, Result};
 use crate::git::{CallOptions, Git, GitError};
 use crate::registry::Entry;
@@ -11,29 +12,37 @@ use crate::registry::Entry;
 /// The registry's file name, found by walking up from the cwd.
 pub const REGISTRY_FILE: &str = "repos.toml";
 
-/// Where the registry was found. `root` is the directory holding `path` as
-/// found — never the target of a symlinked registry.
+/// Where the registry was found.
+///
+/// `root` is the directory holding `path` as found — never the target of a
+/// symlinked registry. A registry found inside a checkout is found where a
+/// link above that checkout names it, when one does (`walk_up`).
 #[derive(Debug, Clone)]
 pub struct RegistryLocation {
     pub path: PathBuf,
     pub root: PathBuf,
+    /// The root was found walking up — neither `--registry` nor `--root`
+    /// named it — so `check_discovered_root` applies.
+    pub discovered: bool,
 }
 
 /// Locates the registry and the workspace root.
 ///
-/// The registry is `explicit` if given (relative to `cwd`), else the first
-/// `repos.toml` in `cwd` or an ancestor — no env var, no `$HOME` fallback.
-/// When that walk finds nothing and `cwd` is inside a linked worktree, it
-/// runs once more from the repo's main checkout, so a linked worktree outside
-/// the workspace finds its repo's registry. The root
-/// is `root` if given (relative to `cwd`), for a registry kept outside the
+/// The registry is `explicit` if given (relative to `cwd`), its dir taken
+/// as the root as it stands — explicit is explicit, links or not. Else it's
+/// the first `repos.toml` in `cwd` or an ancestor, read physically (`cwd`
+/// canonicalized), and placed by `walk_up` — no env var, no `$HOME`
+/// fallback. When that walk finds nothing and `cwd` is inside a linked
+/// worktree, it runs once more from the repo's main checkout, so a linked
+/// worktree outside the workspace finds its repo's registry. The root is
+/// `root` if given (relative to `cwd`), for a registry kept outside the
 /// workspace, else the registry's dir.
 ///
 /// # Errors
 ///
-/// `RegistryNotFound` when neither walk finds a registry; `RootNotFound` when
-/// `root` isn't a directory — a mistyped root would otherwise read every
-/// entry as missing.
+/// `RegistryNotFound` when neither walk finds a registry (or `cwd` doesn't
+/// exist); `RootNotFound` when `root` isn't a directory — a mistyped root
+/// would otherwise read every entry as missing.
 pub fn find_registry(
     cwd: &Path,
     explicit: Option<&Path>,
@@ -43,10 +52,18 @@ pub fn find_registry(
     let mut found = if let Some(explicit) = explicit {
         let path = cwd.join(explicit);
         let root = path.parent().map_or_else(|| cwd.to_owned(), Path::to_owned);
-        RegistryLocation { path, root }
+        RegistryLocation {
+            path,
+            root,
+            discovered: false,
+        }
     } else {
-        walk_up(cwd)
-            .or_else(|| walk_up(&main_checkout(cwd, git)?))
+        cwd.canonicalize()
+            .ok()
+            .and_then(|start| {
+                walk_up(&start, git)
+                    .or_else(|| walk_up(&main_checkout(&start, false, git)?.main, git))
+            })
             .ok_or_else(|| Error::RegistryNotFound {
                 start: cwd.to_owned(),
             })?
@@ -57,25 +74,105 @@ pub fn find_registry(
             return Err(Error::RootNotFound { root });
         }
         found.root = root;
+        found.discovered = false;
     }
     Ok(found)
 }
 
-/// The first `repos.toml` in `start` or an ancestor.
-fn walk_up(start: &Path) -> Option<RegistryLocation> {
-    start
+/// The first `repos.toml` in `start` or an ancestor, placed at the workspace
+/// root it belongs to.
+///
+/// A registry is often kept in one of the workspace's own repos and linked
+/// at the workspace root. Found outside any checkout, it stays where it's
+/// found. Found inside a checkout — the nearest dir at or above it with a
+/// `.git`, read without git — the root is the nearest ancestor strictly
+/// above that checkout whose `repos.toml` is the same file: the same device
+/// and inode, followed through symlinks, so a hard link counts and no path
+/// spelling matters. Nearest, so the innermost workspace wins: a stray link
+/// further out never captures it. A link inside the checkout doesn't root
+/// it (a repo isn't a workspace), a different file above it (an unrelated
+/// registry) neither roots it nor stops the search, and one that can't be
+/// read (dangling, a loop, no permission) is passed over — doubt never
+/// moves the root. With no link above, it stays where it's found, and
+/// `check_discovered_root` refuses it if that checkout is an entry's.
+///
+/// A registry committed in its repo has a copy in each linked worktree,
+/// found first from inside one and linked nowhere. So when no link above a
+/// linked worktree names its copy, the search runs from the same place in
+/// the repo's main checkout (`linked_from_main_checkout`): a link above the
+/// main checkout to its copy roots the workspace, which then reads that
+/// copy, not the worktree's.
+fn walk_up(start: &Path, git: &Git) -> Option<RegistryLocation> {
+    let dir = start
         .ancestors()
-        .map(|dir| (dir, dir.join(REGISTRY_FILE)))
-        .find(|(_, path)| path.is_file())
-        .map(|(dir, path)| RegistryLocation {
-            path,
-            root: dir.to_owned(),
+        .find(|dir| dir.join(REGISTRY_FILE).is_file())?;
+    let root = checkout_holding(dir)
+        .and_then(|(top, linked)| {
+            nearest_link_above(top, &dir.join(REGISTRY_FILE)).or_else(|| {
+                linked
+                    .then(|| linked_from_main_checkout(dir, git))
+                    .flatten()
+            })
         })
+        .unwrap_or_else(|| dir.to_owned());
+    Some(RegistryLocation {
+        path: root.join(REGISTRY_FILE),
+        root,
+        discovered: true,
+    })
 }
 
-/// The main checkout of the linked worktree `cwd` is in, or `None` when
-/// `cwd` isn't in a linked worktree, or on any git failure (the caller
-/// reports the registry missing).
+/// The checkout holding `dir`, read without git: the nearest dir at or
+/// above it with a `.git` (followed through symlinks; one that can't be
+/// read is passed over), and whether that `.git` is a file, as a linked
+/// worktree's is. `None` outside any checkout.
+fn checkout_holding(dir: &Path) -> Option<(&Path, bool)> {
+    dir.ancestors().find_map(|a| {
+        std::fs::metadata(a.join(".git"))
+            .ok()
+            .map(|m| (a, m.is_file()))
+    })
+}
+
+/// The nearest ancestor strictly above `top` whose `repos.toml` is the
+/// same file as `registry`, or `None` when there's none or `registry`
+/// can't be read.
+fn nearest_link_above(top: &Path, registry: &Path) -> Option<PathBuf> {
+    let registry = file_id(registry)?;
+    top.ancestors()
+        .skip(1)
+        .find(|a| file_id(&a.join(REGISTRY_FILE)) == Some(registry))
+        .map(Path::to_owned)
+}
+
+/// The device and inode of the file at `path`, through symlinks, or `None`
+/// on any error.
+fn file_id(path: &Path) -> Option<(u64, u64)> {
+    use std::os::unix::fs::MetadataExt as _;
+    std::fs::metadata(path).ok().map(|m| (m.dev(), m.ino()))
+}
+
+/// When `dir` is in a linked worktree: the nearest link above the repo's
+/// main checkout to the `repos.toml` there at `dir`'s relative path, or
+/// `None`. `dir` is physical (`find_registry`), as git's paths are.
+fn linked_from_main_checkout(dir: &Path, git: &Git) -> Option<PathBuf> {
+    let found = main_checkout(dir, true, git)?;
+    let relative = dir.strip_prefix(found.toplevel?).ok()?;
+    nearest_link_above(&found.main, &found.main.join(relative).join(REGISTRY_FILE))
+}
+
+/// A linked worktree's repo, as `main_checkout` finds it.
+struct MainCheckout {
+    main: PathBuf,
+    /// The linked worktree's top level, when asked for.
+    toplevel: Option<PathBuf>,
+}
+
+/// The main checkout of the linked worktree `cwd` is in, and with
+/// `toplevel` the worktree's top level, or `None` when `cwd` isn't in a
+/// linked worktree, or on any git failure (the caller reports the registry
+/// missing, or keeps it where it was found) — `toplevel` fails in a git
+/// dir.
 ///
 /// A linked worktree's git dir differs from its common dir; anywhere else
 /// they're the same dir — a main checkout, a submodule, or a checkout whose
@@ -89,25 +186,81 @@ fn walk_up(start: &Path) -> Option<RegistryLocation> {
 /// No ceiling: git's own discovery walks up from `cwd` to the worktree (the
 /// cwd may be deep inside it), which a ceiling would cut short, and only the
 /// indirection above could point the search astray.
-fn main_checkout(cwd: &Path, git: &Git) -> Option<PathBuf> {
-    let out = git
-        .output_string(
-            cwd,
-            &[
-                "rev-parse",
-                "--path-format=absolute",
-                "--git-dir",
-                "--git-common-dir",
-            ],
-            CallOptions::default(),
-        )
-        .ok()?;
+fn main_checkout(cwd: &Path, toplevel: bool, git: &Git) -> Option<MainCheckout> {
+    let mut args = vec![
+        "rev-parse",
+        "--path-format=absolute",
+        "--git-dir",
+        "--git-common-dir",
+    ];
+    if toplevel {
+        args.push("--show-toplevel");
+    }
+    let out = git.output_string(cwd, &args, CallOptions::default()).ok()?;
     let mut lines = out.lines();
     let (git_dir, common) = (Path::new(lines.next()?), Path::new(lines.next()?));
     if git_dir == common || common.file_name()? != ".git" {
         return None;
     }
-    common.parent().map(Path::to_owned)
+    let toplevel = if toplevel {
+        Some(PathBuf::from(lines.next()?))
+    } else {
+        None
+    };
+    Some(MainCheckout {
+        main: common.parent()?.to_owned(),
+        toplevel,
+    })
+}
+
+/// Refuses a discovered root (`RegistryLocation::discovered`) that is at or
+/// inside a checkout of one of the registry's own entries.
+///
+/// That's the registry's repo cloned with no link at the workspace root
+/// yet, a symlinked entry dir walked physically, a worktree whose own copy
+/// of the registry won because the main checkout's is gone, or a bare
+/// repo's worktree. Rooted there, every other entry would read as missing,
+/// and a sync would clone them into it.
+///
+/// Read without git unless the root is in a checkout (the nearest `.git`
+/// at or above it); then git reads that checkout's `origin` URLs both as
+/// configured (`config --get-all remote.origin.url`) and as git resolves
+/// them (`remote get-url --all`: `insteadOf` applied, worktree config
+/// honored), and any of either naming an entry as `origin_matches` reads
+/// an origin — owned and third-party entries alike — refuses. Both, since
+/// a rewrite can hide the repo either way: an alias (`gh:o/meta`) names it
+/// only once resolved, and a rewrite to a mirror or a local path only as
+/// configured. The resolved read is skipped when the configured one
+/// matches. A checkout of no entry (a dotfiles repo further out, a
+/// workspace that is itself an unlisted repo) passes, as does any git
+/// failure: this is a backstop, not the rule.
+///
+/// # Errors
+///
+/// `RootInEntry` naming the first such entry, in registry order.
+pub fn check_discovered_root(loc: &RegistryLocation, entries: &[Entry], git: &Git) -> Result<()> {
+    if !loc.discovered {
+        return Ok(());
+    }
+    let Some((top, _)) = checkout_holding(&loc.root) else {
+        return Ok(());
+    };
+    // the first entry, in registry order, one of the URLs git prints names
+    let named = |args: &[&str]| {
+        let out = git.output_string(top, args, CallOptions::default()).ok()?;
+        entries
+            .iter()
+            .find(|e| out.lines().any(|origin| origin_matches(origin, &e.url)))
+    };
+    let entry = named(&["config", "--get-all", "remote.origin.url"])
+        .or_else(|| named(&["remote", "get-url", "--all", "origin"]));
+    entry.map_or(Ok(()), |e| {
+        Err(Error::RootInEntry {
+            root: loc.root.clone(),
+            registry: loc.path.clone(),
+            key: e.key.clone(),
+        })
+    })
 }
 
 /// Selects the entries `targets` name, in registry order.
@@ -308,6 +461,8 @@ fn entry_of_common_dir(entries: &[Entry], root: &Path, common: &Path) -> Option<
 
 #[cfg(test)]
 mod tests {
+    use std::os::unix::fs::PermissionsExt as _;
+
     use super::*;
 
     #[test]
@@ -338,6 +493,251 @@ mod tests {
 
         let found = find_registry(&ws.join("repo"), None, None, &Git::new()).unwrap();
         assert_eq!(found.root, ws);
+    }
+
+    /// Writes `dir/repos.toml` — the registry for real, or a symlink to
+    /// `target` — creating `dir`.
+    fn place(dir: &Path, target: Option<&Path>) -> PathBuf {
+        std::fs::create_dir_all(dir).unwrap();
+        let path = dir.join(REGISTRY_FILE);
+        match target {
+            Some(target) => std::os::unix::fs::symlink(target, &path).unwrap(),
+            None => std::fs::write(&path, "owners = []\n").unwrap(),
+        }
+        path
+    }
+
+    /// Makes `dir` look like a main checkout to discovery: a `.git` dir.
+    fn checkout(dir: &Path) {
+        std::fs::create_dir_all(dir.join(".git")).unwrap();
+    }
+
+    #[test]
+    fn a_registry_in_a_checkout_roots_at_the_nearest_link_above_it() {
+        let tmp = tempfile::tempdir().unwrap();
+        let top = tmp.path();
+        let ws = top.join("ws");
+        let meta = ws.join("meta");
+        // kept in `meta` under `reg/`, linked inside `meta` too; the root's
+        // link names that one, and a stray link further out names the root's
+        let real = place(&meta.join("reg"), None);
+        let inside = place(&meta, Some(Path::new("reg/repos.toml")));
+        let link = place(&ws, Some(&inside));
+        place(top, Some(&link));
+        checkout(&meta);
+        for path in [&inside, &link, &top.join(REGISTRY_FILE)] {
+            assert_eq!(path.canonicalize().unwrap(), real);
+        }
+        let deep = meta.join("reg/src/lib");
+        std::fs::create_dir_all(&deep).unwrap();
+
+        let git = Git::new();
+        for start in [&deep, &meta.join("reg"), &meta, &ws] {
+            let found = find_registry(start, None, None, &git).unwrap();
+            assert_eq!(found.root, ws, "from {}", start.display());
+            assert_eq!(found.path, link);
+            assert!(found.discovered);
+        }
+        // outside any checkout, the first found is the root
+        let found = find_registry(top, None, None, &git).unwrap();
+        assert_eq!(found.root, top);
+        // a `.git` dir: no spawn
+        assert_eq!(git.spawns(), 0);
+
+        // not a checkout: `meta`'s own links are where it's found
+        std::fs::remove_dir(meta.join(".git")).unwrap();
+        let found = find_registry(&deep, None, None, &git).unwrap();
+        assert_eq!(found.root, meta.join("reg"));
+        let found = find_registry(&meta, None, None, &git).unwrap();
+        assert_eq!(found.root, meta);
+
+        // a hard link is the same file too
+        let tmp = tempfile::tempdir().unwrap();
+        let ws = tmp.path().join("ws");
+        let real = place(&ws.join("meta"), None);
+        checkout(&ws.join("meta"));
+        std::fs::hard_link(&real, ws.join(REGISTRY_FILE)).unwrap();
+        let found = find_registry(&ws.join("meta"), None, None, &git).unwrap();
+        assert_eq!(found.root, ws);
+    }
+
+    #[test]
+    fn a_different_registry_further_out_never_captures() {
+        let tmp = tempfile::tempdir().unwrap();
+        // an outer workspace with a registry of its own, and an inner one
+        // whose registry the outer's copies
+        let top = tmp.path();
+        let outer = top.join("outer");
+        let inner = outer.join("inner");
+        let real = place(&inner, None);
+        std::fs::copy(&real, outer.join(REGISTRY_FILE)).unwrap();
+        assert_ne!(file_id(&real), file_id(&outer.join(REGISTRY_FILE)));
+
+        let git = Git::new();
+        let found = find_registry(&inner, None, None, &git).unwrap();
+        assert_eq!(found.root, inner);
+        assert_eq!(found.path, real);
+        checkout(&inner);
+        let found = find_registry(&inner, None, None, &git).unwrap();
+        assert_eq!(found.root, inner);
+
+        // nor does it stop the search: a link to the inner one further out
+        // still roots there
+        place(top, Some(&real));
+        let found = find_registry(&inner, None, None, &git).unwrap();
+        assert_eq!(found.root, top);
+        assert_eq!(found.path, top.join(REGISTRY_FILE));
+        // and from the outer workspace, its own registry is the one
+        let found = find_registry(&outer, None, None, &git).unwrap();
+        assert_eq!(found.root, outer);
+    }
+
+    #[test]
+    fn an_ancestor_registry_that_cannot_be_read_is_passed_over() {
+        let tmp = tempfile::tempdir().unwrap();
+        let top = tmp.path();
+        let ws = top.join("ws");
+        let meta = ws.join("meta");
+        let real = place(&meta, None);
+        place(top, Some(&real));
+        // between them: a dangling link, a loop, and a link into a dir that
+        // can't be searched
+        let dangling = place(&ws, Some(&top.join("nowhere")));
+        let looped = ws.join("loop");
+        place(&looped, Some(&looped.join(REGISTRY_FILE)));
+        let sealed = top.join("sealed");
+        place(&sealed, Some(&real));
+        let blocked = ws.join("blocked");
+        place(&blocked, Some(&sealed.join(REGISTRY_FILE)));
+        let unreadable = [
+            dangling,
+            looped.join(REGISTRY_FILE),
+            blocked.join(REGISTRY_FILE),
+        ];
+
+        let starts = [
+            meta.clone(),
+            place(&looped.join("meta"), Some(&real)),
+            place(&blocked.join("meta"), Some(&real)),
+        ]
+        .map(|path| path.parent().unwrap().to_owned());
+        for start in &starts {
+            checkout(start);
+        }
+
+        let git = Git::new();
+        std::fs::set_permissions(&sealed, std::fs::Permissions::from_mode(0o000)).unwrap();
+        let readable: Vec<bool> = unreadable
+            .iter()
+            .map(|path| std::fs::metadata(path).is_ok())
+            .collect();
+        let found = starts
+            .clone()
+            .map(|start| find_registry(&start, None, None, &git).unwrap());
+        std::fs::set_permissions(&sealed, std::fs::Permissions::from_mode(0o755)).unwrap();
+        // the superuser searches any dir: the sealed one reads then, the same
+        // file
+        assert!(matches!(readable[..], [false, false, _]), "{readable:?}");
+        for (start, found) in starts.iter().zip(found) {
+            assert_eq!(found.root, top, "from {}", start.display());
+            assert_eq!(found.path, top.join(REGISTRY_FILE));
+        }
+
+        // with nothing further out, the registry stays where it's found
+        std::fs::remove_file(top.join(REGISTRY_FILE)).unwrap();
+        let found = find_registry(&meta, None, None, &git).unwrap();
+        assert_eq!(found.root, meta);
+    }
+
+    #[test]
+    fn the_walk_is_over_the_physical_path() {
+        let tmp = tempfile::tempdir().unwrap();
+        let top = tmp.path().canonicalize().unwrap();
+        let ws = top.join("ws");
+        let meta = ws.join("meta");
+        let real = place(&meta, None);
+        checkout(&meta);
+        std::fs::create_dir(ws.join("app")).unwrap();
+        // `decoy/..` is `ws` to the kernel, `elsewhere` read lexically, where
+        // a stray link names the registry
+        let elsewhere = top.join("elsewhere");
+        place(&elsewhere, Some(&real));
+        std::os::unix::fs::symlink(ws.join("app"), elsewhere.join("decoy")).unwrap();
+        let dotted = elsewhere.join("decoy/../meta");
+        assert_eq!(dotted.canonicalize().unwrap(), meta);
+
+        let git = Git::new();
+        let found = find_registry(&dotted, None, None, &git).unwrap();
+        assert_eq!(found.root, meta);
+        place(&ws, Some(&real));
+        let found = find_registry(&dotted, None, None, &git).unwrap();
+        assert_eq!(found.root, ws);
+        assert_eq!(found.path, ws.join(REGISTRY_FILE));
+        // a start that doesn't exist finds nothing
+        let e = find_registry(&elsewhere.join("decoy/../nope"), None, None, &git).unwrap_err();
+        assert!(matches!(e, Error::RegistryNotFound { .. }), "{e}");
+    }
+
+    #[test]
+    fn git_is_asked_only_where_a_linked_worktree_may_hold_the_registry() {
+        let tmp = tempfile::tempdir().unwrap();
+        let repo = tmp.path().join("repo");
+        place(&repo, None);
+        let deep = repo.join("src");
+        std::fs::create_dir(&deep).unwrap();
+
+        // no `.git` above, or a dir as a main checkout's is: no spawn
+        let git = Git::new();
+        assert_eq!(find_registry(&deep, None, None, &git).unwrap().root, repo);
+        checkout(&repo);
+        assert_eq!(find_registry(&deep, None, None, &git).unwrap().root, repo);
+        assert_eq!(git.spawns(), 0);
+
+        // a `.git` file, as a linked worktree's is: git decides, and a
+        // failure keeps the registry where it's found
+        std::fs::remove_dir(repo.join(".git")).unwrap();
+        std::fs::write(repo.join(".git"), "gitdir: nowhere\n").unwrap();
+        assert_eq!(find_registry(&deep, None, None, &git).unwrap().root, repo);
+        assert_eq!(git.spawns(), 1);
+    }
+
+    #[test]
+    fn a_discovered_root_is_checked_only_inside_a_checkout() {
+        let tmp = tempfile::tempdir().unwrap();
+        let ws = tmp.path().join("ws");
+        place(&ws, None);
+        let es = entries(&["meta"]);
+        let git = Git::new();
+        // outside any checkout: no spawn
+        let found = find_registry(&ws, None, None, &git).unwrap();
+        check_discovered_root(&found, &es, &git).unwrap();
+        assert_eq!(git.spawns(), 0);
+        // named by `--root` or `--registry`: never checked
+        checkout(&ws);
+        let root = find_registry(&ws, None, Some(&ws), &git).unwrap();
+        let explicit = find_registry(&ws, Some(Path::new("repos.toml")), None, &git).unwrap();
+        for loc in [&root, &explicit] {
+            assert!(!loc.discovered);
+            check_discovered_root(loc, &es, &git).unwrap();
+        }
+        assert_eq!(git.spawns(), 0);
+        // discovered in one: git reads its origin, as configured and as
+        // resolved — here there's none
+        let found = find_registry(&ws, None, None, &git).unwrap();
+        check_discovered_root(&found, &es, &git).unwrap();
+        assert_eq!(git.spawns(), 2);
+    }
+
+    #[test]
+    fn an_explicit_registry_roots_at_its_dir_links_or_not() {
+        let tmp = tempfile::tempdir().unwrap();
+        let ws = tmp.path().join("ws");
+        let real = place(&ws.join("meta"), None);
+        place(&ws, Some(&real));
+        let found =
+            find_registry(&ws, Some(Path::new("meta/repos.toml")), None, &Git::new()).unwrap();
+        assert_eq!(found.root, ws.join("meta"));
+        assert_eq!(found.path, real);
     }
 
     #[test]

@@ -551,17 +551,27 @@ cargo test --workspace
 UPDATE_GOLDEN=1 cargo test --test golden # regenerate the --json golden fixtures in src/test/fixtures/repos_status/ (never hand-edit)
 ```
 
-`repos` finds its registry by walking up from the cwd to the first
-`repos.toml` (from a linked worktree outside the workspace, it walks up from
-the repo's main checkout instead), and the **workspace root is the directory
-holding it as found** —
-entry dirs resolve against that root. A `repos.toml` symlink at the workspace
-root pointing at a registry kept elsewhere works (the root stays the link's
-dir); `--registry` naming a file in some other directory makes *that* directory
-the root, unless `--root <dir>` names it. `rust-toolchain.toml` pins the
-toolchain (rustup fetches it on first build), and git must be 2.44 or newer
-(`GIT_NO_LAZY_FETCH` keeps a local `status` on a partial clone off the
-network).
+`repos` finds its registry by walking up from the cwd (its physical path) to
+the first `repos.toml` (from a linked worktree outside the workspace, it walks
+up from the repo's main checkout instead), and the **workspace root is the
+directory holding it as found** — entry dirs resolve against that root —
+except inside a checkout (the nearest `.git` at or above it): there the root
+is the nearest directory above that checkout whose `repos.toml` is the same
+file (same device and inode, through symlinks; unreadable ones passed over).
+So a registry kept in one of the workspace's own repos, with a `repos.toml`
+symlink to it at the workspace root, roots the workspace at the link's dir
+from inside that repo too, and from its linked worktrees, whose own committed
+copy defers to the main checkout's. Nearest, so the innermost workspace wins:
+a stray link further out never captures it, a link inside the repo doesn't
+root it, and a different registry above neither roots nor stops the search. A
+root found this way that is still in a checkout whose `origin` names one of
+the registry's entries (no link at the root yet, say) is refused
+(`root_in_entry`, exit `2`) — rooted there, a sync would clone the fleet into
+that checkout. `--registry` naming a file makes *its* directory the root as
+given, with no search or check, unless `--root <dir>` names it; `--root`
+alone skips the check too. `rust-toolchain.toml` pins the toolchain (rustup
+fetches it on first build), and git must be 2.44 or newer (`GIT_NO_LAZY_FETCH`
+keeps a local `status` on a partial clone off the network).
 
 How fresh the remote view is (`fetched_at`, the footer's oldest and its
 `never` count) is the newest non-empty `FETCH_HEAD` across the repo's git
@@ -575,27 +585,27 @@ and reads as never fetched, clone or not. In the default view each entry's
 other dirty worktree, or folds several into a count with their summed
 dirt; `--verbose` lists every dirty checkout with its dirt by kind.
 
-`repos status --brief [<path>]` is the nudge a user-scope `SessionStart`
-hook runs as `repos status --brief "$CLAUDE_PROJECT_DIR"`: its stdout lands
-in the new session's context, so it prints nothing unless the checkout
-holding the path has something that session should know, and one plain line
-otherwise — `repos: <key> — …` naming, in order, the other live sessions
-working in that checkout itself (placed there by where they are or by the
-lock Claude Code put on it for them — not a session elsewhere in the repo,
-which sync still counts busy in the `.claude/worktrees/` checkouts, for the
-subagents it may have there), an operation in progress there, and its branch
-behind or diverged from its origin upstream (with how long ago the repo was
-fetched), then ahead of it (unpushed). Behind and ahead are said only for an
-owned entry that isn't pinned, and dirt never (the session sees its own
-working tree). It probes that entry alone, from local refs — no fetch, no
-unregistered scan, nothing written — and finds the registry walking up from
-the path rather than the cwd. The caller is excluded from the sessions as
+`repos status --brief [<path>]` is the nudge a user-scope `SessionStart` hook
+runs as `repos status --brief "$CLAUDE_PROJECT_DIR"`: its stdout lands in the
+new session's context, so it prints nothing unless the checkout holding the
+path has something that session should know, and one plain line otherwise —
+`repos: <key> — …` naming, in order, the other live sessions working in that
+checkout itself (placed there by where they are or by the lock Claude Code put
+on it for them — not a session elsewhere in the repo, which sync still counts
+busy in the `.claude/worktrees/` checkouts, for the subagents it may have
+there), an operation in progress there, and its branch behind or diverged from
+its origin upstream (with how long ago the repo was fetched), then ahead of it
+(unpushed). Behind and ahead are said only for an owned entry that isn't
+pinned, and dirt never (the session sees its own working tree). It probes that
+entry alone, from local refs — no fetch, no unregistered scan, nothing written
+— and finds the registry walking up from the path (its physical path, as for
+the cwd) rather than the cwd. The caller is excluded from the sessions as
 anywhere (`CLAUDE_PID`, which Claude Code sets for its hooks too), and with
 busy detection unavailable it says nothing of sessions. It never fails its
-hook: no registry, a path in no entry (the workspace root, an unregistered
-clone, outside the workspace), git missing, or a failed probe all exit `0`
-in silence; only a flag it can't take (`--json`, `--fetch`, `--verbose`,
-`--references`) or a second path is a usage error, exit `2`.
+hook: no registry, a refused root, a path in no entry (the workspace root, an
+unregistered clone, outside the workspace), git missing, or a failed probe all
+exit `0` in silence; only a flag it can't take (`--json`, `--fetch`,
+`--verbose`, `--references`) or a second path is a usage error, exit `2`.
 
 Under `--fetch`, each failed fetch gets a kind (`ref_gone`, `unreachable`,
 `repo_not_found`, `timed_out`, …, else `failed` with git's line), and each

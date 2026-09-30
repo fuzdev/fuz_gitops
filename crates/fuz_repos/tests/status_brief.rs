@@ -276,6 +276,81 @@ fn reads_the_checkout_holding_the_path_a_linked_worktree_its_own() {
 }
 
 #[test]
+fn speaks_for_the_workspace_a_registry_kept_in_a_repo_is_linked_at() {
+    let mut ws = FixtureWorkspace::new();
+    app(&mut ws);
+    let meta = ws.owned_repo("meta", &[]);
+    support::write(&meta, ".git/info/exclude", ".claude/\n");
+    // committed in `meta`, linked at the root
+    ws.write_registry_in(&meta);
+    ws.git(&meta, &["add", "repos.toml"]);
+    ws.git(&meta, &["commit", "-q", "-m", "registry"]);
+    ws.assert_track(&meta, "main", "[ahead 1]");
+    let wt = meta.join(".claude/worktrees/agent");
+    ws.add_worktree(&meta, &wt, &["-b", "agent"]);
+    ws.assert_clean(&meta);
+    assert!(wt.join("repos.toml").is_file());
+    std::fs::create_dir(wt.join("src")).unwrap();
+
+    // found walking up from the path: `meta`'s own registry first, then its
+    // link at the root, which roots the workspace
+    let said = "repos: meta — 1 ahead of origin/main (unpushed)\n";
+    assert_eq!(brief(&ws, &meta), said);
+    assert_eq!(brief_env(&ws, &meta, &[], &[]), said);
+    let elsewhere = ws.outside("elsewhere");
+    std::fs::create_dir(&elsewhere).unwrap();
+    assert_eq!(
+        brief_env(&ws, &elsewhere, &[meta.to_str().unwrap()], &[]),
+        said
+    );
+    // a worktree's own copy is passed over for the main checkout's
+    assert_eq!(brief_env(&ws, &elsewhere, &[wt.to_str().unwrap()], &[]), "");
+    ws.git(&wt, &["branch", "-q", "--set-upstream-to", "origin/main"]);
+    ws.commit(&wt, "wip");
+    ws.assert_track(&wt, "agent", "[ahead 2]");
+    let said_wt = "repos: meta — 2 ahead of origin/main (unpushed)\n";
+    assert_eq!(brief_env(&ws, &wt.join("src"), &[], &[]), said_wt);
+
+    // the path is walked as the kernel resolves it: through a symlink into
+    // the worktree (lexically, no checkout and no registry entry above it)
+    let alias = ws.outside("alias");
+    std::os::unix::fs::symlink(wt.join("src"), &alias).unwrap();
+    assert_eq!(brief(&ws, &alias), said_wt);
+    // and `..` after one: `decoy/..` is the workspace root, not `elsewhere`
+    // (its stray link to the registry passed over)
+    std::os::unix::fs::symlink(meta.join("repos.toml"), elsewhere.join("repos.toml")).unwrap();
+    std::os::unix::fs::symlink(ws.dir("app"), elsewhere.join("decoy")).unwrap();
+    let dotted = elsewhere.join("decoy/../meta");
+    assert_eq!(dotted.canonicalize().unwrap(), meta);
+    assert_eq!(brief(&ws, &dotted), said);
+    // nothing there: silent
+    assert_eq!(brief(&ws, &elsewhere.join("decoy/../nope")), "");
+}
+
+#[test]
+fn silent_on_a_root_refused_in_an_entrys_checkout() {
+    let mut ws = FixtureWorkspace::new();
+    let meta = ws.owned_repo("meta", &[]);
+    // committed in `meta` and never linked at the root
+    ws.write_registry_in(&meta);
+    std::fs::remove_file(ws.root().join("repos.toml")).unwrap();
+    ws.git(&meta, &["add", "repos.toml"]);
+    ws.git(&meta, &["commit", "-q", "-m", "registry"]);
+    ws.assert_track(&meta, "main", "[ahead 1]");
+    let status = ws.command(REPOS, &meta).arg("status").output().unwrap();
+    assert_eq!(status.status.code(), Some(2), "{status:?}");
+
+    assert_eq!(brief(&ws, &meta), "");
+    assert_eq!(brief_env(&ws, &meta, &[], &[]), "");
+    // linked, it speaks
+    std::os::unix::fs::symlink(meta.join("repos.toml"), ws.root().join("repos.toml")).unwrap();
+    assert_eq!(
+        brief(&ws, &meta),
+        "repos: meta — 1 ahead of origin/main (unpushed)\n"
+    );
+}
+
+#[test]
 fn an_agent_worktree_hears_only_of_sessions_working_in_it() {
     let mut ws = FixtureWorkspace::new();
     let app = app(&mut ws);
