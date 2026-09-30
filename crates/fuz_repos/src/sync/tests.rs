@@ -1,4 +1,8 @@
+use super::step::{LazyFetch, PushedRef, first_message, pushed_ref, rejected};
 use super::*;
+use crate::classify::lazy_transport;
+use crate::porcelain::{self, ConfigFacts};
+use crate::registry::RepoUrl;
 
 #[test]
 fn git_s_first_error_line_is_the_message() {
