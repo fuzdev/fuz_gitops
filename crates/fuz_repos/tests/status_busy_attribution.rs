@@ -199,8 +199,8 @@ fn a_gone_worktree_with_nobody_in_it_holds_only_what_a_push_does_not_touch() {
 fn a_session_in_a_worktree_whose_gitdir_names_no_path_is_attributed_to_it() {
     for lost in ["missing", "empty", "unreadable"] {
         let mut ws = FixtureWorkspace::new();
-        let (app, wt, admin) = app_with_a_feat_worktree(&mut ws);
-        let gitdir = admin.join("gitdir");
+        let (app, wt, git_dir) = app_with_a_feat_worktree(&mut ws);
+        let gitdir = git_dir.join("gitdir");
         let _unseal = match lost {
             "missing" => {
                 std::fs::remove_file(&gitdir).unwrap();
@@ -224,12 +224,12 @@ fn a_session_in_a_worktree_whose_gitdir_names_no_path_is_attributed_to_it() {
 
         // its only path is its own git dir, which the `.git` a session in
         // it walks up to names
-        assert_feat_busy(&ws, &wt, &admin, 1);
+        assert_feat_busy(&ws, &wt, &git_dir, 1);
         let run = ws.status_live(&LiveSessions::Known(vec![]));
         let e = find_entry(&run.entries, "app");
         assert_eq!(
             e.unprobed_worktrees[0].worktree.path,
-            path(&admin),
+            path(&git_dir),
             "{lost}"
         );
         assert!(e.needs_human.is_empty(), "{lost}: {:?}", e.needs_human);
@@ -243,9 +243,9 @@ fn write_dot_git(dir: &Path, content: &[u8]) {
     std::fs::write(dir.join(".git"), content).unwrap();
 }
 
-/// A gitfile naming `admin`, padded with line breaks to `len` bytes.
-fn padded_gitfile(admin: &Path, len: usize) -> Vec<u8> {
-    let mut bytes = format!("gitdir: {}", admin.display()).into_bytes();
+/// A gitfile naming `git_dir`, padded with line breaks to `len` bytes.
+fn padded_gitfile(git_dir: &Path, len: usize) -> Vec<u8> {
+    let mut bytes = format!("gitdir: {}", git_dir.display()).into_bytes();
     bytes.resize(len, b'\n');
     bytes
 }
@@ -260,7 +260,7 @@ fn git_stops_at(ws: &FixtureWorkspace, dir: &Path) -> bool {
 #[test]
 fn a_dot_git_git_cannot_use_is_passed_over() {
     let mut ws = FixtureWorkspace::new();
-    let (app, wt, admin) = app_with_a_feat_worktree(&mut ws);
+    let (app, wt, git_dir) = app_with_a_feat_worktree(&mut ws);
     // out of the workspace root, so only the walk finds it
     let moved = ws.outside("elsewhere");
     move_by_hand(&ws, &app, &wt, &moved);
@@ -272,7 +272,7 @@ fn a_dot_git_git_cannot_use_is_passed_over() {
         let garbage = parent.join("garbage");
         write_dot_git(&garbage, b"not a gitfile\n");
         let oversize = parent.join("oversize");
-        write_dot_git(&oversize, &padded_gitfile(&admin, MAX_GITFILE_BYTES + 1));
+        write_dot_git(&oversize, &padded_gitfile(&git_dir, MAX_GITFILE_BYTES + 1));
         let nowhere = parent.join("nowhere");
         write_dot_git(&nowhere, b"gitdir: /nonexistent-git-dir\n");
         let looped = parent.join("looped");
@@ -288,7 +288,7 @@ fn a_dot_git_git_cannot_use_is_passed_over() {
         if parent == &moved {
             assert_eq!(
                 ws.git(&looped, &["rev-parse", "--absolute-git-dir"]),
-                path(&admin)
+                path(&git_dir)
             );
             // the moved worktree's `.git` above them is the walk's
             for dir in dirs {
@@ -309,7 +309,10 @@ fn a_dot_git_git_cannot_use_is_passed_over() {
     // gitfile and passes over the dir. Last: sealing binds only a non-root
     // user
     let sealed = moved.join("sealed");
-    write_dot_git(&sealed, format!("gitdir: {}\n", admin.display()).as_bytes());
+    write_dot_git(
+        &sealed,
+        format!("gitdir: {}\n", git_dir.display()).as_bytes(),
+    );
     let sealed_dir = moved.join("sealed-dir");
     std::fs::create_dir_all(sealed_dir.join(".git")).unwrap();
     let Some(_unseal) = support::seal(&sealed.join(".git"), 0o000) else {
@@ -321,7 +324,7 @@ fn a_dot_git_git_cannot_use_is_passed_over() {
     assert!(git_stops_at(&ws, &sealed));
     assert_eq!(
         ws.git(&sealed_dir, &["rev-parse", "--absolute-git-dir"]),
-        path(&admin)
+        path(&git_dir)
     );
     assert_feat_busy(&ws, &sealed, &wt, 2);
     assert_feat_busy(&ws, &sealed_dir, &wt, 2);
@@ -333,13 +336,13 @@ fn a_dot_git_git_cannot_use_is_passed_over() {
 /// attributed to the worktree.
 fn assert_gitfile_followed(content: &dyn Fn(&Path) -> Vec<u8>) {
     let mut ws = FixtureWorkspace::new();
-    let (app, wt, admin) = app_with_a_feat_worktree(&mut ws);
-    std::fs::write(wt.join(".git"), content(&admin)).unwrap();
+    let (app, wt, git_dir) = app_with_a_feat_worktree(&mut ws);
+    std::fs::write(wt.join(".git"), content(&git_dir)).unwrap();
     let moved = ws.outside("elsewhere");
     move_by_hand(&ws, &app, &wt, &moved);
     assert_eq!(
         ws.git(&moved, &["rev-parse", "--absolute-git-dir"]),
-        path(&admin)
+        path(&git_dir)
     );
     assert_feat_busy(&ws, &moved, &wt, 2);
 }
@@ -347,14 +350,14 @@ fn assert_gitfile_followed(content: &dyn Fn(&Path) -> Vec<u8>) {
 #[test]
 fn a_gitfile_is_followed_where_git_follows_it() {
     // a C string: what follows a NUL is ignored
-    assert_gitfile_followed(&|admin| {
-        let mut bytes = format!("gitdir: {}", admin.display()).into_bytes();
+    assert_gitfile_followed(&|git_dir| {
+        let mut bytes = format!("gitdir: {}", git_dir.display()).into_bytes();
         bytes.extend(b"\0junk\n");
         bytes
     });
     // line breaks trimmed however many, up to git's size limit
-    assert_gitfile_followed(&|admin| padded_gitfile(admin, 100_000));
-    assert_gitfile_followed(&|admin| padded_gitfile(admin, MAX_GITFILE_BYTES));
+    assert_gitfile_followed(&|git_dir| padded_gitfile(git_dir, 100_000));
+    assert_gitfile_followed(&|git_dir| padded_gitfile(git_dir, MAX_GITFILE_BYTES));
 }
 
 #[test]
@@ -366,15 +369,15 @@ fn a_gitfile_naming_a_path_that_is_not_utf8_is_followed() {
         eprintln!("skipped: the filesystem refuses a name that isn't UTF-8");
         return;
     }
-    assert_gitfile_followed(&|admin| {
+    assert_gitfile_followed(&|git_dir| {
         // the common dir by a symlink whose name isn't UTF-8
-        let common = admin.parent().unwrap().parent().unwrap();
+        let common = git_dir.parent().unwrap().parent().unwrap();
         let link = common.parent().unwrap().parent().unwrap().join(name);
         std::os::unix::fs::symlink(common, &link).unwrap();
         let mut bytes = b"gitdir: ".to_vec();
         bytes.extend(link.as_os_str().as_bytes());
         bytes.extend(b"/worktrees/");
-        bytes.extend(admin.file_name().unwrap().as_bytes());
+        bytes.extend(git_dir.file_name().unwrap().as_bytes());
         bytes.push(b'\n');
         bytes
     });
@@ -403,18 +406,18 @@ fn a_dot_git_symlinked_to_a_checkouts_git_dir_is_attributed_to_it() {
 #[test]
 fn a_session_inside_a_git_dir_works_in_its_checkout() {
     let mut ws = FixtureWorkspace::new();
-    let (app, wt, admin) = app_with_a_feat_worktree(&mut ws);
+    let (app, wt, git_dir) = app_with_a_feat_worktree(&mut ws);
     // git takes the git dir for the repo, and moves the branch its HEAD is
     // on from there
-    assert_eq!(ws.git(&admin, &["rev-parse", "--git-dir"]), ".");
+    assert_eq!(ws.git(&git_dir, &["rev-parse", "--git-dir"]), ".");
     let commit = ws.git(
-        &admin,
+        &git_dir,
         &["commit-tree", "HEAD:", "-p", "HEAD", "-m", "inside"],
     );
-    ws.git(&admin, &["update-ref", "HEAD", &commit]);
+    ws.git(&git_dir, &["update-ref", "HEAD", &commit]);
     ws.assert_track(&app, "feat", "[ahead 2]");
 
-    let s = session(9, &admin, SessionSource::SessionFile);
+    let s = session(9, &git_dir, SessionSource::SessionFile);
     let run = ws.status_live(&LiveSessions::Known(vec![s]));
     assert_eq!(run.sessions, Sessions::Available { unscoped: vec![] });
     let e = find_entry(&run.entries, "app");

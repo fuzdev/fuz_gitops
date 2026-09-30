@@ -17,7 +17,7 @@ use serde::de::IgnoredAny;
 use serde::{Deserialize, Serialize};
 
 use crate::error::{Error, Result};
-use crate::probe::canonical;
+use crate::paths::canonical;
 
 /// The default branch of a repo whose entry doesn't name one.
 const DEFAULT_BRANCH: &str = "main";

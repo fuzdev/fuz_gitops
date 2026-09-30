@@ -21,7 +21,7 @@ fn pruning_a_gone_detached_worktree_would_lose_its_commit() {
     let mut ws = FixtureWorkspace::new();
     let app = app(&mut ws);
     let wt = ws.dir("app-spike");
-    let admin = ws.add_worktree(&app, &wt, &["--detach"]);
+    let git_dir = ws.add_worktree(&app, &wt, &["--detach"]);
     let spike = ws.commit(&wt, "spike");
     std::fs::remove_dir_all(&wt).unwrap();
     // its HEAD is the only ref to the commit
@@ -38,7 +38,7 @@ fn pruning_a_gone_detached_worktree_would_lose_its_commit() {
         unprobed_facts(&e),
         [UnprobedWorktree {
             path: path(&wt),
-            git_dir: Some(path(&admin)),
+            git_dir: Some(path(&git_dir)),
             head: UnprobedHead::Detached { commit: spike },
             locked: false,
             in_progress: None,
@@ -59,7 +59,7 @@ fn pruning_a_worktree_moved_mid_rebase_would_lose_the_rebase() {
     let mut ws = FixtureWorkspace::new();
     let app = ws.owned_repo("app", &[("a.txt", "a\n")]);
     let wt = ws.dir("app-fix");
-    let admin = ws.add_worktree(&app, &wt, &["-b", "fix"]);
+    let git_dir = ws.add_worktree(&app, &wt, &["-b", "fix"]);
     support::write(&wt, "a.txt", "fix\n");
     ws.git(&wt, &["commit", "-q", "-am", "fix"]);
     support::write(&app, "a.txt", "main\n");
@@ -67,7 +67,7 @@ fn pruning_a_worktree_moved_mid_rebase_would_lose_the_rebase() {
     ws.git_fails(&wt, &["rebase", "-q", "main"]);
     // moved by hand: git calls the old path prunable
     std::fs::rename(&wt, ws.outside("moved-fix")).unwrap();
-    assert!(admin.join("rebase-merge").is_dir());
+    assert!(git_dir.join("rebase-merge").is_dir());
     let record = ws.worktree_record(&app, &wt);
     assert!(
         record.iter().any(|l| l.starts_with("prunable")),
@@ -227,9 +227,9 @@ fn a_gitdir_written_without_its_git_suffix_names_the_worktree_itself() {
     let mut ws = FixtureWorkspace::new();
     let app = app(&mut ws);
     let k = ws.outside("k");
-    let admin = ws.add_worktree(&app, &k, &["-b", "k"]);
+    let git_dir = ws.add_worktree(&app, &k, &["-b", "k"]);
     // by hand: git takes a `gitdir` without `/.git` as the worktree's path
-    std::fs::write(admin.join("gitdir"), format!("{}\n", k.display())).unwrap();
+    std::fs::write(git_dir.join("gitdir"), format!("{}\n", k.display())).unwrap();
     assert_eq!(
         ws.worktree_record(&app, &k)[0],
         format!("worktree {}", k.display())
@@ -279,9 +279,9 @@ fn no_gone_worktree_is_safe_to_remove_beside_a_relative_gitdir() {
     // 2.48+ resolves that against the git dir, older gits against the cwd,
     // and read against the cwd it's gone
     let k = ws.dir("k");
-    let k_admin = ws.add_worktree(&app, &k, &["-b", "k"]);
-    std::fs::write(k_admin.join("gitdir"), "../../../../k/.git\n").unwrap();
-    assert_eq!(k_admin.join("../../../../k").canonicalize().unwrap(), k);
+    let k_git_dir = ws.add_worktree(&app, &k, &["-b", "k"]);
+    std::fs::write(k_git_dir.join("gitdir"), "../../../../k/.git\n").unwrap();
+    assert_eq!(k_git_dir.join("../../../../k").canonicalize().unwrap(), k);
     support::write(&k, "l.txt", "live\n");
     ws.git(&k, &["add", "l.txt"]);
     ws.assert_porcelain(&k, &["A  l.txt"]);
@@ -293,7 +293,7 @@ fn no_gone_worktree_is_safe_to_remove_beside_a_relative_gitdir() {
     let e = ws.entry("app");
     let relative = Prune::Loses {
         losses: vec![PruneLoss::RelativeGitdir {
-            git_dir: path(&k_admin),
+            git_dir: path(&k_git_dir),
         }],
     };
     let gone = e
@@ -305,7 +305,7 @@ fn no_gone_worktree_is_safe_to_remove_beside_a_relative_gitdir() {
     assert_eq!(gone.prune.as_ref(), Some(&relative));
     // whichever way this git reads `k`, nothing is safe to remove
     let k_loss = PruneLoss::RelativeGitdir {
-        git_dir: path(&k_admin),
+        git_dir: path(&k_git_dir),
     };
     for u in &e.unprobed_worktrees {
         if u.worktree.why == UnprobedWhy::Prunable {
@@ -333,31 +333,31 @@ fn a_gone_worktrees_git_dir_can_hold_what_removing_it_loses() {
     ws.git(&app, &["push", "-q", "origin", "main"]);
     // `sm`: its submodule initialized, with a commit only there
     let sm = ws.outside("sm");
-    let sm_admin = ws.add_worktree(&app, &sm, &["-b", "sm"]);
+    let sm_git_dir = ws.add_worktree(&app, &sm, &["-b", "sm"]);
     ws.git(
         &sm,
         &[&file_ok[..], &["submodule", "update", "--init", "-q"]].concat(),
     );
     ws.commit(&sm.join("sub"), "only here");
-    assert!(sm_admin.join("modules/sub").is_dir());
+    assert!(sm_git_dir.join("modules/sub").is_dir());
     // `rw`: a commit only a per-worktree ref holds
     let rw = ws.outside("rw");
-    let rw_admin = ws.add_worktree(&app, &rw, &["-b", "rw"]);
+    let rw_git_dir = ws.add_worktree(&app, &rw, &["-b", "rw"]);
     let only = ws.commit(&rw, "only here");
     ws.git(&rw, &["update-ref", "refs/worktree/keep", &only]);
     ws.git(&rw, &["reset", "-q", "--hard", "HEAD~1"]);
     assert_eq!(ws.git(&app, &["for-each-ref", "--contains", &only]), "");
     // `st`: a change staged, in no commit
     let st = ws.outside("st");
-    let st_admin = ws.add_worktree(&app, &st, &["-b", "st"]);
+    let st_git_dir = ws.add_worktree(&app, &st, &["-b", "st"]);
     support::write(&st, "new.txt", "staged\n");
     ws.git(&st, &["add", "new.txt"]);
     ws.assert_porcelain(&st, &["A  new.txt"]);
     for wt in [&sm, &rw, &st] {
         std::fs::remove_dir_all(wt).unwrap();
     }
-    let admins = [&sm_admin, &rw_admin, &st_admin];
-    let before: Vec<_> = admins
+    let git_dirs = [&sm_git_dir, &rw_git_dir, &st_git_dir];
+    let before: Vec<_> = git_dirs
         .iter()
         .map(|a| support::snapshot_git_dir(a))
         .collect();
@@ -405,8 +405,8 @@ fn a_gone_worktrees_git_dir_can_hold_what_removing_it_loses() {
     );
     // read, never written: the index compare took no lock and refreshed
     // nothing
-    for (admin, before) in admins.iter().zip(&before) {
-        support::assert_git_dir_unchanged(before, &support::snapshot_git_dir(admin));
+    for (git_dir, before) in git_dirs.iter().zip(&before) {
+        support::assert_git_dir_unchanged(before, &support::snapshot_git_dir(git_dir));
     }
 }
 
@@ -481,33 +481,33 @@ fn what_a_gone_worktrees_index_and_refs_hold() {
     let app = app(&mut ws);
     let gone = |name: &str, args: &[&str]| {
         let wt = ws.outside(name);
-        let admin = ws.add_worktree(&app, &wt, args);
-        (wt, admin)
+        let git_dir = ws.add_worktree(&app, &wt, args);
+        (wt, git_dir)
     };
     // `ci`: an index git can't read
-    let (ci, ci_admin) = gone("ci", &["-b", "ci"]);
+    let (ci, ci_git_dir) = gone("ci", &["-b", "ci"]);
     // `ita`: only an intent to add, which holds no content
     let (ita, _) = gone("ita", &["-b", "ita"]);
     support::write(&ita, "n.txt", "n\n");
     ws.git(&ita, &["add", "-N", "n.txt"]);
     ws.assert_porcelain(&ita, &[" A n.txt"]);
     // `nc`: added `--no-checkout`, so no index at all
-    let (nc, nc_admin) = gone("nc", &["--no-checkout", "-b", "nc"]);
-    assert!(!nc_admin.join("index").exists());
+    let (nc, nc_git_dir) = gone("nc", &["--no-checkout", "-b", "nc"]);
+    assert!(!nc_git_dir.join("index").exists());
     // `rw`: a leftover `refs/rewritten/` ref, no operation in progress
-    let (rw, rw_admin) = gone("rw", &["-b", "rw"]);
+    let (rw, rw_git_dir) = gone("rw", &["-b", "rw"]);
     ws.git(&rw, &["update-ref", "refs/rewritten/x", "HEAD"]);
-    assert!(rw_admin.join("refs/rewritten/x").is_file());
+    assert!(rw_git_dir.join("refs/rewritten/x").is_file());
     // `bs`: a bisect started and reset, leaving an empty `refs/bisect/`
-    let (bs, bs_admin) = gone("bs", &["-b", "bs"]);
+    let (bs, bs_git_dir) = gone("bs", &["-b", "bs"]);
     for label in ["b1", "b2", "b3"] {
         ws.commit(&bs, label);
     }
     ws.git(&bs, &["bisect", "start", "HEAD", "HEAD~3"]);
     ws.git(&bs, &["bisect", "reset"]);
-    assert!(bs_admin.join("refs/bisect").is_dir());
+    assert!(bs_git_dir.join("refs/bisect").is_dir());
     assert!(
-        std::fs::read_dir(bs_admin.join("refs/bisect"))
+        std::fs::read_dir(bs_git_dir.join("refs/bisect"))
             .unwrap()
             .next()
             .is_none()
@@ -515,7 +515,7 @@ fn what_a_gone_worktrees_index_and_refs_hold() {
     for wt in [&ci, &ita, &nc, &rw, &bs] {
         std::fs::remove_dir_all(wt).unwrap();
     }
-    std::fs::write(ci_admin.join("index"), "garbage\n").unwrap();
+    std::fs::write(ci_git_dir.join("index"), "garbage\n").unwrap();
 
     let e = ws.entry("app");
     let held = |wt: &Path| {
@@ -587,17 +587,17 @@ fn a_reftable_gone_worktrees_refs_are_read_from_git() {
     // one of git's per-worktree namespaces
     let gone = |name: &str, per_worktree: Option<&str>| {
         let wt = ws.outside(name);
-        let admin = ws.add_worktree(&app, &wt, &["-b", name]);
+        let git_dir = ws.add_worktree(&app, &wt, &["-b", name]);
         if let Some(r) = per_worktree {
             ws.git(&wt, &["update-ref", r, "HEAD"]);
         }
         // every reftable worktree git dir holds a `refs/heads` stub
-        assert!(admin.join("reftable").is_dir(), "{name}");
-        assert!(admin.join("refs/heads").is_file(), "{name}");
+        assert!(git_dir.join("reftable").is_dir(), "{name}");
+        assert!(git_dir.join("refs/heads").is_file(), "{name}");
         std::fs::remove_dir_all(&wt).unwrap();
-        (wt, admin)
+        (wt, git_dir)
     };
-    let (plain, plain_admin) = gone("plain", None);
+    let (plain, plain_git_dir) = gone("plain", None);
     let (bs, _) = gone("bs", Some("refs/bisect/bad"));
     let (wt, _) = gone("wt", Some("refs/worktree/keep"));
     let (rw, _) = gone("rw", Some("refs/rewritten/x"));
@@ -614,7 +614,7 @@ fn a_reftable_gone_worktrees_refs_are_read_from_git() {
         ),
         ""
     );
-    let before = support::snapshot_git_dir(&plain_admin);
+    let before = support::snapshot_git_dir(&plain_git_dir);
 
     let e = ws.entry("app");
     let held = |wt: &Path| {
@@ -643,14 +643,14 @@ fn a_reftable_gone_worktrees_refs_are_read_from_git() {
             wt.display()
         );
     }
-    support::assert_git_dir_unchanged(&before, &support::snapshot_git_dir(&plain_admin));
+    support::assert_git_dir_unchanged(&before, &support::snapshot_git_dir(&plain_git_dir));
     // tables git can't read count as held: git lists nothing from them,
     // and exits 0
-    std::fs::write(plain_admin.join("reftable/tables.list"), "garbage\n").unwrap();
+    std::fs::write(plain_git_dir.join("reftable/tables.list"), "garbage\n").unwrap();
     let listed = ws.git_output(
         &app,
         &[
-            &format!("--git-dir={}", plain_admin.display()),
+            &format!("--git-dir={}", plain_git_dir.display()),
             "for-each-ref",
             "refs/",
         ],
@@ -673,10 +673,10 @@ fn a_gone_worktrees_refs_that_cannot_be_read_count_as_held() {
     let mut ws = FixtureWorkspace::new();
     let app = app(&mut ws);
     let wt = ws.outside("ur");
-    let admin = ws.add_worktree(&app, &wt, &["-b", "ur"]);
+    let git_dir = ws.add_worktree(&app, &wt, &["-b", "ur"]);
     std::fs::remove_dir_all(&wt).unwrap();
-    std::fs::create_dir_all(admin.join("refs/worktree")).unwrap();
-    let Some(_sealed) = support::seal(&admin.join("refs"), 0o000) else {
+    std::fs::create_dir_all(git_dir.join("refs/worktree")).unwrap();
+    let Some(_sealed) = support::seal(&git_dir.join("refs"), 0o000) else {
         return;
     };
 

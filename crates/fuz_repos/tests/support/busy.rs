@@ -120,8 +120,8 @@ pub fn app_with_a_feat_worktree(ws: &mut FixtureWorkspace) -> (PathBuf, PathBuf,
     ws.assert_track(&app, "main", "[ahead 1]");
     ahead_branch(ws, &app, "feat");
     let wt = ws.dir("app-feat");
-    let admin = ws.add_worktree(&app, &wt, &["feat"]);
-    (app, wt, admin)
+    let git_dir = ws.add_worktree(&app, &wt, &["feat"]);
+    (app, wt, git_dir)
 }
 
 /// Moves `app`'s worktree `wt` to `to` with a plain `mv`, and checks git

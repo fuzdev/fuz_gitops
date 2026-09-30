@@ -241,7 +241,7 @@ fn a_worktree_gitdir_is_read_as_git_reads_it() {
     ];
     for (content, path, nul) in rows {
         std::fs::write(git_dir.join("gitdir"), content).unwrap();
-        let got = read_worktree_gitdir(git_dir).unwrap();
+        let got = read_gitdir_file(git_dir).unwrap();
         assert_eq!(got.path.as_os_str().as_bytes(), path, "{content:?}");
         assert_eq!(got.nul, nul, "{content:?}");
     }
@@ -250,14 +250,14 @@ fn a_worktree_gitdir_is_read_as_git_reads_it() {
     let max = usize::try_from(MAX_GIT_C_STRING_BYTES).unwrap();
     padded.resize(max + 1, b'\n');
     std::fs::write(git_dir.join("gitdir"), &padded).unwrap();
-    let e = read_worktree_gitdir(git_dir).unwrap_err();
+    let e = read_gitdir_file(git_dir).unwrap_err();
     assert_eq!(e.kind(), std::io::ErrorKind::InvalidData);
     // missing, or not a regular file
     std::fs::remove_file(git_dir.join("gitdir")).unwrap();
-    let e = read_worktree_gitdir(git_dir).unwrap_err();
+    let e = read_gitdir_file(git_dir).unwrap_err();
     assert_eq!(e.kind(), std::io::ErrorKind::NotFound);
     std::fs::create_dir(git_dir.join("gitdir")).unwrap();
-    let e = read_worktree_gitdir(git_dir).unwrap_err();
+    let e = read_gitdir_file(git_dir).unwrap_err();
     assert_eq!(e.kind(), std::io::ErrorKind::InvalidInput);
 }
 

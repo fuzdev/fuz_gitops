@@ -5,9 +5,9 @@ use std::path::Path;
 
 use serde::Serialize;
 
-use crate::busy::same_path;
 use crate::classify::NeedsHuman;
 use crate::error::{Error, ErrorKind};
+use crate::paths::same_path;
 use crate::registry::{EntryKind, Visibility};
 use crate::remote::{RemoteFailure, VisibilityCheck};
 use crate::sessions::{Session, Unavailable};
@@ -295,7 +295,7 @@ impl EntryStatus {
     }
 
     /// The probed checkout at `path`, compared as the kernel resolves both
-    /// (`busy::same_path`); `None` when none of them is.
+    /// (`paths::same_path`); `None` when none of them is.
     pub fn checkout_at(&self, path: &Path) -> Option<&Checkout> {
         self.checkouts
             .iter()

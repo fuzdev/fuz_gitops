@@ -72,8 +72,8 @@ pub fn copy_dir(ws: &FixtureWorkspace, from: &Path, to: &Path) {
 }
 
 /// The file a linked worktree's git dir names it by, as written.
-pub fn gitdir_file(admin: &Path) -> String {
-    std::fs::read_to_string(admin.join("gitdir"))
+pub fn gitdir_file(git_dir: &Path) -> String {
+    std::fs::read_to_string(git_dir.join("gitdir"))
         .unwrap()
         .trim_end()
         .to_owned()
@@ -97,10 +97,10 @@ pub fn shared_unnamed(entry: &str) -> UnregisteredKind {
 /// `<root>/<name>-moved`; returns the new path and its git dir.
 pub fn moved_by_hand(ws: &FixtureWorkspace, app: &Path, name: &str) -> (PathBuf, PathBuf) {
     let wt = ws.dir(name);
-    let admin = ws.add_worktree(app, &wt, &["-b", name]);
+    let git_dir = ws.add_worktree(app, &wt, &["-b", name]);
     let moved_to = ws.dir(&format!("{name}-moved"));
     std::fs::rename(&wt, &moved_to).unwrap();
-    (moved_to, admin)
+    (moved_to, git_dir)
 }
 
 /// Where a checkout's `.git` file points, by the git dir's name.

@@ -1,9 +1,11 @@
 //! Git's own files, read exactly as git reads them: a gitfile (a `.git`
 //! file naming a git dir), a git dir's `commondir` and `HEAD` (a loose ref,
 //! or a symlink naming one), and a worktree git dir's `gitdir` (the
-//! worktree it names). The probe, the unregistered scan, and busy
-//! attribution all read them here, so each follows what git follows and
-//! nothing git refuses.
+//! worktree it names) — a worktree git dir being a linked worktree's own
+//! git dir, `<commondir>/worktrees/<id>`, listed here with what each
+//! names (`read_worktree_git_dirs`). The probe, the unregistered scan, and
+//! busy attribution all read them here, so each follows what git follows
+//! and nothing git refuses.
 //!
 //! Git reads each as raw bytes, trims a few trailing bytes (line breaks, or
 //! its own whitespace — the ASCII space, tab, and line breaks, never the
@@ -24,6 +26,7 @@ use std::io::Read as _;
 use std::os::unix::ffi::OsStrExt as _;
 use std::path::{Path, PathBuf};
 
+use crate::paths::realpath_forgiving;
 use crate::porcelain::is_object_id;
 use crate::regular_file::{open_regular, read_bounded_bytes};
 use crate::state::UnprobedHead;
@@ -135,14 +138,103 @@ pub fn read_commondir(git_dir: &Path) -> std::io::Result<Option<PathBuf>> {
     Ok(Some(git_dir.join(OsStr::from_bytes(&bytes))))
 }
 
-/// A linked worktree's git dir's `gitdir` file, as git reads it
-/// (`read_worktree_gitdir`).
+/// A linked worktree's git dir, `<commondir>/worktrees/<id>` — the
+/// worktree's own `$GIT_DIR`, where it keeps its `HEAD`, index, and
+/// operation state — and what its `gitdir` file names.
 #[derive(Debug)]
-pub struct WorktreeGitdir {
+pub struct WorktreeGitDir {
+    pub dir: PathBuf,
+    pub gitdir: GitdirTarget,
+}
+
+/// Every worktree git dir under `<commondir>/worktrees/`, readable or not,
+/// sorted by path; entries that aren't dirs are skipped, as git skips them
+/// (and prune deletes them).
+///
+/// # Errors
+///
+/// When `worktrees/` exists but can't be listed.
+pub fn read_worktree_git_dirs(common_dir: &Path) -> std::io::Result<Vec<WorktreeGitDir>> {
+    let dirs = match std::fs::read_dir(common_dir.join("worktrees")) {
+        Ok(dirs) => dirs,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(e) => return Err(e),
+    };
+    let mut git_dirs = Vec::new();
+    for d in dirs {
+        let dir = d?.path();
+        // one that can't be stat'd stays, failing closed
+        if std::fs::metadata(&dir).is_ok_and(|m| !m.is_dir()) {
+            continue;
+        }
+        let gitdir = read_gitdir_target(&dir);
+        git_dirs.push(WorktreeGitDir { dir, gitdir });
+    }
+    git_dirs.sort_by(|a, b| a.dir.cmp(&b.dir));
+    Ok(git_dirs)
+}
+
+/// What a worktree git dir's `gitdir` file names, read as git reads it
+/// (`read_gitdir_file`), with the read error's kind kept: a missing or
+/// empty file is lost (`git worktree repair` rewrites it), any other
+/// failure may hide a worktree in use.
+#[derive(Debug)]
+pub enum GitdirTarget {
+    /// A worktree path. `written` is the path as git takes it — raw bytes,
+    /// trailing whitespace (git's own) trimmed, a trailing `/.git`
+    /// stripped, then cut at the first NUL (`read_gitdir_file`) — never
+    /// empty: what git's messages name. `worktree` is that joined to the
+    /// git dir (git 2.48+ resolves a relative one there) and resolved as
+    /// far as it exists (`paths::realpath_forgiving`): how git 2.48+'s
+    /// worktree list derives the path it prints, so the two compare equal
+    /// even when the worktree is gone. `nul` when a NUL is left in it once
+    /// trimmed, so a repair of the worktree reads it otherwise
+    /// (`GitdirFile::nul`).
+    Names {
+        worktree: PathBuf,
+        written: PathBuf,
+        nul: bool,
+    },
+    /// The file names no path: it's empty, or nothing's left once trimmed
+    /// and cut.
+    Empty,
+    /// No `gitdir` file (the read's error, for messages).
+    Missing(std::io::Error),
+    /// A `gitdir` file that's there but can't be read, so the tool can't
+    /// tell what worktree git names by it.
+    Unreadable(std::io::Error),
+}
+
+impl GitdirTarget {
+    /// Whether it names its worktree by a relative path, which git 2.48+
+    /// resolves against the git dir and older gits against the cwd.
+    pub fn is_relative(&self) -> bool {
+        matches!(self, Self::Names { written, .. } if written.is_relative())
+    }
+}
+
+/// Reads what a worktree git dir's `gitdir` file names (`GitdirTarget`).
+pub fn read_gitdir_target(git_dir: &Path) -> GitdirTarget {
+    match read_gitdir_file(git_dir) {
+        Ok(file) if file.path.as_os_str().is_empty() => GitdirTarget::Empty,
+        Ok(file) => GitdirTarget::Names {
+            worktree: realpath_forgiving(&git_dir.join(&file.path)),
+            written: file.path,
+            nul: file.nul,
+        },
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => GitdirTarget::Missing(e),
+        Err(e) => GitdirTarget::Unreadable(e),
+    }
+}
+
+/// A worktree git dir's `gitdir` file, as git reads it
+/// (`read_gitdir_file`).
+#[derive(Debug)]
+struct GitdirFile {
     /// The worktree path it names, as written: where git lists the
     /// worktree, and the path `git worktree repair` walks to. Empty when it
     /// names none.
-    pub path: PathBuf,
+    path: PathBuf,
     /// Whether a NUL is left once the end is trimmed. Git then reads the
     /// file two ways: its worktree list strips a `/.git` only from the
     /// whole buffer's end before cutting at the NUL, while `git worktree
@@ -150,13 +242,13 @@ pub struct WorktreeGitdir {
     /// the NUL with that worktree's `.git` — so a `<w>/.git\0junk` lists the
     /// worktree at `<w>/.git` and yet looks right to a repair of `<w>`,
     /// which then changes nothing.
-    pub nul: bool,
+    nul: bool,
 }
 
-/// A linked worktree's git dir's (`<commondir>/worktrees/<id>`) `gitdir`
-/// file, read as git's `get_linked_worktree` reads it — the path git lists
-/// the worktree at, and the one `git worktree repair` walks to: the file
-/// whole (the path followed), trailing whitespace dropped (git's own,
+/// A worktree git dir's (`<commondir>/worktrees/<id>`) `gitdir` file,
+/// read as git's `get_linked_worktree` reads it — the path git lists the
+/// worktree at, and the one `git worktree repair` walks to: the file whole
+/// (the path followed), trailing whitespace dropped (git's own,
 /// `is_git_space`), then a trailing `/.git` dropped from what's left, and
 /// only then a C string, cut at the first NUL — so `<w>/.git\0junk` names
 /// `<w>/.git` itself. Leading whitespace stays, and the path is raw bytes,
@@ -172,11 +264,11 @@ pub struct WorktreeGitdir {
 /// When the file can't be read, isn't a regular one, or is larger than the
 /// tool's own limit (`MAX_GIT_C_STRING_BYTES`; git reads it whole, however
 /// large) — `NotFound` when there's nothing at that name to read.
-pub fn read_worktree_gitdir(git_dir: &Path) -> std::io::Result<WorktreeGitdir> {
+fn read_gitdir_file(git_dir: &Path) -> std::io::Result<GitdirFile> {
     let bytes = read_bounded_bytes(&git_dir.join("gitdir"), MAX_GIT_C_STRING_BYTES)?;
     let trimmed = trim_end(&bytes, is_git_space);
     let stripped = trimmed.strip_suffix(b"/.git").unwrap_or(trimmed);
-    Ok(WorktreeGitdir {
+    Ok(GitdirFile {
         path: c_path(stripped).to_owned(),
         nul: trimmed.contains(&0),
     })

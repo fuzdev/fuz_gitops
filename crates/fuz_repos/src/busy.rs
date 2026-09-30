@@ -142,9 +142,10 @@
 
 use std::collections::BTreeMap;
 use std::ffi::OsStr;
-use std::path::{Component, Path, PathBuf};
+use std::path::{Path, PathBuf};
 
 use crate::gitdir::{read_commondir, read_gitfile, read_head};
+use crate::paths::{Unresolved, resolve};
 use crate::report::Sessions;
 use crate::sessions::{ClaudeLock, LiveSessions, Session, Unavailable, claude_lock};
 use crate::state::UnprobedHead;
@@ -309,13 +310,6 @@ fn claude_root(common: &Path) -> PathBuf {
     }
 }
 
-/// Where resolving a path stopped, and why.
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct Unresolved {
-    path: String,
-    error: String,
-}
-
 impl From<Unresolved> for Unavailable {
     fn from(u: Unresolved) -> Self {
         Self::Unreadable {
@@ -325,58 +319,12 @@ impl From<Unresolved> for Unavailable {
     }
 }
 
-/// An absolute path resolved as the kernel would — symlinks followed, `.`
-/// and `..` applied — component by component, so a component that doesn't
-/// exist (a deleted dir, or a name under a file) is taken as written and
-/// `..` past it undoes it, while whatever does exist around it still
-/// resolves.
-///
-/// A component that can't be looked up for any other reason — in a dir the
-/// tool can't search, a symlink loop (which the kernel cuts short) — fails:
-/// where the path leads can't be told, so taking it as written could leave
-/// a session unscoped.
-fn resolve(path: &Path) -> Result<PathBuf, Unresolved> {
-    if let Ok(real) = path.canonicalize() {
-        return Ok(real);
-    }
-    let mut out = PathBuf::new();
-    for c in path.components() {
-        match c {
-            Component::Prefix(_) | Component::RootDir => out.push(c),
-            Component::CurDir => {}
-            // `out` is canonical up to any component taken as written, and
-            // neither is a symlink: `..` is lexical from here
-            Component::ParentDir => {
-                out.pop();
-            }
-            Component::Normal(name) => {
-                out.push(name);
-                match out.canonicalize() {
-                    Ok(real) => out = real,
-                    Err(e)
-                        if matches!(
-                            e.kind(),
-                            std::io::ErrorKind::NotFound | std::io::ErrorKind::NotADirectory
-                        ) => {}
-                    Err(e) => {
-                        return Err(Unresolved {
-                            path: out.to_string_lossy().into_owned(),
-                            error: e.to_string(),
-                        });
-                    }
-                }
-            }
-        }
-    }
-    Ok(out)
-}
-
 /// The live sessions with a place at or under `path`, a missing entry's
 /// dir, where its clone would land.
 ///
 /// A session whose dir was deleted from under it keeps its recorded cwd
 /// there. Compared by path
-/// component, both sides resolved (`resolve`, which takes the missing
+/// component, both sides resolved (`paths::resolve`, which takes the missing
 /// components as written), and as written besides, so a place that can't
 /// be resolved still counts when its text is under `path`.
 ///
@@ -401,13 +349,6 @@ pub fn sessions_under(live: &LiveSessions, path: &Path) -> Vec<Session> {
         })
         .cloned()
         .collect()
-}
-
-/// Whether `a` and `b` name one path once each is resolved as the kernel
-/// would (`resolve`: missing components taken as written); `false` when
-/// either can't be.
-pub fn same_path(a: &Path, b: &Path) -> bool {
-    matches!((resolve(a), resolve(b)), (Ok(a), Ok(b)) if a == b)
 }
 
 /// One entry's checkouts, as busy detection scopes sessions to them.

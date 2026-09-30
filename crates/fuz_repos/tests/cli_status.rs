@@ -180,7 +180,7 @@ fn status_from_a_linked_worktree_outside_the_workspace() {
     ws.assert_porcelain(&scratch, &["?? notes.txt"]);
     // and one deleted by hand
     let gone = ws.outside("app-gone");
-    let gone_admin = ws.add_worktree(&app, &gone, &["-b", "gone"]);
+    let gone_git_dir = ws.add_worktree(&app, &gone, &["-b", "gone"]);
     std::fs::remove_dir_all(&gone).unwrap();
     for wt in [&feature, &scratch, &gone] {
         assert!(!wt.starts_with(ws.root()));
@@ -211,7 +211,7 @@ fn status_from_a_linked_worktree_outside_the_workspace() {
         e["unprobed_worktrees"],
         serde_json::json!([{
             "path": gone.to_str().unwrap(),
-            "git_dir": gone_admin.to_str().unwrap(),
+            "git_dir": gone_git_dir.to_str().unwrap(),
             "head": {"kind": "branch", "name": "gone"},
             "holds": {"submodules": false, "worktree_refs": false, "staged": false},
             "locked": false,

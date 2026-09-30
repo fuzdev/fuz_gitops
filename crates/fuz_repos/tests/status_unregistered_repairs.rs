@@ -54,9 +54,9 @@ fn swapped_worktrees_are_repaired_one_safe_step_at_a_time() {
     std::fs::rename(&new, &feat).unwrap();
     assert_eq!(points_at(&old), "app-feat");
     assert_eq!(points_at(&feat), "app-new");
-    let admin = |id: &str| app.join(".git/worktrees").join(id);
+    let git_dir = |id: &str| app.join(".git/worktrees").join(id);
     assert_eq!(
-        gitdir_file(&admin("app-feat")),
+        gitdir_file(&git_dir("app-feat")),
         feat.join(".git").to_str().unwrap()
     );
 
@@ -71,7 +71,7 @@ fn swapped_worktrees_are_repaired_one_safe_step_at_a_time() {
                 "app-feat",
                 Some(&origin),
                 true,
-                moved_claimed("app", &admin("app-feat"))
+                moved_claimed("app", &git_dir("app-feat"))
             ),
             stray("app-old", Some(&origin), true, moved("app")),
         ]
@@ -101,7 +101,7 @@ fn a_repair_that_would_rewrite_another_checkout_is_not_offered() {
     // git dir `q` names `<root>/q`, which now holds the worktree of git dir
     // `q2` (swapped by hand, the original deleted)
     let q = ws.dir("q");
-    let q_admin = ws.add_worktree(&app, &q, &["-b", "y"]);
+    let q_git_dir = ws.add_worktree(&app, &q, &["-b", "y"]);
     let q2 = ws.dir("q2");
     ws.add_worktree(&app, &q2, &["-b", "y2"]);
     std::fs::remove_dir_all(&q).unwrap();
@@ -117,12 +117,12 @@ fn a_repair_that_would_rewrite_another_checkout_is_not_offered() {
     assert_eq!(
         ws.unregistered(),
         [
-            stray("q", Some(&origin), true, moved_claimed("app", &q_admin)),
+            stray("q", Some(&origin), true, moved_claimed("app", &q_git_dir)),
             stray(
                 "s-moved",
                 Some(&origin),
                 true,
-                moved_rewrites("app", &q, &q_admin)
+                moved_rewrites("app", &q, &q_git_dir)
             ),
         ]
     );
@@ -140,7 +140,7 @@ fn a_repair_that_would_write_into_a_plain_dir_is_not_offered() {
     let else_dir = ws.outside("else");
     std::fs::create_dir(&else_dir).unwrap();
     let y = else_dir.join("y");
-    let y_admin = ws.add_worktree(&app, &y, &["-b", "y"]);
+    let y_git_dir = ws.add_worktree(&app, &y, &["-b", "y"]);
     std::fs::remove_dir_all(&y).unwrap();
     support::write(&y, "notes.txt", "mine\n");
     // and one git would only complain about: a blocked repair carries no
@@ -160,7 +160,7 @@ fn a_repair_that_would_write_into_a_plain_dir_is_not_offered() {
             "s-moved",
             Some(&owned_origin("app")),
             true,
-            moved_rewrites("app", &y, &y_admin)
+            moved_rewrites("app", &y, &y_git_dir)
         )]
     );
 
@@ -176,10 +176,10 @@ fn a_git_link_into_a_moved_worktrees_git_dir_is_not_repairable() {
     let app = app(&mut ws);
     let far = ws.outside("far");
     std::fs::create_dir(&far).unwrap();
-    let admin = ws.add_worktree(&app, &far.join("wf"), &["-b", "wf"]);
+    let git_dir = ws.add_worktree(&app, &far.join("wf"), &["-b", "wf"]);
     let link = ws.dir("link");
     std::fs::create_dir(&link).unwrap();
-    symlink(&admin, link.join(".git")).unwrap();
+    symlink(&git_dir, link.join(".git")).unwrap();
     std::fs::remove_dir_all(&far).unwrap();
     ws.assert_head(&link, Some("wf"));
     // git won't repair through a `.git` that isn't a file
@@ -323,10 +323,10 @@ fn a_gitdir_without_a_git_suffix_names_the_dir_itself() {
     // git dir `k` names `<app>/sub` by hand: git takes it as the worktree
     // itself, not `<app>`
     let k = ws.outside("k");
-    let k_admin = ws.add_worktree(&app, &k, &["-b", "k"]);
+    let k_git_dir = ws.add_worktree(&app, &k, &["-b", "k"]);
     let sub = app.join("sub");
     std::fs::create_dir(&sub).unwrap();
-    std::fs::write(k_admin.join("gitdir"), format!("{}\n", sub.display())).unwrap();
+    std::fs::write(k_git_dir.join("gitdir"), format!("{}\n", sub.display())).unwrap();
     assert_eq!(
         ws.worktree_record(&app, &sub)[0],
         format!("worktree {}", sub.display())
@@ -338,7 +338,7 @@ fn a_gitdir_without_a_git_suffix_names_the_dir_itself() {
             "s-moved",
             Some(&owned_origin("app")),
             true,
-            moved_rewrites("app", &sub, &k_admin)
+            moved_rewrites("app", &sub, &k_git_dir)
         )]
     );
     // what the refused repair would do: write a `.git` into the main checkout
@@ -357,7 +357,7 @@ fn a_hazard_git_that_is_broken_or_a_link_is_judged_as_git_does() {
     // `h` elsewhere, its `.git` a link to a gitfile naming its own git dir:
     // git follows the link, finds it right, and leaves it be
     let h = ws.outside("h");
-    let h_admin = ws.add_worktree(&app, &h, &["-b", "h"]);
+    let h_git_dir = ws.add_worktree(&app, &h, &["-b", "h"]);
     let gitfile = ws.outside("h.gitfile");
     std::fs::rename(h.join(".git"), &gitfile).unwrap();
     symlink(&gitfile, h.join(".git")).unwrap();
@@ -377,7 +377,7 @@ fn a_hazard_git_that_is_broken_or_a_link_is_judged_as_git_does() {
             "s-moved",
             Some(&origin),
             true,
-            moved_rewrites("app", &h, &h_admin)
+            moved_rewrites("app", &h, &h_git_dir)
         )]
     );
 
@@ -390,7 +390,7 @@ fn a_hazard_git_that_is_broken_or_a_link_is_judged_as_git_does() {
             "s-moved",
             Some(&origin),
             true,
-            moved_rewrites("app", &h, &h_admin)
+            moved_rewrites("app", &h, &h_git_dir)
         )]
     );
 }
@@ -400,9 +400,9 @@ fn two_swapped_worktrees_are_told_to_move_back() {
     let mut ws = FixtureWorkspace::new();
     let app = app(&mut ws);
     let wa = ws.dir("wa");
-    let wa_admin = ws.add_worktree(&app, &wa, &["-b", "a"]);
+    let wa_git_dir = ws.add_worktree(&app, &wa, &["-b", "a"]);
     let wb = ws.dir("wb");
-    let wb_admin = ws.add_worktree(&app, &wb, &["-b", "b"]);
+    let wb_git_dir = ws.add_worktree(&app, &wb, &["-b", "b"]);
     let tmp = ws.dir("tmp");
     std::fs::rename(&wa, &tmp).unwrap();
     std::fs::rename(&wb, &wa).unwrap();
@@ -422,8 +422,8 @@ fn two_swapped_worktrees_are_told_to_move_back() {
     assert_eq!(
         ws.unregistered(),
         [
-            stray("wa", Some(&origin), true, swapped(&wa_admin, "wb")),
-            stray("wb", Some(&origin), true, swapped(&wb_admin, "wa")),
+            stray("wa", Some(&origin), true, swapped(&wa_git_dir, "wb")),
+            stray("wb", Some(&origin), true, swapped(&wb_git_dir, "wa")),
         ]
     );
 
@@ -435,7 +435,8 @@ fn two_swapped_worktrees_are_told_to_move_back() {
 
     // a three-way rotation isn't a swap: wa's claimant has its own dir
     // claimed, but by another git dir than wa's
-    let (ws, admin) = three_worktrees(&[("wa", "tmp"), ("wc", "wa"), ("wb", "wc"), ("tmp", "wb")]);
+    let (ws, git_dir) =
+        three_worktrees(&[("wa", "tmp"), ("wc", "wa"), ("wb", "wc"), ("tmp", "wb")]);
     assert_eq!(points_at(&ws.dir("wa")), "wc");
     assert_eq!(
         ws.unregistered(),
@@ -444,26 +445,26 @@ fn two_swapped_worktrees_are_told_to_move_back() {
                 "wa",
                 Some(&origin),
                 true,
-                moved_claimed("app", &admin("wa"))
+                moved_claimed("app", &git_dir("wa"))
             ),
             stray(
                 "wb",
                 Some(&origin),
                 true,
-                moved_claimed("app", &admin("wb"))
+                moved_claimed("app", &git_dir("wb"))
             ),
             stray(
                 "wc",
                 Some(&origin),
                 true,
-                moved_rewrites("app", &ws.dir("wa"), &admin("wa"))
+                moved_rewrites("app", &ws.dir("wa"), &git_dir("wa"))
             ),
         ]
     );
 
     // nor is a three-step chain: wa's claimant is blocked by another dir
     // than its own
-    let (ws, admin) = three_worktrees(&[("wa", "wa-old"), ("wb", "wa"), ("wc", "wb")]);
+    let (ws, git_dir) = three_worktrees(&[("wa", "wa-old"), ("wb", "wa"), ("wc", "wb")]);
     assert_eq!(points_at(&ws.dir("wa-old")), "wa");
     assert_eq!(
         ws.unregistered(),
@@ -472,19 +473,19 @@ fn two_swapped_worktrees_are_told_to_move_back() {
                 "wa",
                 Some(&origin),
                 true,
-                moved_claimed("app", &admin("wa"))
+                moved_claimed("app", &git_dir("wa"))
             ),
             stray(
                 "wa-old",
                 Some(&origin),
                 true,
-                moved_rewrites("app", &ws.dir("wb"), &admin("wb"))
+                moved_rewrites("app", &ws.dir("wb"), &git_dir("wb"))
             ),
             stray(
                 "wb",
                 Some(&origin),
                 true,
-                moved_rewrites("app", &ws.dir("wa"), &admin("wa"))
+                moved_rewrites("app", &ws.dir("wa"), &git_dir("wa"))
             ),
         ]
     );
@@ -678,11 +679,11 @@ fn a_blocking_path_shows_as_the_git_dir_writes_it() {
     let link = ws.outside("link");
     symlink(&real, &link).unwrap();
     let y = real.join("y");
-    let y_admin = ws.add_worktree(&app, &y, &["-b", "y"]);
+    let y_git_dir = ws.add_worktree(&app, &y, &["-b", "y"]);
     std::fs::remove_file(y.join(".git")).unwrap();
     let written = link.join("y");
     std::fs::write(
-        y_admin.join("gitdir"),
+        y_git_dir.join("gitdir"),
         format!("{}\n", written.join(".git").display()),
     )
     .unwrap();
@@ -697,7 +698,7 @@ fn a_blocking_path_shows_as_the_git_dir_writes_it() {
             "s-moved",
             Some(&owned_origin("app")),
             true,
-            moved_rewrites("app", &written, &y_admin)
+            moved_rewrites("app", &written, &y_git_dir)
         )]
     );
 }
@@ -710,9 +711,12 @@ fn a_relative_gitdir_blocks_every_repair_in_its_repo() {
     // against the git dir, older gits against the cwd — where a repair
     // would write a `.git` into whatever dir that names
     let k = ws.outside("k");
-    let k_admin = ws.add_worktree(&app, &k, &["-b", "k"]);
-    std::fs::write(k_admin.join("gitdir"), "../../../../../k/.git\n").unwrap();
-    assert_eq!(k_admin.join("../../../../../k").canonicalize().unwrap(), k);
+    let k_git_dir = ws.add_worktree(&app, &k, &["-b", "k"]);
+    std::fs::write(k_git_dir.join("gitdir"), "../../../../../k/.git\n").unwrap();
+    assert_eq!(
+        k_git_dir.join("../../../../../k").canonicalize().unwrap(),
+        k
+    );
     // an unrelated worktree, moved
     let s_dir = ws.dir("s");
     ws.add_worktree(&app, &s_dir, &["-b", "s"]);
@@ -724,7 +728,7 @@ fn a_relative_gitdir_blocks_every_repair_in_its_repo() {
         "s-moved",
         Some(&origin),
         true,
-        moved_relative("app", &k_admin),
+        moved_relative("app", &k_git_dir),
     )];
     assert_eq!(ws.unregistered(), blocked);
     // and whatever else stands in the way, the relative gitdir comes first:
@@ -746,12 +750,12 @@ fn a_noisy_path_shows_as_the_git_dir_writes_it() {
     let link = ws.outside("link");
     symlink(&real, &link).unwrap();
     let y = real.join("y");
-    let y_admin = ws.add_worktree(&app, &y, &["-b", "y"]);
+    let y_git_dir = ws.add_worktree(&app, &y, &["-b", "y"]);
     std::fs::remove_file(y.join(".git")).unwrap();
     std::fs::create_dir(y.join(".git")).unwrap();
     let written = link.join("y");
     std::fs::write(
-        y_admin.join("gitdir"),
+        y_git_dir.join("gitdir"),
         format!("{}\n", written.join(".git").display()),
     )
     .unwrap();
@@ -784,8 +788,8 @@ fn add_worktree_at(ws: &FixtureWorkspace, app: &Path, path: &Path, args: &[&str]
     assert!(out.status.success(), "{out:?}");
     let out = ws.git_output(path, &["rev-parse", "--absolute-git-dir"]);
     assert!(out.status.success(), "{out:?}");
-    let admin = out.stdout.strip_suffix(b"\n").unwrap();
-    PathBuf::from(OsStr::from_bytes(admin))
+    let git_dir = out.stdout.strip_suffix(b"\n").unwrap();
+    PathBuf::from(OsStr::from_bytes(git_dir))
 }
 
 /// Swaps two dirs by hand.
@@ -830,10 +834,10 @@ fn a_swap_with_a_worktree_whose_path_is_not_utf8_is_told_to_move_back() {
     let mut ws = FixtureWorkspace::new();
     let app = app(&mut ws);
     let a = ws.dir("a");
-    let a_admin = add_worktree_at(&ws, &app, &a, &["-b", "a"]);
+    let a_git_dir = add_worktree_at(&ws, &app, &a, &["-b", "a"]);
     let b = ws.root().join(OsStr::from_bytes(b"b\xff"));
-    let b_admin = add_worktree_at(&ws, &app, &b, &["-b", "b"]);
-    assert_eq!(b_admin.file_name(), Some(OsStr::from_bytes(b"b\xff")));
+    let b_git_dir = add_worktree_at(&ws, &app, &b, &["-b", "b"]);
+    assert_eq!(b_git_dir.file_name(), Some(OsStr::from_bytes(b"b\xff")));
     swap_dirs(&ws, &a, &b);
     // git's view: each git dir still names its old path, each dir holds the
     // other's checkout
@@ -847,8 +851,8 @@ fn a_swap_with_a_worktree_whose_path_is_not_utf8_is_told_to_move_back() {
     assert_eq!(
         ws.unregistered(),
         [
-            stray("a", Some(&origin), true, swapped(&a_admin, "b\u{fffd}")),
-            stray("b\u{fffd}", Some(&origin), true, swapped(&b_admin, "a")),
+            stray("a", Some(&origin), true, swapped(&a_git_dir, "b\u{fffd}")),
+            stray("b\u{fffd}", Some(&origin), true, swapped(&b_git_dir, "a")),
         ]
     );
     // the advice holds: moved back, both are live
@@ -863,8 +867,8 @@ fn a_swap_after_a_move_to_a_path_that_is_not_utf8_is_told_to_move_back() {
     let mut ws = FixtureWorkspace::new();
     let app = app(&mut ws);
     let a = ws.dir("a");
-    let a_admin = add_worktree_at(&ws, &app, &a, &["-b", "a"]);
-    let b_admin = add_worktree_at(&ws, &app, &ws.dir("b"), &["-b", "b"]);
+    let a_git_dir = add_worktree_at(&ws, &app, &a, &["-b", "a"]);
+    let b_git_dir = add_worktree_at(&ws, &app, &ws.dir("b"), &["-b", "b"]);
     // moved by git, so its git dir keeps its UTF-8 id and names the new path
     let b = ws.root().join(OsStr::from_bytes(b"b\xff"));
     let out = ws
@@ -885,8 +889,8 @@ fn a_swap_after_a_move_to_a_path_that_is_not_utf8_is_told_to_move_back() {
     assert_eq!(
         ws.unregistered(),
         [
-            stray("a", Some(&origin), true, swapped(&a_admin, "b\u{fffd}")),
-            stray("b\u{fffd}", Some(&origin), true, swapped(&b_admin, "a")),
+            stray("a", Some(&origin), true, swapped(&a_git_dir, "b\u{fffd}")),
+            stray("b\u{fffd}", Some(&origin), true, swapped(&b_git_dir, "a")),
         ]
     );
     swap_dirs(&ws, &a, &b);
@@ -901,17 +905,17 @@ fn a_gitdir_past_the_tools_limit_blocks_every_repair_in_its_repo() {
     // `h`'s gitdir padded past the tool's limit: git reads it whole and
     // lists `h`, but the tool can't tell what a repair's walk does with it
     let h = ws.dir("h");
-    let h_admin = ws.add_worktree(&app, &h, &["-b", "h"]);
+    let h_git_dir = ws.add_worktree(&app, &h, &["-b", "h"]);
     let mut padded = h.join(".git").as_os_str().as_bytes().to_vec();
     padded.resize(2 * 1024 * 1024, b'\n');
-    std::fs::write(h_admin.join("gitdir"), &padded).unwrap();
+    std::fs::write(h_git_dir.join("gitdir"), &padded).unwrap();
     ws.worktree_record(&app, &h);
 
     let origin = owned_origin("app");
     let unreadable = UnregisteredKind::MovedWorktree {
         entry: "app".into(),
         blocked_by: Some(RepairBlock::UnreadableGitdir {
-            git_dir: h_admin.to_str().unwrap().into(),
+            git_dir: h_git_dir.to_str().unwrap().into(),
         }),
         exit_noise: None,
     };
@@ -925,7 +929,7 @@ fn a_gitdir_past_the_tools_limit_blocks_every_repair_in_its_repo() {
     );
     // trimmed back, the repair is offered, and holds
     std::fs::write(
-        h_admin.join("gitdir"),
+        h_git_dir.join("gitdir"),
         format!("{}\n", h.join(".git").display()),
     )
     .unwrap();
@@ -979,7 +983,7 @@ fn a_repair_that_would_rewrite_a_checkout_whose_path_is_not_utf8_is_not_offered(
     let (s_moved, _) = moved_by_hand(&ws, &app, "s");
     // `q\xff`, its `.git` gone: git's repair walk would write one there
     let q = ws.root().join(OsStr::from_bytes(b"q\xff"));
-    let q_admin = add_worktree_at(&ws, &app, &q, &["-b", "q"]);
+    let q_git_dir = add_worktree_at(&ws, &app, &q, &["-b", "q"]);
     std::fs::remove_file(q.join(".git")).unwrap();
     assert!(lists_worktree(&worktree_list(&ws, &app), &q));
 
@@ -988,7 +992,7 @@ fn a_repair_that_would_rewrite_a_checkout_whose_path_is_not_utf8_is_not_offered(
         entry: "app".into(),
         blocked_by: Some(RepairBlock::Rewrites {
             path: q.to_string_lossy().into_owned(),
-            git_dir: q_admin.to_string_lossy().into_owned(),
+            git_dir: q_git_dir.to_string_lossy().into_owned(),
         }),
         exit_noise: None,
     };

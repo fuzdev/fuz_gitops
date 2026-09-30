@@ -594,13 +594,13 @@ impl FixtureWorkspace {
         all.extend(args);
         self.git(repo, &all);
         assert!(path.join(".git").is_file(), "{} is linked", path.display());
-        let admin = PathBuf::from(self.git(path, &["rev-parse", "--absolute-git-dir"]));
+        let git_dir = PathBuf::from(self.git(path, &["rev-parse", "--absolute-git-dir"]));
         let common = PathBuf::from(self.git(
             repo,
             &["rev-parse", "--path-format=absolute", "--git-common-dir"],
         ));
-        assert_eq!(admin.parent(), Some(common.join("worktrees").as_path()));
-        admin
+        assert_eq!(git_dir.parent(), Some(common.join("worktrees").as_path()));
+        git_dir
     }
 
     /// The `git worktree list --porcelain` record for the worktree at

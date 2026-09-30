@@ -15,32 +15,32 @@ fn a_listed_worktrees_gitfile_is_read_as_git_reads_it() {
     let app = app(&mut ws);
     let add = |name: &str| {
         let wt = ws.dir(name);
-        let admin = ws.add_worktree(&app, &wt, &["-b", name]);
-        (wt, admin)
+        let git_dir = ws.add_worktree(&app, &wt, &["-b", name]);
+        (wt, git_dir)
     };
     // each `.git` rewritten to name its own git dir: git follows a path cut
     // at a NUL, and one that isn't UTF-8 (a link to the git dir)
-    let (nul, nul_admin) = add("nul");
+    let (nul, nul_git_dir) = add("nul");
     let gitfile = |named: &[u8], tail: &[u8]| [b"gitdir: ", named, tail].concat();
-    let nul_gitfile = gitfile(nul_admin.as_os_str().as_bytes(), b"\0junk\n");
+    let nul_gitfile = gitfile(nul_git_dir.as_os_str().as_bytes(), b"\0junk\n");
     std::fs::write(nul.join(".git"), nul_gitfile).unwrap();
-    let (raw, raw_admin) = add("raw");
+    let (raw, raw_git_dir) = add("raw");
     let link = ws.base().join(std::ffi::OsStr::from_bytes(b"admin-\xff"));
-    std::os::unix::fs::symlink(&raw_admin, &link).unwrap();
+    std::os::unix::fs::symlink(&raw_git_dir, &link).unwrap();
     let raw_gitfile = gitfile(link.as_os_str().as_bytes(), b"\n");
     std::fs::write(raw.join(".git"), raw_gitfile).unwrap();
     ws.assert_head(&nul, Some("nul"));
     ws.assert_head(&raw, Some("raw"));
     // and refuses its `gitdir: ` on a second line, or with a trailing space
-    let (second, second_admin) = add("second");
+    let (second, second_git_dir) = add("second");
     let second_gitfile = [
         b"x\n".as_slice(),
-        &gitfile(second_admin.as_os_str().as_bytes(), b"\n"),
+        &gitfile(second_git_dir.as_os_str().as_bytes(), b"\n"),
     ]
     .concat();
     std::fs::write(second.join(".git"), second_gitfile).unwrap();
-    let (spaced, spaced_admin) = add("spaced");
-    let spaced_gitfile = gitfile(spaced_admin.as_os_str().as_bytes(), b" \n");
+    let (spaced, spaced_git_dir) = add("spaced");
+    let spaced_gitfile = gitfile(spaced_git_dir.as_os_str().as_bytes(), b" \n");
     std::fs::write(spaced.join(".git"), spaced_gitfile).unwrap();
     ws.git_fails(&second, &["status"]);
     ws.git_fails(&spaced, &["status"]);
@@ -87,10 +87,10 @@ fn an_unlisted_worktrees_head_is_read_as_git_reads_it() {
         ("nul", b"ref: refs/heads/nul\0junk\n".to_vec()),
     ];
     for (name, head) in &heads {
-        let admin = ws.add_worktree(&app, &ws.dir(name), &["-b", name]);
-        std::fs::write(admin.join("HEAD"), head).unwrap();
+        let git_dir = ws.add_worktree(&app, &ws.dir(name), &["-b", name]);
+        std::fs::write(git_dir.join("HEAD"), head).unwrap();
         // git lists no worktree whose git dir names none
-        std::fs::remove_file(admin.join("gitdir")).unwrap();
+        std::fs::remove_file(git_dir.join("gitdir")).unwrap();
     }
     let list = ws.git(&app, &["worktree", "list", "--porcelain"]);
     for (name, _) in &heads {
@@ -144,13 +144,13 @@ fn an_unlisted_worktrees_symlinked_head_is_read_as_git_reads_it() {
             "sym",
         ],
     );
-    let admin = |name: &str| app.join(".git/worktrees").join(name);
-    let link = std::fs::read_link(admin("sym").join("HEAD")).unwrap();
+    let git_dir = |name: &str| app.join(".git/worktrees").join(name);
+    let link = std::fs::read_link(git_dir("sym").join("HEAD")).unwrap();
     assert_eq!(link, Path::new("refs/heads/sym"));
     // the rest by hand: a tag, a loose ref read through, and an invalid ref
     // name git falls through to reading as a file
     let relink = |name: &str, to: &str| {
-        let head = admin(name).join("HEAD");
+        let head = git_dir(name).join("HEAD");
         std::fs::remove_file(&head).unwrap();
         std::os::unix::fs::symlink(to, &head).unwrap();
     };
@@ -159,9 +159,9 @@ fn an_unlisted_worktrees_symlinked_head_is_read_as_git_reads_it() {
     }
     relink("tag", "refs/tags/v1");
     relink("through", "../../refs/heads/through");
-    std::fs::create_dir_all(admin("fall").join("refs/heads")).unwrap();
+    std::fs::create_dir_all(git_dir("fall").join("refs/heads")).unwrap();
     std::fs::write(
-        admin("fall").join("refs/heads/x y"),
+        git_dir("fall").join("refs/heads/x y"),
         "ref: refs/heads/fall\n",
     )
     .unwrap();
@@ -186,7 +186,7 @@ fn an_unlisted_worktrees_symlinked_head_is_read_as_git_reads_it() {
     );
     // unlisted, so the tool reads each `HEAD` itself
     for name in ["sym", "tag", "through", "fall"] {
-        std::fs::remove_file(admin(name).join("gitdir")).unwrap();
+        std::fs::remove_file(git_dir(name).join("gitdir")).unwrap();
     }
 
     let e = ws.entry("app");

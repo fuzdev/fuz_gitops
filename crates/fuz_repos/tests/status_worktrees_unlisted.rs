@@ -1,4 +1,4 @@
-//! Worktrees git does not list or cannot be read: unreadable admin dirs,
+//! Worktrees git does not list or cannot be read: unreadable worktree git dirs,
 //! unlisted and copied git dirs, which git dirs count as the primary rather
 //! than a worktree, and the holds they put on the entry.
 
@@ -102,13 +102,13 @@ fn a_worktree_git_does_not_list_is_still_a_fact() {
     // its git dir's `gitdir` file deleted: git drops it from the list and
     // from `%(worktreepath)`, though it's there and dirty
     let wt = ws.dir("app-feat");
-    let admin = ws.add_worktree(&app, &wt, &["feat"]);
+    let git_dir = ws.add_worktree(&app, &wt, &["feat"]);
     support::write(&wt, "tracked.txt", "two\n");
-    std::fs::remove_file(admin.join("gitdir")).unwrap();
+    std::fs::remove_file(git_dir.join("gitdir")).unwrap();
     // an empty `gitdir` file, the same
     let blank = ws.dir("app-blank");
-    let blank_admin = ws.add_worktree(&app, &blank, &["blank"]);
-    std::fs::write(blank_admin.join("gitdir"), "").unwrap();
+    let blank_git_dir = ws.add_worktree(&app, &blank, &["blank"]);
+    std::fs::write(blank_git_dir.join("gitdir"), "").unwrap();
     let list = ws.git(&app, &["worktree", "list", "--porcelain"]);
     assert!(
         !list.contains("app-feat") && !list.contains("app-blank"),
@@ -135,8 +135,8 @@ fn a_worktree_git_does_not_list_is_still_a_fact() {
         unlisted,
         [
             UnprobedWorktree {
-                path: path(&blank_admin),
-                git_dir: Some(path(&blank_admin)),
+                path: path(&blank_git_dir),
+                git_dir: Some(path(&blank_git_dir)),
                 head: UnprobedHead::Branch {
                     name: "blank".into()
                 },
@@ -145,14 +145,14 @@ fn a_worktree_git_does_not_list_is_still_a_fact() {
                 why: UnprobedWhy::Failed {
                     error: format!(
                         "not listed by git: {} is empty",
-                        blank_admin.join("gitdir").display()
+                        blank_git_dir.join("gitdir").display()
                     ),
                 },
                 holds: None,
             },
             UnprobedWorktree {
-                path: path(&admin),
-                git_dir: Some(path(&admin)),
+                path: path(&git_dir),
+                git_dir: Some(path(&git_dir)),
                 head: UnprobedHead::Branch {
                     name: "feat".into()
                 },
@@ -161,7 +161,7 @@ fn a_worktree_git_does_not_list_is_still_a_fact() {
                 why: UnprobedWhy::Failed {
                     error: format!(
                         "not listed by git: reading {}: No such file or directory (os error 2)",
-                        admin.join("gitdir").display()
+                        git_dir.join("gitdir").display()
                     ),
                 },
                 holds: None,
@@ -195,10 +195,10 @@ fn an_unreadable_worktree_git_dir_holds_the_entry() {
     ws.assert_track(&app, "main", "[behind 1]");
     ws.assert_track(&app, "pushy", "[ahead 1]");
     let wt = ws.dir("app-sealed");
-    let admin = ws.add_worktree(&app, &wt, &["--detach"]);
-    std::fs::set_permissions(&admin, std::fs::Permissions::from_mode(0o000)).unwrap();
-    let _unseal = Unseal(admin.clone());
-    if std::fs::read_dir(&admin).is_ok() {
+    let git_dir = ws.add_worktree(&app, &wt, &["--detach"]);
+    std::fs::set_permissions(&git_dir, std::fs::Permissions::from_mode(0o000)).unwrap();
+    let _unseal = Unseal(git_dir.clone());
+    if std::fs::read_dir(&git_dir).is_ok() {
         eprintln!("skipped: permissions don't bind this user (root)");
         return;
     }
@@ -209,7 +209,7 @@ fn an_unreadable_worktree_git_dir_holds_the_entry() {
     let e = ws.entry("app");
     assert_eq!(e.unprobed_worktrees.len(), 1, "{:?}", e.unprobed_worktrees);
     let u = &e.unprobed_worktrees[0].worktree;
-    assert_eq!(u.path, path(&admin));
+    assert_eq!(u.path, path(&git_dir));
     // its HEAD can't be read: it might be on any branch
     assert_eq!(u.head, UnprobedHead::Unknown);
     match &u.why {
@@ -222,7 +222,9 @@ fn an_unreadable_worktree_git_dir_holds_the_entry() {
     // an operation there can't be ruled out: the entry is held, pushes too
     assert_eq!(
         e.needs_human,
-        [NeedsHuman::WorktreeUnreadable { path: path(&admin) }]
+        [NeedsHuman::WorktreeUnreadable {
+            path: path(&git_dir)
+        }]
     );
     for (b, action) in [
         ("main", ff(1)),
@@ -380,8 +382,8 @@ fn a_listed_worktree_whose_head_git_cannot_read_holds_every_fast_forward() {
     let null = format!("HEAD {}", "0".repeat(40));
     // its HEAD deleted: git lists it as the null id, `detached`
     let missing = ws.dir("app-missing-head");
-    let missing_admin = ws.add_worktree(&app, &missing, &["-b", "missing"]);
-    std::fs::remove_file(missing_admin.join("HEAD")).unwrap();
+    let missing_git_dir = ws.add_worktree(&app, &missing, &["-b", "missing"]);
+    std::fs::remove_file(missing_git_dir.join("HEAD")).unwrap();
     let record = ws.worktree_record(&app, &missing);
     assert!(
         record.contains(&null) && record.contains(&"detached".to_owned()),
@@ -389,8 +391,8 @@ fn a_listed_worktree_whose_head_git_cannot_read_holds_every_fast_forward() {
     );
     // its HEAD garbled: the null id, no head line at all
     let garbled = ws.dir("app-garbled-head");
-    let garbled_admin = ws.add_worktree(&app, &garbled, &["-b", "garbled"]);
-    std::fs::write(garbled_admin.join("HEAD"), "garbage\n").unwrap();
+    let garbled_git_dir = ws.add_worktree(&app, &garbled, &["-b", "garbled"]);
+    std::fs::write(garbled_git_dir.join("HEAD"), "garbage\n").unwrap();
     let record = ws.worktree_record(&app, &garbled);
     assert!(record.contains(&null), "{record:?}");
     assert!(
@@ -447,16 +449,16 @@ fn a_listed_worktree_whose_head_git_cannot_read_holds_every_fast_forward() {
 fn an_unreadable_worktrees_dir_holds_the_entry() {
     use std::os::unix::fs::PermissionsExt;
     // 000 and 311: `worktrees/` can't be listed; 644: it can, but nothing
-    // in it can be looked at, so the admin dir is what's unreadable
+    // in it can be looked at, so the worktree git dir is what's unreadable
     for mode in [0o000, 0o311, 0o644] {
         let mut ws = FixtureWorkspace::new();
         let app = behind_and_ahead(&mut ws);
         behind_branch(&ws, &app, "feat");
-        let admin = ws.add_worktree(&app, &ws.dir("app-feat"), &["feat"]);
+        let git_dir = ws.add_worktree(&app, &ws.dir("app-feat"), &["feat"]);
         let worktrees = app.join(".git/worktrees");
         std::fs::set_permissions(&worktrees, std::fs::Permissions::from_mode(mode)).unwrap();
         let _unseal = Unseal(worktrees.clone());
-        if std::fs::read_dir(&worktrees).is_ok() && std::fs::metadata(&admin).is_ok() {
+        if std::fs::read_dir(&worktrees).is_ok() && std::fs::metadata(&git_dir).is_ok() {
             eprintln!("skipped: permissions don't bind this user (root)");
             return;
         }
@@ -473,7 +475,7 @@ fn an_unreadable_worktrees_dir_holds_the_entry() {
         );
         assert_eq!(named, "", "{mode:o}");
 
-        let unreadable = if mode == 0o644 { &admin } else { &worktrees };
+        let unreadable = if mode == 0o644 { &git_dir } else { &worktrees };
         let e = ws.entry("app");
         assert_eq!(
             e.needs_human,
@@ -555,16 +557,16 @@ fn an_unreadable_worktrees_dir_withholds_every_cleanup() {
 }
 
 #[test]
-fn an_unreadable_admin_dir_withholds_cleanup_of_gone_branches() {
+fn an_unreadable_worktree_git_dir_withholds_cleanup_of_gone_branches() {
     let mut ws = FixtureWorkspace::new();
     let app = app(&mut ws);
     // each checked out in its own worktree, its upstream deleted: `gone`
     // with a commit on no remote, `gone0` with none
-    let mut admins = Vec::new();
+    let mut git_dirs = Vec::new();
     for (name, commits) in [("gone", 1), ("gone0", 0)] {
         pushed_branch(&ws, &app, name);
         let wt = ws.dir(&format!("app-{name}"));
-        admins.push(ws.add_worktree(&app, &wt, &[name]));
+        git_dirs.push(ws.add_worktree(&app, &wt, &[name]));
         for i in 0..commits {
             ws.commit(&wt, &format!("{name}-{i}"));
         }
@@ -582,9 +584,9 @@ fn an_unreadable_admin_dir_withholds_cleanup_of_gone_branches() {
             "{b}"
         );
     }
-    // one admin dir sealed: its worktree's HEAD is unknown, so it may be
+    // one worktree git dir sealed: its worktree's HEAD is unknown, so it may be
     // on either branch, and `git branch -D` would strand it
-    let Some(_sealed) = support::seal(&admins[0], 0o000) else {
+    let Some(_sealed) = support::seal(&git_dirs[0], 0o000) else {
         return;
     };
     let list = ws.git(&app, &["worktree", "list", "--porcelain"]);
@@ -594,13 +596,13 @@ fn an_unreadable_admin_dir_withholds_cleanup_of_gone_branches() {
     assert_eq!(
         e.needs_human,
         [NeedsHuman::WorktreeUnreadable {
-            path: path(&admins[0])
+            path: path(&git_dirs[0])
         }]
     );
     let u = e
         .unprobed_worktrees
         .iter()
-        .find(|u| u.worktree.path == path(&admins[0]))
+        .find(|u| u.worktree.path == path(&git_dirs[0]))
         .unwrap();
     assert_eq!(u.worktree.head, UnprobedHead::Unknown);
     assert_eq!(branch(&e, "gone").relation, Relation::Gone);
@@ -626,10 +628,10 @@ fn a_worktree_with_initialized_submodules_is_not_removable() {
         ws.upstream_delete_branch("app", b);
     }
     ws.git(&app, &["fetch", "-q", "--prune", "origin"]);
-    let mut admins = Vec::new();
+    let mut git_dirs = Vec::new();
     for b in ["plain", "initialized", "deinited", "cloned", "declared"] {
         ws.assert_track(&app, b, "[gone]");
-        admins.push(ws.add_worktree(&app, &ws.dir(&format!("app-{b}")), &[b]));
+        git_dirs.push(ws.add_worktree(&app, &ws.dir(&format!("app-{b}")), &[b]));
     }
     let initialized = ws.dir("app-initialized");
     ws.git(&initialized, &["submodule", "update", "--init", "-q"]);
@@ -645,11 +647,11 @@ fn a_worktree_with_initialized_submodules_is_not_removable() {
     ws.git(&cloned, &["clone", "-q", &sub_url, "sub"]);
     // git refuses to remove a worktree once a submodule was initialized in
     // it; declared but never initialized, it removes it
-    for admin in &admins[1..3] {
-        assert!(admin.join("modules").is_dir(), "{}", admin.display());
+    for git_dir in &git_dirs[1..3] {
+        assert!(git_dir.join("modules").is_dir(), "{}", git_dir.display());
     }
-    for admin in &admins[3..] {
-        assert!(!admin.join("modules").exists(), "{}", admin.display());
+    for git_dir in &git_dirs[3..] {
+        assert!(!git_dir.join("modules").exists(), "{}", git_dir.display());
     }
     assert!(cloned.join("sub/.git").is_dir());
     assert!(ws.dir("app-declared/.gitmodules").is_file());
@@ -684,14 +686,14 @@ fn an_unlisted_worktree_mid_rebase_holds_the_entry() {
     let mut ws = FixtureWorkspace::new();
     let app = ws.owned_repo("app", &[("a.txt", "a\n")]);
     let wt = ws.dir("app-fix");
-    let admin = ws.add_worktree(&app, &wt, &["-b", "fix"]);
+    let git_dir = ws.add_worktree(&app, &wt, &["-b", "fix"]);
     support::write(&wt, "a.txt", "fix\n");
     ws.git(&wt, &["commit", "-q", "-am", "fix"]);
     support::write(&app, "a.txt", "main\n");
     ws.git(&app, &["commit", "-q", "-am", "main"]);
     ws.git_fails(&wt, &["rebase", "-q", "main"]);
-    std::fs::remove_file(admin.join("gitdir")).unwrap();
-    assert!(admin.join("rebase-merge").is_dir());
+    std::fs::remove_file(git_dir.join("gitdir")).unwrap();
+    assert!(git_dir.join("rebase-merge").is_dir());
     let list = ws.git(&app, &["worktree", "list", "--porcelain"]);
     assert!(!list.contains("app-fix"), "{list}");
     ws.assert_track(&app, "main", "[ahead 1]");
@@ -700,7 +702,7 @@ fn an_unlisted_worktree_mid_rebase_holds_the_entry() {
     assert_eq!(
         e.needs_human,
         [NeedsHuman::OperationInProgress {
-            checkout: path(&admin),
+            checkout: path(&git_dir),
             op: InProgressOp::Rebase,
         }]
     );
@@ -720,8 +722,8 @@ fn a_linked_primary_git_does_not_list_is_not_its_own_worktree() {
     ws.declare_repo("app", "app", "");
     let main_wt = ws.clone_owned("app-main", "app", &[]);
     let app = ws.dir("app");
-    let admin = ws.add_worktree(&main_wt, &app, &["-b", "work"]);
-    std::fs::remove_file(admin.join("gitdir")).unwrap();
+    let git_dir = ws.add_worktree(&main_wt, &app, &["-b", "work"]);
+    std::fs::remove_file(git_dir.join("gitdir")).unwrap();
     let list = ws.git(&main_wt, &["worktree", "list", "--porcelain"]);
     assert!(
         !list.contains(&format!("worktree {}\n", app.display())),
@@ -781,11 +783,11 @@ fn stray_entries_under_worktrees() {
 #[test]
 fn a_copied_git_dir_serves_one_worktree() {
     // the copy sorting before and after the original, so taking the first
-    // admin dir that claims the path goes wrong in one of them
+    // worktree git dir that claims the path goes wrong in one of them
     for copy_name in ["aaa", "zzz"] {
         copied_git_dir_serves_one_worktree(copy_name, "b2");
     }
-    // on the same branch: the two records are alike, and each admin dir
+    // on the same branch: the two records are alike, and each worktree git dir
     // still serves one
     copied_git_dir_serves_one_worktree("aaa", "b1");
 }
@@ -795,12 +797,12 @@ fn copied_git_dir_serves_one_worktree(copy_name: &str, copy_head: &str) {
     let app = app(&mut ws);
     ws.git(&app, &["branch", "-q", "b2", "main"]);
     let wt = ws.dir("app-wt");
-    let admin = ws.add_worktree(&app, &wt, &["-b", "b1"]);
+    let git_dir = ws.add_worktree(&app, &wt, &["-b", "b1"]);
     // a copy of its git dir, claiming the same path, on another branch
-    let copy = admin.with_file_name(copy_name);
+    let copy = git_dir.with_file_name(copy_name);
     let status = std::process::Command::new("cp")
         .arg("-r")
-        .arg(&admin)
+        .arg(&git_dir)
         .arg(&copy)
         .status()
         .unwrap();

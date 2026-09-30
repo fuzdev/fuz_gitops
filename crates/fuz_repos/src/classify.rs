@@ -1145,8 +1145,8 @@ fn needs_human(
     }
     // in the order the checkouts are probed: the primary, then the other
     // worktrees, probed or not. Said once: a checkout at or under a git dir
-    // that can't be read (an unlisted worktree whose admin dir can't be
-    // looked up is that admin dir) is that reason's to name, and it holds
+    // that can't be read (an unlisted worktree whose worktree git dir can't be
+    // looked up is that git dir) is that reason's to name, and it holds
     // the entry already
     let unreadable = |checkout: &str| {
         facts

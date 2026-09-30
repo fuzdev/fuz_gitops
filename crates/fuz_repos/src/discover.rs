@@ -8,6 +8,7 @@ use crate::classify::origin_matches;
 use crate::error::{Error, Result};
 use crate::git::{CallOptions, Git, GitError};
 use crate::gitdir::dot_git_target;
+use crate::paths::same_canonical;
 use crate::registry::{Entry, RegistryDirs, ValidRegistry};
 
 /// The registry's file name, found by walking up from the cwd.
@@ -552,18 +553,13 @@ pub fn resolve_push_targets(
         // the same checkout named twice, by a key and a path, say
         let seen = resolved.iter().any(|t| {
             t.entry.key == found.entry.key
-                && (t.checkout == found.checkout || same_checkout(&t.checkout, &found.checkout))
+                && (t.checkout == found.checkout || same_canonical(&t.checkout, &found.checkout))
         });
         if !seen {
             resolved.push(found);
         }
     }
     Ok(resolved)
-}
-
-/// Whether two checkout paths are the same dir, compared canonicalized.
-fn same_checkout(a: &Path, b: &Path) -> bool {
-    matches!((a.canonicalize(), b.canonicalize()), (Ok(a), Ok(b)) if a == b)
 }
 
 /// The entry whose checkout holds `path` (`entry_of_repo`). Inside a git

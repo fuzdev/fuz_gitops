@@ -113,7 +113,7 @@ fn a_rebase_in_a_linked_worktree_holds_the_entry_but_not_the_primarys_detach() {
     let mut ws = FixtureWorkspace::new();
     let app = ws.owned_repo("app", &[("a.txt", "a\n")]);
     let wt = ws.dir("app-fix");
-    let admin = ws.add_worktree(&app, &wt, &["-b", "fix"]);
+    let git_dir = ws.add_worktree(&app, &wt, &["-b", "fix"]);
     support::write(&wt, "a.txt", "fix\n");
     ws.git(&wt, &["commit", "-q", "-am", "fix"]);
     // main ahead, so there's an action for the rebase to hold
@@ -121,7 +121,7 @@ fn a_rebase_in_a_linked_worktree_holds_the_entry_but_not_the_primarys_detach() {
     ws.git(&app, &["commit", "-q", "-am", "main"]);
     ws.git(&app, &["checkout", "-q", "--detach"]);
     ws.git_fails(&wt, &["rebase", "-q", "main"]);
-    assert!(admin.join("rebase-merge").is_dir());
+    assert!(git_dir.join("rebase-merge").is_dir());
     assert!(!app.join(".git/rebase-merge").exists());
     ws.assert_head(&wt, None);
     ws.assert_head(&app, None);
@@ -180,12 +180,12 @@ fn a_worktree_whose_dir_is_gone_holds_its_branch_as_unprobed() {
     behind_branch(&ws, &app, "usb");
     // deleted by hand: git calls it prunable
     let gone = ws.dir("app-gone");
-    let gone_admin = ws.add_worktree(&app, &gone, &["feat"]);
+    let gone_git_dir = ws.add_worktree(&app, &gone, &["feat"]);
     std::fs::remove_dir_all(&gone).unwrap();
     // its dir still there, with work staged, but its `.git` file gone: git
     // calls it prunable too, and pruning would delete its index and HEAD
     let hollow = ws.dir("app-hollow");
-    let hollow_admin = ws.add_worktree(&app, &hollow, &["hollow"]);
+    let hollow_git_dir = ws.add_worktree(&app, &hollow, &["hollow"]);
     support::write(&hollow, "staged.txt", "keep\n");
     ws.git(&hollow, &["add", "staged.txt"]);
     std::fs::remove_file(hollow.join(".git")).unwrap();
@@ -193,7 +193,7 @@ fn a_worktree_whose_dir_is_gone_holds_its_branch_as_unprobed() {
     // locked, with its `.git` file gone: never prunable, and not missing
     behind_branch(&ws, &app, "held");
     let locked_hollow = ws.dir("app-locked-hollow");
-    let locked_hollow_admin = ws.add_worktree(&app, &locked_hollow, &["held"]);
+    let locked_hollow_git_dir = ws.add_worktree(&app, &locked_hollow, &["held"]);
     ws.git(&app, &["worktree", "lock", locked_hollow.to_str().unwrap()]);
     std::fs::remove_file(locked_hollow.join(".git")).unwrap();
     assert!(
@@ -210,7 +210,7 @@ fn a_worktree_whose_dir_is_gone_holds_its_branch_as_unprobed() {
     }
     // locked on media that's unmounted: never prunable, and just as gone
     let usb = ws.outside("usb/app");
-    let usb_admin = ws.add_worktree(&app, &usb, &["usb"]);
+    let usb_git_dir = ws.add_worktree(&app, &usb, &["usb"]);
     ws.git(
         &app,
         &[
@@ -233,35 +233,36 @@ fn a_worktree_whose_dir_is_gone_holds_its_branch_as_unprobed() {
     assert_eq!(e.probe_error, None);
     // can't be observed as checkouts, but they're still facts
     assert_eq!(e.checkouts.len(), 1);
-    let unprobed = |(path, admin): (&Path, &Path), branch: &str, locked: bool, why: UnprobedWhy| {
-        UnprobedWorktree {
-            path: path.to_str().unwrap().to_owned(),
-            git_dir: Some(admin.to_str().unwrap().to_owned()),
-            head: UnprobedHead::Branch {
-                name: branch.to_owned(),
-            },
-            locked,
-            in_progress: None,
-            // a gone one's git dir is read: it holds nothing of its own
-            holds: (why == UnprobedWhy::Prunable).then_some(NOTHING_HELD),
-            why,
-        }
-    };
+    let unprobed =
+        |(path, git_dir): (&Path, &Path), branch: &str, locked: bool, why: UnprobedWhy| {
+            UnprobedWorktree {
+                path: path.to_str().unwrap().to_owned(),
+                git_dir: Some(git_dir.to_str().unwrap().to_owned()),
+                head: UnprobedHead::Branch {
+                    name: branch.to_owned(),
+                },
+                locked,
+                in_progress: None,
+                // a gone one's git dir is read: it holds nothing of its own
+                holds: (why == UnprobedWhy::Prunable).then_some(NOTHING_HELD),
+                why,
+            }
+        };
     let no_git = |path: &Path| UnprobedWhy::Failed {
         error: format!("{} has no .git", path.display()),
     };
-    // git lists them in its own order (by admin dir name)
+    // git lists them in its own order (by worktree git dir name)
     let mut listed = unprobed_facts(&e);
     listed.sort_by(|a, b| a.path.cmp(&b.path));
     assert_eq!(
         listed,
         [
-            unprobed((&usb, &usb_admin), "usb", true, UnprobedWhy::Missing),
-            unprobed((&gone, &gone_admin), "feat", false, UnprobedWhy::Prunable),
+            unprobed((&usb, &usb_git_dir), "usb", true, UnprobedWhy::Missing),
+            unprobed((&gone, &gone_git_dir), "feat", false, UnprobedWhy::Prunable),
             // never prunable while its files are there
-            unprobed((&hollow, &hollow_admin), "hollow", false, no_git(&hollow)),
+            unprobed((&hollow, &hollow_git_dir), "hollow", false, no_git(&hollow)),
             unprobed(
-                (&locked_hollow, &locked_hollow_admin),
+                (&locked_hollow, &locked_hollow_git_dir),
                 "held",
                 true,
                 no_git(&locked_hollow),
@@ -343,9 +344,9 @@ fn a_gone_branch_in_a_clean_linked_worktree_is_removable() {
     ws.git(&app, &["worktree", "lock", locked.to_str().unwrap()]);
     // clean, but a cherry-pick stopped mid-way (it came out empty)
     let picking = ws.dir("app-old-picking");
-    let picking_admin = ws.add_worktree(&app, &picking, &["old-picking"]);
+    let picking_git_dir = ws.add_worktree(&app, &picking, &["old-picking"]);
     ws.git_fails(&picking, &["cherry-pick", "HEAD"]);
-    assert!(picking_admin.join("CHERRY_PICK_HEAD").is_file());
+    assert!(picking_git_dir.join("CHERRY_PICK_HEAD").is_file());
     for b in gone_branches {
         ws.assert_track(&app, b, "[gone]");
     }
@@ -506,15 +507,15 @@ fn a_local_status_writes_nothing_to_a_linked_worktrees_git_dirs() {
     ws.git(&app, &["fetch", "-q", "--prune", "origin"]);
     ws.assert_track(&app, "feat", "[gone]");
     let wt = ws.dir("app-feat");
-    let admin = ws.add_worktree(&app, &wt, &["feat"]);
+    let git_dir = ws.add_worktree(&app, &wt, &["feat"]);
     ws.assert_clean(&wt);
     // same content, new stat info: an index refresh would rewrite the
     // worktree's own index
     let stale = std::time::UNIX_EPOCH + std::time::Duration::from_secs(support::CLOCK_START);
     support::set_mtime(&wt.join("a.txt"), stale);
-    // the common dir holds the worktree's admin dir, `worktrees/<id>`
+    // the common dir holds the worktree's git dir, `worktrees/<id>`
     let common = app.join(".git");
-    assert!(admin.starts_with(&common));
+    assert!(git_dir.starts_with(&common));
     let before = support::snapshot_git_dir(&common);
 
     let e = ws.entry("app");
@@ -530,10 +531,10 @@ fn a_local_status_writes_nothing_to_a_linked_worktrees_git_dirs() {
     support::assert_git_dir_unchanged(&before, &support::snapshot_git_dir(&common));
 
     // control: plain `git status` in the worktree does refresh its index
-    let index = std::fs::read(admin.join("index")).unwrap();
+    let index = std::fs::read(git_dir.join("index")).unwrap();
     ws.git(&wt, &["status", "--porcelain"]);
     assert_ne!(
-        std::fs::read(admin.join("index")).unwrap(),
+        std::fs::read(git_dir.join("index")).unwrap(),
         index,
         "control: plain status should rewrite the stale index"
     );
@@ -547,8 +548,8 @@ fn a_linked_worktree_whose_probe_fails_is_reported_and_the_entry_stands() {
     behind_branch(&ws, &app, "fine");
     // a truncated index: git lists the worktree, but can't read its status
     let broken = ws.dir("app-broken");
-    let admin = ws.add_worktree(&app, &broken, &["broken"]);
-    std::fs::write(admin.join("index"), "junk").unwrap();
+    let git_dir = ws.add_worktree(&app, &broken, &["broken"]);
+    std::fs::write(git_dir.join("index"), "junk").unwrap();
     ws.git_fails(&broken, &["status", "--porcelain"]);
     // a `.git` file pointing at another repo's worktree: git would happily
     // report that repo's state as this worktree's
@@ -556,10 +557,10 @@ fn a_linked_worktree_whose_probe_fails_is_reported_and_the_entry_stands() {
     ws.add_worktree(&app, &astray, &["-b", "astray"]);
     ws.remote("other", &[]);
     let other = ws.clone_owned("other", "other", &[]);
-    let other_admin = ws.add_worktree(&other, &ws.dir("other-wt"), &["-b", "elsewhere"]);
+    let other_git_dir = ws.add_worktree(&other, &ws.dir("other-wt"), &["-b", "elsewhere"]);
     std::fs::write(
         astray.join(".git"),
-        format!("gitdir: {}\n", other_admin.display()),
+        format!("gitdir: {}\n", other_git_dir.display()),
     )
     .unwrap();
     ws.assert_head(&astray, Some("elsewhere"));
@@ -729,7 +730,7 @@ fn an_operation_in_a_worktree_that_is_gone_is_still_a_reason() {
     // a locked worktree on removable media, stopped mid-rebase, then
     // unmounted
     let wt = ws.outside("usb/app-fix");
-    let admin = ws.add_worktree(&app, &wt, &["-b", "fix"]);
+    let git_dir = ws.add_worktree(&app, &wt, &["-b", "fix"]);
     support::write(&wt, "a.txt", "fix\n");
     ws.git(&wt, &["commit", "-q", "-am", "fix"]);
     support::write(&app, "a.txt", "main\n");
@@ -738,7 +739,7 @@ fn an_operation_in_a_worktree_that_is_gone_is_still_a_reason() {
     ws.git(&app, &["worktree", "lock", wt.to_str().unwrap()]);
     let detached_at = ws.git(&wt, &["rev-parse", "HEAD"]);
     std::fs::remove_dir_all(ws.outside("usb")).unwrap();
-    assert!(admin.join("rebase-merge").is_dir());
+    assert!(git_dir.join("rebase-merge").is_dir());
     let record = ws.worktree_record(&app, &wt);
     assert!(record.contains(&"detached".to_owned()), "{record:?}");
     assert!(record.contains(&"locked".to_owned()), "{record:?}");
@@ -753,7 +754,7 @@ fn an_operation_in_a_worktree_that_is_gone_is_still_a_reason() {
         unprobed_facts(&e),
         [UnprobedWorktree {
             path: path(&wt),
-            git_dir: Some(path(&admin)),
+            git_dir: Some(path(&git_dir)),
             head: UnprobedHead::Detached {
                 commit: detached_at
             },
@@ -787,7 +788,7 @@ fn a_registry_dir_that_is_itself_a_linked_worktree_sees_the_main_one() {
     // the main worktree lives beside it, unregistered
     let main_wt = ws.clone_owned("app-main", "app", &[]);
     let app = ws.dir("app");
-    let admin = ws.add_worktree(&main_wt, &app, &["-b", "work"]);
+    let git_dir = ws.add_worktree(&main_wt, &app, &["-b", "work"]);
     // the main worktree stops mid-merge
     ws.git(&main_wt, &["checkout", "-q", "-b", "side"]);
     support::write(&main_wt, "a.txt", "side\n");
@@ -797,7 +798,7 @@ fn a_registry_dir_that_is_itself_a_linked_worktree_sees_the_main_one() {
     ws.git(&main_wt, &["commit", "-q", "-am", "main"]);
     ws.git_fails(&main_wt, &["merge", "-q", "side"]);
     assert!(main_wt.join(".git/MERGE_HEAD").is_file());
-    assert!(!admin.join("MERGE_HEAD").exists());
+    assert!(!git_dir.join("MERGE_HEAD").exists());
     assert!(app.join(".git").is_file());
     ws.assert_porcelain(&main_wt, &["UU a.txt"]);
     ws.assert_clean(&app);
@@ -831,14 +832,14 @@ fn a_fetch_from_a_linked_worktree_counts_as_the_repos_fetch() {
     let mut ws = FixtureWorkspace::new();
     let app = app(&mut ws);
     let wt = ws.dir("app-feat");
-    let admin = ws.add_worktree(&app, &wt, &["-b", "feat"]);
+    let git_dir = ws.add_worktree(&app, &wt, &["-b", "feat"]);
     let primary_fetch = app.join(".git/FETCH_HEAD");
     assert!(!primary_fetch.exists());
     // no fetch yet: the clone's own reflog entry dates it
     assert_eq!(ws.entry("app").fetched_at, Some(ws.clone_reflog_time(&app)));
     // each worktree fetches into its own git dir
     ws.git(&wt, &["fetch", "-q", "origin"]);
-    let linked_fetch = admin.join("FETCH_HEAD");
+    let linked_fetch = git_dir.join("FETCH_HEAD");
     assert!(linked_fetch.is_file());
     assert!(!primary_fetch.exists());
     let at = |secs: u64| std::time::UNIX_EPOCH + std::time::Duration::from_secs(secs);
@@ -868,13 +869,13 @@ fn a_linked_primary_is_dated_by_its_repos_clone() {
     ws.declare_repo("app", "app", "");
     let main_wt = ws.clone_owned("app-main", "app", &[]);
     let app = ws.dir("app");
-    let admin = ws.add_worktree(&main_wt, &app, &["-b", "work"]);
+    let git_dir = ws.add_worktree(&main_wt, &app, &["-b", "work"]);
     // never fetched, from either
-    assert!(!admin.join("FETCH_HEAD").exists());
+    assert!(!git_dir.join("FETCH_HEAD").exists());
     assert!(!main_wt.join(".git/FETCH_HEAD").exists());
     // the primary's own reflog starts with its worktree's creation, not a
     // clone: the clone's entry is the common dir's alone
-    let own = std::fs::read_to_string(admin.join("logs/HEAD")).unwrap();
+    let own = std::fs::read_to_string(git_dir.join("logs/HEAD")).unwrap();
     assert!(!own.lines().next().unwrap().contains("\tclone: "), "{own}");
 
     let e = ws.entry("app");

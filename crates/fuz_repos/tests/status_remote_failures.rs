@@ -220,7 +220,7 @@ fn a_failed_fetch_after_a_clone_is_never_fetched() {
     let app = ws.owned_repo("app", &[]);
     let lib = ws.owned_repo("lib", &[]);
     let wt = ws.dir("lib-feat");
-    let admin = ws.add_worktree(&lib, &wt, &["-b", "feat"]);
+    let git_dir = ws.add_worktree(&lib, &wt, &["-b", "feat"]);
     // a failed fetch empties `FETCH_HEAD`: the remote view's age is
     // unknown, so the clone's time doesn't stand in
     for repo in [&app, &wt] {
@@ -231,7 +231,7 @@ fn a_failed_fetch_after_a_clone_is_never_fetched() {
     // in any worktree's git dir alone
     assert!(!lib.join(".git/FETCH_HEAD").exists());
     assert_eq!(
-        std::fs::metadata(admin.join("FETCH_HEAD")).unwrap().len(),
+        std::fs::metadata(git_dir.join("FETCH_HEAD")).unwrap().len(),
         0
     );
     let entries = ws.status();

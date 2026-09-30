@@ -2545,7 +2545,7 @@ fn an_unreadable_worktrees_dir_withholds_cleanup() {
         ])
     );
     let withheld = verdicts(&e, &f);
-    // one admin dir unreadable: its worktree's HEAD is unknown
+    // one worktree git dir unreadable: its worktree's HEAD is unknown
     f.unreadable = vec!["/ws/app/.git/worktrees/x".into()];
     f.unprobed = vec![UnprobedWorktree {
         head: UnprobedHead::Unknown,
@@ -2558,7 +2558,7 @@ fn an_unreadable_worktrees_dir_withholds_cleanup() {
         )
     }];
     assert_eq!(verdicts(&e, &f), withheld);
-    // a readable admin dir whose HEAD isn't
+    // a readable worktree git dir whose HEAD isn't
     f.unreadable.clear();
     assert_eq!(verdicts(&e, &f), withheld);
     // a gone worktree on a known branch: cleanup as ever

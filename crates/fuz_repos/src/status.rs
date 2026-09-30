@@ -15,7 +15,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use crate::busy::{EntryCheckouts, EntrySessions, same_path, scope_sessions, sessions_under};
+use crate::busy::{EntryCheckouts, EntrySessions, scope_sessions, sessions_under};
 use crate::classify::{
     ClassifiedMissing, NeedsHuman, Refresh, classify, classify_missing, refresh_intent,
     refresh_verdict,
@@ -23,6 +23,7 @@ use crate::classify::{
 use crate::discover::{Locate, Workspace, resolve_checkout, resolve_targets};
 use crate::error::{self, Error};
 use crate::git::Git;
+use crate::paths::same_path;
 use crate::probe::{ProbeContext, ProbeRun, Probed, RepoFacts, RepoFetches, probe};
 use crate::registry::{Entry, RegistryDirs};
 use crate::remote::{

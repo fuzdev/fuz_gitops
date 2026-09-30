@@ -125,8 +125,8 @@ fn a_live_worktree_of_a_registered_repo_is_skipped() {
     let mut ws = FixtureWorkspace::new();
     let app = app(&mut ws);
     let feat = ws.dir("app-feat");
-    let admin = ws.add_worktree(&app, &feat, &["-b", "feat"]);
-    assert_eq!(gitdir_file(&admin), feat.join(".git").to_str().unwrap());
+    let git_dir = ws.add_worktree(&app, &feat, &["-b", "feat"]);
+    assert_eq!(gitdir_file(&git_dir), feat.join(".git").to_str().unwrap());
     // and a detached one, reached through a symlink at the root
     let detached = ws.outside("app-detached");
     ws.add_worktree(&app, &detached, &["--detach"]);
@@ -140,11 +140,11 @@ fn a_moved_worktree_is_reported_with_its_entry() {
     let mut ws = FixtureWorkspace::new();
     let app = app(&mut ws);
     let feat = ws.dir("app-feat");
-    let admin = ws.add_worktree(&app, &feat, &["-b", "feat"]);
+    let git_dir = ws.add_worktree(&app, &feat, &["-b", "feat"]);
     let moved_to = ws.dir("app-moved");
     std::fs::rename(&feat, &moved_to).unwrap();
     // git still names the old path, and lists it as prunable
-    assert_eq!(gitdir_file(&admin), feat.join(".git").to_str().unwrap());
+    assert_eq!(gitdir_file(&git_dir), feat.join(".git").to_str().unwrap());
     assert!(
         ws.worktree_record(&app, &feat)
             .iter()
@@ -154,8 +154,8 @@ fn a_moved_worktree_is_reported_with_its_entry() {
     );
     // a worktree whose git dir names nothing: git doesn't list it
     let named = ws.dir("app-unnamed");
-    let unnamed_admin = ws.add_worktree(&app, &named, &["-b", "unnamed"]);
-    std::fs::remove_file(unnamed_admin.join("gitdir")).unwrap();
+    let unnamed_git_dir = ws.add_worktree(&app, &named, &["-b", "unnamed"]);
+    std::fs::remove_file(unnamed_git_dir.join("gitdir")).unwrap();
     let list = ws.git(&app, &["worktree", "list", "--porcelain"]);
     assert!(!list.contains("app-unnamed"), "{list}");
     let common = app.join(".git");
@@ -186,8 +186,8 @@ fn an_orphaned_worktree_is_reported_with_its_entry() {
     let mut ws = FixtureWorkspace::new();
     let app = app(&mut ws);
     let orphan = ws.dir("app-orphan");
-    let admin = ws.add_worktree(&app, &orphan, &["-b", "orphan"]);
-    std::fs::remove_dir_all(&admin).unwrap();
+    let git_dir = ws.add_worktree(&app, &orphan, &["-b", "orphan"]);
+    std::fs::remove_dir_all(&git_dir).unwrap();
     // git can't use it, and repair can't reconnect it
     ws.git_fails(&orphan, &["status"]);
     ws.git_fails(&app, &["worktree", "repair", orphan.to_str().unwrap()]);
@@ -211,7 +211,7 @@ fn a_copy_of_a_live_worktree_is_not_a_moved_one() {
     let mut ws = FixtureWorkspace::new();
     let app = app(&mut ws);
     let feat = ws.outside("app-feat");
-    let admin = ws.add_worktree(&app, &feat, &["-b", "feat"]);
+    let git_dir = ws.add_worktree(&app, &feat, &["-b", "feat"]);
     let copy = ws.dir("app-copy");
     copy_dir(&ws, &feat, &copy);
     // both name one git dir, which names the original
@@ -219,7 +219,7 @@ fn a_copy_of_a_live_worktree_is_not_a_moved_one() {
         std::fs::read_to_string(copy.join(".git")).unwrap(),
         std::fs::read_to_string(feat.join(".git")).unwrap()
     );
-    assert_eq!(gitdir_file(&admin), feat.join(".git").to_str().unwrap());
+    assert_eq!(gitdir_file(&git_dir), feat.join(".git").to_str().unwrap());
 
     // a repair here would take the git dir from the original
     assert_eq!(
@@ -248,12 +248,12 @@ fn worktrees_of_an_unregistered_repo_are_strays() {
     // in the repo's config, read through the worktree
     let far = clone_outside(&ws, "far", &owned_origin("far"));
     let far_feat = ws.dir("far-feat");
-    let admin = ws.add_worktree(&far, &far_feat, &["-b", "feat"]);
-    assert!(!std::fs::read_to_string(admin.join("config")).is_ok_and(|c| c.contains("far")));
+    let git_dir = ws.add_worktree(&far, &far_feat, &["-b", "feat"]);
+    assert!(!std::fs::read_to_string(git_dir.join("config")).is_ok_and(|c| c.contains("far")));
     // and an orphan of it
     let far_orphan = ws.dir("far-orphan");
-    let orphan_admin = ws.add_worktree(&far, &far_orphan, &["-b", "orphan"]);
-    std::fs::remove_dir_all(&orphan_admin).unwrap();
+    let orphan_git_dir = ws.add_worktree(&far, &far_orphan, &["-b", "orphan"]);
+    std::fs::remove_dir_all(&orphan_git_dir).unwrap();
 
     assert_eq!(
         ws.unregistered(),
@@ -431,29 +431,29 @@ fn copies_of_a_moved_worktree_share_its_git_dir_and_none_is_repairable() {
     let app = app(&mut ws);
     // the git dir names a path that's gone
     let feat = ws.dir("app-feat");
-    let admin = ws.add_worktree(&app, &feat, &["-b", "feat"]);
+    let git_dir = ws.add_worktree(&app, &feat, &["-b", "feat"]);
     let (c1, c2) = (ws.dir("app-c1"), ws.dir("app-c2"));
     copy_dir(&ws, &feat, &c1);
     copy_dir(&ws, &feat, &c2);
     std::fs::remove_dir_all(&feat).unwrap();
-    assert_eq!(gitdir_file(&admin), feat.join(".git").to_str().unwrap());
+    assert_eq!(gitdir_file(&git_dir), feat.join(".git").to_str().unwrap());
     // the git dir names nothing
     let g = ws.dir("app-g");
-    let g_admin = ws.add_worktree(&app, &g, &["-b", "g"]);
+    let g_git_dir = ws.add_worktree(&app, &g, &["-b", "g"]);
     let (g1, g2) = (ws.dir("app-g1"), ws.dir("app-g2"));
     copy_dir(&ws, &g, &g1);
     copy_dir(&ws, &g, &g2);
     std::fs::remove_dir_all(&g).unwrap();
-    std::fs::remove_file(g_admin.join("gitdir")).unwrap();
-    for (copy, admin) in [
-        (&c1, &admin),
-        (&c2, &admin),
-        (&g1, &g_admin),
-        (&g2, &g_admin),
+    std::fs::remove_file(g_git_dir.join("gitdir")).unwrap();
+    for (copy, git_dir) in [
+        (&c1, &git_dir),
+        (&c2, &git_dir),
+        (&g1, &g_git_dir),
+        (&g2, &g_git_dir),
     ] {
         assert_eq!(
             PathBuf::from(ws.git(copy, &["rev-parse", "--absolute-git-dir"])),
-            *admin
+            *git_dir
         );
     }
 
@@ -476,7 +476,7 @@ fn a_copy_of_a_locked_worktree_whose_original_is_absent_gets_no_fix() {
     let usb = ws.outside("usb");
     std::fs::create_dir(&usb).unwrap();
     let feat = usb.join("app-feat");
-    let admin = ws.add_worktree(&app, &feat, &["-b", "feat"]);
+    let git_dir = ws.add_worktree(&app, &feat, &["-b", "feat"]);
     ws.git(
         &app,
         &[
@@ -491,7 +491,7 @@ fn a_copy_of_a_locked_worktree_whose_original_is_absent_gets_no_fix() {
     copy_dir(&ws, &feat, &copy);
     // unmounted: the original is absent, and git keeps it, locked
     std::fs::rename(&usb, ws.outside("usb-unmounted")).unwrap();
-    assert!(admin.join("locked").is_file());
+    assert!(git_dir.join("locked").is_file());
     let record = ws.worktree_record(&app, &feat);
     assert!(record.iter().any(|l| l == "locked on usb"), "{record:?}");
     assert!(
@@ -600,13 +600,13 @@ fn a_worktree_git_dir_with_no_head_is_orphaned_not_moved() {
     // neither `gitdir` nor `HEAD`: the probe advises deleting it by hand
     // only when it keeps nothing
     let bare = ws.dir("app-bare");
-    let admin = ws.add_worktree(&app, &bare, &["-b", "bare"]);
-    std::fs::remove_file(admin.join("gitdir")).unwrap();
-    std::fs::remove_file(admin.join("HEAD")).unwrap();
+    let git_dir = ws.add_worktree(&app, &bare, &["-b", "bare"]);
+    std::fs::remove_file(git_dir.join("gitdir")).unwrap();
+    std::fs::remove_file(git_dir.join("HEAD")).unwrap();
     // `gitdir` naming this path, no `HEAD`
     let headless = ws.dir("app-headless");
-    let headless_admin = ws.add_worktree(&app, &headless, &["-b", "headless"]);
-    std::fs::remove_file(headless_admin.join("HEAD")).unwrap();
+    let headless_git_dir = ws.add_worktree(&app, &headless, &["-b", "headless"]);
+    std::fs::remove_file(headless_git_dir.join("HEAD")).unwrap();
     std::fs::rename(&headless, ws.dir("app-headless-moved")).unwrap();
     for dir in ["app-bare", "app-headless-moved"] {
         ws.git_fails(&ws.dir(dir), &["status"]);
@@ -630,11 +630,11 @@ fn a_git_dir_outside_worktrees_is_not_a_live_worktree() {
     let mut ws = FixtureWorkspace::new();
     let app = app(&mut ws);
     let wt = ws.dir("wt");
-    let admin = ws.add_worktree(&app, &wt, &["-b", "feat"]);
+    let git_dir = ws.add_worktree(&app, &wt, &["-b", "feat"]);
     // its git dir moved out of `worktrees/`, still naming this path, its
     // `commondir` pointing back: git works in it but doesn't list it
     let hidden = ws.outside("hidden");
-    std::fs::rename(&admin, &hidden).unwrap();
+    std::fs::rename(&git_dir, &hidden).unwrap();
     std::fs::write(wt.join(".git"), format!("gitdir: {}\n", hidden.display())).unwrap();
     std::fs::write(
         hidden.join("commondir"),
@@ -662,12 +662,12 @@ fn a_copy_of_a_worktree_whose_git_cannot_be_read_gets_no_fix() {
     let mut ws = FixtureWorkspace::new();
     let app = app(&mut ws);
     let feat = ws.outside("app-feat");
-    let admin = ws.add_worktree(&app, &feat, &["-b", "feat"]);
+    let git_dir = ws.add_worktree(&app, &feat, &["-b", "feat"]);
     let copy = ws.dir("app-copy");
     copy_dir(&ws, &feat, &copy);
     assert_eq!(
         PathBuf::from(ws.git(&copy, &["rev-parse", "--absolute-git-dir"])),
-        admin
+        git_dir
     );
     // whether the original still uses the git dir is unknowable
     let Some(_sealed) = seal(&feat.join(".git"), 0o000) else {
@@ -739,24 +739,24 @@ fn worktree_on_usb(ws: &FixtureWorkspace, app: &Path) -> (PathBuf, PathBuf) {
     let usb = ws.outside("usb");
     std::fs::create_dir(&usb).unwrap();
     let feat = usb.join("app-feat");
-    let admin = ws.add_worktree(app, &feat, &["-b", "feat"]);
+    let git_dir = ws.add_worktree(app, &feat, &["-b", "feat"]);
     copy_dir(ws, &feat, &ws.dir("app-copy"));
-    (feat, admin)
+    (feat, git_dir)
 }
 
 #[test]
 fn a_locked_worktree_is_never_moved_whatever_its_gitdir_holds() {
     let mut ws = FixtureWorkspace::new();
     let app = app(&mut ws);
-    let (feat, admin) = worktree_on_usb(&ws, &app);
+    let (feat, git_dir) = worktree_on_usb(&ws, &app);
     ws.git(&app, &["worktree", "lock", feat.to_str().unwrap()]);
     // its `gitdir` lost, and its media unmounted
-    std::fs::remove_file(admin.join("gitdir")).unwrap();
+    std::fs::remove_file(git_dir.join("gitdir")).unwrap();
     std::fs::rename(ws.outside("usb"), ws.outside("usb-unmounted")).unwrap();
-    assert!(admin.join("locked").is_file() && admin.join("HEAD").is_file());
+    assert!(git_dir.join("locked").is_file() && git_dir.join("HEAD").is_file());
     // git keeps the git dir: a lock stops prune
     ws.git(&app, &["worktree", "prune"]);
-    assert!(admin.is_dir());
+    assert!(git_dir.is_dir());
 
     assert_eq!(
         ws.unregistered(),
@@ -769,12 +769,12 @@ fn a_locked_worktree_is_never_moved_whatever_its_gitdir_holds() {
     );
 
     // an empty `gitdir` is lost too
-    std::fs::write(admin.join("gitdir"), "").unwrap();
+    std::fs::write(git_dir.join("gitdir"), "").unwrap();
     assert_eq!(ws.unregistered()[0].kind, shared_unnamed("app"));
     // unlocked (git can't, it no longer lists the worktree), a lost
     // `gitdir` is repair's to rewrite
     ws.git_fails(&app, &["worktree", "unlock", feat.to_str().unwrap()]);
-    std::fs::remove_file(admin.join("locked")).unwrap();
+    std::fs::remove_file(git_dir.join("locked")).unwrap();
     assert_eq!(ws.unregistered()[0].kind, moved("app"));
 }
 
@@ -782,9 +782,9 @@ fn a_locked_worktree_is_never_moved_whatever_its_gitdir_holds() {
 fn a_gitdir_that_cannot_be_read_may_name_a_worktree_in_use() {
     let mut ws = FixtureWorkspace::new();
     let app = app(&mut ws);
-    let (feat, admin) = worktree_on_usb(&ws, &app);
+    let (feat, git_dir) = worktree_on_usb(&ws, &app);
     // the original is live: git works in it
-    let Some(_sealed) = seal(&admin.join("gitdir"), 0o000) else {
+    let Some(_sealed) = seal(&git_dir.join("gitdir"), 0o000) else {
         return;
     };
     ws.assert_head(&feat, Some("feat"));
@@ -880,19 +880,19 @@ fn a_git_linked_into_a_worktree_git_dir_shares_it() {
     let app = app(&mut ws);
     // a live worktree, and a `.git` linking into its git dir
     let feat = ws.outside("app-feat");
-    let admin = ws.add_worktree(&app, &feat, &["-b", "feat"]);
+    let git_dir = ws.add_worktree(&app, &feat, &["-b", "feat"]);
     let link = ws.dir("link");
     std::fs::create_dir(&link).unwrap();
-    symlink(&admin, link.join(".git")).unwrap();
+    symlink(&git_dir, link.join(".git")).unwrap();
     // a moved worktree, and a `.git` linking into its git dir: a repair of
     // either would take it from the other
     let gone = ws.dir("app-gone");
-    let gone_admin = ws.add_worktree(&app, &gone, &["-b", "gone"]);
+    let gone_git_dir = ws.add_worktree(&app, &gone, &["-b", "gone"]);
     let moved_to = ws.dir("app-moved");
     std::fs::rename(&gone, &moved_to).unwrap();
     let gone_link = ws.dir("gone-link");
     std::fs::create_dir(&gone_link).unwrap();
-    symlink(&gone_admin, gone_link.join(".git")).unwrap();
+    symlink(&gone_git_dir, gone_link.join(".git")).unwrap();
     ws.assert_head(&link, Some("feat"));
     ws.assert_head(&gone_link, Some("gone"));
 
@@ -913,15 +913,15 @@ fn a_relative_gitdir_resolves_against_the_git_dir() {
     let app = app(&mut ws);
     // as git 2.48's `worktree.useRelativePaths` writes them
     let feat = ws.dir("app-feat");
-    let admin = ws.add_worktree(&app, &feat, &["-b", "feat"]);
-    std::fs::write(admin.join("gitdir"), "../../../../app-feat/.git\n").unwrap();
+    let git_dir = ws.add_worktree(&app, &feat, &["-b", "feat"]);
+    std::fs::write(git_dir.join("gitdir"), "../../../../app-feat/.git\n").unwrap();
     std::fs::write(
         feat.join(".git"),
         "gitdir: ../app/.git/worktrees/app-feat\n",
     )
     .unwrap();
     assert_eq!(
-        admin
+        git_dir
             .join("../../../../app-feat/.git")
             .canonicalize()
             .unwrap(),
@@ -940,7 +940,7 @@ fn a_relative_gitdir_resolves_against_the_git_dir() {
             "app-moved",
             Some(&owned_origin("app")),
             true,
-            moved_relative("app", &admin)
+            moved_relative("app", &git_dir)
         )]
     );
 }
@@ -950,9 +950,9 @@ fn a_worktree_git_dir_whose_commondir_cannot_be_read() {
     let mut ws = FixtureWorkspace::new();
     let app = app(&mut ws);
     let feat = ws.outside("app-feat");
-    let admin = ws.add_worktree(&app, &feat, &["-b", "feat"]);
+    let git_dir = ws.add_worktree(&app, &feat, &["-b", "feat"]);
     copy_dir(&ws, &feat, &ws.dir("app-copy"));
-    let Some(_sealed) = seal(&admin.join("commondir"), 0o000) else {
+    let Some(_sealed) = seal(&git_dir.join("commondir"), 0o000) else {
         return;
     };
 

@@ -2528,7 +2528,7 @@ fn an_unreadable_git_dir_is_said_once_as_needing_a_person() {
             None,
         )
     };
-    // the admin dir unreadable itself, one under an unreadable
+    // the worktree git dir unreadable itself, one under an unreadable
     // `worktrees/`, and one that failed for its own reason
     app.unprobed_worktrees = vec![
         failed("/home/me/dev/app/.git/worktrees/x"),

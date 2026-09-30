@@ -323,24 +323,26 @@ fn in_progress_tells_am_from_an_apply_rebase() {
 #[test]
 fn an_unlisted_worktree_takes_its_path_from_a_readable_gitdir() {
     let tmp = tempfile::tempdir().unwrap();
-    let admin = tmp.path().join("wt");
-    std::fs::create_dir(&admin).unwrap();
-    std::fs::write(admin.join("HEAD"), "ref: refs/heads/feat\n").unwrap();
-    std::fs::create_dir(admin.join("rebase-merge")).unwrap();
+    let git_dir = tmp.path().join("wt");
+    std::fs::create_dir(&git_dir).unwrap();
+    std::fs::write(git_dir.join("HEAD"), "ref: refs/heads/feat\n").unwrap();
+    std::fs::create_dir(git_dir.join("rebase-merge")).unwrap();
     let mut unreadable = Vec::new();
     // named by a readable `gitdir`: its worktree's path
-    let named = AdminDir {
-        dir: admin.clone(),
-        worktree: Ok(PathBuf::from("/ws/app-feat")),
-        relative: false,
-        unreadable: false,
+    let named = WorktreeGitDir {
+        dir: git_dir.clone(),
+        gitdir: GitdirTarget::Names {
+            worktree: PathBuf::from("/ws/app-feat"),
+            written: PathBuf::from("/ws/app-feat"),
+            nul: false,
+        },
     };
     let u = unlisted_worktree(&named, &mut unreadable);
     assert_eq!(u.path, "/ws/app-feat");
     assert_eq!(
         u.why,
         UnprobedWhy::Failed {
-            error: format!("not listed by git: its git dir is {}", admin.display())
+            error: format!("not listed by git: its git dir is {}", git_dir.display())
         }
     );
     assert_eq!(
@@ -351,18 +353,19 @@ fn an_unlisted_worktree_takes_its_path_from_a_readable_gitdir() {
     );
     assert_eq!(u.in_progress, Some(InProgressOp::Rebase));
     // not: the git dir itself
-    let unnamed = AdminDir {
-        dir: admin.clone(),
-        worktree: Err("gone".into()),
-        relative: false,
-        unreadable: false,
+    let unnamed = WorktreeGitDir {
+        dir: git_dir.clone(),
+        gitdir: GitdirTarget::Empty,
     };
     let u = unlisted_worktree(&unnamed, &mut unreadable);
-    assert_eq!(u.path, admin.to_str().unwrap());
+    assert_eq!(u.path, git_dir.to_str().unwrap());
     assert_eq!(
         u.why,
         UnprobedWhy::Failed {
-            error: "not listed by git: gone".into()
+            error: format!(
+                "not listed by git: {} is empty",
+                git_dir.join("gitdir").display()
+            )
         }
     );
     assert!(unreadable.is_empty());
@@ -373,9 +376,9 @@ fn a_failed_record_takes_its_head_from_its_git_dir() {
     // git read the HEAD for its list, and it changed since: the git dir
     // is what's there now
     let tmp = tempfile::tempdir().unwrap();
-    let admin = tmp.path().join("admin");
-    std::fs::create_dir(&admin).unwrap();
-    std::fs::write(admin.join("HEAD"), "garbage\n").unwrap();
+    let git_dir = tmp.path().join("wt");
+    std::fs::create_dir(&git_dir).unwrap();
+    std::fs::write(git_dir.join("HEAD"), "garbage\n").unwrap();
     let record = WorktreeRecord {
         // gone: probed without a git call
         path: tmp.path().join("gone").to_string_lossy().into_owned(),
@@ -387,7 +390,7 @@ fn a_failed_record_takes_its_head_from_its_git_dir() {
     };
     let git = Git::new();
     let mut w = Worktrees::default();
-    probe_record(&git, record, Some(&admin), true, &HashSet::new(), &mut w);
+    probe_record(&git, record, Some(&git_dir), true, &HashSet::new(), &mut w);
     assert_eq!(git.spawns(), 0);
     assert_eq!(w.unprobed.len(), 1);
     assert_eq!(w.unprobed[0].head, UnprobedHead::Unknown);
@@ -406,7 +409,7 @@ fn submodules_that_cannot_be_looked_at_count() {
         any_populated(tmp.path(), &["sealed/nested".to_owned()]),
         any_populated(tmp.path(), &["absent".to_owned()]),
         // a git dir whose `modules/` can't be checked, and no index read
-        submodule_refusal(&Git::new(), tmp.path(), &sealed.join("admin"), false),
+        submodule_refusal(&Git::new(), tmp.path(), &sealed.join("wt"), false),
     );
     std::fs::set_permissions(&sealed, std::fs::Permissions::from_mode(0o755)).unwrap();
     if !unreadable {

@@ -23,9 +23,10 @@
 //! Claude Code sessions busy detection reads (`sessions`). The report's
 //! vocabulary is `report`, `state`, `classify` (entry-level reasons,
 //! `Refresh`), `remote` (what a remote's answers mean), and `error`. The
-//! probe, busy detection's scoping, URL parsing and redaction (`url`), and
-//! git's files and output formats are private. The `repos` binary parses
-//! arguments, renders reports, and owns exit codes.
+//! probe, busy detection's scoping, URL parsing and redaction (`url`), path
+//! resolution (`paths`), and git's files and output formats are private.
+//! The `repos` binary parses arguments, renders reports, and owns exit
+//! codes.
 //!
 //! **What it writes.** The tool moves refs it didn't author and reports git
 //! state: it fetches, fast-forwards, moves shallow branches with no local
@@ -53,6 +54,7 @@ pub mod discover;
 pub mod error;
 pub mod git;
 mod gitdir;
+mod paths;
 mod porcelain;
 mod probe;
 pub mod push;
