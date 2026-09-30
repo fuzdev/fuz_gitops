@@ -592,12 +592,12 @@ fn summary(
         if g.add(e, sync, workspace, view, verbose) {
             continue;
         }
-        match (e.pinned, &e.branch, e.checkouts.first().map(|c| &c.head)) {
-            (true, _, _) => quiet.pinned += 1,
-            (false, Some(branch), Some(Head::Branch { name })) if name != branch => {
-                quiet.on_branches += 1;
-            }
-            _ => quiet.clean += 1,
+        // a quiet entry off its followed branch is on another one: detached
+        // off it is an `unexpected_detached` reason, or its operation's
+        match (e.pinned, e.at_rest.and_then(|r| r.on_branch)) {
+            (true, _) => quiet.pinned += 1,
+            (false, Some(false)) => quiet.on_branches += 1,
+            (false, Some(true) | None) => quiet.clean += 1,
         }
     }
 
@@ -2352,7 +2352,8 @@ mod tests {
     use fuz_repos::registry::{EntryKind, Visibility};
     use fuz_repos::report::{BranchSync, FetchOutcome};
     use fuz_repos::state::{
-        Checkout, CloneRecipe, InProgressOp, Layout, UnprobedWorktree, UnprobedWorktreeStatus,
+        AtRest, Checkout, CloneRecipe, InProgressOp, Layout, UnprobedWorktree,
+        UnprobedWorktreeStatus,
     };
 
     use super::*;
@@ -2374,6 +2375,7 @@ mod tests {
             Mode::PinnedOn(branch) => (Some(branch.to_owned()), true),
             Mode::Head => (None, false),
         };
+        let on_branch = branch.as_ref().map(|b| b == head);
         EntryStatus {
             key: key.into(),
             kind: EntryKind::Repo,
@@ -2406,6 +2408,12 @@ mod tests {
                 working: vec![],
             }],
             branches: vec![],
+            at_rest: Some(AtRest {
+                on_branch,
+                clean: true,
+                idle: true,
+                followed: None,
+            }),
             stashes: 0,
             fetched_at: Some(NOW - 3 * 3600),
             needs_human: vec![],
@@ -2422,6 +2430,7 @@ mod tests {
         e.presence = Presence::Missing;
         e.layout = None;
         e.checkouts.clear();
+        e.at_rest = None;
         e.clone = Some(CloneVerdict::Act {
             recipe: CloneRecipe {
                 url: format!("git@github.com:me/{key}"),

@@ -74,6 +74,17 @@ use crate::render::{
 /// built from (stamped by `build.rs`).
 const VERSION: &str = concat!(env!("CARGO_PKG_VERSION"), " (", env!("REPOS_BUILD"), ")");
 
+/// `repos --version`'s line: the build's identity, then the version of each
+/// `--json` document the binary prints, so a consumer can tell which shape
+/// it will get — `repos <crate> (<commit>) · formats: status <n>, sync <n>,
+/// push <n>`.
+fn version_line() -> String {
+    format!(
+        "repos {VERSION} · formats: status {STATUS_FORMAT_VERSION}, sync {SYNC_FORMAT_VERSION}, \
+         push {PUSH_FORMAT_VERSION}\n"
+    )
+}
+
 /// repos — git state over the repos a repos.toml registry declares.
 #[derive(FromArgs, Debug)]
 struct Cli {
@@ -86,7 +97,8 @@ struct Cli {
     /// holding the registry as found)
     #[argh(option)]
     root: Option<String>,
-    /// print the version and the commit this binary was built from
+    /// print the version, the commit this binary was built from, and the
+    /// version of each --json document
     #[argh(switch)]
     version: bool,
     #[argh(subcommand)]
@@ -316,7 +328,7 @@ struct Printed {
 fn run(cli: Cli) -> Result<Printed> {
     if cli.version {
         return Ok(Printed {
-            stdout: format!("repos {VERSION}\n"),
+            stdout: version_line(),
             ..Printed::default()
         });
     }

@@ -23,7 +23,7 @@
 use std::path::{Path, PathBuf};
 
 use fuz_repos::busy::Sessions;
-use fuz_repos::classify::{NeedsHuman, OriginByHand, OriginFix, OriginRemote};
+use fuz_repos::classify::{NeedsHuman, OriginByHand, OriginFix, OriginRemote, Primary, at_rest};
 use fuz_repos::error::Error;
 use fuz_repos::registry::{CheckoutList, EntryKind, EntryName, RegistryIssue, Visibility};
 use fuz_repos::remote::{RefGoneFix, RemoteFailure, UnreachableCause, VisibilityCheck};
@@ -34,7 +34,7 @@ use fuz_repos::report::{
 };
 use fuz_repos::sessions::{Session, SessionSource, Unavailable};
 use fuz_repos::state::{
-    BranchNeedsHuman, BranchStatus, Checkout, CleanupReason, CloneRecipe, CloneVerdict,
+    AtRest, BranchNeedsHuman, BranchStatus, Checkout, CleanupReason, CloneRecipe, CloneVerdict,
     GitDirHolds, Head, HeldBy, InProgressOp, Layout, Presence, Prune, PruneLoss, RefreshVerdict,
     Relation, SyncAction, Uncommitted, UnprobedHead, UnprobedWhy, UnprobedWorktree,
     UnprobedWorktreeStatus, Verdict,
@@ -131,6 +131,28 @@ fn status_report() {
             .iter()
             .all(|e| e.clone.is_some() == (e.presence == Presence::Missing))
     );
+    // at-rest facts exactly for an entry with its primary read, each fact
+    // both ways, and each with nothing to say
+    assert!(
+        doc.entries
+            .iter()
+            .all(|e| e.at_rest.is_some() != e.checkouts.is_empty())
+    );
+    assert!(doc.entries.iter().any(|e| e.at_rest.is_none()));
+    let facts: Vec<AtRest> = doc.entries.iter().filter_map(|e| e.at_rest).collect();
+    for on_branch in [Some(true), Some(false), None] {
+        assert!(
+            facts.iter().any(|r| r.on_branch == on_branch),
+            "{on_branch:?}"
+        );
+    }
+    for fact in [
+        |r: &AtRest| r.clean,
+        |r: &AtRest| r.idle,
+        |r: &AtRest| r.followed.is_some(),
+    ] {
+        assert!(facts.iter().any(fact) && !facts.iter().all(fact));
+    }
     assert_golden("status_report.json", &doc);
 }
 
@@ -405,7 +427,7 @@ fn a_drifted_golden_names_where() {
 /// A whole-workspace run under `--fetch`: every entry shape, every fetch
 /// failure and visibility check, and the unregistered scan.
 fn status_report_doc() -> StatusReport {
-    let mut report = StatusReport::new(
+    let mut report = report(
         WORKSPACE.into(),
         format!("{WORKSPACE}/repos.toml"),
         true,
@@ -451,7 +473,7 @@ fn status_report_doc() -> StatusReport {
 /// every action is held. The targets name every entry: a third-party
 /// reference among them is refreshed, a pin refused.
 fn targeted_doc() -> StatusReport {
-    StatusReport::new(
+    report(
         WORKSPACE.into(),
         format!("{WORKSPACE}/repos.toml"),
         false,
@@ -517,6 +539,8 @@ fn targeted_doc() -> StatusReport {
                     expected: "https://github.com/them/lit".into(),
                     fix: Some(OriginFix::SetUrl),
                 }],
+                // held, so compared against no remote: no local work to keep
+                branches: vec![],
                 ..entry("lit", Some("main"))
             },
             // named, an `insteadOf` rewriting its HTTPS origin to SSH
@@ -534,6 +558,8 @@ fn targeted_doc() -> StatusReport {
                     expected: "https://github.com/them/dom".into(),
                     fix: None,
                 }],
+                // held, so compared against no remote: no local work to keep
+                branches: vec![],
                 ..entry("dom", Some("main"))
             },
             // named: a pin refuses
@@ -723,7 +749,7 @@ fn push_report_doc() -> PushReport {
     // no upstream: created on origin, and found there at another commit
     let created = topic("fuz_ui");
     let exists = topic("fuz_css");
-    let status = StatusReport::new(
+    let status = report(
         WORKSPACE.into(),
         format!("{WORKSPACE}/repos.toml"),
         true,
@@ -1069,6 +1095,7 @@ fn sync_report_doc() -> SyncReport {
         ),
     ];
     let mut app = entry("app", Some("main"));
+    app.branches.clear();
     let mut app_sync = Vec::new();
     for (name, relation, verdict, outcome) in app_branches {
         app.branches
@@ -1193,6 +1220,7 @@ fn sync_report_doc() -> SyncReport {
     let broken = EntryStatus {
         probe_error: Some("git status failed (128): error: bad tree object HEAD".into()),
         checkouts: vec![],
+        branches: vec![],
         ..entry("broken", Some("main"))
     };
     // missing: cloned, held as classified or at the moment of cloning,
@@ -1215,7 +1243,7 @@ fn sync_report_doc() -> SyncReport {
         url: "https://github.com/me/stray".into(),
         ..stray
     };
-    let mut status = StatusReport::new(
+    let mut status = report(
         WORKSPACE.into(),
         format!("{WORKSPACE}/repos.toml"),
         true,
@@ -1333,6 +1361,31 @@ fn error_doc() -> ErrorReport {
 
 // --- entries ---
 
+/// A report of `entries`, each one's `at_rest` decided from what it
+/// carries (`at_rest`, as `classify` decides it): its primary checkout,
+/// and its branches, compared against origin when owned or refreshed.
+fn report(
+    workspace: String,
+    registry: String,
+    fetched: bool,
+    sessions: Sessions,
+    mut entries: Vec<EntryStatus>,
+) -> StatusReport {
+    for e in &mut entries {
+        let tracked = e.writable || e.refresh == Some(RefreshVerdict::Act);
+        e.at_rest = e.checkouts.first().map(|c| {
+            assert!(c.primary, "{}: the primary first", e.key);
+            let primary = Primary {
+                head: &c.head,
+                uncommitted: c.uncommitted,
+                in_progress: c.in_progress,
+            };
+            at_rest(e.branch.as_deref(), &primary, tracked, &e.branches)
+        });
+    }
+    StatusReport::new(workspace, registry, fetched, sessions, entries)
+}
+
 fn path(dir: &str) -> String {
     format!("{WORKSPACE}/{dir}")
 }
@@ -1365,8 +1418,8 @@ fn on(name: &str) -> Head {
 }
 
 /// A present, owned, public repo on `main`, unpinned, fetched a day ago,
-/// with nothing to say.
-fn entry(key: &str, branch: Option<&str>) -> EntryStatus {
+/// with nothing to say: its one branch, `main`, in sync with origin's.
+fn entry(key: &str, followed: Option<&str>) -> EntryStatus {
     EntryStatus {
         key: key.into(),
         kind: EntryKind::Repo,
@@ -1376,14 +1429,23 @@ fn entry(key: &str, branch: Option<&str>) -> EntryStatus {
         archived: false,
         visibility: Some(Visibility::Public),
         ci: true,
-        branch: branch.map(str::to_owned),
+        branch: followed.map(str::to_owned),
         pinned: false,
         refresh: None,
         presence: Presence::Present,
         clone: None,
         layout: Some(plain_layout()),
         checkouts: vec![primary(key, on("main"))],
-        branches: vec![],
+        branches: vec![BranchStatus {
+            worktree: Some(path(key)),
+            ..branch(
+                "main",
+                Some("origin/main"),
+                Relation::InSync,
+                Verdict::Quiet,
+            )
+        }],
+        at_rest: None,
         stashes: 0,
         fetched_at: Some(NOW - DAY),
         needs_human: vec![],
@@ -1991,6 +2053,7 @@ fn missing() -> EntryStatus {
         }),
         layout: None,
         checkouts: vec![],
+        branches: vec![],
         fetched_at: None,
         ..entry("blake3", Some("main"))
     }
@@ -2019,6 +2082,7 @@ fn missing_reference(key: &str, held: Option<HeldBy>) -> EntryStatus {
         }),
         layout: None,
         checkouts: vec![],
+        branches: vec![],
         fetched_at: None,
         ..entry(key, None)
     }
@@ -2088,6 +2152,7 @@ fn not_a_repo() -> EntryStatus {
         presence: Presence::NotARepo,
         layout: None,
         checkouts: vec![],
+        branches: vec![],
         fetched_at: None,
         needs_human: vec![NeedsHuman::NotARepo {
             detail: "empty directory".into(),
@@ -2105,6 +2170,7 @@ fn partial() -> EntryStatus {
             ..plain_layout()
         }),
         checkouts: vec![],
+        branches: vec![],
         fetched_at: None,
         probe_error: Some("git status failed (128): error: bad tree object HEAD".into()),
         fetch_error: Some(RemoteFailure::RepoNotFound {

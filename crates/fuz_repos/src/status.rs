@@ -354,6 +354,7 @@ pub fn entry_status(
         layout: None,
         checkouts: Vec::new(),
         branches: Vec::new(),
+        at_rest: None,
         stashes: 0,
         fetched_at: None,
         needs_human: Vec::new(),
@@ -388,6 +389,7 @@ pub fn entry_status(
             status.refresh = refresh_verdict(entry, refresh, &facts.config);
             let classified = classify(entry, &facts, sessions, refresh);
             status.branches = classified.branches;
+            status.at_rest = Some(classified.at_rest);
             status.needs_human = classified.needs_human;
             status.stashes = facts.status.stashes;
             status.fetched_at = facts.fetched_at;

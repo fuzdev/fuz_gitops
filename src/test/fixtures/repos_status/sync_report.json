@@ -1,7 +1,7 @@
 {
-	"version": 9,
+	"version": 10,
 	"status": {
-		"version": 15,
+		"version": 16,
 		"workspace": "/home/me/dev",
 		"registry": "/home/me/dev/repos.toml",
 		"fetched": true,
@@ -334,6 +334,15 @@
 						}
 					}
 				],
+				"at_rest": {
+					"on_branch": true,
+					"clean": true,
+					"idle": true,
+					"followed": {
+						"kind": "behind",
+						"commits": 2
+					}
+				},
 				"stashes": 0,
 				"fetched_at": 1799913600,
 				"needs_human": [],
@@ -405,6 +414,15 @@
 						}
 					}
 				],
+				"at_rest": {
+					"on_branch": false,
+					"clean": true,
+					"idle": true,
+					"followed": {
+						"kind": "behind",
+						"commits": 2
+					}
+				},
 				"stashes": 0,
 				"fetched_at": 1799913600,
 				"needs_human": [],
@@ -477,6 +495,15 @@
 						}
 					}
 				],
+				"at_rest": {
+					"on_branch": true,
+					"clean": true,
+					"idle": true,
+					"followed": {
+						"kind": "behind",
+						"commits": 1
+					}
+				},
 				"stashes": 0,
 				"fetched_at": 1799913600,
 				"needs_human": [
@@ -555,6 +582,15 @@
 						}
 					}
 				],
+				"at_rest": {
+					"on_branch": true,
+					"clean": true,
+					"idle": true,
+					"followed": {
+						"kind": "behind",
+						"commits": 2
+					}
+				},
 				"stashes": 0,
 				"fetched_at": 1799913600,
 				"needs_human": [],
@@ -631,6 +667,12 @@
 						}
 					}
 				],
+				"at_rest": {
+					"on_branch": null,
+					"clean": true,
+					"idle": true,
+					"followed": null
+				},
 				"stashes": 0,
 				"fetched_at": 1799913600,
 				"needs_human": [],
@@ -719,6 +761,12 @@
 						}
 					}
 				],
+				"at_rest": {
+					"on_branch": null,
+					"clean": true,
+					"idle": true,
+					"followed": null
+				},
 				"stashes": 0,
 				"fetched_at": 1799913600,
 				"needs_human": [],
@@ -754,6 +802,7 @@
 				"layout": null,
 				"checkouts": [],
 				"branches": [],
+				"at_rest": null,
 				"stashes": 0,
 				"fetched_at": null,
 				"needs_human": [],
@@ -790,6 +839,7 @@
 				"layout": null,
 				"checkouts": [],
 				"branches": [],
+				"at_rest": null,
 				"stashes": 0,
 				"fetched_at": null,
 				"needs_human": [],
@@ -826,6 +876,7 @@
 				"layout": null,
 				"checkouts": [],
 				"branches": [],
+				"at_rest": null,
 				"stashes": 0,
 				"fetched_at": null,
 				"needs_human": [
@@ -867,6 +918,7 @@
 				"layout": null,
 				"checkouts": [],
 				"branches": [],
+				"at_rest": null,
 				"stashes": 0,
 				"fetched_at": null,
 				"needs_human": [
@@ -907,6 +959,7 @@
 				"layout": null,
 				"checkouts": [],
 				"branches": [],
+				"at_rest": null,
 				"stashes": 0,
 				"fetched_at": null,
 				"needs_human": [],
@@ -942,6 +995,7 @@
 				"layout": null,
 				"checkouts": [],
 				"branches": [],
+				"at_rest": null,
 				"stashes": 0,
 				"fetched_at": null,
 				"needs_human": [],
@@ -977,6 +1031,7 @@
 				"layout": null,
 				"checkouts": [],
 				"branches": [],
+				"at_rest": null,
 				"stashes": 0,
 				"fetched_at": null,
 				"needs_human": [],
@@ -1008,6 +1063,7 @@
 				},
 				"checkouts": [],
 				"branches": [],
+				"at_rest": null,
 				"stashes": 0,
 				"fetched_at": 1799913600,
 				"needs_human": [],

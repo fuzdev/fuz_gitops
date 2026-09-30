@@ -1,5 +1,5 @@
 {
-	"version": 15,
+	"version": 16,
 	"workspace": "/home/me/dev",
 	"registry": "/home/me/dev/repos.toml",
 	"fetched": true,
@@ -345,6 +345,15 @@
 					}
 				}
 			],
+			"at_rest": {
+				"on_branch": true,
+				"clean": false,
+				"idle": true,
+				"followed": {
+					"kind": "ahead",
+					"commits": 2
+				}
+			},
 			"stashes": 2,
 			"fetched_at": 1799913600,
 			"needs_human": [
@@ -592,6 +601,15 @@
 					}
 				}
 			],
+			"at_rest": {
+				"on_branch": true,
+				"clean": true,
+				"idle": false,
+				"followed": {
+					"kind": "ahead",
+					"commits": 2
+				}
+			},
 			"stashes": 0,
 			"fetched_at": 1799913600,
 			"needs_human": [
@@ -690,6 +708,15 @@
 					}
 				}
 			],
+			"at_rest": {
+				"on_branch": true,
+				"clean": true,
+				"idle": true,
+				"followed": {
+					"kind": "ahead",
+					"commits": 1
+				}
+			},
 			"stashes": 0,
 			"fetched_at": 1774080000,
 			"needs_human": [
@@ -801,6 +828,12 @@
 					}
 				}
 			],
+			"at_rest": {
+				"on_branch": null,
+				"clean": true,
+				"idle": false,
+				"followed": null
+			},
 			"stashes": 0,
 			"fetched_at": null,
 			"needs_human": [
@@ -890,6 +923,15 @@
 					}
 				}
 			],
+			"at_rest": {
+				"on_branch": true,
+				"clean": true,
+				"idle": false,
+				"followed": {
+					"kind": "behind",
+					"commits": 5
+				}
+			},
 			"stashes": 0,
 			"fetched_at": 1799913600,
 			"needs_human": [
@@ -973,6 +1015,12 @@
 					}
 				}
 			],
+			"at_rest": {
+				"on_branch": false,
+				"clean": true,
+				"idle": false,
+				"followed": null
+			},
 			"stashes": 0,
 			"fetched_at": 1799913600,
 			"needs_human": [
@@ -1030,6 +1078,7 @@
 			"layout": null,
 			"checkouts": [],
 			"branches": [],
+			"at_rest": null,
 			"stashes": 0,
 			"fetched_at": null,
 			"needs_human": [],
@@ -1066,6 +1115,7 @@
 			"layout": null,
 			"checkouts": [],
 			"branches": [],
+			"at_rest": null,
 			"stashes": 0,
 			"fetched_at": null,
 			"needs_human": [],
@@ -1102,6 +1152,7 @@
 			"layout": null,
 			"checkouts": [],
 			"branches": [],
+			"at_rest": null,
 			"stashes": 0,
 			"fetched_at": null,
 			"needs_human": [
@@ -1143,6 +1194,7 @@
 			"layout": null,
 			"checkouts": [],
 			"branches": [],
+			"at_rest": null,
 			"stashes": 0,
 			"fetched_at": null,
 			"needs_human": [
@@ -1175,6 +1227,7 @@
 			"layout": null,
 			"checkouts": [],
 			"branches": [],
+			"at_rest": null,
 			"stashes": 0,
 			"fetched_at": null,
 			"needs_human": [
@@ -1211,6 +1264,7 @@
 			},
 			"checkouts": [],
 			"branches": [],
+			"at_rest": null,
 			"stashes": 0,
 			"fetched_at": null,
 			"needs_human": [],
@@ -1286,6 +1340,15 @@
 					}
 				}
 			],
+			"at_rest": {
+				"on_branch": true,
+				"clean": true,
+				"idle": true,
+				"followed": {
+					"kind": "behind",
+					"commits": 2
+				}
+			},
 			"stashes": 0,
 			"fetched_at": 1799913600,
 			"needs_human": [],
@@ -1383,6 +1446,15 @@
 					}
 				}
 			],
+			"at_rest": {
+				"on_branch": true,
+				"clean": true,
+				"idle": true,
+				"followed": {
+					"kind": "behind",
+					"commits": 3
+				}
+			},
 			"stashes": 0,
 			"fetched_at": 1799913600,
 			"needs_human": [],
@@ -1433,7 +1505,30 @@
 					"busy": []
 				}
 			],
-			"branches": [],
+			"branches": [
+				{
+					"name": "main",
+					"upstream": "origin/main",
+					"worktree": "/home/me/dev/zap",
+					"symref": null,
+					"unique_commits": 0,
+					"newest_commit_at": 1799827200,
+					"relation": {
+						"kind": "in_sync"
+					},
+					"verdict": {
+						"kind": "quiet"
+					}
+				}
+			],
+			"at_rest": {
+				"on_branch": true,
+				"clean": true,
+				"idle": true,
+				"followed": {
+					"kind": "in_sync"
+				}
+			},
 			"stashes": 0,
 			"fetched_at": 1799913600,
 			"needs_human": [],
@@ -1494,7 +1589,30 @@
 					"busy": []
 				}
 			],
-			"branches": [],
+			"branches": [
+				{
+					"name": "main",
+					"upstream": "origin/main",
+					"worktree": "/home/me/dev/site",
+					"symref": null,
+					"unique_commits": 0,
+					"newest_commit_at": 1799827200,
+					"relation": {
+						"kind": "in_sync"
+					},
+					"verdict": {
+						"kind": "quiet"
+					}
+				}
+			],
+			"at_rest": {
+				"on_branch": true,
+				"clean": true,
+				"idle": true,
+				"followed": {
+					"kind": "in_sync"
+				}
+			},
 			"stashes": 0,
 			"fetched_at": 1799913600,
 			"needs_human": [
@@ -1562,7 +1680,30 @@
 					"busy": []
 				}
 			],
-			"branches": [],
+			"branches": [
+				{
+					"name": "main",
+					"upstream": "origin/main",
+					"worktree": "/home/me/dev/mdz",
+					"symref": null,
+					"unique_commits": 0,
+					"newest_commit_at": 1799827200,
+					"relation": {
+						"kind": "in_sync"
+					},
+					"verdict": {
+						"kind": "quiet"
+					}
+				}
+			],
+			"at_rest": {
+				"on_branch": true,
+				"clean": true,
+				"idle": true,
+				"followed": {
+					"kind": "in_sync"
+				}
+			},
 			"stashes": 0,
 			"fetched_at": 1799913600,
 			"needs_human": [
@@ -1633,7 +1774,30 @@
 					"busy": []
 				}
 			],
-			"branches": [],
+			"branches": [
+				{
+					"name": "main",
+					"upstream": "origin/main",
+					"worktree": "/home/me/dev/tsv",
+					"symref": null,
+					"unique_commits": 0,
+					"newest_commit_at": 1799827200,
+					"relation": {
+						"kind": "in_sync"
+					},
+					"verdict": {
+						"kind": "quiet"
+					}
+				}
+			],
+			"at_rest": {
+				"on_branch": true,
+				"clean": true,
+				"idle": true,
+				"followed": {
+					"kind": "in_sync"
+				}
+			},
 			"stashes": 0,
 			"fetched_at": 1799913600,
 			"needs_human": [],
@@ -1691,7 +1855,30 @@
 					"busy": []
 				}
 			],
-			"branches": [],
+			"branches": [
+				{
+					"name": "main",
+					"upstream": "origin/main",
+					"worktree": "/home/me/dev/tsv.fuz.dev",
+					"symref": null,
+					"unique_commits": 0,
+					"newest_commit_at": 1799827200,
+					"relation": {
+						"kind": "in_sync"
+					},
+					"verdict": {
+						"kind": "quiet"
+					}
+				}
+			],
+			"at_rest": {
+				"on_branch": true,
+				"clean": true,
+				"idle": true,
+				"followed": {
+					"kind": "in_sync"
+				}
+			},
 			"stashes": 0,
 			"fetched_at": 1799913600,
 			"needs_human": [],
@@ -1745,7 +1932,30 @@
 					"busy": []
 				}
 			],
-			"branches": [],
+			"branches": [
+				{
+					"name": "main",
+					"upstream": "origin/main",
+					"worktree": "/home/me/dev/fuz_css",
+					"symref": null,
+					"unique_commits": 0,
+					"newest_commit_at": 1799827200,
+					"relation": {
+						"kind": "in_sync"
+					},
+					"verdict": {
+						"kind": "quiet"
+					}
+				}
+			],
+			"at_rest": {
+				"on_branch": true,
+				"clean": true,
+				"idle": true,
+				"followed": {
+					"kind": "in_sync"
+				}
+			},
 			"stashes": 0,
 			"fetched_at": 1799913600,
 			"needs_human": [],
@@ -1800,7 +2010,30 @@
 					"busy": []
 				}
 			],
-			"branches": [],
+			"branches": [
+				{
+					"name": "main",
+					"upstream": "origin/main",
+					"worktree": "/home/me/dev/fuz_ui",
+					"symref": null,
+					"unique_commits": 0,
+					"newest_commit_at": 1799827200,
+					"relation": {
+						"kind": "in_sync"
+					},
+					"verdict": {
+						"kind": "quiet"
+					}
+				}
+			],
+			"at_rest": {
+				"on_branch": true,
+				"clean": true,
+				"idle": true,
+				"followed": {
+					"kind": "in_sync"
+				}
+			},
 			"stashes": 0,
 			"fetched_at": 1799913600,
 			"needs_human": [],
@@ -1854,7 +2087,30 @@
 					"busy": []
 				}
 			],
-			"branches": [],
+			"branches": [
+				{
+					"name": "main",
+					"upstream": "origin/main",
+					"worktree": "/home/me/dev/uz",
+					"symref": null,
+					"unique_commits": 0,
+					"newest_commit_at": 1799827200,
+					"relation": {
+						"kind": "in_sync"
+					},
+					"verdict": {
+						"kind": "quiet"
+					}
+				}
+			],
+			"at_rest": {
+				"on_branch": true,
+				"clean": true,
+				"idle": true,
+				"followed": {
+					"kind": "in_sync"
+				}
+			},
 			"stashes": 0,
 			"fetched_at": 1799913600,
 			"needs_human": [],
@@ -1949,6 +2205,15 @@
 					}
 				}
 			],
+			"at_rest": {
+				"on_branch": true,
+				"clean": true,
+				"idle": true,
+				"followed": {
+					"kind": "ahead",
+					"commits": 1
+				}
+			},
 			"stashes": 0,
 			"fetched_at": 1799913600,
 			"needs_human": [
@@ -2024,6 +2289,14 @@
 					}
 				}
 			],
+			"at_rest": {
+				"on_branch": true,
+				"clean": true,
+				"idle": true,
+				"followed": {
+					"kind": "in_sync"
+				}
+			},
 			"stashes": 0,
 			"fetched_at": null,
 			"needs_human": [
@@ -2097,6 +2370,14 @@
 					}
 				}
 			],
+			"at_rest": {
+				"on_branch": true,
+				"clean": true,
+				"idle": true,
+				"followed": {
+					"kind": "in_sync"
+				}
+			},
 			"stashes": 0,
 			"fetched_at": 1799913600,
 			"needs_human": [
@@ -2172,6 +2453,14 @@
 					}
 				}
 			],
+			"at_rest": {
+				"on_branch": true,
+				"clean": true,
+				"idle": true,
+				"followed": {
+					"kind": "gone"
+				}
+			},
 			"stashes": 0,
 			"fetched_at": 1799913600,
 			"needs_human": [

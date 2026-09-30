@@ -60,6 +60,35 @@ pub struct Checkout {
     pub working: Vec<Session>,
 }
 
+/// Whether an entry's own checkout is at rest where the registry puts it.
+///
+/// On the branch it follows, clean, nothing in progress, and how that
+/// branch stands against origin — decided in `classify` (`at_rest`), so no
+/// consumer re-derives readiness from the checkout and its branches.
+///
+/// Facts about the primary checkout alone (`Checkout::primary`); the
+/// entry's other worktrees are theirs to report. A pin's facts are
+/// decided as any entry's: that it's pinned is its own fact.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+pub struct AtRest {
+    /// Whether the primary's HEAD is on the branch the entry follows (its
+    /// `branch`); false when detached or on another branch. `None` when
+    /// the entry follows no branch (a reference declaring none, whose HEAD
+    /// is left wherever it is).
+    pub on_branch: Option<bool>,
+    /// Nothing staged, unstaged, untracked, or conflicted in the primary.
+    pub clean: bool,
+    /// No operation in progress in the primary (`in_progress`).
+    pub idle: bool,
+    /// The followed branch's relation to origin, as its entry in
+    /// `branches` carries it. `None` when the entry follows no branch, has
+    /// no local branch of that name, or its branches weren't compared
+    /// against a remote: a third-party reference the run doesn't refresh
+    /// keeps only its branches with local work, each `Untracked` for want
+    /// of a comparison, never a relation to claim.
+    pub followed: Option<Relation>,
+}
+
 /// A worktree that couldn't be probed as a checkout.
 ///
 /// One `git worktree list` names that's gone or failing, or a git dir under

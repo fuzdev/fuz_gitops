@@ -1,5 +1,6 @@
-//! Probe facts → each branch's relation and verdict, and the entry's
-//! `needs_human` reasons; a missing entry → its clone verdict. Pure.
+//! Probe facts → each branch's relation and verdict, the entry's
+//! `needs_human` reasons, and whether its checkout is at rest; a missing
+//! entry → its clone verdict. Pure.
 //!
 //! The verdict is the one place sync's per-branch decision is made: `status`
 //! previews it, `sync` executes it, and JSON consumers read it rather than
@@ -17,9 +18,9 @@ use crate::registry::{Entry, RepoUrl};
 use crate::report::{UnregisteredClone, UnregisteredKind};
 use crate::sessions::Session;
 use crate::state::{
-    BranchNeedsHuman, BranchStatus, CleanupReason, CloneRecipe, CloneVerdict, Head, HeldBy,
-    InProgressOp, Prune, PruneLoss, RefreshVerdict, Relation, SyncAction, UnprobedHead,
-    UnprobedWhy, UnprobedWorktree, UnprobedWorktreeStatus, Verdict,
+    AtRest, BranchNeedsHuman, BranchStatus, CleanupReason, CloneRecipe, CloneVerdict, Head, HeldBy,
+    InProgressOp, Prune, PruneLoss, RefreshVerdict, Relation, SyncAction, Uncommitted,
+    UnprobedHead, UnprobedWhy, UnprobedWorktree, UnprobedWorktreeStatus, Verdict,
 };
 use crate::url::{RemoteParts, remote_parts, without_userinfo};
 
@@ -281,6 +282,8 @@ pub struct Classified {
     pub needs_human: Vec<NeedsHuman>,
     /// The repo's unprobed worktrees, each with what removing it would do.
     pub unprobed: Vec<UnprobedWorktreeStatus>,
+    /// Whether the primary checkout is at rest where the registry puts it.
+    pub at_rest: AtRest,
 }
 
 /// What dropping an unprobed worktree's git dir would do — that worktree's
@@ -495,7 +498,7 @@ pub fn classify(
     let worktrees_unread = needs_human.iter().any(
         |r| matches!(r, NeedsHuman::WorktreeUnreadable { path } if Path::new(path) == worktrees_dir),
     );
-    let branches = facts
+    let branches: Vec<BranchStatus> = facts
         .branches
         .iter()
         .filter_map(|b| {
@@ -555,10 +558,59 @@ pub fn classify(
             worktree: u.clone(),
         })
         .collect();
+    let at_rest = at_rest(
+        entry.branch.as_deref(),
+        &Primary {
+            head: &facts.status.head,
+            uncommitted: facts.status.uncommitted,
+            in_progress: facts.in_progress,
+        },
+        tracked,
+        &branches,
+    );
     Classified {
         branches,
         needs_human,
         unprobed,
+        at_rest,
+    }
+}
+
+/// The primary checkout's state, as `at_rest` reads it.
+#[derive(Debug, Clone, Copy)]
+pub struct Primary<'a> {
+    pub head: &'a Head,
+    pub uncommitted: Uncommitted,
+    pub in_progress: Option<InProgressOp>,
+}
+
+/// Whether the primary checkout is at rest where the registry puts it
+/// (`AtRest`).
+///
+/// For an entry following `branch`, whose `branches` are classified —
+/// compared against origin when `tracked` (owned, or a third-party
+/// reference the run refreshes).
+///
+/// `on_branch` is `None` exactly when `branch` is; `followed` is the
+/// relation `branches` carries for `branch`, and `None` when there's no
+/// such branch or the entry isn't `tracked` — an untracked reference's
+/// branches read `Untracked` for want of a comparison, a relation never
+/// computed.
+pub fn at_rest(
+    branch: Option<&str>,
+    primary: &Primary<'_>,
+    tracked: bool,
+    branches: &[BranchStatus],
+) -> AtRest {
+    AtRest {
+        on_branch: branch
+            .map(|branch| matches!(primary.head, Head::Branch { name } if name == branch)),
+        clean: primary.uncommitted.is_clean(),
+        idle: primary.in_progress.is_none(),
+        followed: branch
+            .filter(|_| tracked)
+            .and_then(|branch| branches.iter().find(|b| b.name == branch))
+            .map(|b| b.relation),
     }
 }
 

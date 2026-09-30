@@ -11,7 +11,7 @@ use crate::error::{Error, ErrorKind};
 use crate::registry::{EntryKind, Visibility};
 use crate::remote::{RemoteFailure, VisibilityCheck};
 use crate::state::{
-    BranchNeedsHuman, BranchStatus, Checkout, CloneVerdict, HeldBy, Layout, Presence,
+    AtRest, BranchNeedsHuman, BranchStatus, Checkout, CloneVerdict, HeldBy, Layout, Presence,
     RefreshVerdict, SyncAction, UnprobedWorktreeStatus,
 };
 use crate::{PUSH_FORMAT_VERSION, STATUS_FORMAT_VERSION, SYNC_FORMAT_VERSION};
@@ -221,6 +221,12 @@ pub struct EntryStatus {
     /// probed.
     pub checkouts: Vec<Checkout>,
     pub branches: Vec<BranchStatus>,
+    /// Whether the primary checkout is at rest where the registry puts it:
+    /// on the followed branch, clean, idle, and that branch's relation
+    /// (`classify::at_rest`). `None` exactly when `checkouts` is empty —
+    /// the repo is missing or isn't one, or its probe failed
+    /// (`probe_error`), so the primary's state wasn't read whole.
+    pub at_rest: Option<AtRest>,
     pub stashes: u32,
     /// The newest non-empty `FETCH_HEAD`'s mtime across the repo's
     /// worktrees, in unix seconds — or, when none of them has a `FETCH_HEAD`

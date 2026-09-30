@@ -1,5 +1,5 @@
 {
-	"version": 15,
+	"version": 16,
 	"workspace": "/home/me/dev",
 	"registry": "/home/me/dev/repos.toml",
 	"fetched": false,
@@ -55,7 +55,30 @@
 					"busy": []
 				}
 			],
-			"branches": [],
+			"branches": [
+				{
+					"name": "main",
+					"upstream": "origin/main",
+					"worktree": "/home/me/dev/gro",
+					"symref": null,
+					"unique_commits": 0,
+					"newest_commit_at": 1799827200,
+					"relation": {
+						"kind": "in_sync"
+					},
+					"verdict": {
+						"kind": "quiet"
+					}
+				}
+			],
+			"at_rest": {
+				"on_branch": true,
+				"clean": true,
+				"idle": true,
+				"followed": {
+					"kind": "in_sync"
+				}
+			},
 			"stashes": 0,
 			"fetched_at": 1799913600,
 			"needs_human": [
@@ -139,6 +162,15 @@
 					}
 				}
 			],
+			"at_rest": {
+				"on_branch": true,
+				"clean": true,
+				"idle": true,
+				"followed": {
+					"kind": "ahead",
+					"commits": 1
+				}
+			},
 			"stashes": 0,
 			"fetched_at": 1799913600,
 			"needs_human": [],
@@ -213,6 +245,15 @@
 					}
 				}
 			],
+			"at_rest": {
+				"on_branch": true,
+				"clean": true,
+				"idle": true,
+				"followed": {
+					"kind": "behind",
+					"commits": 3
+				}
+			},
 			"stashes": 0,
 			"fetched_at": 1799913600,
 			"needs_human": [],
@@ -267,6 +308,12 @@
 				}
 			],
 			"branches": [],
+			"at_rest": {
+				"on_branch": true,
+				"clean": true,
+				"idle": true,
+				"followed": null
+			},
 			"stashes": 0,
 			"fetched_at": 1799913600,
 			"needs_human": [
@@ -330,6 +377,12 @@
 				}
 			],
 			"branches": [],
+			"at_rest": {
+				"on_branch": true,
+				"clean": true,
+				"idle": true,
+				"followed": null
+			},
 			"stashes": 0,
 			"fetched_at": 1799913600,
 			"needs_human": [
@@ -412,6 +465,15 @@
 					}
 				}
 			],
+			"at_rest": {
+				"on_branch": true,
+				"clean": true,
+				"idle": true,
+				"followed": {
+					"kind": "behind",
+					"commits": 2
+				}
+			},
 			"stashes": 0,
 			"fetched_at": 1799913600,
 			"needs_human": [],

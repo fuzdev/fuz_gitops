@@ -12,7 +12,7 @@ use std::os::unix::fs::MetadataExt as _;
 use std::path::{Path, PathBuf};
 use std::process::Output;
 
-use fuz_repos::{STATUS_FORMAT_VERSION, SYNC_FORMAT_VERSION};
+use fuz_repos::{PUSH_FORMAT_VERSION, STATUS_FORMAT_VERSION, SYNC_FORMAT_VERSION};
 use serde_json::Value;
 use support::{FixtureWorkspace, THIRD_PARTY};
 
@@ -1522,10 +1522,19 @@ fn version_and_help_exit_zero() {
     let ws = workspace();
     let out = repos(&ws, &ws.root(), &["--version"]);
     assert_eq!(out.status.code(), Some(0));
+    let text = stdout(&out);
     assert!(
-        stdout(&out).starts_with(&format!("repos {}", env!("CARGO_PKG_VERSION"))),
-        "{}",
-        stdout(&out)
+        text.starts_with(&format!("repos {} (", env!("CARGO_PKG_VERSION"))),
+        "{text}"
+    );
+    // the build's identity, then each `--json` document's version
+    let formats = format!(
+        ") · formats: status {STATUS_FORMAT_VERSION}, sync {SYNC_FORMAT_VERSION}, \
+         push {PUSH_FORMAT_VERSION}\n"
+    );
+    assert!(
+        text.ends_with(&formats) && text.lines().count() == 1,
+        "{text}"
     );
     let out = repos(&ws, &ws.root(), &["--help"]);
     assert_eq!(out.status.code(), Some(0));

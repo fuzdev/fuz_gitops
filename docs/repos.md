@@ -15,6 +15,7 @@ the per-command reference.
 - [Commands](#commands)
 - [Finding the registry](#finding-the-registry)
 - [`repos status`](#repos-status)
+- [At rest](#at-rest)
 - [`repos status --brief`](#repos-status---brief)
 - [Fetching](#fetching)
 - [Busy detection](#busy-detection)
@@ -23,6 +24,7 @@ the per-command reference.
 - [Third-party references](#third-party-references)
 - [Cloning missing entries](#cloning-missing-entries)
 - [Exit codes](#exit-codes)
+- [Versions](#versions)
 - [Testing](#testing)
 
 ## Install
@@ -56,7 +58,7 @@ repos sync --references      # refresh every third-party reference too (never a 
 repos push                   # the gateway: fetch, then push the branch checked out here as a fast-forward of what was fetched; exit 1 unless it ends in sync
 repos push app ../wt --json  # targets: a key or dir name (the entry's own checkout), or a path (the checkout holding it); --json prints the versioned outcome report
 repos push --new-branch      # the user's (refused under CLAUDECODE): create the branch on origin when it has no upstream there, and track it as git push -u does
-repos --version              # the crate version and the commit the binary was built from
+repos --version              # the crate version, the commit the binary was built from, and each --json document's format version
 repos --registry <file> --root <dir> status # a registry kept outside the workspace
 
 cargo fmt --check
@@ -110,6 +112,36 @@ In the default view each entry's `uncommitted` item totals its primary
 checkout's dirt, then names its one other dirty worktree, or folds several
 into a count with their summed dirt; `--verbose` lists every dirty checkout
 with its dirt by kind.
+
+## At rest
+
+Each entry's `at_rest` in the `--json` report says whether its own checkout
+— the primary, `checkouts[0]` — sits where the registry puts it. It's
+decided with the verdicts, so a consumer reads readiness rather than
+re-deriving it from the checkout and its branches:
+
+- `on_branch` — HEAD is on the branch the entry follows (its `branch`);
+  `false` when detached or on another branch, `null` when the entry follows
+  none (a reference declaring no `branch`)
+- `clean` — nothing staged, unstaged, untracked, or conflicted
+- `idle` — no operation in progress
+- `followed` — the followed branch's relation to origin, as its entry in
+  `branches` carries it; `null` when the entry follows no branch, has no
+  local branch of that name, or its branches aren't compared against a
+  remote — a third-party reference the run doesn't refresh, whose branches
+  with local work read `untracked` for want of a comparison
+
+`at_rest` itself is `null` exactly when `checkouts` is empty: the entry is
+missing or not a repo, or its probe failed (`probe_error`). A pin's facts are
+decided as any entry's; that it's pinned is its own field. The text
+summary's `clean · on branches · pinned` counts read `on_branch`.
+
+Readiness wants `followed` too: a followed branch that's unborn (no commit
+yet) reads `on_branch` true, clean, idle, and `followed` `null`, beside a
+`default_branch_missing` reason unless the entry is pinned. `at_rest` says nothing of live
+sessions — `checkouts[0].busy` does. And `followed` is as fresh as the
+remote-tracking refs, as `branches` is: as of `fetched_at`, and stale after
+a failed `--fetch`.
 
 ## `repos status --brief`
 
@@ -450,6 +482,22 @@ The rustdoc of `clone.rs` has the recipe.
 
 A fatal error prints `error: …` and `hint: …` on stderr; under `--json` it
 also prints one error document on stdout, in place of the report.
+
+## Versions
+
+`repos --version` prints one line: the crate version, the commit the binary
+was built from, and the version of each `--json` document it prints —
+
+```
+repos <crate> (<commit>[, dirty]) · formats: status <n>, sync <n>, push <n>
+```
+
+Each document carries its own as `version` (`sync` and `push` embed a status
+report, which carries the status one). A version is bumped on any change to
+its document's shape, new fields and variants included, since consumers
+parse with strict objects and closed unions; the sync and push versions move
+with every status bump. The crate version doesn't track the formats, so a
+consumer checks the one it parses.
 
 ## Testing
 
