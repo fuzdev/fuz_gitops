@@ -18,7 +18,7 @@ algorithms that power fuz_gitops publishing.
 ## Quick Start
 
 ```bash
-# 1. Validate configuration (moves no ref; gro caches .gro/library.json)
+# 1. Validate configuration (writes nothing in git)
 gro gitops_validate
 
 # 2. Review what will be published
@@ -112,8 +112,8 @@ gitops_plan`, so it shows the full cascade: explicit changesets, bump
 
 A real publish reads every npm repo as it sits and commits and pushes there, so
 before it prints the plan and asks to confirm, `gro gitops_publish --wetrun`
-fetches them (`repos status <keys…> --fetch --json`, which writes
-remote-tracking refs and nothing else) and refuses unless each is ready:
+fetches them (`repos status <keys…> --fetch --json`, which moves
+only remote-tracking refs) and refuses unless each is ready:
 
 - on the branch its registry entry follows, clean (untracked files count), and
   with no rebase, merge, or other operation in progress
@@ -137,19 +137,36 @@ plan misses nothing, and `gro publish`'s push is still a fast-forward. The gate
 logs each one before the prompt — `` `main` is 2 commits ahead of origin —
 publishing pushes them with the release`` — or, for a repo the plan doesn't
 publish, that those commits stay unpushed until `repos sync` or `repos push`.
+A run leaves such branches itself: the dependency rewrites and auto-changesets
+it commits in a repo it doesn't then publish, and every dev-dep bump (the
+dev-dep phase runs after all publishes), stay local until `repos sync`,
+`repos push`, or that repo's next release.
 
 The gate runs before the prompt; a cascade's npm waits can stretch the time
-after it to many minutes, and `gro publish --no-pull` wouldn't notice origin
-moving until its push is rejected — after the version is already on npm. So
-the executor **re-checks each repo right before its `gro publish`** (a
-`repos status --fetch` of that repo alone, the same predicate) and aborts
-before touching npm unless it's still ready — in sync or ahead, since the
-executor's own dependency-rewrite commit leaves a dependent ahead. The abort is
-a `not_ready` failure: the dirty state stays, and re-running resumes.
+after it to many minutes. Under `--no-pull`, gro wouldn't notice origin moving
+until its push is rejected — after `changeset publish` has put the version on
+npm, leaving a local release commit and tag on a diverged branch (gro ignores
+its push's exit code, so the run carries on) — and its `commit -a` would sweep
+a tracked edit made since into the release commit. So the executor
+**re-checks each repo right before its `gro publish`** (a `repos status
+--fetch` of that repo alone, the same predicate) and aborts before touching
+npm unless it's still ready — in sync or ahead, since the executor's own
+dependency-rewrite commit leaves a dependent ahead. The abort is a `not_ready`
+failure, like `drift`: the dirty state stays, and re-running resumes.
+
+Two windows are left: the seconds between that re-check and gro's push (see
+[Troubleshooting](troubleshooting.md#a-release-commit-and-tag-left-local-the-push-was-rejected)),
+and the executor's own dependency-rewrite commits, which aren't re-checked:
+each commits only the `package.json` and changeset it staged (`git commit --
+<files>`), but lands on whatever branch the repo is on then.
 
 The diagnostics (`gitops_plan`, `gitops_analyze`, `gitops_validate`, and the
-dry run) read the same facts from local refs, without fetching, and print the
-repos not at rest as warnings. They still run: a plan over a feature branch is
+dry run) read the same facts from local refs, without fetching, and print a
+readiness block as warnings on stderr, naming each npm repo not at rest — off
+its branch (naming the head), dirty, an operation in progress, or its branch
+behind, ahead, diverged, or otherwise off origin as of the last fetch. These
+are the repos a real publish would refuse, except that a branch only ahead of
+origin passes its gate. They still run: a plan over a feature branch is
 useful, it just isn't the plan a real publish would run.
 
 ## Publishing Flow
@@ -240,7 +257,7 @@ The system uses topological sort with dev dependency exclusion:
   - These create impossible ordering: Package A depends on Package B which
     depends on Package A
   - Solution: Move one dependency to devDependencies or restructure
-- **Dev cycles**: Allowed and normal (warning only)
+- **Dev cycles**: Allowed and normal (reported as info, not a warning)
   - Dev dependencies don't affect runtime, so cycles are safe
   - Topological sort excludes dev deps (`exclude_dev=true`) to break these
     cycles
@@ -277,7 +294,7 @@ Packages with `"private": true` in package.json never publish:
 Before publishing, always validate your configuration:
 
 ```bash
-# 1. Run comprehensive validation (moves no ref; gro caches .gro/library.json)
+# 1. Run comprehensive validation (writes nothing in git)
 gro gitops_validate
 
 # 2. Review analyze output
@@ -309,8 +326,9 @@ gro gitops_plan --format markdown --outfile plan.md
 ```bash
 # Create a changeset for your package
 cd packages/my-package
-npx changeset
+gro changeset
 # Follow prompts to describe changes
+git commit -m "add changeset"  # the readiness gate refuses uncommitted changes
 
 # Generate plan to see what will be published
 gro gitops_plan

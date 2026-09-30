@@ -165,9 +165,9 @@ get there, and re-checks each repo the same way right before publishing it.
 
 **Note:** If publishing fails, simply re-run the same command.
 Already-published packages are automatically skipped (changesets consumed),
-failed packages retried naturally. Repos the run left ahead of origin (its
-dependency-rewrite commits) push with their own release, or stay unpushed until
-`repos sync` or `repos push` if they don't publish.
+failed packages retried naturally (see
+[docs/publishing.md](docs/publishing.md#readiness) for what the run leaves
+unpushed).
 
 ### The `repos` tool
 

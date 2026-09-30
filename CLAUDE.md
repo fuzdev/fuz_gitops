@@ -99,7 +99,9 @@ Each is structural, in the code (the rustdoc of `sync.rs`, `push.rs`,
 `clone.rs`, `git.rs`, `probe.rs` (fetch confinement), and `busy.rs` and
 `sessions.rs` (busy detection) says how):
 
-- never `pull`s, rebases, or merges anything but a fast-forward
+- never `pull`s, rebases, merges anything but a fast-forward, or resolves a
+  conflict: anything history-changing stops and reports, so host repo rules
+  never need modelling
 - never creates a commit, a tag, or a changeset
 - never force-pushes: a push is a fast-forward of exactly the tip the fetch
   saw, under a lease, and sends no tags or push options; a remote branch is
@@ -126,18 +128,12 @@ Each is structural, in the code (the rustdoc of `sync.rs`, `push.rs`,
   the only program it runs (and `kill`, to stop a timed-out call), and it
   holds no credential of its own
 
-Its writes are scoped: `status` writes nothing (optional locks off, lazy
-fetching off); the fetch writes remote-tracking refs and the objects behind
-them, never a tag, submodule, or commit-graph; `sync` writes the branch it
-acts on, the checkout that branch is on, and new clones (made in a temp dir,
-moved into place only when whole) — a fast-forward in a checkout moves
-whatever branch HEAD is on when git runs, so one switched in the instant
-after sync reads it may move that branch forward instead, and the action fails,
-naming it; a push writes the one remote branch, then
-moves its remote-tracking ref, and `--new-branch` sets the branch's upstream
-config. Lazy fetching is on outside a clone in one place: a fast-forward or
-move in a partial clone's checkout fetches the blobs the new tip needs, from
-origin alone, writing objects and no ref.
+What each command writes, exactly — the fetch's confinement, sync's writes,
+clone placement, `--new-branch`'s upstream config, partial clones' lazy
+fetching — is in docs/repos.md: [status](docs/repos.md#repos-status),
+[Fetching](docs/repos.md#fetching), [sync](docs/repos.md#repos-sync),
+[`--new-branch`](docs/repos.md#--new-branch), and
+[clones](docs/repos.md#cloning-missing-entries).
 
 ### Out of scope
 
@@ -162,20 +158,6 @@ origin alone, writing objects and no ref.
 - **Machine and server state.** Provisioning and deployment convergence is a
   different target with its own tooling.
 
-### Filling the gap: fleet git state
-
-The **observe** tier is the one everything else builds on: a structured,
-read-only model of each repo's git state — every local branch against its
-upstream, dirt split into staged/unstaged/untracked/conflicted, local-only
-work, stashes, operations in progress, missing clones. The TS side has none
-(its fallback is `gitops_run "git status"` and parsing porcelain by hand), so
-the model is the Rust `repos` tool's, not a growth of `GitOperations`. Its
-invariants: never `pull` across a set of repos (fetch, classify, then
-fast-forward or report); never rebase, merge, or auto-resolve conflicts —
-anything history-changing stops and reports, so host repo rules never need
-modelling; derive write authority from owner accounts; classify unpushed refs
-by type.
-
 ### The TS and Rust halves
 
 Every TS entry point is a Gro task (`src/lib/gitops_*.task.ts`), so it runs
@@ -185,18 +167,17 @@ a project's own config, publishing, and dashboard data.
 
 The Rust side lives in this repo as one crate, `crates/fuz_repos` (a library
 plus the `repos` binary), and moves refs under the authoring rule above — git
-only, no API calls:
+only, no API calls. `repos status` reports each entry's git state from local
+refs (`--fetch` refreshes them first), `repos sync` carries out the
+fast-forwards, moves, pushes, and clones `status` previews, and `repos push`,
+the gateway, pushes one checkout's branch through sync's own push — each in
+[docs/repos.md](docs/repos.md#commands).
 
-- `repos status` reports every registry entry's branches and their relation
-  to origin, uncommitted work in each checkout (linked worktrees too), what
-  needs a human, which checkouts another live Claude Code session is working
-  in, and the clones at the workspace root the registry doesn't name, grouped
-  by what to do next, from local refs (`--fetch` refreshes them first and
-  checks that repos declared private aren't anonymously readable)
-- `repos sync` fetches and carries out the fast-forwards, shallow moves,
-  pushes, and clones `status` previews
-- `repos push`, the gateway, pushes one checkout's branch through sync's own
-  push
+The structured model of each repo's git state — every local branch against
+its upstream, dirt by kind, local-only work, stashes, operations in progress,
+missing clones — is the Rust tool's alone. The TS side has no git-state model
+of its own: it consumes `repos status --json` rather than growing
+`GitOperations` or parsing `git status` porcelain.
 
 TS keeps everything else: the dashboard, its data step (GitHub metadata and
 svelte-docinfo library analysis), and the publish cascade. A project's
@@ -296,9 +277,10 @@ Publishing intentionally leaves the workspace dirty when failures occur:
   command, which re-plans from the current state
 - Already-published packages have no changesets → drop out of the new plan
 - Failed packages still have changesets → retried automatically
-- Commits the run made in repos it didn't publish (dependency rewrites,
-  auto-changesets, dev-only bumps, private update-only leaves) leave those
-  branches ahead of origin. The readiness gate passes a branch ahead: a repo
+- Commits the run made that no release pushed (dependency rewrites and
+  auto-changesets in repos it didn't publish, private update-only leaves, and
+  every dev-dep bump, which lands after all publishes) leave those branches
+  ahead of origin. The readiness gate passes a branch ahead: a repo
   that publishes pushes them with its release, and one that doesn't keeps them
   unpushed until `repos sync` or `repos push`
 
@@ -407,48 +389,15 @@ a branch, pulls, or installs:
 **Readiness Gate (Read-Only)**
 
 A real publish never moves a repo to get it ready — it checks, and refuses.
-After loading repos as they sit and generating the plan, and before printing
-the plan and prompting, `gro gitops_publish --wetrun` runs `repos status
-<keys…> --fetch --json` on every npm repo in the config
-(`gate_publish_readiness`) and refuses unless each one is ready
-(`repo_readiness.ts`):
-
-- its primary checkout is on the branch its registry entry follows, clean
-  (untracked files count), with no operation in progress (`at_rest`)
-- that branch is in sync with origin, as the fetch just saw it, or ahead of it,
-  and the fetch didn't fail. Ahead is ready: origin's tip is an ancestor, so the
-  plan misses nothing and the release push is still a fast-forward. The gate
-  logs each repo ahead before the prompt — `` `main` is 2 commits ahead of
-  origin — publishing pushes them with the release``, or, for a repo the plan
-  doesn't publish, that they stay unpushed until `repos sync` or `repos push`
-- no other live Claude Code session works in the checkout (the executor commits
-  there), and busy detection is available
-- the entry has no `needs_human` reason
-
-Every npm repo, not just the ones the plan publishes or rewrites: the plan reads
-each one's working tree (changesets, versions, dependency ranges), so a repo off
-its branch or behind origin can hide a changeset and leave the plan wrong about
-what to publish. The refusal names each repo, what's wrong, and the fix
-(`repos sync`, switch branch, commit or stash, finish the rebase, …). The fetch
-writes remote-tracking refs and nothing else, so the gate sits in the
-**observe** (refreshed) tier.
-
-The gate runs before the prompt, and a cascade's npm waits can stretch the
-window after it to many minutes. Under `--no-pull`, gro wouldn't notice origin
-moving until its push is rejected — after `changeset publish` has put the
-version on npm, leaving a local release commit and tag on a diverged branch
-(gro ignores its push's exit code, so the run carries on) —
-and its `commit -a` would sweep a tracked edit made since into the release
-commit. So the executor **re-checks each repo right before its `gro publish`**
-(`repos status --fetch --json <key>` through the injected `ops.repos`, the
-gate's predicate on that entry) and aborts before any npm side effect unless
-it's ready — in sync or ahead, since the executor's own dependency-rewrite
-commit leaves a dependent ahead. The abort is a `not_ready` failure, like
-`drift`: the dirty state stays, and resumption applies. The windows left are
-the seconds between that re-check and gro's push, and the executor's own
-dependency-rewrite commits, which aren't re-checked: each commits only the
-`package.json` and changeset it staged (`git commit -- <files>`), but lands on
-whatever branch the repo is on then.
+After generating the plan and before the prompt, `gate_publish_readiness`
+fetches every npm repo in the config (not just the ones the plan publishes)
+and refuses unless each is at rest, in sync with origin or ahead, not busy,
+and free of `needs_human` reasons (`repo_readiness.ts`). The executor
+re-checks each repo right before its `gro publish` (`repos status --fetch
+--json <key>` through `ops.repos`) and aborts with a `not_ready` failure,
+before npm, unless it's still ready. The windows left: the seconds between
+that re-check and gro's push, and the dependency-rewrite commits, which aren't
+re-checked and land on whatever branch the repo is on then. Detail: [docs/publishing.md](docs/publishing.md#readiness).
 
 **Build Validation (Fail-Fast Safety)**
 
@@ -512,30 +461,13 @@ no executor-owned installs to skip.
 
 **Plan vs Dry Run**
 
-`gro gitops_plan`:
-
-- **Read-only prediction** - Generates a publishing plan showing what would be
-  published
-- Uses fixed-point iteration to resolve transitive cascades (max 10 iterations)
-- Shows all 4 publishing scenarios: explicit changesets, bump escalation,
-  auto-generated changesets, and no changes
-- Read-only - moves no ref and writes nothing in git
-
-`gro gitops_publish` (dry run, default):
-
-- **Plan-driven preview** - The dry run consumes the same plan as `gro
-gitops_plan` and reports the full cascade (explicit changesets, bump
-  escalations, and auto-generated changesets)
-- Skips the readiness gate and preflight checks (npm auth, builds)
-- Read-only - reports what `--wetrun` would publish; the count matches
-  `gro gitops_plan` (the plan is the single source of truth for the cascade)
-
-Both read repos as they sit, from local refs, and print a **readiness block**
-(as warnings, on stderr) naming each npm repo not at rest — off its branch
-(naming the head), dirty, an operation in progress, or its branch behind,
-ahead, diverged, or otherwise off origin as of the last fetch — so a plan over
-a feature branch says so. Not a failure: the same repos a real publish would
-refuse, except that a branch only ahead of origin passes its gate. `gitops_analyze` and `gitops_validate` print it too.
+`gro gitops_plan` is the read-only report of the plan; the dry run
+(`gro gitops_publish`, the default) consumes that same plan and reports the
+same full cascade, skipping the readiness gate and preflight — the framing
+differs, not the content. Both, like `gitops_analyze` and `gitops_validate`,
+read repos as they sit and print a readiness block (warnings, not failures)
+naming each npm repo not at rest. Detail:
+[docs/publishing.md](docs/publishing.md#plan-vs-dry-run).
 
 #### Changeset Semantics
 
@@ -594,7 +526,7 @@ executes that frozen plan in a single pass — the iteration is in planning, not
 publishing.
 
 **Cycle Detection**: Production/peer cycles block publishing (error). Dev cycles
-allowed (warning only, excluded from topological sort). Publishing order
+allowed (reported as info, excluded from topological sort). Publishing order
 computed via topological sort on prod/peer deps only.
 
 ## Data types
@@ -641,10 +573,15 @@ manifest is unsupported and fails loud.
 
 ## UI components
 
-- `ReposTable.svelte` - dependency matrix view
-- `ReposTree.svelte` - hierarchical repo browser
-- `Modules_*.svelte` - module exploration
-- `Pull_Requests_*.svelte` - PR tracking
+Pages compose a detail component between `PageHeader.svelte` and
+`PageFooter.svelte`:
+
+- `TablePage.svelte` → `ReposTable.svelte` - dependency matrix view
+- `TreePage.svelte`, `TreeItemPage.svelte` → `ReposTree.svelte` (with
+  `ReposTreeNav.svelte`) - hierarchical repo browser
+- `ModulesPage.svelte` → `ModulesDetail.svelte` (with `ModulesNav.svelte`) -
+  module exploration
+- `PullRequestsPage.svelte` → `PullRequestsDetail.svelte` - PR tracking
 
 ## Commands
 
@@ -690,22 +627,12 @@ gro test src/test/fixtures/check # validate the plan and dry run against fixture
 ```
 
 The Rust `repos` tool lives in `crates/fuz_repos`, a Cargo workspace beside
-the SvelteKit app; gro never invokes cargo. The full reference — registry
-discovery, status and `--brief`, fetching, busy detection, sync, push,
-references, clones, exit codes, and the test harness — is
-[docs/repos.md](docs/repos.md).
+the SvelteKit app; gro never invokes cargo. Its commands and flags — status,
+`--brief`, fetching, sync, push, references, clones, exit codes, and the test
+harness — are in [docs/repos.md](docs/repos.md#commands); install and gates:
 
 ```bash
 cargo install --path crates/fuz_repos --locked # install the `repos` binary (git 2.44+; busy detection needs Linux)
-repos status                 # git state of every repos.toml entry, local refs only, plus unregistered clones
-repos status gro .           # narrow to targets: a key, a dir name, or a path inside a checkout
-repos status --json          # the versioned report
-repos status --fetch         # fetch from origin first (writes remote-tracking refs), and check private repos
-repos status --brief [<path>] # one line on the checkout holding the path, or nothing — a SessionStart hook's nudge
-repos sync                   # fetch, then fast-forward, move, push, and clone what's safe; report outcomes
-repos sync --references      # refresh every third-party reference too (never a pin)
-repos push                   # the gateway: fetch, then push the branch checked out here as a fast-forward
-repos push --new-branch      # the user's (refused under CLAUDECODE): create the branch on origin and track it
 
 cargo fmt --check
 cargo clippy --workspace --all-targets -- -D warnings
@@ -716,50 +643,6 @@ UPDATE_GOLDEN=1 cargo test --test golden # regenerate the --json golden fixtures
 **Agents push through `repos push`**, never raw `git push` — a Claude Code
 deny rule on the latter is guidance, not a boundary
 ([docs/repos.md](docs/repos.md#agents-push-through-repos-push)).
-
-### Commands by Side Effects
-
-**Read-Only (observe tier):**
-
-These read each repo's working tree **as-is** — no branch switch, pull,
-install, or clean-workspace check — so they're safe on an active workspace
-with feature branches and uncommitted changes, and they print a readiness
-block naming each npm repo not at rest. They move no ref, though gro's `git
-status` may refresh a repo's index; they cache gro's library metadata at
-`.gro/library.json` in each repo at a clean commit, and `--outfile` writes
-where it's told. To read the repos at rest, run `repos sync` first.
-
-- `gro gitops_analyze` - Analyze dependency graph, detect cycles
-- `gro gitops_plan` - Generate publishing plan showing version changes and
-  cascades
-- `gro gitops_validate` - Run all validation checks (analyze + plan + dry run)
-- `gro gitops_publish` - Simulate publishing without preflight checks (dry run default)
-
-**Dashboard Data (the host's site data; the fleet only fetched):**
-
-- `gro gitops_sync` - Generate `repos.json` + `repos.ts` from each repo as it
-  sits, its library analysis, and its GitHub CI and PRs
-  - Fetches with `repos status --fetch` (remote-tracking refs only); moves no
-    branch, pulls nothing, installs nothing
-  - Refuses a repo off its branch, dirty, or mid-operation (`--allow_dirty`
-    reads them as they sit); warns on one behind origin, a failed fetch, or
-    missing `node_modules`
-  - `--check` is the readiness report alone, from local refs, writing nothing
-
-**Command Execution (User-Defined Side Effects):**
-
-- `gro gitops_run "<command>"` - Run shell command across all repos
-  - Parallel execution (concurrency: 5 by default)
-  - Continue-on-error behavior
-  - Structured output (text or JSON)
-  - Use for testing, auditing, batch operations
-
-**Publishing (Git & NPM Side Effects):**
-
-- `gro gitops_publish --wetrun` - Publish packages, update dependencies, git commits
-  - First the readiness gate: `repos status --fetch` (remote-tracking refs only),
-    refusing unless every npm repo is ready — before the prompt, changing nothing
-  - Then, right before each `gro publish`, the same check on that repo alone
 
 ### Command Workflow
 

@@ -70,9 +70,8 @@ nothing; each line names a repo, what's wrong, and the fix:
 - **origin isn't the registry's repo**, or another `needs_human` reason —
   `repos status <key>` names the fix
 
-A branch ahead of origin isn't refused: the gate logs it, saying whether its
-release push carries the commits or they stay unpushed until `repos sync` or
-`repos push`.
+A branch ahead of origin isn't refused (see
+[Readiness](publishing.md#readiness)).
 
 It gates every npm repo, not just the ones being published: the plan reads
 each one's changesets and versions, so a repo off its branch or behind origin
@@ -130,15 +129,19 @@ the plan always agree. If they ever disagree, regenerate both and compare.
 
 A real publish (`--wetrun`) executes that plan and **fails loud** if a published
 version diverges from the plan's prediction — it aborts with a `drift` failure
-rather than silently continuing. Drift means the inputs changed underneath the
-plan, e.g.:
+rather than silently continuing. The executor reads the version back from the
+repo's `package.json` after `gro publish`, so npm propagation can't cause drift.
+Drift means the version `changeset version` wrote isn't the plan's prediction:
 
-- Another publish happened between planning and publishing
-- NPM has not propagated a just-published version yet
-- The working tree changed (new or edited changesets) after the plan was generated
+- The changesets changed after the plan was generated (a commit that added or
+  edited one leaves the branch ahead, which the re-check passes)
+- The plan's version prediction disagrees with `changeset version` — a bug
+  worth reporting
 
 Solution: re-run `gro gitops_publish --wetrun`. It re-plans from the current
-working tree (already-published packages drop out) and continues.
+working tree (already-published packages drop out) and continues. The drifted
+package is already on npm, but its dependents weren't rewritten, and the re-run
+won't do it: update their ranges by hand, or add a changeset to them.
 
 ### "… isn't ready to publish, re-checked right before `gro publish`"
 
@@ -168,25 +171,31 @@ own advice there is `git reset --hard`: committing would drop the changesets,
 so the retry would have nothing to publish. The readiness gate reports the dirt
 without knowing which case it is — check `git status` before choosing.
 
-### "Circular dependency detected in production dependencies"
+### "Production dependency cycle: a → b"
 
-Production/peer circular dependencies block publishing. You must:
+Production/peer circular dependencies are plan errors that block publishing.
+You must:
 
 1. Identify the cycle in `gro gitops_analyze` output
 2. Move one dependency to devDependencies
 3. Or restructure to remove the cycle
 
-Note: Dev dependency cycles are normal and allowed.
+Note: Dev dependency cycles are normal and allowed, reported as info.
 
-### "Failed to publish: package not found on NPM after 10 minutes"
+### "Failed to wait for package: Error: Timeout waiting for pkg@1.2.3 after 600000ms (timeout)"
 
-NPM propagation can be slow. Either:
+After each publish the executor waits for the new version to be visible on npm
+before rewriting its dependents; this failure aborts the run. NPM propagation
+can be slow. Either:
 
-- Increase timeout with `--max_wait` (default is 10 minutes / 600000ms)
+- Increase timeout with `--max_wait` (in ms; default is 10 minutes / 600000ms);
+  past about 20 minutes the 30-attempt cap ends the wait first
 - Check NPM registry status
 - Verify package was actually published
 - If verified published, re-run `gro gitops_publish --wetrun` to continue
-  (already-published packages will be skipped)
+  (already-published packages will be skipped). Its dependents weren't
+  rewritten, and the re-run won't do it: update their ranges by hand, or add a
+  changeset to them
 
 ## Unexpected Behavior
 
@@ -215,11 +224,10 @@ version bumps.
 
 The diagnostics (`gitops_analyze`, `gitops_plan`, `gitops_validate`,
 `gitops_publish` dry run) read each repo's working tree **as-is** — whatever
-branch is checked out, including uncommitted changes. They do not switch
-branches or pull, and move no ref (gro caches `.gro/library.json` and may
-refresh the index). Each prints a "not at rest" block naming the repos off
-their registry branch, dirty, mid-operation, or out of sync with origin as of
-the last fetch. To run against each repo's registry branch with the latest
+branch is checked out, including uncommitted changes. They move no ref: no
+branch switch, no pull. Each prints a "not at rest" block naming the repos
+off their registry branch, dirty, mid-operation, or out of sync with origin as
+of the last fetch. To run against each repo's registry branch with the latest
 changes:
 
 ```bash
@@ -250,9 +258,8 @@ Resumption is **automatic** and **natural**:
    - It re-plans from the current working tree
    - Already-published packages have no changesets → drop out of the new plan
    - Failed packages still have changesets → retried automatically
-   - Repos left ahead of origin by the run's own commits pass the gate: their
-     release pushes them, or, if they don't publish, they stay unpushed until
-     `repos sync` or `repos push`
+   - Repos left ahead of origin by the run's own commits pass the gate (see
+     [Readiness](publishing.md#readiness))
 4. No state files needed, just re-run the same command!
 
 This is safer than explicit state tracking because:
@@ -270,18 +277,24 @@ This is safer than explicit state tracking because:
 gro gitops_analyze --format markdown --outfile deps.md
 ```
 
-### Compare plan vs actual
+### Preview a publish's side effects
 
 ```bash
-# Before publishing
-gro gitops_plan --format markdown --outfile plan.md
-
-# After publishing (dry run, which is the default)
-gro gitops_publish --format markdown --outfile actual.md
-
-# Compare files
-diff plan.md actual.md
+gro gitops_publish --preview  # the ordered publishes, npm waits, dependency rewrites, and (with --deploy) deploys a --wetrun would perform
 ```
+
+### Find what stopped a real publish
+
+```bash
+gro gitops_publish --wetrun --format json --outfile result.json
+```
+
+`result.json`'s `events` list each package's outcome in order. A failure is a
+`package_failed` event whose `code` says why: `drift` (the version `changeset
+version` wrote isn't the plan's; its `error` names both), `not_ready`,
+`network` (the npm wait), and so on. `failed[]` names the packages, but its
+`error` values serialize empty, so read the events. `--emit_json` streams the
+same events live.
 
 ### Check what changed since last publish
 

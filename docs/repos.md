@@ -98,7 +98,8 @@ origin, uncommitted work in each checkout (linked worktrees too), what needs a
 human, which checkouts another live Claude Code session is working in, and the
 clones at the workspace root the registry doesn't name, grouped by what to do
 next. It reads local refs alone; `--fetch` refreshes them first (see
-[Fetching](#fetching)).
+[Fetching](#fetching)). Without `--fetch` it writes nothing: optional locks
+are off (`GIT_OPTIONAL_LOCKS=0`), and so is lazy fetching.
 
 How fresh the remote view is (`fetched_at`, the footer's oldest and its
 `never` count) is the newest non-empty `FETCH_HEAD` across the repo's git
@@ -190,9 +191,11 @@ from origin before probing; `sync` and `push` run the same fetch first.
 ls-remote` of its HTTPS URL with no credential in reach — readable means it
 leaked, printed first as `visibility`.
 
-**Confinement.** The fetch writes remote-tracking refs and nothing else,
-whatever the repo's config says; an entry whose refspecs could write outside
-`refs/remotes/origin/`, or another remote's into it, isn't fetched, and
+**Confinement.** The fetch writes remote-tracking refs, the objects behind
+them, `FETCH_HEAD`, and a shallow boundary, and nothing else — never a tag, a
+submodule, or a commit-graph — whatever the repo's config says; an entry
+whose refspecs could write outside `refs/remotes/origin/`, or another
+remote's into it, isn't fetched, and
 neither is an owned one whose fetch wouldn't reach the registry's repo as git
 resolves origin's URL, `insteadOf` applied: the fetch would bring in another
 repo's history. An origin set to another URL says so on its origin-drift
@@ -266,6 +269,9 @@ The details live in the rustdoc of `sessions.rs` (the reader) and `busy.rs`
 ## `repos sync`
 
 `repos sync` is `status --fetch` followed by acting on each branch's verdict.
+Beyond the fetch, it writes the branch it acts on, the checkout that branch is
+on, the remote branch a push moves (and its remote-tracking ref), and new
+clones.
 
 **Fast-forwards and moves.** A branch behind is fast-forwarded — in place when
 no checkout has it (a confined `git fetch .` of the exact upstream commit, so
@@ -278,7 +284,10 @@ in a clean checkout).
 **Re-checks.** The live sessions are read after the fetch and again right
 before each action, and each action re-checks what it relies on (and checks
 after the fact what git can't refuse); git refusing is `failed`, exit `1` (as
-is a failed probe, or a fetch that failed or that the tool refused to run).
+is a failed probe, or a fetch that failed or that the tool refused to run). A
+fast-forward in a checkout moves whatever branch HEAD is on when git runs, so
+a branch switched in the instant after sync read the checkout may move forward
+instead; the action then fails, naming it.
 
 **Pushes.** A branch ahead is pushed to its upstream's branch on the
 registry's repo — `git send-pack` of the commit classified straight to the
@@ -423,11 +432,11 @@ rewrite.
 **Partial clones.** A partial clone (a `sparse` reference, cloned
 `--filter=blob:none`) lacks the blobs a new tip's checkout needs: a
 fast-forward or move in its checkout fetches them on demand from origin
-alone, over the one transport origin's URL names as git resolves it
-(`insteadOf` applied; SSH or HTTPS, whoever owns the repo — an owned partial
-clone resolving to neither is a needs-human `fetch_url_mismatch`), and only
-when no other remote is a promisor — both read again right before, and the
-action held (`changed`) if origin no longer names the registry's repo over
+alone, writing objects and no ref, over the one transport origin's URL
+names as git resolves it (`insteadOf` applied; SSH or HTTPS, whoever owns
+the repo — an owned partial clone resolving to neither is a needs-human
+`fetch_url_mismatch`), and only when no other remote is a promisor — both
+read again right before, and the action held (`changed`) if origin no longer names the registry's repo over
 that transport or another promisor appeared; every other call keeps lazy
 fetching off.
 
