@@ -529,6 +529,14 @@ pub struct ConfigFacts {
 }
 
 impl ConfigFacts {
+    /// Whether a call reaching a remote runs SSH in batch mode
+    /// (`NetworkOptions::batch_ssh`): unless the user configures SSH, in the
+    /// repo's config (`ssh_command`) or in the environment git sees
+    /// (`env_configures_ssh`, as `Git::env_configures_ssh` reads it).
+    pub const fn batch_ssh(&self, env_configures_ssh: bool) -> bool {
+        !self.ssh_command && !env_configures_ssh
+    }
+
     /// Parses `git config -z --show-scope --show-origin --get-regexp
     /// <CONFIG_PATTERN>`: per entry, `scope`, `origin`, then `key\nvalue` (or
     /// a bare `key` for a valueless boolean), each NUL-terminated.

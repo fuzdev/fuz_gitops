@@ -49,8 +49,8 @@ pub struct ProbeContext<'a> {
     pub fetches: &'a RepoFetches,
 }
 
-/// Each repo's fetch in a run, by its common dir (canonicalized when it can
-/// be).
+/// Each repo's fetch in a run, by its common dir, canonicalized when it can
+/// be (`RepoFacts::repo_key`).
 ///
 /// Entries sharing a repo — one a linked worktree of another — fetch it
 /// once and share the outcome: two fetches of one repo at once race on its
@@ -99,11 +99,11 @@ pub enum Probed {
     },
     Present(Box<RepoFacts>),
     /// The dir is a repo, but a later call failed. `layout` is recorded
-    /// once the config step (and the fetch, when asked) has run, before any
-    /// call that reads objects — a partial clone's filter says why a call
-    /// may have needed an object the probe never fetches.
+    /// once the config is read (`probe_config`) and the fetch made, when
+    /// asked, before any call that reads objects — a partial clone's filter
+    /// says why a call may have needed an object the probe never fetches.
     ///
-    /// `config` is the repo's, once the config step has read it: the
+    /// `config` is the repo's, once `probe_config` has read it: the
     /// refresh verdict (`refresh_verdict`) the fetch obeyed.
     Failed {
         error: String,
@@ -118,6 +118,12 @@ pub struct RepoFacts {
     /// The primary checkout's path.
     pub path: String,
     pub common_dir: PathBuf,
+    /// The repo's identity in a run: `common_dir` canonicalized when it can
+    /// be. Entries sharing a repo — one a linked worktree of another — share
+    /// it: the probe fetches a repo once by it (`RepoFetches`), sync groups a
+    /// repo's entries by it, and `repos push` makes one push per repo and
+    /// branch by it.
+    pub repo_key: PathBuf,
     pub config: ConfigFacts,
     pub status: StatusFacts,
     /// The primary checkout's operation in progress.
@@ -281,7 +287,7 @@ pub fn probe(entry: &Entry, cx: ProbeContext<'_>) -> ProbeRun {
 
 /// What the probe records as it goes, kept even when a later step fails:
 /// the config once read, the fetch's outcome and time, and the layout once
-/// the config step ran.
+/// the config is read and the fetch made.
 #[derive(Debug, Default)]
 struct Recorded {
     config: Option<ConfigFacts>,
@@ -296,98 +302,20 @@ fn probe_present(
     cx: ProbeContext<'_>,
     early: &mut Recorded,
 ) -> Result<Probed, String> {
-    // 1. presence: missing only when nothing at all is at the path — a
-    // dangling symlink is there (sync would clone through it), and a path
-    // that can't be looked up is unknown, never missing
-    match std::fs::symlink_metadata(dir) {
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Probed::Missing),
-        Err(e) => return Err(format!("can't look up {}: {e}", dir.display())),
-        Ok(meta) if meta.file_type().is_symlink() => {
-            if let Err(e) = std::fs::metadata(dir) {
-                let to = std::fs::read_link(dir).map_or_else(
-                    |_| "an unreadable target".to_owned(),
-                    |t| t.display().to_string(),
-                );
-                let why = if e.kind() == std::io::ErrorKind::NotFound {
-                    "which doesn't exist".to_owned()
-                } else {
-                    format!("which can't be followed: {e}")
-                };
-                return Ok(Probed::NotARepo {
-                    detail: format!("a symlink to {to}, {why}"),
-                });
-            }
-        }
-        Ok(_) => {}
-    }
-    let path = dir
-        .to_str()
-        .ok_or_else(|| format!("non-UTF-8 path {}", dir.display()))?
-        .to_owned();
     let local = CallOptions {
         ceiling: Some(cx.root),
         network: None,
         ..CallOptions::default()
     };
-    let dirs = match cx.git.output_string(
-        dir,
-        &[
-            "rev-parse",
-            "--path-format=absolute",
-            "--absolute-git-dir",
-            "--git-common-dir",
-        ],
-        local,
-    ) {
-        Ok(out) => out,
-        Err(GitError::Failed { stderr, .. }) => {
-            return Ok(Probed::NotARepo {
-                detail: not_a_repo_detail(dir, &stderr),
-            });
-        }
-        Err(e) => return Err(e.to_string()),
+    let dirs = match locate(dir, cx.git, local)? {
+        Located::Repo(dirs) => dirs,
+        Located::NoRepo(NoRepo::Missing) => return Ok(Probed::Missing),
+        Located::NoRepo(NoRepo::NotARepo { detail }) => return Ok(Probed::NotARepo { detail }),
     };
-    let mut lines = dirs.lines();
-    let (Some(git_dir), Some(common_dir)) = (lines.next(), lines.next()) else {
-        return Err(format!("rev-parse: unexpected output `{dirs}`"));
-    };
-    let git_dir = PathBuf::from(git_dir);
-    let common_dir = PathBuf::from(common_dir);
 
-    // 2. config, first: fetch needs to know whether SSH is configured
-    // the repo's own config file, which the advised `git remote` and `git
-    // config` commands edit; git prints its path relative to `dir` from the
-    // main checkout, absolute from a linked worktree
-    let repo_file = canonical(&common_dir.join("config"));
-    let is_repo_file = |path: &str| repo_file.is_some() && canonical(&dir.join(path)) == repo_file;
-    let mut config = match cx.git.run(
-        dir,
-        &[
-            "config",
-            "-z",
-            "--show-scope",
-            "--show-origin",
-            "--get-regexp",
-            porcelain::CONFIG_PATTERN,
-        ],
-        local,
-    ) {
-        // exit 1 is "no matching keys"
-        Ok(out) if out.status.success() || out.status.code() == Some(1) => {
-            ConfigFacts::parse(&out.stdout, is_repo_file)?
-        }
-        Ok(out) => return Err(format!("config failed: {}", out.stderr.trim())),
-        Err(e) => return Err(e.to_string()),
-    };
-    // where a fetch would reach, rewrites applied: classify holds an owned
-    // entry's that isn't the registry's repo (`fetch_url_mismatch`), and a
-    // refresh's that isn't that repo over HTTPS (`refresh_verdict`)
-    if (syncs_owned(entry) || refresh_intent(entry, cx.refresh) == Some(RefreshVerdict::Act))
-        && config.origin_url().is_some()
-    {
-        config.origin_fetch_url = Some(read_fetch_url(cx.git, dir, local)?);
-    }
-    let shallow_roots = read_shallow_roots(&common_dir);
+    // the config, first: the fetch needs to know whether SSH is configured
+    let config = probe_config(entry, dir, &dirs.common_dir, cx, local)?;
+    let shallow_roots = read_shallow_roots(&dirs.common_dir);
     early.config = Some(config.clone());
 
     // a fetch that wouldn't reach the registry's repo, or an origin with no
@@ -395,60 +323,13 @@ fn probe_present(
     // elsewhere
     if cx.fetch && fetches(entry, cx.refresh, &config) {
         let start = Instant::now();
-        let mut args = FETCH_ARGS.to_vec();
-        if !shallow_roots.is_empty() {
-            args.extend(["--depth", "1"]);
-        }
-        args.push("origin");
-        let net = CallOptions {
-            ceiling: Some(cx.root),
-            network: Some(NetworkOptions {
-                batch_ssh: !config.ssh_command && !cx.git.env_configures_ssh(),
-            }),
-            // a third-party reference over HTTPS alone, as it's cloned: no
-            // `insteadOf` can send it over SSH, offering a key to its host
-            allow_protocol: (!entry.writable).then_some("https"),
-            ..CallOptions::default()
-        };
-        // a refspec writing outside `refs/remotes/origin/`, or another
-        // remote's writing inside it, where no flag reaches: not fetched at
-        // all
-        let refused = config
-            .origin_fetch
-            .iter()
-            .find(|v| refspec_writes_outside_origin(&v.value))
-            .map(|v| RemoteFailure::RefspecOutsideOrigin {
-                refspec: v.value.clone(),
-            })
-            .or_else(|| {
-                config
-                    .other_fetch
-                    .iter()
-                    .find(|r| refspec_writes_into_origin(&r.refspec))
-                    .map(|r| RemoteFailure::OriginRefsShared {
-                        remote: r.remote.clone(),
-                        refspec: r.refspec.clone(),
-                    })
-            })
-            .or_else(|| legacy_remote_refusal(&common_dir));
-        let fetch = || {
-            cx.git.output(dir, &args, net).map(drop).map_err(|e| {
-                RemoteFailure::from_git_error(
-                    e,
-                    RefspecContext {
-                        refspecs: &config.origin_fetch,
-                        branch: entry.branch.as_deref(),
-                    },
-                )
-            })
-        };
-        let repo = canonical(&common_dir).unwrap_or_else(|| common_dir.clone());
-        early.fetch = Some(cx.fetches.once(repo, || refused.map_or_else(fetch, Err)));
+        let shallow = !shallow_roots.is_empty();
+        early.fetch = Some(fetch_origin(entry, &dirs, &config, shallow, cx));
         early.fetch_time = start.elapsed();
     }
     // a fetch may have added shallow roots
     let shallow_roots = if early.fetch.is_some() {
-        read_shallow_roots(&common_dir)
+        read_shallow_roots(&dirs.common_dir)
     } else {
         shallow_roots
     };
@@ -460,35 +341,14 @@ fn probe_present(
     // before any step that reads objects: a partial clone may lack one
     early.layout = Some(layout.clone());
 
-    // 3. status of the primary checkout
+    // the primary checkout's status
     let status = cx
         .git
         .output(dir, &STATUS_ARGS, local)
         .map_err(|e| e.to_string())?;
     let status = porcelain::parse_status(&status)?;
 
-    // 4. branches
-    let format = format!("--format={}", porcelain::REFS_FORMAT);
-    let refs = cx
-        .git
-        .output(dir, &["for-each-ref", &format, "refs/heads"], local)
-        .map_err(|e| e.to_string())?;
-    let refs = porcelain::parse_refs(&refs)?;
-
-    // 5. unique commits, where local work could be
-    let mut branches = Vec::with_capacity(refs.len());
-    for r in refs {
-        let (unique_commits, on_fetched_tip) = if could_carry_local_work(&r) {
-            count_unique(cx.git, dir, &r, &shallow_roots, local)?
-        } else {
-            (0, false)
-        };
-        branches.push(BranchFacts {
-            branch: r,
-            unique_commits,
-            on_fetched_tip,
-        });
-    }
+    let branches = probe_branches(cx.git, dir, &shallow_roots, local)?;
 
     // where a push through origin goes, rewrites applied, when sync may
     // push a branch of the entry (an archived repo's are a person's):
@@ -503,28 +363,16 @@ fn probe_present(
         None
     };
 
-    // 6. the other worktrees
-    let worktrees_dir = common_dir.join("worktrees");
-    let mut worktrees = match std::fs::metadata(&worktrees_dir) {
-        Ok(m) if m.is_dir() => {
-            // only a branch whose upstream is gone can be cleaned up with the
-            // worktree it's in
-            let gone_branches: HashSet<&str> = branches
-                .iter()
-                .filter(|b| b.branch.track == Track::Gone)
-                .map(|b| b.branch.name.as_str())
-                .collect();
-            probe_worktrees(cx.git, dir, &git_dir, &common_dir, &gone_branches, local)?
-        }
-        Ok(_) => Worktrees::default(),
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Worktrees::default(),
-        Err(_) => Worktrees {
-            unreadable: vec![worktrees_dir.to_string_lossy().into_owned()],
-            ..Worktrees::default()
-        },
-    };
+    let mut worktrees = other_worktrees(cx.git, &dirs, &branches, local)?;
 
-    // 7. files
+    // the files: the primary's operation and each worktree's `FETCH_HEAD`,
+    // and every checkout's git dir and lock, the primary's first
+    let RepoDirs {
+        path,
+        git_dir,
+        common_dir,
+        repo_key,
+    } = dirs;
     let primary_linked = canonical(&git_dir) != canonical(&common_dir);
     let in_progress = markers(&git_dir, &mut worktrees.unreadable);
     let fetched_at = newest_fetch(&git_dir, &common_dir, &worktrees.admins);
@@ -547,6 +395,7 @@ fn probe_present(
     Ok(Probed::Present(Box::new(RepoFacts {
         path,
         common_dir,
+        repo_key,
         config,
         status,
         in_progress,
@@ -568,17 +417,342 @@ fn probe_present(
     })))
 }
 
+/// Where a present repo's checkout and git dirs are.
+struct RepoDirs {
+    /// The primary checkout's path: the entry's dir, UTF-8.
+    path: String,
+    /// The primary's own git dir, absolute.
+    git_dir: PathBuf,
+    /// The repo's common dir, absolute.
+    common_dir: PathBuf,
+    /// `common_dir` canonicalized when it can be (`RepoFacts::repo_key`).
+    repo_key: PathBuf,
+}
+
+/// What's at an entry's dir: a repo, or nothing to probe.
+enum Located {
+    Repo(RepoDirs),
+    NoRepo(NoRepo),
+}
+
+/// An entry's dir with no repo to probe (`Probed::Missing`,
+/// `Probed::NotARepo`).
+enum NoRepo {
+    /// Nothing is at the path, not even a dangling symlink.
+    Missing,
+    /// Something is there, but no repo; `detail` says why.
+    NotARepo { detail: String },
+}
+
+/// Finds the repo at `dir` (`presence`, then its dirs from `rev-parse`).
+///
+/// # Errors
+///
+/// Why it can't be told: a path that can't be looked up or isn't UTF-8, or
+/// a `rev-parse` that didn't run or printed something else.
+fn locate(dir: &Path, git: &Git, local: CallOptions<'_>) -> Result<Located, String> {
+    if let Some(no_repo) = presence(dir)? {
+        return Ok(Located::NoRepo(no_repo));
+    }
+    let path = dir
+        .to_str()
+        .ok_or_else(|| format!("non-UTF-8 path {}", dir.display()))?
+        .to_owned();
+    let out = match git.output_string(
+        dir,
+        &[
+            "rev-parse",
+            "--path-format=absolute",
+            "--absolute-git-dir",
+            "--git-common-dir",
+        ],
+        local,
+    ) {
+        Ok(out) => out,
+        Err(GitError::Failed { stderr, .. }) => {
+            return Ok(Located::NoRepo(NoRepo::NotARepo {
+                detail: not_a_repo_detail(dir, &stderr),
+            }));
+        }
+        Err(e) => return Err(e.to_string()),
+    };
+    let mut lines = out.lines();
+    let (Some(git_dir), Some(common_dir)) = (lines.next(), lines.next()) else {
+        return Err(format!("rev-parse: unexpected output `{out}`"));
+    };
+    let common_dir = PathBuf::from(common_dir);
+    Ok(Located::Repo(RepoDirs {
+        path,
+        git_dir: PathBuf::from(git_dir),
+        repo_key: canonical(&common_dir).unwrap_or_else(|| common_dir.clone()),
+        common_dir,
+    }))
+}
+
+/// `Some` when nothing at `dir` can be probed: missing only when nothing
+/// at all is at the path — a dangling symlink is there (sync would clone
+/// through it), and a path that can't be looked up is unknown, never
+/// missing.
+///
+/// # Errors
+///
+/// A path that can't be looked up.
+fn presence(dir: &Path) -> Result<Option<NoRepo>, String> {
+    match std::fs::symlink_metadata(dir) {
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(Some(NoRepo::Missing)),
+        Err(e) => Err(format!("can't look up {}: {e}", dir.display())),
+        Ok(meta) if meta.file_type().is_symlink() => {
+            let Err(e) = std::fs::metadata(dir) else {
+                return Ok(None);
+            };
+            let to = std::fs::read_link(dir).map_or_else(
+                |_| "an unreadable target".to_owned(),
+                |t| t.display().to_string(),
+            );
+            let why = if e.kind() == std::io::ErrorKind::NotFound {
+                "which doesn't exist".to_owned()
+            } else {
+                format!("which can't be followed: {e}")
+            };
+            Ok(Some(NoRepo::NotARepo {
+                detail: format!("a symlink to {to}, {why}"),
+            }))
+        }
+        Ok(_) => Ok(None),
+    }
+}
+
+/// The repo's config (`read_config`), with where a fetch from origin
+/// reaches (`read_fetch_url`) when the entry may fetch.
+///
+/// # Errors
+///
+/// Why either read failed.
+fn probe_config(
+    entry: &Entry,
+    dir: &Path,
+    common_dir: &Path,
+    cx: ProbeContext<'_>,
+    local: CallOptions<'_>,
+) -> Result<ConfigFacts, String> {
+    // the repo's own config file, which the advised `git remote` and `git
+    // config` commands edit; git prints its path relative to `dir` from the
+    // main checkout, absolute from a linked worktree
+    let repo_file = canonical(&common_dir.join("config"));
+    let is_repo_file = |path: &str| repo_file.is_some() && canonical(&dir.join(path)) == repo_file;
+    let mut config = read_config(cx.git, dir, local, is_repo_file).map_err(|e| match e {
+        ConfigReadError::Git(e) => e.to_string(),
+        ConfigReadError::Exit { stderr } => format!("config failed: {}", stderr.trim()),
+        ConfigReadError::Parse(message) => message,
+    })?;
+    // where a fetch would reach, rewrites applied: classify holds an owned
+    // entry's that isn't the registry's repo (`fetch_url_mismatch`), and a
+    // refresh's that isn't that repo over HTTPS (`refresh_verdict`)
+    if (syncs_owned(entry) || refresh_intent(entry, cx.refresh) == Some(RefreshVerdict::Act))
+        && config.origin_url().is_some()
+    {
+        let url = read_fetch_url(cx.git, dir, local).map_err(|e| format!("fetch URL: {e}"))?;
+        config.origin_fetch_url = Some(url);
+    }
+    Ok(config)
+}
+
+/// Fetches `dirs`'s repo from origin, once in a run (`RepoFetches`, by
+/// `repo_key`), confined to remote-tracking refs (`FETCH_ARGS`), `--depth
+/// 1` when `shallow`.
+///
+/// A refspec writing outside `refs/remotes/origin/`, or another remote's
+/// writing inside it, where no flag reaches, is refused: not fetched at
+/// all.
+fn fetch_origin(
+    entry: &Entry,
+    dirs: &RepoDirs,
+    config: &ConfigFacts,
+    shallow: bool,
+    cx: ProbeContext<'_>,
+) -> FetchResult {
+    let dir = Path::new(&dirs.path);
+    let mut args = FETCH_ARGS.to_vec();
+    if shallow {
+        args.extend(["--depth", "1"]);
+    }
+    args.push("origin");
+    let net = CallOptions {
+        ceiling: Some(cx.root),
+        network: Some(NetworkOptions {
+            batch_ssh: config.batch_ssh(cx.git.env_configures_ssh()),
+        }),
+        // a third-party reference over HTTPS alone, as it's cloned: no
+        // `insteadOf` can send it over SSH, offering a key to its host
+        allow_protocol: (!entry.writable).then_some("https"),
+        ..CallOptions::default()
+    };
+    let refused = config
+        .origin_fetch
+        .iter()
+        .find(|v| refspec_writes_outside_origin(&v.value))
+        .map(|v| RemoteFailure::RefspecOutsideOrigin {
+            refspec: v.value.clone(),
+        })
+        .or_else(|| {
+            config
+                .other_fetch
+                .iter()
+                .find(|r| refspec_writes_into_origin(&r.refspec))
+                .map(|r| RemoteFailure::OriginRefsShared {
+                    remote: r.remote.clone(),
+                    refspec: r.refspec.clone(),
+                })
+        })
+        .or_else(|| legacy_remote_refusal(&dirs.common_dir));
+    let fetch = || {
+        cx.git.output(dir, &args, net).map(drop).map_err(|e| {
+            RemoteFailure::from_git_error(
+                e,
+                RefspecContext {
+                    refspecs: &config.origin_fetch,
+                    branch: entry.branch.as_deref(),
+                },
+            )
+        })
+    };
+    cx.fetches
+        .once(dirs.repo_key.clone(), || refused.map_or_else(fetch, Err))
+}
+
+/// Every local branch, with its commits on no remote counted where local
+/// work could be (`could_carry_local_work`, `count_unique`).
+///
+/// # Errors
+///
+/// Why a call failed, or its output didn't parse.
+fn probe_branches(
+    git: &Git,
+    dir: &Path,
+    shallow_roots: &HashSet<String>,
+    local: CallOptions<'_>,
+) -> Result<Vec<BranchFacts>, String> {
+    let format = format!("--format={}", porcelain::REFS_FORMAT);
+    let refs = git
+        .output(dir, &["for-each-ref", &format, "refs/heads"], local)
+        .map_err(|e| e.to_string())?;
+    let refs = porcelain::parse_refs(&refs)?;
+    let mut branches = Vec::with_capacity(refs.len());
+    for r in refs {
+        let (unique_commits, on_fetched_tip) = if could_carry_local_work(&r) {
+            count_unique(git, dir, &r, shallow_roots, local)?
+        } else {
+            (0, false)
+        };
+        branches.push(BranchFacts {
+            branch: r,
+            unique_commits,
+            on_fetched_tip,
+        });
+    }
+    Ok(branches)
+}
+
+/// The repo's worktrees other than the primary (`probe_worktrees`), when
+/// it has a `<commondir>/worktrees/`; one that can't be read is recorded
+/// unreadable.
+///
+/// # Errors
+///
+/// Why `probe_worktrees` failed.
+fn other_worktrees(
+    git: &Git,
+    dirs: &RepoDirs,
+    branches: &[BranchFacts],
+    local: CallOptions<'_>,
+) -> Result<Worktrees, String> {
+    let dir = Path::new(&dirs.path);
+    let worktrees_dir = dirs.common_dir.join("worktrees");
+    match std::fs::metadata(&worktrees_dir) {
+        Ok(m) if m.is_dir() => {
+            // only a branch whose upstream is gone can be cleaned up with the
+            // worktree it's in
+            let gone_branches: HashSet<&str> = branches
+                .iter()
+                .filter(|b| b.branch.track == Track::Gone)
+                .map(|b| b.branch.name.as_str())
+                .collect();
+            probe_worktrees(
+                git,
+                dir,
+                &dirs.git_dir,
+                &dirs.common_dir,
+                &gone_branches,
+                local,
+            )
+        }
+        Ok(_) => Ok(Worktrees::default()),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(Worktrees::default()),
+        Err(_) => Ok(Worktrees {
+            unreadable: vec![worktrees_dir.to_string_lossy().into_owned()],
+            ..Worktrees::default()
+        }),
+    }
+}
+
+/// Why `read_config` failed; each caller words its own message.
+#[derive(Debug)]
+pub enum ConfigReadError {
+    /// The call couldn't run (`Git::run`).
+    Git(GitError),
+    /// Git exited with neither 0 nor 1 ("no matching keys"): its stderr.
+    Exit { stderr: String },
+    /// The output didn't parse (`ConfigFacts::parse`).
+    Parse(String),
+}
+
+/// A repo's config as `ConfigFacts` needs it, read in `dir` from every
+/// scope as git reads it (`CONFIG_PATTERN`); `is_repo_file` as
+/// `ConfigFacts::parse` takes it. Read by the probe (`probe_config`), and
+/// again by sync before a partial clone's lazy fetch
+/// (`Step::lazy_origin_moved`).
+///
+/// # Errors
+///
+/// The call's failure, git's exit, or the parse's message
+/// (`ConfigReadError`).
+pub fn read_config(
+    git: &Git,
+    dir: &Path,
+    opts: CallOptions<'_>,
+    is_repo_file: impl Fn(&str) -> bool,
+) -> Result<ConfigFacts, ConfigReadError> {
+    let out = git
+        .run(
+            dir,
+            &[
+                "config",
+                "-z",
+                "--show-scope",
+                "--show-origin",
+                "--get-regexp",
+                porcelain::CONFIG_PATTERN,
+            ],
+            opts,
+        )
+        .map_err(ConfigReadError::Git)?;
+    // exit 1 is "no matching keys"
+    if !out.status.success() && out.status.code() != Some(1) {
+        return Err(ConfigReadError::Exit { stderr: out.stderr });
+    }
+    ConfigFacts::parse(&out.stdout, is_repo_file).map_err(ConfigReadError::Parse)
+}
+
 /// The URL a fetch from `origin` reaches, as git resolves it: its first
 /// URL, `insteadOf` rewrites applied. Local: `--get-url` never talks to the
 /// remote.
 ///
 /// # Errors
 ///
-/// Git's message when it can't say (a config it can't read).
-fn read_fetch_url(git: &Git, dir: &Path, opts: CallOptions<'_>) -> Result<String, String> {
-    let out = git
-        .output_string(dir, &["ls-remote", "--get-url", "origin"], opts)
-        .map_err(|e| format!("fetch URL: {e}"))?;
+/// The call's failure (a config git can't read); each caller words its own
+/// message.
+pub fn read_fetch_url(git: &Git, dir: &Path, opts: CallOptions<'_>) -> Result<String, GitError> {
+    let out = git.output_string(dir, &["ls-remote", "--get-url", "origin"], opts)?;
     Ok(out.trim_end_matches('\n').to_owned())
 }
 
@@ -762,7 +936,7 @@ fn refspec_destination(refspec: &str) -> Option<&str> {
         .filter(|dst| !dst.is_empty())
 }
 
-/// The flags step 3's status runs with, in every checkout.
+/// The flags the primary checkout's status runs with, and every other's.
 pub const STATUS_ARGS: [&str; 8] = [
     "status",
     "--porcelain=v2",
@@ -1194,9 +1368,9 @@ fn gone(path: &Path, prunable: bool) -> Result<(), UnprobedWhy> {
     }
 }
 
-/// Runs step 3's status in a worktree, after checking its `.git` points at
-/// the git dir git's worktree list gave it — so a `.git` pointing into
-/// another repo is a failure, not that repo's state.
+/// Runs the status (`STATUS_ARGS`) in a worktree, after checking its `.git`
+/// points at the git dir git's worktree list gave it — so a `.git` pointing
+/// into another repo is a failure, not that repo's state.
 fn probe_worktree(git: &Git, path: &Path, git_dir: Option<&Path>) -> Result<StatusFacts, String> {
     let git_dir = git_dir.ok_or("no git dir in this repo's worktrees names it")?;
     let dot_git = path.join(".git");

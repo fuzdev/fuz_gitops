@@ -55,7 +55,7 @@ use crate::classify::{NeedsHuman, Refresh};
 use crate::discover::{Locate, PathTarget, Workspace, resolve_push_targets};
 use crate::error::{Error, Result};
 use crate::git::Git;
-use crate::probe::{RepoFacts, canonical};
+use crate::probe::RepoFacts;
 use crate::registry::{Entry, RegistryDirs};
 use crate::report::{
     CheckoutPush, EntryStatus, FetchOutcome, PushOutcome, PushReport, Sessions, SyncHold,
@@ -323,7 +323,8 @@ struct Target<'a> {
 /// `--new-branch`, created on origin when it has no upstream there
 /// (`creatable`) — else what the verdict says of it; unless the entry is
 /// held whole or its fetch didn't land, which holds it whatever the
-/// verdict. `done` holds the pushes already made, by repo and branch.
+/// verdict. `done` holds the pushes already made, by repo
+/// (`RepoFacts::repo_key`) and branch.
 fn target_outcome(
     actor: &Actor<'_>,
     t: &Target<'_>,
@@ -395,7 +396,6 @@ fn target_outcome(
         let by = SyncHold::FetchFailed;
         return (branch, PushOutcome::Held { by });
     }
-    let repo = || canonical(&facts.common_dir).unwrap_or_else(|| facts.common_dir.clone());
     if let Some(upstream) = create {
         let outcome = if t.status.archived {
             // as a push to an archived repo: a person's
@@ -403,7 +403,7 @@ fn target_outcome(
                 reason: BranchNeedsHuman::ArchivedAhead,
             }
         } else {
-            done.entry((repo(), name.clone()))
+            done.entry((facts.repo_key.clone(), name.clone()))
                 .or_insert_with(|| actor.create(t.i, facts, b, upstream))
                 .clone()
         };
@@ -413,7 +413,7 @@ fn target_outcome(
         Verdict::Act {
             action: SyncAction::Push { commits },
         } => done
-            .entry((repo(), name.clone()))
+            .entry((facts.repo_key.clone(), name.clone()))
             .or_insert_with(|| pushed(actor.push(t.i, facts, b, *commits)))
             .clone(),
         Verdict::Held {

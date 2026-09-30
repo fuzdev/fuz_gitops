@@ -180,7 +180,7 @@
 //! checkout, or push they'd make.
 
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::time::{Duration, Instant};
 
 use crate::busy::{Detection, EntryCheckouts, scope_sessions, sessions_under};
@@ -190,7 +190,7 @@ use crate::discover::{Locate, Workspace, resolve_targets};
 use crate::error;
 use crate::git::Git;
 use crate::porcelain::RefFacts;
-use crate::probe::{RepoFacts, canonical};
+use crate::probe::RepoFacts;
 use crate::registry::{Entry, RegistryDirs};
 use crate::remote::RemoteFailure;
 use crate::report::{
@@ -453,16 +453,15 @@ pub(crate) fn fetch_outcome(fetch: Option<&Result<(), RemoteFailure>>) -> FetchO
     }
 }
 
-/// The entries with facts, grouped by the repo they share (their common dir,
-/// canonicalized when it can be), each group in entry order, the groups by
-/// their first entry.
+/// The entries with facts, grouped by the repo they share
+/// (`RepoFacts::repo_key`), each group in entry order, the groups by their
+/// first entry.
 fn repo_groups(facts: &[Option<RepoFacts>]) -> Vec<Vec<usize>> {
     let mut groups: Vec<Vec<usize>> = Vec::new();
-    let mut by_repo: HashMap<PathBuf, usize> = HashMap::new();
+    let mut by_repo: HashMap<&Path, usize> = HashMap::new();
     for (i, f) in facts.iter().enumerate() {
         let Some(f) = f else { continue };
-        let repo = canonical(&f.common_dir).unwrap_or_else(|| f.common_dir.clone());
-        let g = *by_repo.entry(repo).or_insert_with(|| {
+        let g = *by_repo.entry(&f.repo_key).or_insert_with(|| {
             groups.push(Vec::new());
             groups.len() - 1
         });
@@ -619,7 +618,7 @@ impl Actor<'_> {
                 commits,
                 shallow: facts.layout.shallow,
                 url: &self.entries[i].url,
-                batch_ssh: !facts.config.ssh_command && !self.git.env_configures_ssh(),
+                batch_ssh: facts.config.batch_ssh(self.git.env_configures_ssh()),
             },
         )
     }
@@ -730,7 +729,7 @@ impl Actor<'_> {
                 oid: &branch.branch.oid,
                 upstream,
                 url: &self.entries[i].url,
-                batch_ssh: !facts.config.ssh_command && !self.git.env_configures_ssh(),
+                batch_ssh: facts.config.batch_ssh(self.git.env_configures_ssh()),
             },
         );
         match created {

@@ -109,6 +109,7 @@ fn facts(head: Head, branches: &[B<'_>]) -> RepoFacts {
     RepoFacts {
         path: "/ws/app".into(),
         common_dir: PathBuf::from("/ws/app/.git"),
+        repo_key: PathBuf::from("/ws/app/.git"),
         config,
         status: StatusFacts {
             head,

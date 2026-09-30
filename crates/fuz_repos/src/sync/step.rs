@@ -7,7 +7,9 @@ use std::time::Duration;
 use crate::classify::{lazy_transport, origin_matches, push_urls_match};
 use crate::git::{CallOptions, Git, GitError, GitOutput, NetworkOptions};
 use crate::porcelain::{self, ConfigFacts};
-use crate::probe::{STATUS_ARGS, read_push_urls, read_shallow_roots};
+use crate::probe::{
+    ConfigReadError, STATUS_ARGS, read_config, read_fetch_url, read_push_urls, read_shallow_roots,
+};
 use crate::registry::RepoUrl;
 use crate::remote::{RefspecContext, RemoteFailure};
 use crate::report::SyncHold;
@@ -127,7 +129,7 @@ pub(super) fn lazy_fetch<'a>(
     }
     Some(LazyFetch {
         transport: lazy_transport(config.origin_fetch_url.as_deref()?)?,
-        batch_ssh: !config.ssh_command && !env_ssh,
+        batch_ssh: config.batch_ssh(env_ssh),
         repo,
     })
 }
@@ -565,28 +567,15 @@ impl Step<'_> {
         let Some(lazy) = self.lazy else {
             return Ok(false);
         };
-        let out = self.output_string(dir, &["ls-remote", "--get-url", "origin"], self.opts)?;
-        let url = out.trim_end_matches('\n');
-        if !origin_matches(url, lazy.repo) || lazy_transport(url) != Some(lazy.transport) {
+        let url = read_fetch_url(self.git, dir, self.opts).map_err(|e| git_message(&e))?;
+        if !origin_matches(&url, lazy.repo) || lazy_transport(&url) != Some(lazy.transport) {
             return Ok(true);
         }
-        let out = self.run(
-            dir,
-            &[
-                "config",
-                "-z",
-                "--show-scope",
-                "--show-origin",
-                "--get-regexp",
-                porcelain::CONFIG_PATTERN,
-            ],
-            self.opts,
-        )?;
-        // exit 1 is "no matching keys"
-        if !out.status.success() && out.status.code() != Some(1) {
-            return Err(first_message(&out.stderr));
-        }
-        let config = ConfigFacts::parse(&out.stdout, |_| false)?;
+        let config = read_config(self.git, dir, self.opts, |_| false).map_err(|e| match e {
+            ConfigReadError::Git(e) => git_message(&e),
+            ConfigReadError::Exit { stderr } => first_message(&stderr),
+            ConfigReadError::Parse(message) => message,
+        })?;
         Ok(config.other_promisor)
     }
 

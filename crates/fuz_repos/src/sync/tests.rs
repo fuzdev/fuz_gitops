@@ -1,3 +1,5 @@
+use std::path::PathBuf;
+
 use super::step::{LazyFetch, PushedRef, first_message, pushed_ref, rejected};
 use super::*;
 use crate::classify::lazy_transport;
@@ -110,6 +112,7 @@ fn ahead_main() -> (RepoFacts, BranchStatus) {
     let facts = RepoFacts {
         path: "/ws/app".into(),
         common_dir: PathBuf::from("/ws/app/.git"),
+        repo_key: PathBuf::from("/ws/app/.git"),
         config: ConfigFacts::default(),
         status: porcelain::StatusFacts {
             head: Head::Branch {
