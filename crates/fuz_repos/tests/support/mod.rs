@@ -56,9 +56,10 @@ use std::time::{Duration, SystemTime};
 
 use fuz_repos::classify::Refresh;
 use fuz_repos::clone::CLONE_TIMEOUT;
-use fuz_repos::discover::{REGISTRY_FILE, find_registry};
+use fuz_repos::discover::{REGISTRY_FILE, find_registry, resolve_push_targets};
 use fuz_repos::git::Git;
 use fuz_repos::probe::RegistryDirs;
+use fuz_repos::push::{PushOptions, PushRun, check_pushable, push};
 use fuz_repos::registry::{Entry, ValidRegistry};
 use fuz_repos::report::{EntryStatus, UnregisteredClone};
 use fuz_repos::scan::scan_unregistered;
@@ -872,6 +873,40 @@ impl FixtureWorkspace {
     /// `sync` over every entry, no live session anywhere.
     pub fn sync(&self) -> SyncRun {
         self.sync_with(4, &|| LiveSessions::Known(vec![]))
+    }
+
+    /// `repos push` of `targets`, resolved from `cwd` as the binary resolves
+    /// them (none: the checkout holding `cwd`), `read_live` reading the live
+    /// sessions each time the push asks.
+    pub fn push_with(
+        &self,
+        targets: &[&str],
+        cwd: &Path,
+        read_live: &(dyn Fn() -> LiveSessions + Sync),
+    ) -> PushRun {
+        let entries = self.entries();
+        let root = self.root();
+        let git = self.runner();
+        let targets: Vec<String> = targets.iter().map(|&t| t.to_owned()).collect();
+        let resolved = resolve_push_targets(&entries, &root, cwd, &targets, &git).unwrap();
+        check_pushable(&resolved).unwrap();
+        push(
+            &resolved,
+            &RegistryDirs::new(&root, &entries),
+            &root,
+            &git,
+            PushOptions {
+                jobs: 4,
+                visibility_base: Some(&self.visibility_base()),
+                read_live,
+            },
+        )
+    }
+
+    /// `repos push` of `targets` from the workspace root, no live session
+    /// anywhere.
+    pub fn push(&self, targets: &[&str]) -> PushRun {
+        self.push_with(targets, &self.root(), &|| LiveSessions::Known(vec![]))
     }
 
     /// Every ref of `repo` (`refs/…` by name, with its object), and `HEAD`:

@@ -20,16 +20,17 @@
 //!    dirs are plain names under the root, no two alike, so no clone lands
 //!    in another's.
 //!
-//! **Never** a force-push, a tag pushed, a remote branch created on
-//! purpose, a rebase, a merge that isn't a fast-forward, a clone over
-//! anything at an entry's path, a deleted branch, or a pruned worktree (the
-//! origin fetch's `--prune` deletes only remote-tracking refs gone
-//! upstream); a pin, once there, is never touched (its verdicts never
-//! act), and a third-party reference only when the run refreshes it —
-//! named as a target, or under `--references` — and then never pushed. An
-//! entry whose probe failed has no verdicts, so nothing in it acts. An
-//! agent's pushes are held (`Caller::Agent`, `HeldBy::Gateway`) until the
-//! gateway lands: a person runs sync to push.
+//! **Never** a force-push, a tag pushed, a remote branch created, a rebase,
+//! a merge that isn't a fast-forward, a clone over anything at an entry's
+//! path, a deleted branch, or a pruned worktree (the origin fetch's
+//! `--prune` deletes only remote-tracking refs gone upstream); a pin, once
+//! there, is never touched (its verdicts never act), and a third-party
+//! reference only when the run refreshes it — named as a target, or under
+//! `--references` — and then never pushed. An entry whose probe failed has
+//! no verdicts, so nothing in it acts. An agent's pushes are held
+//! (`Caller::Agent`, `HeldBy::Gateway`): an agent pushes the branch it's on
+//! through `repos push` (the `push` module), and a person runs sync to push
+//! the rest. Both push through this module's one push (`Actor::act`).
 //!
 //! **The verdict is a plan; git is the check.** Right before each action,
 //! sync re-reads the live sessions (a hold when busy detection has become
@@ -87,33 +88,40 @@
 //!   gets no entry from the switch, and is held (`changed`): the move
 //!   wasn't sync's.
 //!
-//! - **A push** is `git push origin <oid>:<ref>`: the commit the branch held
-//!   when probed, to its upstream's ref on origin (`push_target`: a branch,
-//!   never `refs/heads/HEAD`), so a commit landing after classifying is never
-//!   pushed unseen. Right before, sync re-reads the branch — the same commit,
-//!   upstream, and ref on origin, no symbolic ref, else `changed` — re-reads
-//!   where a push through origin goes (`git remote get-url --push --all`,
-//!   `pushurl` and `pushInsteadOf` applied: exactly one URL, the registry's
-//!   repo over SSH as `push_urls_match` reads it — the host git connects to
-//!   and the path there, never the URL's text — else held `push_url`), and
-//!   re-counts the commits ahead of the remote-tracking ref (the same count,
-//!   the ref an ancestor, else `changed`). The push is a plain one — no force,
-//!   no lease: a lease is git's force with a check, which would replace git's
-//!   own fast-forward refusal with the tool's ancestor check, and git's
-//!   refusal stays the last check — with no tags, no submodules, no push
-//!   options, no push certificate, and git's own remote command
-//!   (`PUSH_ARGS`), over SSH only
-//!   (`GIT_ALLOW_PROTOCOL=ssh`), batch-mode as the fetch. Git refuses anything
-//!   but a fast-forward of what the remote holds, so a remote moved since the
-//!   fetch is held (`changed`) for a rerun; the remote's own refusal (a
-//!   ruleset, a hook) or a host unreachable fails (`push_failed`, classified).
-//!   Git records the push in origin's remote-tracking ref for the pushed
-//!   branch, the one the fetch writes; a failed or refused fetch holds every
-//!   push, so that write goes through refspecs the fetch confined. A remote
-//!   branch deleted in the instant between the fetch and the push is made anew
-//!   (`pushed` with no `from`), and one deleted and recreated at an ancestor
-//!   of the commit is fast-forwarded: the one race a lease would refuse and a
-//!   plain push can't.
+//! - **A push** is `git send-pack` of the commit the branch held when
+//!   probed to its upstream's ref on origin (`push_target`: a branch, never
+//!   `refs/heads/HEAD`), so a commit landing after classifying is never
+//!   pushed unseen — sent to the registry's URL over SSH as written, never
+//!   through `origin` (`SEND_PACK_ARGS` says why: no rewrite or remote
+//!   config reaches it). Right before, sync re-reads the branch — the same
+//!   commit, upstream, and ref on origin, no symbolic ref, else `changed` —
+//!   re-reads where a push through origin would go (`git remote get-url
+//!   --push --all`, `pushurl` and `pushInsteadOf` applied: exactly one URL,
+//!   the registry's repo over SSH as `push_urls_match` reads it — the host
+//!   git connects to and the path there, never the URL's text — else held
+//!   `push_url`: origin pushing elsewhere is a person's to sort out, even
+//!   though the push itself never reads it), and re-counts the commits
+//!   ahead of the remote-tracking ref (the same count, the ref an ancestor,
+//!   else `changed`). The push is under a lease on that fetched tip
+//!   (`--force-with-lease=<ref>:<fetched>`), a compare-and-swap: git
+//!   refuses unless the remote's branch is exactly what the fetch saw, and
+//!   the remote updates it only from the value it advertised. A lease lifts
+//!   git's own fast-forward check, so the ancestor re-check is what keeps
+//!   it one: together, a strict fast-forward of exactly the fetched tip,
+//!   never a force over work the fetch didn't see (a host refusing
+//!   non-fast-forwards checks it again). A remote branch moved since the
+//!   fetch — forward, back, or deleted, and deleted and recreated anywhere
+//!   but the fetched tip — fails the lease and is held (`changed`) for a
+//!   rerun, which reclassifies it: a deleted branch reads `gone`, so no
+//!   push ever recreates one. The push sends nothing but the one ref — no
+//!   tags, no push options, no push certificate — with git's own remote
+//!   command, over SSH only (`GIT_ALLOW_PROTOCOL=ssh`), batch-mode as the
+//!   fetch. The remote's own refusal (a ruleset, a hook) or a host
+//!   unreachable fails (`push_failed`, classified). Once pushed, the
+//!   remote-tracking ref moves to the commit by compare-and-swap on the
+//!   fetched tip (`record_push`), so `status` reads the branch in sync
+//!   without a refetch; a fetch that moved it meanwhile wins. A failed or
+//!   refused fetch holds every push, so that ref is one the fetch confined.
 //!
 //! - **A clone** of a missing entry (the `clone` module doc has the recipe)
 //!   is made in a temp dir beside the entry's and moved into place only
@@ -141,11 +149,12 @@
 //!
 //! **What runs.** The runner's hardening holds (the `git` module doc): no
 //! hook, fsmonitor, or alternate-refs command runs, so nothing a fetch or
-//! fast-forward brings in is executed — a push's `pre-push` and
-//! `reference-transaction` hooks included. Programs the local config names —
-//! filter drivers such as Git LFS's smudge, the gpg program
-//! `merge.verifySignatures` calls — are the user's own and run as in any
-//! merge or checkout they'd make.
+//! fast-forward brings in is executed — the `reference-transaction` hook
+//! included, and `send-pack` runs no `pre-push` hook at all. Programs the
+//! local config names — filter drivers such as Git LFS's smudge, the gpg
+//! program `merge.verifySignatures` calls, SSH as configured
+//! (`core.sshCommand`) — are the user's own and run as in any merge,
+//! checkout, or push they'd make.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -358,7 +367,8 @@ enum Acted {
     Repo(Vec<(usize, Vec<BranchSync>)>),
 }
 
-fn fetch_outcome(fetch: Option<&Result<(), RemoteFailure>>) -> FetchOutcome {
+/// An entry's fetch as an outcome: `None` when none was attempted.
+pub(crate) fn fetch_outcome(fetch: Option<&Result<(), RemoteFailure>>) -> FetchOutcome {
     match fetch {
         None => FetchOutcome::NotFetched,
         Some(Ok(())) => FetchOutcome::Fetched,
@@ -388,15 +398,15 @@ fn repo_groups(facts: &[Option<RepoFacts>]) -> Vec<Vec<usize>> {
 
 /// What acting needs: the runner, the root discovery stops at, and every
 /// entry's checkouts, which the live sessions re-read before each action
-/// are scoped to.
-struct Actor<'a> {
-    git: &'a Git,
-    root: &'a Path,
+/// are scoped to. `repos push` acts through it too, on one branch's push.
+pub(crate) struct Actor<'a> {
+    pub git: &'a Git,
+    pub root: &'a Path,
     /// The entries acted on, in the order the statuses are.
-    entries: &'a [Entry],
-    checkouts: &'a [EntryCheckouts],
-    read_live: &'a (dyn Fn() -> LiveSessions + Sync),
-    caller: Caller,
+    pub entries: &'a [Entry],
+    pub checkouts: &'a [EntryCheckouts],
+    pub read_live: &'a (dyn Fn() -> LiveSessions + Sync),
+    pub caller: Caller,
 }
 
 impl Actor<'_> {
@@ -459,8 +469,9 @@ impl Actor<'_> {
         out
     }
 
-    /// Takes `action` on branch `b` of entry `i`, re-checking first.
-    fn act(
+    /// Takes `action` on branch `b` of entry `i`, re-checking first — the
+    /// one way sync and `repos push` act.
+    pub(crate) fn act(
         &self,
         i: usize,
         facts: &RepoFacts,
@@ -612,8 +623,8 @@ fn settled(verdict: &Verdict) -> BranchOutcome {
 enum Done {
     /// The branch moved from `from` to `to`.
     Updated { from: String, to: String },
-    /// The remote's branch moved from `from` (`None`: it had none) to `to`.
-    Pushed { from: Option<String>, to: String },
+    /// The remote's branch moved from `from`, the fetched tip, to `to`.
+    Pushed { from: String, to: String },
     /// The push failed at the remote, or reaching it.
     PushFailed(RemoteFailure),
     /// The branch already held the tip.
@@ -704,43 +715,45 @@ struct Push<'a> {
     /// The commit the branch held when probed: the one pushed, whatever
     /// lands on the branch after.
     oid: &'a str,
-    /// The upstream's ref on origin (`push_target`), named explicitly.
+    /// The upstream's ref on origin (`push_target`), named explicitly, and
+    /// the ref the lease is on.
     target: &'a str,
     /// The commits ahead the verdict counted.
     commits: u32,
     /// A shallow clone, where the verdict counted commits on no remote ref.
     shallow: bool,
-    /// The registry's URL, which the push URL must name.
+    /// The registry's repo: where the push goes (its SSH URL), and what
+    /// origin's push URL must name.
     url: &'a RepoUrl,
     /// Batch-mode SSH, unless the user configures SSH (as the fetch).
     batch_ssh: bool,
 }
 
-/// The push's flags before `origin` and its refspec. No force of any kind,
-/// and nothing but the one ref: no tags (`push.followTags`), no submodule
-/// pushes (`push.recurseSubmodules`), no push certificate
-/// (`push.gpgSign` — a signing prompt under a batch run, and a host that
-/// takes none fails the push), and no push options (`push.pushOption`,
-/// which the empty value resets: a host can act on one, and one it doesn't
-/// take fails the push). `--receive-pack` names git's own remote command
-/// over `remote.origin.receivepack`, which could otherwise run another
-/// command on the host, or point the push at another path there. Hooks are
-/// off in the runner already;
-/// `--no-verify` says so again. `core.abbrev=no` makes the porcelain's
-/// summary full object ids. An explicit refspec also passes over
-/// `remote.origin.push` and `push.default`; a `remote.origin.mirror`
-/// makes git refuse it outright.
-const PUSH_ARGS: [&str; 11] = [
-    "-c",
-    "core.abbrev=no",
-    "-c",
-    "push.pushOption=",
-    "push",
-    "--porcelain",
+/// The push's command and flags before the lease, the URL, and the
+/// refspec.
+///
+/// `git send-pack`, the plumbing under `git push`, because it connects to
+/// the URL it's given as written. `git push <url>` reads a URL through the
+/// remote config first: `url.<base>.insteadOf` and `pushInsteadOf` rewrite
+/// it, and a `remote.<url>` section named by the URL itself takes it over
+/// — from any config file, read when git runs, so a config written after
+/// the push URL was checked could send the push elsewhere. Send-pack
+/// consults neither, so the push reaches the registry's repo or fails.
+///
+/// And nothing but the one ref: send-pack pushes no tags
+/// (`push.followTags` is `git push`'s), no submodules, and no push options
+/// (it sends only the ones named with `--push-option`, never
+/// `push.pushOption`), and runs no `pre-push` hook. `--no-signed`: no push
+/// certificate (a signing prompt under a batch run, and a host that takes
+/// none fails the push). `--receive-pack` names git's own remote command.
+/// `--thin`, as `git push` packs. `--helper-status` prints one line per
+/// remote ref on stdout (`pushed_ref`). SSH runs as the user configures it
+/// (`core.sshCommand`, `~/.ssh/config`), their own program.
+const SEND_PACK_ARGS: [&str; 5] = [
+    "send-pack",
+    "--helper-status",
+    "--thin",
     "--receive-pack=git-receive-pack",
-    "--no-verify",
-    "--no-follow-tags",
-    "--recurse-submodules=no",
     "--no-signed",
 ];
 
@@ -1128,16 +1141,20 @@ impl Step<'_> {
         Ok(out.lines().filter(|c| !roots.contains(*c)).count())
     }
 
-    /// Pushes `p.oid` through `origin` to `p.target`, once the branch reads
-    /// as classified — the same commit, upstream, and target, no symbolic
-    /// ref — the push URL still names the registry's repo over SSH, and the
-    /// commit is still the counted commits ahead of the remote-tracking ref.
-    /// Git's own refusal of anything but a fast-forward of what the remote
-    /// holds is the last check.
+    /// Pushes `p.oid` to `p.target` on the registry's repo under a lease on
+    /// the fetched tip, once the branch reads as classified — the same
+    /// commit, upstream, and target, no symbolic ref — origin's push URL
+    /// still names the registry's repo over SSH, and the commit is still the
+    /// counted commits ahead of the remote-tracking ref, which is an
+    /// ancestor of it. Then the remote-tracking ref moves to it
+    /// (`record_push`). The module doc says what the lease and the ancestor
+    /// check make of the push.
     fn push(&self, dir: &Path, p: &Push<'_>) -> Result<Done, String> {
         if !self.reads_as_classified(dir, p)? {
             return Ok(Done::Held(SyncHold::Changed));
         }
+        // origin's push going elsewhere is a person's to sort out; the push
+        // itself never reads it
         if !push_urls_match(&read_push_urls(self.git, dir, self.opts)?, p.url) {
             return Ok(Done::Held(SyncHold::PushUrl));
         }
@@ -1156,18 +1173,20 @@ impl Step<'_> {
                 .parse()
                 .map_err(|_| format!("rev-list --count {range}: not a count"))?
         };
+        // the lease lifts git's fast-forward check: this is it
         if !self.is_ancestor(dir, &fetched, p.oid)? || ahead != p.commits as usize {
             return Ok(Done::Held(SyncHold::Changed));
         }
+        let lease = format!("--force-with-lease={}:{fetched}", p.target);
+        let url = p.url.ssh();
         let refspec = format!("{}:{}", p.oid, p.target);
-        let mut args = PUSH_ARGS.to_vec();
-        args.extend(["origin", refspec.as_str()]);
+        let mut args = SEND_PACK_ARGS.to_vec();
+        args.extend([lease.as_str(), url.as_str(), refspec.as_str()]);
         let opts = CallOptions {
             network: Some(NetworkOptions {
                 batch_ssh: p.batch_ssh,
             }),
-            // the push URL was just read as SSH: a config changed since
-            // can't send the push over another transport
+            // the registry's URL is SSH: nothing else may carry the push
             allow_protocol: Some("ssh"),
             ..self.opts
         };
@@ -1182,25 +1201,34 @@ impl Step<'_> {
         };
         let stdout = String::from_utf8_lossy(&out.stdout);
         match pushed_ref(&stdout, p.target) {
-            Some(PushedRef { flag: ' ', summary }) => match summary.split_once("..") {
-                Some((from, to)) if to == p.oid => Ok(Done::Pushed {
-                    from: Some(from.to_owned()),
-                    to: to.to_owned(),
-                }),
-                _ => Err(format!("git pushed {}: {summary}", p.target)),
-            },
-            Some(PushedRef { flag: '*', .. }) => Ok(Done::Pushed {
-                from: None,
-                to: p.oid.to_owned(),
-            }),
-            Some(PushedRef { flag: '=', .. }) => Ok(Done::AlreadyThere),
-            Some(PushedRef { flag: '!', summary }) => Ok(rejected(summary, &out.stderr)),
-            Some(PushedRef { flag, summary }) => Err(format!(
-                "git reported `{flag}` pushing {}: {summary}",
-                p.target
-            )),
+            Some(PushedRef {
+                ok: true,
+                message: None,
+            }) => {
+                // best effort: the push stands whatever the ref says, and
+                // the next fetch writes what origin holds
+                let _ = self.record_push(dir, &fetched, p.oid);
+                // the lease held the remote at the fetched tip
+                Ok(Done::Pushed {
+                    from: fetched,
+                    to: p.oid.to_owned(),
+                })
+            }
+            // the remote holds the commit: the lease would have refused
+            // that, so another hand pushed it in the instant between
+            Some(PushedRef {
+                ok: true,
+                message: Some("up to date"),
+            }) => Ok(Done::AlreadyThere),
+            Some(PushedRef {
+                ok: true,
+                message: Some(message),
+            }) => Err(format!("git pushed {}: {message}", p.target)),
+            Some(PushedRef { ok: false, message }) => {
+                Ok(rejected(message.unwrap_or_default(), &out.stderr))
+            }
             None if out.status.success() => {
-                Err(format!("git push reported nothing for {}", p.target))
+                Err(format!("git send-pack reported nothing for {}", p.target))
             }
             None => Ok(Done::PushFailed(RemoteFailure::from_git_error(
                 GitError::Failed {
@@ -1211,6 +1239,34 @@ impl Step<'_> {
                 RefspecContext::default(),
             ))),
         }
+    }
+
+    /// Moves the remote-tracking ref to `pushed`, as `git push` records a
+    /// push, by compare-and-swap on `fetched`: a fetch that moved it in the
+    /// meantime wrote what origin holds, and stands. Only a ref under
+    /// `refs/remotes/origin/`, which classify's push verdict implies.
+    /// Returns whether it moved.
+    fn record_push(&self, dir: &Path, fetched: &str, pushed: &str) -> Result<bool, String> {
+        if !self.upstream.starts_with("refs/remotes/origin/") {
+            return Ok(false);
+        }
+        let out = self
+            .git
+            .run(
+                dir,
+                &[
+                    "update-ref",
+                    "--no-deref",
+                    "-m",
+                    "repos: update by push",
+                    self.upstream,
+                    pushed,
+                    fetched,
+                ],
+                self.opts,
+            )
+            .map_err(|e| git_message(&e))?;
+        Ok(out.status.success())
     }
 
     /// Whether the branch in `dir` is as classified: the commit `p.oid`, a
@@ -1270,58 +1326,69 @@ impl Step<'_> {
     }
 }
 
-/// One ref's line in `git push --porcelain`'s output, tab-separated:
-/// `<flag>`, `<src>:<dst>`, `<summary>`.
+/// One ref's line in `git send-pack --helper-status`'s output: `ok <ref>`,
+/// `ok <ref> up to date`, or `error <ref> <why>` — git's reason (`stale
+/// info`; `no match` for each remote ref not pushed) or the remote's own.
 #[derive(Debug, PartialEq, Eq)]
 struct PushedRef<'a> {
-    /// ` ` a fast-forward, `*` a new ref, `=` up to date, `!` rejected, `+`
-    /// forced, `-` deleted.
-    flag: char,
-    /// `<old>..<new>` for a fast-forward, else git's bracketed status and
-    /// its reason, e.g. `[remote rejected] (pre-receive hook declined)`.
-    summary: &'a str,
+    ok: bool,
+    /// What follows the ref, its surrounding quotes dropped (git C-quotes a
+    /// message holding special characters).
+    message: Option<&'a str>,
 }
 
-/// The porcelain line for the push to `dst`, if git printed one.
+/// The status line for the push to `dst`, if git printed one.
 fn pushed_ref<'a>(stdout: &'a str, dst: &str) -> Option<PushedRef<'a>> {
     stdout.lines().find_map(|l| {
-        let mut f = l.splitn(3, '\t');
-        let (flag, refs, summary) = (f.next()?, f.next()?, f.next()?);
-        let mut chars = flag.chars();
-        let flag = chars.next().filter(|_| chars.next().is_none())?;
-        (refs.rsplit_once(':')?.1 == dst).then_some(PushedRef { flag, summary })
+        let (status, rest) = l.split_once(' ')?;
+        let ok = match status {
+            "ok" => true,
+            "error" => false,
+            _ => return None,
+        };
+        let (r, message) = rest
+            .split_once(' ')
+            .map_or((rest, None), |(r, m)| (r, Some(m)));
+        let unquoted = |m: &'a str| {
+            m.strip_prefix('"')
+                .and_then(|m| m.strip_suffix('"'))
+                .unwrap_or(m)
+        };
+        (r == dst).then(|| PushedRef {
+            ok,
+            message: message.map(unquoted),
+        })
     })
 }
 
-/// A push git rejected (`!`), by its summary: the remote moved since the
-/// fetch (`fetch first`, `non-fast-forward` — git refuses to overwrite it)
-/// is held, `Changed`, for a rerun to reclassify; the remote's own refusal
-/// (`[remote rejected]`: a ruleset, a hook) fails with its reason and the
-/// remote's first error line; anything else fails with git's summary.
-fn rejected(summary: &str, stderr: &str) -> Done {
-    let reason = |status: &str| {
-        summary
-            .strip_prefix(status)
-            .map(|r| r.trim().trim_start_matches('(').trim_end_matches(')'))
-    };
-    match reason("[rejected]") {
-        Some("fetch first" | "non-fast-forward") => return Done::Held(SyncHold::Changed),
-        Some(_) => {
-            return Done::PushFailed(RemoteFailure::Failed {
-                message: format!("rejected: {summary}"),
-            });
-        }
-        None => {}
-    }
-    if let Some(reason) = reason("[remote rejected]") {
-        return Done::PushFailed(RemoteFailure::Rejected {
+/// A push git or the remote refused, by why: the remote's branch isn't the
+/// fetched tip (`stale info`, the lease's refusal — moved or deleted since
+/// the fetch; `fetch first` and `non-fast forward`, git's own, should a
+/// lease ever not apply) is held, `Changed`, for a rerun to reclassify;
+/// git's other refusals fail with their words; anything else is the
+/// remote's refusal (a ruleset, a hook), failed with its reason and the
+/// remote's first error line. A remote whose reason reads exactly as one
+/// of git's is taken for git's: nothing was pushed either way.
+fn rejected(why: &str, stderr: &str) -> Done {
+    match why {
+        "stale info" | "fetch first" | "non-fast forward" => Done::Held(SyncHold::Changed),
+        "needs force"
+        | "already exists"
+        | "remote ref updated since checkout"
+        | "no match"
+        | "expecting report"
+        | "atomic push failed"
+        | "" => Done::PushFailed(RemoteFailure::Failed {
+            message: format!(
+                "rejected: {}",
+                if why.is_empty() { "no reason" } else { why }
+            ),
+        }),
+        reason => Done::PushFailed(RemoteFailure::Rejected {
             reason: reason.to_owned(),
             message: remote_error(stderr),
-        });
+        }),
     }
-    Done::PushFailed(RemoteFailure::Failed {
-        message: summary.to_owned(),
-    })
 }
 
 /// The remote's first `error:` line, as git relays it (`remote: error: …`,
@@ -1377,56 +1444,89 @@ mod tests {
     }
 
     #[test]
-    fn a_push_is_read_from_its_porcelain_line() {
+    fn a_push_is_read_from_its_status_line() {
         let dst = "refs/heads/main";
-        let out = "To github.com:me/app\n \tc2:refs/heads/main\tc1..c2\nDone\n";
+        // as git 2.47 prints them: every remote ref, each not pushed `no match`
+        let out =
+            "error refs/heads/feat no match\nok refs/heads/main\nerror refs/tags/v1 no match\n";
         assert_eq!(
             pushed_ref(out, dst),
             Some(PushedRef {
-                flag: ' ',
-                summary: "c1..c2"
+                ok: true,
+                message: None
             })
         );
-        // another ref's line, or none, is no answer
+        assert_eq!(
+            pushed_ref("ok refs/heads/main up to date\n", dst),
+            Some(PushedRef {
+                ok: true,
+                message: Some("up to date")
+            })
+        );
+        assert_eq!(
+            pushed_ref("error refs/heads/main stale info\n", dst),
+            Some(PushedRef {
+                ok: false,
+                message: Some("stale info")
+            })
+        );
+        // a C-quoted message loses its quotes
+        assert_eq!(
+            pushed_ref("error refs/heads/main \"hook \\\"x\\\" declined\"\n", dst)
+                .and_then(|p| p.message),
+            Some("hook \\\"x\\\" declined")
+        );
+        // another ref's line, a prefix of it, or none, is no answer
         assert_eq!(pushed_ref(out, "refs/heads/mai"), None);
-        assert_eq!(pushed_ref("To x\nDone\n", dst), None);
-        let rejected_line = "!\tc2:refs/heads/main\t[rejected] (fetch first)\n";
-        assert_eq!(pushed_ref(rejected_line, dst).map(|p| p.flag), Some('!'));
+        assert_eq!(pushed_ref("ok refs/heads/main/x\n", dst), None);
+        assert_eq!(pushed_ref("Everything up-to-date\n", dst), None);
+        assert_eq!(pushed_ref("", dst), None);
     }
 
     #[test]
     fn a_rejected_push_is_held_or_failed_by_why() {
-        // the remote moved: rerun
-        for why in ["fetch first", "non-fast-forward"] {
-            assert!(matches!(
-                rejected(&format!("[rejected] ({why})"), ""),
-                Done::Held(SyncHold::Changed)
-            ));
+        // the remote isn't at the fetched tip: rerun
+        for why in ["stale info", "fetch first", "non-fast forward"] {
+            assert!(
+                matches!(rejected(why, ""), Done::Held(SyncHold::Changed)),
+                "{why}"
+            );
         }
         // the remote's refusal, with its own words
         let stderr = "remote: error: GH006: Protected branch update failed for refs/heads/main.   \n\
                       remote: error: Changes must be made through a pull request.   \n\
                       error: failed to push some refs to 'github.com:me/app'\n";
         assert!(matches!(
-            rejected("[remote rejected] (protected branch hook declined)", stderr),
+            rejected("protected branch hook declined", stderr),
             Done::PushFailed(RemoteFailure::Rejected { reason, message })
                 if reason == "protected branch hook declined"
                     && message.as_deref()
                         == Some("GH006: Protected branch update failed for refs/heads/main.")
         ));
+        // a host refusing non-fast-forwards words it with a hyphen, as its own
         assert!(matches!(
-            rejected("[remote rejected] (hook declined)", "remote: nope\n"),
+            rejected("non-fast-forward", "remote: error: denying non-fast-forward\n"),
+            Done::PushFailed(RemoteFailure::Rejected { reason, .. }) if reason == "non-fast-forward"
+        ));
+        assert!(matches!(
+            rejected("hook declined", "remote: nope\n"),
             Done::PushFailed(RemoteFailure::Rejected { message: Some(m), .. }) if m == "nope"
         ));
         assert!(matches!(
-            rejected("[remote rejected] (hook declined)", ""),
+            rejected("hook declined", ""),
             Done::PushFailed(RemoteFailure::Rejected { message: None, .. })
         ));
-        // anything else git refused fails with its words
+        // git's other refusals fail with its words
+        for why in ["needs force", "no match", "expecting report"] {
+            assert!(matches!(
+                rejected(why, ""),
+                Done::PushFailed(RemoteFailure::Failed { message })
+                    if message == format!("rejected: {why}")
+            ));
+        }
         assert!(matches!(
-            rejected("[rejected] (stale info)", ""),
-            Done::PushFailed(RemoteFailure::Failed { message })
-                if message == "rejected: [rejected] (stale info)"
+            rejected("", ""),
+            Done::PushFailed(RemoteFailure::Failed { message }) if message == "rejected: no reason"
         ));
     }
 
@@ -1632,6 +1732,38 @@ mod tests {
             common_dir,
             None,
         )
+    }
+
+    #[test]
+    fn a_push_moves_the_remote_tracking_ref_only_from_the_fetched_tip() {
+        let repo = Repo::new();
+        let fetched = repo.git(&["rev-parse", "main"]);
+        let pushed = repo.child_of(&fetched);
+        let meanwhile = repo.child_of(&fetched);
+        let git = repo.runner();
+        let common_dir = repo.dir.join(".git");
+        let tracking = "refs/remotes/origin/main";
+        let step = Step::new(&git, Path::new("/"), "main", tracking, &common_dir, None);
+
+        // a fetch moved it after the push: its value stands
+        repo.git(&["update-ref", tracking, &meanwhile]);
+        assert_eq!(step.record_push(&repo.dir, &fetched, &pushed), Ok(false));
+        assert_eq!(repo.git(&["rev-parse", tracking]), meanwhile);
+        // at the fetched tip: moved, as `git push` records a push
+        repo.git(&["update-ref", tracking, &fetched]);
+        assert_eq!(step.record_push(&repo.dir, &fetched, &pushed), Ok(true));
+        assert_eq!(repo.git(&["rev-parse", tracking]), pushed);
+        // never a ref outside origin's remote-tracking refs
+        let local = Step::new(
+            &git,
+            Path::new("/"),
+            "main",
+            "refs/heads/main",
+            &common_dir,
+            None,
+        );
+        assert_eq!(local.record_push(&repo.dir, &fetched, &pushed), Ok(false));
+        assert_eq!(repo.git(&["rev-parse", "main"]), fetched);
     }
 
     #[test]

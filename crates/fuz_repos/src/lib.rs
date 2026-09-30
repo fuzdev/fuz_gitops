@@ -7,7 +7,8 @@
 //! failures, the visibility check), busy detection — the live Claude
 //! Code sessions (`sessions`) and the checkouts they sit in (`busy`) — and
 //! `sync`, which carries out the verdicts (a missing entry's through
-//! `clone`); the `repos` binary parses
+//! `clone`), and `push`, which carries out one checkout's branch's push
+//! through sync's own; the `repos` binary parses
 //! arguments, renders reports, and owns exit codes.
 //!
 //! Unix-only: it takes git's paths as raw bytes, as git does. Busy
@@ -23,6 +24,7 @@ pub mod git;
 mod gitdir;
 pub mod porcelain;
 pub mod probe;
+pub mod push;
 pub mod registry;
 mod regular_file;
 pub mod remote;
@@ -42,4 +44,9 @@ pub const STATUS_FORMAT_VERSION: u32 = 12;
 /// The version of the `repos sync --json` document. Bumped on any change to
 /// its shape, the embedded status report's included (so with every
 /// `STATUS_FORMAT_VERSION` bump).
-pub const SYNC_FORMAT_VERSION: u32 = 5;
+pub const SYNC_FORMAT_VERSION: u32 = 6;
+
+/// The version of the `repos push --json` document. Bumped on any change to
+/// its shape, the embedded status report's included (so with every
+/// `STATUS_FORMAT_VERSION` bump).
+pub const PUSH_FORMAT_VERSION: u32 = 1;

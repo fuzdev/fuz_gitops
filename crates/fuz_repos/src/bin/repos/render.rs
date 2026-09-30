@@ -1,7 +1,8 @@
 //! Text rendering of a `StatusReport` — the grouped summary,
 //! `--verbose`'s per-entry blocks, and `--brief`'s line on one checkout —
-//! and of a `SyncReport`, whose summary is the same with what sync did in
-//! place of what it would do.
+//! of a `SyncReport`, whose summary is the same with what sync did in
+//! place of what it would do, and of a `PushReport`, its targets' pushes
+//! in the same words.
 
 use std::borrow::Cow;
 use std::ffi::OsStr;
@@ -13,8 +14,8 @@ use fuz_repos::classify::{NeedsHuman, OriginByHand, OriginFix, OriginRemote};
 use fuz_repos::registry::{EntryKind, Visibility};
 use fuz_repos::remote::{RefGoneFix, RemoteFailure, UnreachableCause, VisibilityCheck};
 use fuz_repos::report::{
-    BranchOutcome, CloneOutcome, EntryStatus, EntrySync, FetchOutcome, RepairBlock, StatusReport,
-    SyncHold, SyncReport, UnregisteredClone, UnregisteredKind,
+    BranchOutcome, CloneOutcome, EntryStatus, EntrySync, FetchOutcome, PushOutcome, PushReport,
+    RepairBlock, StatusReport, SyncHold, SyncReport, UnregisteredClone, UnregisteredKind,
 };
 use fuz_repos::sessions::{Session, SessionSource, Unavailable};
 use fuz_repos::state::{
@@ -155,11 +156,30 @@ fn ref_gone_hint(fix: &RefGoneFix, dir: &str) -> String {
 const HOST_KEY_HINT: &str = "repos never asks to trust a host — check its key (or \
      certificate), then connect once by hand to record it";
 
-/// Pushes an agent's run held: agents push through the gateway, and until
-/// it exists the user's own sync pushes. Said as what happens, never as a
-/// step for the agent reading it to take.
+/// Pushes an agent's `sync` held: an agent pushes the branch it's on
+/// through the gateway, `repos push`, and the user's own sync pushes the
+/// rest. Said as what happens.
 const GATEWAY_HINT: &str =
-    "hint: an agent's pushes wait for the gateway; the user's own repos sync pushes them";
+    "hint: an agent pushes its own branch with repos push; the user's own repos sync pushes these";
+
+/// `REF_GONE_HINT` for `repos push`, which has no `--verbose`.
+const PUSH_REF_GONE_HINT: &str = "a fetch refspec names a branch deleted or renamed on the \
+     remote, so nothing was fetched — each entry's repair under repos status --fetch --verbose";
+
+/// A branch `repos push` found behind its upstream, or a stale shallow
+/// one: sync's to move, never the push's.
+const BEHIND_HINT: &str =
+    "repos sync fast-forwards a branch behind its upstream (and moves a stale shallow one)";
+
+/// A diverged branch: placing it needs a force-push or a rebase, which
+/// repos never does.
+const DIVERGED_HINT: &str =
+    "a diverged branch is resolved by hand; repos never force-pushes or rebases";
+
+/// A branch with no upstream on origin: `repos push` never creates a
+/// remote branch, and making one is the user's.
+const NO_UPSTREAM_HINT: &str =
+    "repos push never creates a remote branch; making one is the user's call";
 
 /// An HTTPS certificate the visibility check couldn't verify.
 const CERTIFICATE_HINT: &str = "the host's HTTPS certificate didn't verify — check it, and the \
@@ -230,6 +250,183 @@ pub fn render_summary(report: &StatusReport, view: View<'_>, verbose: bool) -> S
 /// `failed` what it didn't.
 pub fn render_sync_summary(report: &SyncReport, view: View<'_>, verbose: bool) -> String {
     summary(&report.status, Some(&report.entries), view, verbose)
+}
+
+/// `repos push`'s summary: what it did with each target's branch —
+/// `pushed`, `in sync`, `held`, `not pushed` — after what failed and what's
+/// a person's (the targets' entries' own reasons among them, so a hold on
+/// the entry is explained), the hints that say what to do next, and the
+/// registry line. Worded as `sync`'s, a branch labeled by its entry's key
+/// alone when it's the registry's branch.
+pub fn render_push_summary(report: &PushReport, view: View<'_>) -> String {
+    let mut visibility = Vec::new();
+    let mut failed = Vec::new();
+    let mut needs_human = Vec::new();
+    let mut origin_drift = Vec::new();
+    let mut pushed = Vec::new();
+    let mut in_sync = Vec::new();
+    let mut held = Vec::new();
+    let mut not_pushed = Vec::new();
+    // the guard itself failed: said once, first among the failures
+    if let Sessions::Unavailable { reason } = &report.status.sessions {
+        failed.push(format!(
+            "busy detection ({}; every push held)",
+            unavailable_label(reason, view)
+        ));
+    }
+    for e in &report.status.entries {
+        let key = &e.key;
+        if let Some(error) = &e.probe_error {
+            failed.push(format!("{key} (probe: {})", first_line(error)));
+        }
+        if let Some(failure) = &e.fetch_error {
+            failed.push(format!(
+                "{key} (fetch: {})",
+                remote_failure_label(failure, false)
+            ));
+        }
+        match &e.visibility_check {
+            Some(VisibilityCheck::Leak) => {
+                visibility.push(format!("{key} (declared private, anonymously readable)"));
+            }
+            Some(VisibilityCheck::Unknown { failure }) => failed.push(format!(
+                "{key} (visibility check: {})",
+                remote_failure_label(failure, false)
+            )),
+            Some(VisibilityCheck::Private) | None => {}
+        }
+        for reason in &e.needs_human {
+            match reason {
+                NeedsHuman::OriginMismatch { origin, .. } => {
+                    let was = match origin {
+                        OriginRemote::Url { url } => compact_remote(url, &e.url),
+                        OriginRemote::NoUrl => "origin has no URL".to_owned(),
+                        OriginRemote::Missing => "no origin".to_owned(),
+                    };
+                    origin_drift.push(format!("{key} ({was})"));
+                }
+                reason => {
+                    needs_human.push(format!("{key} ({})", needs_human_label(reason, e, view)));
+                }
+            }
+        }
+    }
+    let (mut behind, mut diverged, mut no_upstream) = (false, false, false);
+    for p in &report.pushes {
+        let Some(e) = report.status.entries.iter().find(|e| e.key == p.key) else {
+            failed.push(format!("{} (push: no status)", p.key));
+            continue;
+        };
+        let b = p
+            .branch
+            .as_ref()
+            .and_then(|name| e.branches.iter().find(|b| b.name == *name));
+        let label = match &p.branch {
+            Some(name) if Some(name) != e.branch.as_ref() => format!("{}:{name}", p.key),
+            _ => p.key.clone(),
+        };
+        // a checkout with no branch to name it by: its path, when it isn't
+        // the entry's dir
+        let at = if Path::new(&p.checkout) == Path::new(&report.status.workspace).join(&e.dir) {
+            String::new()
+        } else {
+            format!(", worktree {}", view.show(&p.checkout))
+        };
+        let ahead = match b.map(|b| b.relation) {
+            Some(Relation::Ahead { commits }) => format!(" +{commits}"),
+            _ => String::new(),
+        };
+        match &p.outcome {
+            PushOutcome::Pushed { .. } => pushed.push(format!("{label}{ahead}")),
+            PushOutcome::InSync => in_sync.push(label),
+            PushOutcome::Held { by } => held.push(format!("{label}{ahead}{}", hold_note(*by))),
+            PushOutcome::PushFailed { failure } => failed.push(format!(
+                "{label} (push: {})",
+                remote_failure_label(failure, false)
+            )),
+            PushOutcome::Failed { message } => {
+                failed.push(format!("{label} (push: {})", first_line(message)));
+            }
+            PushOutcome::NotAhead => {
+                behind = true;
+                let relation =
+                    b.map_or_else(|| "not ahead".to_owned(), |b| relation_label(b.relation));
+                not_pushed.push(format!("{label} ({relation})"));
+            }
+            PushOutcome::NeedsHuman { reason } => {
+                diverged |= *reason == BranchNeedsHuman::Diverged;
+                let why = b.map_or_else(
+                    || format!("{reason:?}"),
+                    |b| branch_needs_human_label(*reason, b),
+                );
+                needs_human.push(format!("{label} ({why})"));
+            }
+            PushOutcome::NoUpstream => {
+                no_upstream = true;
+                let why = match b.map(|b| b.relation) {
+                    Some(Relation::Gone) => "upstream gone from origin",
+                    _ => "no upstream on origin",
+                };
+                not_pushed.push(format!("{label} ({why})"));
+            }
+            PushOutcome::Detached => not_pushed.push(format!("{label} (detached HEAD{at})")),
+            PushOutcome::Unread => {
+                let why = match e.presence {
+                    Presence::Missing => "missing",
+                    Presence::NotARepo => "not a repo",
+                    Presence::Present if e.probe_error.is_some() => "probe failed",
+                    Presence::Present => "checkout not read",
+                };
+                not_pushed.push(format!("{label} ({why}{at})"));
+            }
+        }
+    }
+
+    let mut out = String::new();
+    let mut line = |label: &str, tone: Tone, items: Vec<String>| {
+        out.push_str(&render_group(label, tone, &Items::Singles(items), view));
+    };
+    let hint = |s: &str| vec![format!("hint: {s}")];
+    line("visibility", Tone::Red, visibility);
+    line("failed", Tone::Red, failed);
+    // a fetch's failure, or a push's
+    let remote_failed = |pick: fn(&RemoteFailure) -> bool| {
+        report
+            .status
+            .entries
+            .iter()
+            .any(|e| e.fetch_error.as_ref().is_some_and(pick))
+            || report.pushes.iter().any(|p| match &p.outcome {
+                PushOutcome::PushFailed { failure } => pick(failure),
+                _ => false,
+            })
+    };
+    if remote_failed(|f| matches!(f, RemoteFailure::RefGone { .. })) {
+        line("", Tone::Plain, hint(PUSH_REF_GONE_HINT));
+    }
+    if remote_failed(|f| unreachable_cause(f) == Some(UnreachableCause::HostKey)) {
+        line("", Tone::Plain, hint(HOST_KEY_HINT));
+    }
+    if remote_failed(|f| unreachable_cause(f) == Some(UnreachableCause::Auth)) {
+        line("", Tone::Plain, hint(AUTH_HINT));
+    }
+    line("needs human", Tone::Red, needs_human);
+    if diverged {
+        line("", Tone::Plain, hint(DIVERGED_HINT));
+    }
+    line("origin drift", Tone::Yellow, origin_drift);
+    line("pushed", Tone::Green, pushed);
+    line("in sync", Tone::Plain, in_sync);
+    line("held", Tone::Yellow, held);
+    line("not pushed", Tone::Yellow, not_pushed);
+    if behind {
+        line("", Tone::Plain, hint(BEHIND_HINT));
+    }
+    if no_upstream {
+        line("", Tone::Plain, hint(NO_UPSTREAM_HINT));
+    }
+    let _ = writeln!(out, "{}", footer(&report.status, view));
+    out
 }
 
 /// `status --brief`'s one line on the checkout `c` of `e`, for a session
@@ -2239,6 +2436,172 @@ mod tests {
         width: DEFAULT_WIDTH,
         color: false,
     };
+
+    /// Each push outcome in `repos push`'s summary, grouped as sync's are,
+    /// with the hints for what isn't the push's to do.
+    #[test]
+    fn pushes_read_as_what_the_push_did() {
+        use fuz_repos::report::{CheckoutPush, PushOutcome};
+        let push = |commits| SyncAction::Push { commits };
+        let with = |key: &str, head: &str, b: BranchStatus| {
+            let mut e = entry(key, main(), head);
+            e.branches = vec![b];
+            e
+        };
+        let ahead = |name: &str, n, verdict| {
+            branch(
+                name,
+                Some("origin/x"),
+                Relation::Ahead { commits: n },
+                n,
+                verdict,
+            )
+        };
+        let mut detached = entry("mdz", main(), "main");
+        detached.checkouts[0].head = Head::Detached {
+            commit: "d".repeat(40),
+        };
+        let mut gone = missing("gone");
+        gone.clone = None;
+        let r = report(vec![
+            with(
+                "app",
+                "main",
+                ahead("main", 2, Verdict::Act { action: push(2) }),
+            ),
+            with(
+                "blog",
+                "feat",
+                ahead(
+                    "feat",
+                    1,
+                    Verdict::Held {
+                        action: push(1),
+                        by: HeldBy::Busy,
+                    },
+                ),
+            ),
+            with(
+                "site",
+                "main",
+                branch(
+                    "main",
+                    Some("origin/main"),
+                    Relation::Behind { commits: 3 },
+                    0,
+                    Verdict::Act {
+                        action: SyncAction::FastForward { commits: 3 },
+                    },
+                ),
+            ),
+            with(
+                "zap",
+                "main",
+                branch(
+                    "main",
+                    Some("origin/main"),
+                    Relation::Diverged {
+                        ahead: 1,
+                        behind: 2,
+                    },
+                    1,
+                    Verdict::NeedsHuman {
+                        reason: BranchNeedsHuman::Diverged,
+                    },
+                ),
+            ),
+            with(
+                "gro",
+                "topic",
+                branch("topic", None, Relation::Untracked, 1, Verdict::LocalOnly),
+            ),
+            with(
+                "uz",
+                "main",
+                branch(
+                    "main",
+                    Some("origin/main"),
+                    Relation::InSync,
+                    0,
+                    Verdict::Quiet,
+                ),
+            ),
+            detached,
+            gone,
+            with(
+                "tsv",
+                "main",
+                ahead("main", 1, Verdict::Act { action: push(1) }),
+            ),
+        ]);
+        let target = |key: &str, branch: Option<&str>, outcome| CheckoutPush {
+            key: key.into(),
+            checkout: format!("/home/me/dev/{key}"),
+            branch: branch.map(str::to_owned),
+            fetch: FetchOutcome::Fetched,
+            outcome,
+        };
+        let pushed = PushReport::new(
+            r,
+            vec![
+                target(
+                    "app",
+                    Some("main"),
+                    PushOutcome::Pushed {
+                        from: "a".repeat(40),
+                        to: "b".repeat(40),
+                    },
+                ),
+                target(
+                    "blog",
+                    Some("feat"),
+                    PushOutcome::Held { by: SyncHold::Busy },
+                ),
+                target("site", Some("main"), PushOutcome::NotAhead),
+                target(
+                    "zap",
+                    Some("main"),
+                    PushOutcome::NeedsHuman {
+                        reason: BranchNeedsHuman::Diverged,
+                    },
+                ),
+                target("gro", Some("topic"), PushOutcome::NoUpstream),
+                target("uz", Some("main"), PushOutcome::InSync),
+                target("mdz", None, PushOutcome::Detached),
+                target("gone", None, PushOutcome::Unread),
+                target(
+                    "tsv",
+                    Some("main"),
+                    PushOutcome::PushFailed {
+                        failure: RemoteFailure::Unreachable {
+                            cause: UnreachableCause::Auth,
+                            message: "git@github.com: Permission denied (publickey).".into(),
+                        },
+                    },
+                ),
+            ],
+        );
+        let text = render_push_summary(&pushed, VIEW);
+        let lines: Vec<&str> = text.lines().collect();
+        assert_eq!(
+            lines,
+            [
+                "failed        tsv (push: access denied)",
+                format!("              hint: {AUTH_HINT}").as_str(),
+                "needs human   zap (diverged +1 −2)",
+                format!("              hint: {DIVERGED_HINT}").as_str(),
+                "pushed        app +2",
+                "in sync       uz",
+                "held          blog:feat +1 (busy)",
+                "not pushed    site (behind 3)  gro:topic (no upstream on origin)  mdz (detached HEAD)",
+                "              gone (missing)",
+                format!("              hint: {BEHIND_HINT}").as_str(),
+                format!("              hint: {NO_UPSTREAM_HINT}").as_str(),
+                "~/dev/repos.toml · fetched 3h ago",
+            ],
+            "{text}"
+        );
+    }
 
     /// A clone's verdict in the preview, and its outcome in sync's summary.
     #[test]

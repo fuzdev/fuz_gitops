@@ -1,0 +1,9 @@
+{
+	"version": 1,
+	"error": {
+		"kind": "push_third_party",
+		"key": "typescript",
+		"message": "`typescript` is a third-party reference, which repos never pushes",
+		"hint": "repos push takes the registry's owned repos; a reference's commits stay local"
+	}
+}

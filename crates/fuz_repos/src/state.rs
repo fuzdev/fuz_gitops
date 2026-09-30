@@ -460,10 +460,10 @@ pub enum HeldBy {
     /// through a git dir sharing the repo's refs that no worktree list names
     /// (an `unlisted_git_dir` reason), whose HEAD is on it or unknown.
     BusyUnknown,
-    /// A push, with an agent running the tool (`Caller::Agent`): an agent's
-    /// pushes wait for the gateway, and a person runs sync to push them.
-    /// Named only when nothing else holds the push, so it says the person's
-    /// sync would push it.
+    /// A push by an agent's `sync` or preview (`Caller::Agent`): an agent
+    /// pushes the branch it's on through `repos push`, the gateway, and a
+    /// person runs sync to push the rest. Named only when nothing else holds
+    /// the push, so it says the person's sync would push it.
     Gateway,
 }
 

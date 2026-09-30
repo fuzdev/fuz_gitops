@@ -427,6 +427,68 @@ pub fn resolve_checkout(
     )
 }
 
+/// Resolves `repos push`'s targets to the checkouts they name, in the order
+/// given, each checkout once.
+///
+/// No targets names the checkout holding `cwd` (`resolve_checkout`). A
+/// target that's a registry key or an entry's dir name names that entry's
+/// dir, its primary checkout; else it's a path (relative to `cwd`) naming
+/// the checkout holding it — a linked worktree's own, wherever it is.
+///
+/// # Errors
+///
+/// `NoCheckout` without targets when `cwd` is in no entry's checkout;
+/// `UnknownEntry` for a target that names nothing; `GitNotFound` when a
+/// path can't be resolved for lack of git.
+pub fn resolve_push_targets(
+    entries: &[Entry],
+    root: &Path,
+    cwd: &Path,
+    targets: &[String],
+    git: &Git,
+) -> Result<Vec<PathTarget>> {
+    if targets.is_empty() {
+        return resolve_checkout(entries, root, cwd, git)?
+            .map(|t| vec![t])
+            .ok_or_else(|| Error::NoCheckout {
+                path: cwd.to_path_buf(),
+            });
+    }
+    let mut resolved: Vec<PathTarget> = Vec::with_capacity(targets.len());
+    for target in targets {
+        let named = entries
+            .iter()
+            .find(|e| e.key == *target)
+            .or_else(|| entries.iter().find(|e| e.dir == *target));
+        let found = match named {
+            Some(e) => PathTarget {
+                entry: e.clone(),
+                checkout: root.join(&e.dir),
+            },
+            None => resolve_checkout(entries, root, &cwd.join(target), git)?.ok_or_else(|| {
+                Error::UnknownEntry {
+                    name: target.clone(),
+                    suggestions: suggest_keys(entries, target),
+                }
+            })?,
+        };
+        // the same checkout named twice, by a key and a path, say
+        let seen = resolved.iter().any(|t| {
+            t.entry.key == found.entry.key
+                && (t.checkout == found.checkout || same_checkout(&t.checkout, &found.checkout))
+        });
+        if !seen {
+            resolved.push(found);
+        }
+    }
+    Ok(resolved)
+}
+
+/// Whether two checkout paths are the same dir, compared canonicalized.
+fn same_checkout(a: &Path, b: &Path) -> bool {
+    matches!((a.canonicalize(), b.canonicalize()), (Ok(a), Ok(b)) if a == b)
+}
+
 /// The entry whose checkout holds `path`, compared canonicalized.
 fn resolve_path(entries: &[Entry], root: &Path, path: &Path, git: &Git) -> Result<Option<usize>> {
     Ok(rev_parse(path, &["--git-common-dir"], git)?

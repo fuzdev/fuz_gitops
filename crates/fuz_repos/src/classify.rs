@@ -663,7 +663,8 @@ struct Holds<'a, 'b> {
     fetch_failed: bool,
     on: &'b CheckoutsOn<'a>,
     detection: Detection,
-    /// An agent runs the tool, so pushes wait for the gateway.
+    /// An agent runs the tool, so its pushes are held: it pushes through the
+    /// gateway, `repos push`, which classifies as for a person.
     gateway: bool,
 }
 

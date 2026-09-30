@@ -52,7 +52,8 @@ Publishing is the flagship vertical of the TS side, not the identity.
 ### Capability tiers
 
 Multi-repo work doesn't carry uniform risk. Four tiers, ordered by blast
-radius (`repos status` and `repos sync` are built; `repos push` is planned):
+radius (`repos status`, `repos sync`, and `repos push` are built; the settings
+and hook that steer agents' raw `git push` to `repos push` are planned):
 
 | Tier | Writes | Commands |
 | --- | --- | --- |
@@ -101,14 +102,13 @@ by hand).
 
 It's **being built** as the Rust `repos` tool, not by growing `GitOperations`:
 a read-only `repos status` works today, linked worktrees and the scan for
-unregistered clones included, and `repos sync` fetches, fast-forwards,
-pushes, and clones what's missing; the `repos push` gateway is still to
-come. Its
-invariants are settled: never `pull` across a set of repos (fetch, classify,
-then fast-forward or report); never rebase, merge, or auto-resolve conflicts —
-anything history-changing stops and reports, so host repo rules never need
-modelling; derive write authority from owner accounts; classify unpushed refs
-by type.
+unregistered clones included, `repos sync` fetches, fast-forwards, pushes,
+and clones what's missing, and `repos push`, the gateway, pushes the branch
+checked out where an agent works. Its invariants are settled: never `pull`
+across a set of repos (fetch, classify, then fast-forward or report); never
+rebase, merge, or auto-resolve conflicts — anything history-changing stops
+and reports, so host repo rules never need modelling; derive write
+authority from owner accounts; classify unpushed refs by type.
 
 ### The TS and Rust halves
 
@@ -126,10 +126,10 @@ a human, which checkouts another live Claude Code session is working in, and
 the clones at the workspace root the registry doesn't name,
 grouped by what to do next, from local refs (`--fetch` refreshes them
 first and checks that repos declared private aren't anonymously readable),
-and `repos sync`, which fetches and carries out the fast-forwards, shallow
-moves, pushes, and clones `status` previews. The gateway isn't built. TS
-keeps everything
-else: the dashboard, its data step (GitHub metadata and svelte-docinfo library
+`repos sync`, which fetches and carries out the fast-forwards, shallow
+moves, pushes, and clones `status` previews, and `repos push`, the gateway,
+which pushes one checkout's branch through sync's own push. TS keeps
+everything else: the dashboard, its data step (GitHub metadata and svelte-docinfo library
 analysis), and the publish cascade. Next, the TS tasks stop cloning and
 pulling and read repo state from `repos status --json`, and a project's
 `gitops.config.ts` shrinks to a list of registry keys. Nothing is deprecated
@@ -162,8 +162,8 @@ gitops.config.ts -> local repos -> GitHub API -> repos.ts -> UI components
 - `src/lib/fetch_repo_data.ts` - fetches remote repo metadata
 - `src/routes/repos.ts` - generated data file with all repo info
 - `crates/fuz_repos/` - the Rust `repos` tool: registry, git runner, probe,
-  unregistered scan, busy detection, classification, sync (library) and the
-  `repos` binary
+  unregistered scan, busy detection, classification, sync, push (library)
+  and the `repos` binary
 - `crates/fuz_repos/tests/` - its integration tests over fixture workspaces
   (`tests/support`)
 
@@ -542,6 +542,8 @@ repos sync                   # fetch as status --fetch does, then fast-forward, 
 repos sync gro --json        # narrowed to targets; --json prints the versioned outcome report
 repos sync typescript prettier # a named third-party reference is refreshed: fetched over HTTPS, then ff'd or moved where clean
 repos sync --references      # refresh every third-party reference too (never a pin); alone — with targets it's a usage error
+repos push                   # the gateway: fetch, then push the branch checked out here as a fast-forward of what was fetched; exit 1 unless it ends in sync
+repos push app ../wt --json  # targets: a key or dir name (the entry's own checkout), or a path (the checkout holding it); --json prints the versioned outcome report
 repos --version              # the crate version and the commit the binary was built from
 repos --registry <file> --root <dir> status # a registry kept outside the workspace
 
@@ -672,25 +674,61 @@ checkout). The live sessions are read after the fetch and again right before
 each action, and each action re-checks what it relies on (and checks after
 the fact what git can't refuse); git refusing is `failed`, exit `1` (as is a
 failed probe, or a fetch that failed or that the tool refused to run). A
-branch ahead is pushed through `origin` to its upstream's branch — `git push
-origin <oid>:<ref>`, the commit classified, no force or lease (git's own
-fast-forward refusal stays the last check), no tags or push options, SSH
-only — once the branch still reads as classified and origin's push URL
-(`git remote get-url --push --all`, `pushurl` and `pushInsteadOf` applied)
-is exactly the registry's repo over SSH; any other push URL holds its pushes
-as a `needs_human` reason, and an upstream at `origin/HEAD` (or outside
-`refs/heads/`) is left to a person. A remote moved since the fetch makes git
-refuse the push (`held`, rerun); the remote's own refusal or an unreachable
-host is `push_failed`, exit `1`. **An agent's pushes are held**: under
+branch ahead is pushed to its upstream's branch on the registry's repo — `git
+send-pack` of the commit classified straight to the registry's SSH URL,
+never through `origin`, so no `insteadOf`, `pushInsteadOf`, or
+`remote.<url>` config written in the meantime can redirect it; under a lease
+on the fetched tip (`--force-with-lease=<ref>:<fetched>`), no tags or push
+options, SSH only — once the branch still reads as classified, origin's push
+URL (`git remote get-url --push --all`, `pushurl` and `pushInsteadOf`
+applied) is exactly the registry's repo over SSH, and the fetched tip is
+still an ancestor of the commit, the same count behind it. The lease is a
+compare-and-swap, never a force over unseen work: git refuses unless the
+remote's branch is exactly what the fetch saw, and the ancestor check keeps
+the push a fast-forward. Any other push URL holds its pushes as a
+`needs_human` reason, and an upstream at `origin/HEAD` (or outside
+`refs/heads/`) is left to a person. A remote branch moved or deleted since
+the fetch fails the lease (`held`, rerun — a deleted one then reads gone, so
+no push ever recreates it); the remote's own refusal or an unreachable host
+is `push_failed`, exit `1`. After a push the remote-tracking ref moves to the
+commit by compare-and-swap on the fetched tip, so `status` reads the branch
+in sync without a refetch. **An agent's sync pushes are held**: under
 `CLAUDECODE` (Claude Code's agent shells) every push reads `held (gateway)`
-in `status` and `sync` alike, and the person runs `repos sync` to push —
-until the `repos push` gateway lands, when this lifts. A branch that's a
-symbolic ref never acts. It never rebases, merges anything but a
+in `status` and `sync` alike; the agent pushes the branch it's on with
+`repos push`, and the person runs `repos sync` to push the rest. A branch
+that's a symbolic ref never acts. It never rebases, merges anything but a
 fast-forward, deletes a branch, or prunes a worktree (the fetch prunes only
 remote-tracking refs gone upstream), and never touches a pin. A failed fetch
 holds that entry's moves and pushes (its remote-tracking refs weren't
 refreshed), and a branch on HEAD in several checkouts holds its fast-forward
 or move. The rustdoc of `sync.rs` has the details.
+
+**`repos push` is the gateway**, what an agent runs instead of `git push`.
+Without targets it pushes the branch checked out in the checkout holding the
+cwd; a target is a registry key or dir name (the entry's own checkout) or a
+path (the checkout holding it, a linked worktree's own). For those entries
+alone it runs what sync runs before acting — the same fetch, a re-probe, the
+live sessions read (the caller's own excluded), classification — then acts
+on each checked-out branch's push verdict alone, through sync's own push
+(the lease, the direct URL, the compare-and-swap, every re-check right
+before). It never fast-forwards, moves, clones, or touches another branch: a
+branch behind is reported for `repos sync` to fast-forward, a diverged one
+left to a person. The policy is structural: owned entries only (a
+third-party reference or a pin named is a usage error), never a force, a
+tag, or a new remote branch (a branch with no upstream on origin reads
+`no_upstream`: creating the remote branch is the user's); another live
+session in the checkout holds the push (`busy`), and so does origin drift;
+a failed fetch or an entry-level reason (origin drift among them) holds even
+a branch that reads in sync, since its refs may not be origin's; dirt
+doesn't matter, since a push moves refs alone. It runs for an agent as
+for a person — the agent hold is sync's. Exit `0` when every target's
+branch ends in sync with its upstream (pushed, or already there), `1` when
+any didn't push (held, behind, diverged, detached, no upstream, a checkout
+not read, a failed fetch or push), as `git push` exits on a rejected ref,
+and `2` for usage (an unknown target, the cwd in no entry's checkout, a
+third-party or pinned target). `--json` prints its own versioned outcome
+report: the targets' entries after the fetch, and one outcome per target
+checkout. The rustdoc of `push.rs` has the details.
 
 **Third-party references are like locked dependencies**: left as they are —
 never fetched, no branch compared against a remote, only local work
@@ -976,9 +1014,10 @@ Each fixture runs in isolation with its own config, validating:
 Test repos are isolated from real workspace repos and can run in CI without
 cloning.
 
-`src/test/fixtures/repos_status/*.json` are the Rust `repos status --json`
-and `repos sync --json` golden documents (report, narrowed report,
-busy-detection states, sync report, error documents), written by
+`src/test/fixtures/repos_status/*.json` are the Rust `repos status --json`,
+`repos sync --json`, and `repos push --json` golden documents (report,
+narrowed report, busy-detection states, sync report, push report, error
+documents), written by
 `crates/fuz_repos/tests/golden.rs` as the contract TS consumers parse
 against — regenerate them with `UPDATE_GOLDEN=1 cargo test --test golden`,
 never by hand.

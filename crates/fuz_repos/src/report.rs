@@ -1,5 +1,5 @@
-//! The `--json` documents — `repos status`'s report, `repos sync`'s, and a
-//! fatal error's — and what the text renderer reads.
+//! The `--json` documents — `repos status`'s report, `repos sync`'s and
+//! `repos push`'s, and a fatal error's — and what the text renderer reads.
 
 use std::path::Path;
 
@@ -14,7 +14,7 @@ use crate::state::{
     BranchNeedsHuman, BranchStatus, Checkout, CloneVerdict, HeldBy, Layout, Presence,
     RefreshVerdict, SyncAction, UnprobedWorktreeStatus,
 };
-use crate::{STATUS_FORMAT_VERSION, SYNC_FORMAT_VERSION};
+use crate::{PUSH_FORMAT_VERSION, STATUS_FORMAT_VERSION, SYNC_FORMAT_VERSION};
 
 /// The whole report.
 #[derive(Debug, Clone, Serialize)]
@@ -69,8 +69,9 @@ impl StatusReport {
 /// the report.
 ///
 /// A consumer never parses empty stdout. The document carries the same
-/// `version` as the command's report (`STATUS_FORMAT_VERSION` or
-/// `SYNC_FORMAT_VERSION`); a consumer tells the two apart by `error`.
+/// `version` as the command's report (`STATUS_FORMAT_VERSION`,
+/// `SYNC_FORMAT_VERSION`, or `PUSH_FORMAT_VERSION`); a consumer tells the
+/// two apart by `error`.
 /// Argument-parse errors precede knowing `--json` and stay plain text on
 /// stderr.
 #[derive(Debug, Clone, Serialize)]
@@ -467,11 +468,11 @@ pub enum BranchOutcome {
     /// A shallow branch with nothing local moved from `from` to the fetched
     /// tip `to`.
     Moved { from: String, to: String },
-    /// Pushed through `origin` to the branch's upstream: the remote's
-    /// branch moved from `from` to `to`, the commit classified — a
-    /// fast-forward, as git reported it. `from` is `None` when the push
-    /// created the branch: it was deleted on the remote after the fetch.
-    Pushed { from: Option<String>, to: String },
+    /// Pushed to the branch's upstream on the registry's repo: the remote's
+    /// branch moved from `from`, the fetched tip — the lease held it there —
+    /// to `to`, the commit classified: a fast-forward. A push never creates
+    /// a branch.
+    Pushed { from: String, to: String },
     /// The push reached for the remote and failed there: refused
     /// (`rejected`, a ruleset or hook's refusal), unreachable, timed out —
     /// classified as a fetch failure is. The run exits `1`.
@@ -498,7 +499,8 @@ pub enum SyncHold {
     Entry,
     /// A push through `origin` wouldn't reach the registry's repo over SSH —
     /// as classified, or found when sync re-read the push URLs right before
-    /// pushing.
+    /// pushing (the push itself goes to the registry's URL, never through
+    /// origin).
     PushUrl,
     /// Never in a sync document's outcomes — a held refresh isn't one — but
     /// named so every `HeldBy` converts.
@@ -516,16 +518,17 @@ pub enum SyncHold {
     /// A live session may work there unseen — as classified, or found so
     /// right before acting (busy detection unavailable, among them).
     BusyUnknown,
-    /// A push by an agent (`HeldBy::Gateway`): a person runs sync to push.
+    /// A push by an agent's sync (`HeldBy::Gateway`): the agent pushes the
+    /// branch it's on with `repos push`, a person runs sync to push the rest.
     Gateway,
     /// Found at the moment of acting: the branch or its checkout isn't as
     /// the probe read it — the checkout's HEAD left the branch, a shallow
     /// branch gained commits on no remote, a branch to move in place is
     /// checked out now, a branch to update in place became a symbolic ref,
     /// a branch to push holds another commit or upstream than classified or
-    /// is no longer ahead of it — or the remote moved since the fetch, so
-    /// git rejected the push as no fast-forward; or a missing dir to clone
-    /// into is there now. Rerun to reclassify.
+    /// is no longer ahead of it — or the remote's branch moved or was
+    /// deleted since the fetch, so the push's lease refused it; or a missing
+    /// dir to clone into is there now. Rerun to reclassify.
     Changed,
 }
 
@@ -544,5 +547,105 @@ impl From<HeldBy> for SyncHold {
             HeldBy::BusyUnknown => Self::BusyUnknown,
             HeldBy::Gateway => Self::Gateway,
         }
+    }
+}
+
+/// The `repos push --json` document: the state the push acted on, and what
+/// it did with each target.
+#[derive(Debug, Clone, Serialize)]
+pub struct PushReport {
+    /// `PUSH_FORMAT_VERSION`.
+    pub version: u32,
+    /// What the push acted on: a `status --fetch` report of the targets'
+    /// entries after the fetch (so `fetched` is true), in the order the
+    /// targets first name them, each branch classified with the live
+    /// sessions read after the fetch — every branch the entry has, though
+    /// only the one checked out at each target is acted on. No unregistered
+    /// scan runs (`unregistered` is `null`). Parsed with the status
+    /// report's own schema: its `version` is `STATUS_FORMAT_VERSION`.
+    pub status: StatusReport,
+    /// What the push did, one per target checkout, in the order given
+    /// (each checkout once).
+    pub pushes: Vec<CheckoutPush>,
+}
+
+impl PushReport {
+    pub const fn new(status: StatusReport, pushes: Vec<CheckoutPush>) -> Self {
+        Self {
+            version: PUSH_FORMAT_VERSION,
+            status,
+            pushes,
+        }
+    }
+
+    /// Whether every target's branch ended in sync with its upstream —
+    /// pushed, or already there — so the run exits `0`; anything else
+    /// (held, not ahead, left to a person, no upstream, a detached HEAD, a
+    /// checkout not read, a push that failed) exits `1`, as `git push`
+    /// does on a rejected ref.
+    pub fn in_sync(&self) -> bool {
+        self.pushes.iter().all(|p| p.outcome.in_sync())
+    }
+}
+
+/// What `repos push` did with one target: the branch checked out there.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct CheckoutPush {
+    /// The entry the target names.
+    pub key: String,
+    /// The checkout: a path target's, the top level of the checkout holding
+    /// it (a linked worktree's own); a key's or dir name's, the entry's dir.
+    pub checkout: String,
+    /// The branch checked out there; `None` when HEAD is detached or the
+    /// checkout wasn't read.
+    pub branch: Option<String>,
+    /// How the entry's fetch went.
+    pub fetch: FetchOutcome,
+    /// Flattened: the outcome's `kind` tag and its payload sit beside
+    /// `branch`.
+    #[serde(flatten)]
+    pub outcome: PushOutcome,
+}
+
+/// What `repos push` did with a target's branch. The branch's relation and
+/// verdict are in the status report's entry, under the same name.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum PushOutcome {
+    /// Pushed to its upstream on the registry's repo, as `sync` pushes:
+    /// the remote's branch moved from `from`, the fetched tip, to `to`.
+    Pushed { from: String, to: String },
+    /// Nothing to push: the branch is at its upstream's tip, as just
+    /// fetched from the registry's repo, or found already there when pushed
+    /// (another hand's push since the fetch).
+    InSync,
+    /// Ahead, but `by` held the push — the verdict's hold, or one found
+    /// right before pushing (the same holds as `sync`'s).
+    Held { by: SyncHold },
+    /// The push reached for the remote and failed there (as `sync`'s).
+    PushFailed { failure: RemoteFailure },
+    /// The push couldn't run, or git refused it (`message`, git's words).
+    Failed { message: String },
+    /// Not ahead of its upstream: behind it, or a shallow branch whose tip
+    /// differs with nothing local — `repos sync` fast-forwards or moves it.
+    NotAhead,
+    /// Left to a person (diverged, archived, …): never pushed.
+    NeedsHuman { reason: BranchNeedsHuman },
+    /// No upstream on origin to push to — none set, another remote's, or
+    /// one deleted on origin (`gone`) — and a push never creates a remote
+    /// branch: that's the user's.
+    NoUpstream,
+    /// HEAD is detached: no branch to push.
+    Detached,
+    /// The checkout wasn't read: the entry is missing or not a repo, its
+    /// probe failed (the status entry's `probe_error`), or the checkout is
+    /// a worktree the probe couldn't read.
+    Unread,
+}
+
+impl PushOutcome {
+    /// Whether the branch ends in sync with its upstream.
+    pub const fn in_sync(&self) -> bool {
+        matches!(self, Self::Pushed { .. } | Self::InSync)
     }
 }

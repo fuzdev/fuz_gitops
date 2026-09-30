@@ -5,9 +5,10 @@
 //! Compared as parsed JSON, so a formatter's reflow of a checked-in file
 //! can't fail the test. Never hand-edit the files: regenerate them with
 //! `UPDATE_GOLDEN=1 cargo test --test golden`, and bump
-//! `STATUS_FORMAT_VERSION` (and with it `SYNC_FORMAT_VERSION`, whose document
-//! embeds the status report) when the change breaks the shape; a change to
-//! the sync document alone bumps `SYNC_FORMAT_VERSION`.
+//! `STATUS_FORMAT_VERSION` (and with it `SYNC_FORMAT_VERSION` and
+//! `PUSH_FORMAT_VERSION`, whose documents embed the status report) when the
+//! change breaks the shape; a change to the sync or push document alone
+//! bumps its own version.
 //!
 //! Between them the documents cover every variant of the report's enums
 //! (`sessions.json` lists every state of busy detection, which a report
@@ -27,8 +28,9 @@ use fuz_repos::error::Error;
 use fuz_repos::registry::{CheckoutList, EntryKind, EntryName, RegistryIssue, Visibility};
 use fuz_repos::remote::{RefGoneFix, RemoteFailure, UnreachableCause, VisibilityCheck};
 use fuz_repos::report::{
-    BranchOutcome, BranchSync, CloneOutcome, EntryStatus, EntrySync, ErrorReport, FetchOutcome,
-    RepairBlock, StatusReport, SyncHold, SyncReport, UnregisteredClone, UnregisteredKind,
+    BranchOutcome, BranchSync, CheckoutPush, CloneOutcome, EntryStatus, EntrySync, ErrorReport,
+    FetchOutcome, PushOutcome, PushReport, RepairBlock, StatusReport, SyncHold, SyncReport,
+    UnregisteredClone, UnregisteredKind,
 };
 use fuz_repos::sessions::{Session, SessionSource, Unavailable};
 use fuz_repos::state::{
@@ -37,7 +39,7 @@ use fuz_repos::state::{
     Relation, SyncAction, Uncommitted, UnprobedHead, UnprobedWhy, UnprobedWorktree,
     UnprobedWorktreeStatus, Verdict,
 };
-use fuz_repos::{STATUS_FORMAT_VERSION, SYNC_FORMAT_VERSION};
+use fuz_repos::{PUSH_FORMAT_VERSION, STATUS_FORMAT_VERSION, SYNC_FORMAT_VERSION};
 use serde::Serialize;
 use serde_json::Value;
 
@@ -82,7 +84,7 @@ fn assert_golden(name: &str, doc: &impl Serialize) {
     if let Some(at) = first_difference(&golden, &actual, String::new()) {
         panic!(
             "{} drifted from the serialized document at `{at}`: if the change is intended, \
-             regenerate with `UPDATE_GOLDEN=1 cargo test --test golden`, and bump STATUS_FORMAT_VERSION or SYNC_FORMAT_VERSION if it breaks the shape",
+             regenerate with `UPDATE_GOLDEN=1 cargo test --test golden`, and bump STATUS_FORMAT_VERSION, SYNC_FORMAT_VERSION, or PUSH_FORMAT_VERSION if it breaks the shape",
             path.display()
         );
     }
@@ -302,6 +304,81 @@ fn sync_error_report() {
 }
 
 #[test]
+fn push_report() {
+    let doc = push_report_doc();
+    assert_eq!(doc.version, PUSH_FORMAT_VERSION);
+    assert_eq!(doc.status.version, STATUS_FORMAT_VERSION);
+    assert!(doc.status.fetched);
+    assert!(doc.status.unregistered.is_none());
+    // each target names an entry of the status, and a branch it has —
+    // but a branch with no commit yet, which fails
+    for p in &doc.pushes {
+        let e = doc
+            .status
+            .entries
+            .iter()
+            .find(|e| e.key == p.key)
+            .unwrap_or_else(|| panic!("no status for {}", p.key));
+        if let (Some(name), false) = (&p.branch, matches!(p.outcome, PushOutcome::Failed { .. })) {
+            assert!(
+                e.branches.iter().any(|b| b.name == *name),
+                "{}:{name}",
+                p.key
+            );
+        }
+    }
+    // something didn't push: exit 1
+    assert!(!doc.in_sync());
+    assert_push_coverage(&doc);
+    assert_golden("push_report.json", &doc);
+}
+
+/// The push document's every-variant floor: each outcome and fetch
+/// outcome appears at least once. The matches are exhaustive, so a new
+/// variant fails to compile here until the document covers it.
+fn assert_push_coverage(doc: &PushReport) {
+    let outcome = |o: &PushOutcome| match o {
+        PushOutcome::Pushed { .. } => 0,
+        PushOutcome::InSync => 1,
+        PushOutcome::Held { .. } => 2,
+        PushOutcome::PushFailed { .. } => 3,
+        PushOutcome::Failed { .. } => 4,
+        PushOutcome::NotAhead => 5,
+        PushOutcome::NeedsHuman { .. } => 6,
+        PushOutcome::NoUpstream => 7,
+        PushOutcome::Detached => 8,
+        PushOutcome::Unread => 9,
+    };
+    let fetch = |f: &FetchOutcome| match f {
+        FetchOutcome::Fetched => 0,
+        FetchOutcome::Failed { .. } => 1,
+        FetchOutcome::NotFetched => 2,
+    };
+    let seen = |ids: Vec<usize>| ids.into_iter().collect::<std::collections::BTreeSet<_>>();
+    assert_eq!(
+        seen(doc.pushes.iter().map(|p| outcome(&p.outcome)).collect()),
+        (0..10).collect()
+    );
+    assert_eq!(
+        seen(doc.pushes.iter().map(|p| fetch(&p.fetch)).collect()),
+        (0..3).collect()
+    );
+}
+
+/// A fatal error only `repos push` makes, at its report's version.
+#[test]
+fn push_error_report() {
+    let doc = ErrorReport::new(
+        &Error::PushThirdParty {
+            key: "typescript".into(),
+        },
+        PUSH_FORMAT_VERSION,
+    );
+    assert_eq!(doc.version, PUSH_FORMAT_VERSION);
+    assert_golden("push_error_report.json", &doc);
+}
+
+#[test]
 fn a_drifted_golden_names_where() {
     let a = serde_json::json!({"entries": [{"key": "app", "stashes": 0}], "version": 3});
     let b = serde_json::json!({"entries": [{"key": "app", "stashes": 1}], "version": 3});
@@ -479,6 +556,269 @@ fn targeted_doc() -> StatusReport {
     )
 }
 
+/// A `repos push` of several targets: every outcome and fetch outcome,
+/// each branch's verdict the one the outcome follows from — a linked
+/// worktree's branch among them, beside its primary's.
+fn push_report_doc() -> PushReport {
+    let oid = |c: char| c.to_string().repeat(40);
+    let push = |commits| SyncAction::Push { commits };
+    let fetched = FetchOutcome::Fetched;
+    let target = |key: &str, checkout: String, branch: Option<&str>, fetch, outcome| CheckoutPush {
+        key: key.into(),
+        checkout,
+        branch: branch.map(str::to_owned),
+        fetch,
+        outcome,
+    };
+    let ahead = |name: &str, commits, verdict| BranchStatus {
+        unique_commits: commits,
+        ..branch(
+            name,
+            Some(&format!("origin/{name}")),
+            Relation::Ahead { commits },
+            verdict,
+        )
+    };
+    let wt = "/home/me/wt/app-feat".to_owned();
+    let app = EntryStatus {
+        checkouts: vec![
+            primary("app", on("main")),
+            Checkout {
+                path: wt.clone(),
+                primary: false,
+                linked: true,
+                busy: vec![Session::at(4242, 0, wt.clone(), SessionSource::SessionFile)],
+                working: vec![Session::at(4242, 0, wt.clone(), SessionSource::SessionFile)],
+                ..primary("app", on("feat"))
+            },
+        ],
+        branches: vec![
+            BranchStatus {
+                worktree: Some(path("app")),
+                ..ahead("main", 1, Verdict::Act { action: push(1) })
+            },
+            BranchStatus {
+                worktree: Some(wt.clone()),
+                ..ahead(
+                    "feat",
+                    2,
+                    Verdict::Held {
+                        action: push(2),
+                        by: HeldBy::Busy,
+                    },
+                )
+            },
+        ],
+        ..entry("app", Some("main"))
+    };
+    let in_sync = EntryStatus {
+        branches: vec![branch(
+            "main",
+            Some("origin/main"),
+            Relation::InSync,
+            Verdict::Quiet,
+        )],
+        ..entry("blog", Some("main"))
+    };
+    let behind = EntryStatus {
+        branches: vec![branch(
+            "main",
+            Some("origin/main"),
+            Relation::Behind { commits: 2 },
+            Verdict::Act {
+                action: SyncAction::FastForward { commits: 2 },
+            },
+        )],
+        ..entry("site", Some("main"))
+    };
+    let diverged = EntryStatus {
+        branches: vec![BranchStatus {
+            unique_commits: 1,
+            ..branch(
+                "main",
+                Some("origin/main"),
+                Relation::Diverged {
+                    ahead: 1,
+                    behind: 1,
+                },
+                Verdict::NeedsHuman {
+                    reason: BranchNeedsHuman::Diverged,
+                },
+            )
+        }],
+        ..entry("zap", Some("main"))
+    };
+    let no_upstream = EntryStatus {
+        checkouts: vec![primary("gro", on("topic"))],
+        branches: vec![
+            branch(
+                "main",
+                Some("origin/main"),
+                Relation::InSync,
+                Verdict::Quiet,
+            ),
+            BranchStatus {
+                unique_commits: 1,
+                ..branch("topic", None, Relation::Untracked, Verdict::LocalOnly)
+            },
+        ],
+        ..entry("gro", Some("main"))
+    };
+    let detached = EntryStatus {
+        checkouts: vec![primary("mdz", Head::Detached { commit: oid('d') })],
+        branches: vec![branch(
+            "main",
+            Some("origin/main"),
+            Relation::InSync,
+            Verdict::Quiet,
+        )],
+        needs_human: vec![NeedsHuman::UnexpectedDetached {
+            checkout: path("mdz"),
+        }],
+        ..entry("mdz", Some("main"))
+    };
+    let failure = RemoteFailure::Unreachable {
+        cause: UnreachableCause::Connection,
+        message: "ssh: connect to host github.com port 22: Connection timed out".into(),
+    };
+    let fetch_failed = EntryStatus {
+        fetch_error: Some(failure.clone()),
+        branches: vec![ahead(
+            "main",
+            1,
+            Verdict::Held {
+                action: push(1),
+                by: HeldBy::FetchFailed,
+            },
+        )],
+        ..entry("forge", Some("main"))
+    };
+    let refused = EntryStatus {
+        branches: vec![ahead("main", 1, Verdict::Act { action: push(1) })],
+        ..entry("tsv", Some("main"))
+    };
+    let unborn = EntryStatus {
+        checkouts: vec![primary("uz", on("main"))],
+        ..entry("uz", Some("main"))
+    };
+    let status = StatusReport::new(
+        WORKSPACE.into(),
+        format!("{WORKSPACE}/repos.toml"),
+        true,
+        Sessions::Available { unscoped: vec![] },
+        vec![
+            app,
+            in_sync,
+            behind,
+            diverged,
+            no_upstream,
+            detached,
+            missing(),
+            fetch_failed,
+            refused,
+            unborn,
+        ],
+    );
+    PushReport::new(
+        status,
+        vec![
+            target(
+                "app",
+                path("app"),
+                Some("main"),
+                fetched.clone(),
+                PushOutcome::Pushed {
+                    from: oid('a'),
+                    to: oid('b'),
+                },
+            ),
+            target(
+                "app",
+                wt,
+                Some("feat"),
+                fetched.clone(),
+                PushOutcome::Held { by: SyncHold::Busy },
+            ),
+            target(
+                "blog",
+                path("blog"),
+                Some("main"),
+                fetched.clone(),
+                PushOutcome::InSync,
+            ),
+            target(
+                "site",
+                path("site"),
+                Some("main"),
+                fetched.clone(),
+                PushOutcome::NotAhead,
+            ),
+            target(
+                "zap",
+                path("zap"),
+                Some("main"),
+                fetched.clone(),
+                PushOutcome::NeedsHuman {
+                    reason: BranchNeedsHuman::Diverged,
+                },
+            ),
+            target(
+                "gro",
+                path("gro"),
+                Some("topic"),
+                fetched.clone(),
+                PushOutcome::NoUpstream,
+            ),
+            target(
+                "mdz",
+                path("mdz"),
+                None,
+                fetched.clone(),
+                PushOutcome::Detached,
+            ),
+            target(
+                "blake3",
+                path("blake3"),
+                None,
+                FetchOutcome::NotFetched,
+                PushOutcome::Unread,
+            ),
+            target(
+                "forge",
+                path("forge"),
+                Some("main"),
+                FetchOutcome::Failed { failure },
+                PushOutcome::Held {
+                    by: SyncHold::FetchFailed,
+                },
+            ),
+            target(
+                "tsv",
+                path("tsv"),
+                Some("main"),
+                fetched.clone(),
+                PushOutcome::PushFailed {
+                    failure: RemoteFailure::Rejected {
+                        reason: "protected branch hook declined".into(),
+                        message: Some(
+                            "GH006: Protected branch update failed for refs/heads/main.".into(),
+                        ),
+                    },
+                },
+            ),
+            target(
+                "uz",
+                path("uz"),
+                Some("main"),
+                fetched,
+                PushOutcome::Failed {
+                    message: "main has no commit to push".into(),
+                },
+            ),
+        ],
+    )
+}
+
 /// Every state of busy detection, one per report.
 fn sessions_doc() -> Vec<Sessions> {
     vec![
@@ -588,18 +928,18 @@ fn sync_report_doc() -> SyncReport {
             Relation::Ahead { commits: 3 },
             act(push(3)),
             BranchOutcome::Pushed {
-                from: Some(oid('e')),
+                from: oid('e'),
                 to: oid('f'),
             },
         ),
-        // deleted on the remote after the fetch: the push made it anew
+        // deleted on the remote after the fetch: the lease refused it
         (
             "fresh",
             Relation::Ahead { commits: 1 },
             act(push(1)),
-            BranchOutcome::Pushed {
-                from: None,
-                to: oid('9'),
+            BranchOutcome::Held {
+                action: push(1),
+                by: SyncHold::Changed,
             },
         ),
         (

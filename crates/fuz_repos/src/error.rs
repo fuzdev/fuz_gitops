@@ -73,6 +73,19 @@ pub enum Error {
         name: String,
         suggestions: Vec<String>,
     },
+    /// `repos push` without targets, run where no entry's checkout holds
+    /// the cwd (the workspace root, an unregistered clone, outside every
+    /// checkout).
+    #[error("{} is in no registry entry's checkout", path.display())]
+    NoCheckout { path: PathBuf },
+    /// A `repos push` target naming a third-party reference, which is
+    /// never pushed.
+    #[error("`{key}` is a third-party reference, which repos never pushes")]
+    PushThirdParty { key: String },
+    /// A `repos push` target naming a pinned entry, which is left as its
+    /// consumer set it, pushes included.
+    #[error("`{key}` is pinned, and repos never pushes a pin")]
+    PushPinned { key: String },
     /// Local I/O outside any one entry.
     #[error("{context}")]
     Io {
@@ -97,7 +110,10 @@ impl Error {
             | Self::RegistryInvalid { .. }
             | Self::GitNotFound
             | Self::GitTooOld { .. }
-            | Self::UnknownEntry { .. } => 2,
+            | Self::UnknownEntry { .. }
+            | Self::NoCheckout { .. }
+            | Self::PushThirdParty { .. }
+            | Self::PushPinned { .. } => 2,
             Self::Io { .. } => 1,
         }
     }
@@ -136,6 +152,14 @@ impl Error {
             Self::RegistryInvalid { .. } => {
                 "fix each issue in the registry; nothing is probed until it validates"
             }
+            Self::NoCheckout { .. } => {
+                "run it inside a checkout of a registry entry, or name one: a registry key, \
+                 an entry's dir name, or a path inside a checkout"
+            }
+            Self::PushThirdParty { .. } => {
+                "repos push takes the registry's owned repos; a reference's commits stay local"
+            }
+            Self::PushPinned { .. } => "a pin's consumer moves it; repos leaves it as it is",
             Self::RegistryRead { .. } | Self::RegistryParse { .. } | Self::Io { .. } => {
                 return None;
             }
@@ -178,6 +202,9 @@ impl Error {
                 name: name.clone(),
                 suggestions: suggestions.clone(),
             },
+            Self::NoCheckout { .. } => ErrorKind::NoCheckout,
+            Self::PushThirdParty { key } => ErrorKind::PushThirdParty { key: key.clone() },
+            Self::PushPinned { key } => ErrorKind::PushPinned { key: key.clone() },
             Self::Io { .. } => ErrorKind::Io,
         }
     }
@@ -187,7 +214,8 @@ impl Error {
 ///
 /// Serialized as the `kind` tag — a closed set in snake case, one per `Error`
 /// variant — plus the payload a consumer can act on; the rest is in the
-/// message.
+/// message. `no_checkout`, `push_third_party`, and `push_pinned` are
+/// `repos push`'s alone.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum ErrorKind {
@@ -215,6 +243,15 @@ pub enum ErrorKind {
     UnknownEntry {
         name: String,
         suggestions: Vec<String>,
+    },
+    NoCheckout,
+    /// The third-party reference the target names.
+    PushThirdParty {
+        key: String,
+    },
+    /// The pinned entry the target names.
+    PushPinned {
+        key: String,
     },
     Io,
 }
@@ -268,6 +305,11 @@ mod tests {
                 name: "x".into(),
                 suggestions: vec![],
             },
+            Error::NoCheckout {
+                path: PathBuf::from("/x"),
+            },
+            Error::PushThirdParty { key: "lib".into() },
+            Error::PushPinned { key: "wpt".into() },
         ];
         for e in caller_fixes {
             assert_eq!(e.exit_code(), 2, "{e}");

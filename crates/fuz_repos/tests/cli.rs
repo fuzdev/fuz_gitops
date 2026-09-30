@@ -1607,8 +1607,8 @@ fn an_agents_sync_holds_its_pushes_for_the_gateway() {
     assert!(
         text.starts_with(
             "sync would    clone gone\nheld          push blog +1 (gateway)\n              \
-             hint: an agent's pushes wait for the gateway; the user's own repos sync pushes \
-             them\n"
+             hint: an agent pushes its own branch with repos push; the user's own repos sync \
+             pushes these\n"
         ),
         "{text}"
     );
@@ -1622,8 +1622,8 @@ fn an_agents_sync_holds_its_pushes_for_the_gateway() {
         [
             "synced        ff app −1 · clone gone",
             "held          push blog +1 (gateway)",
-            "              hint: an agent's pushes wait for the gateway; the user's own repos \
-             sync pushes them",
+            "              hint: an agent pushes its own branch with repos push; the user's own \
+             repos sync pushes these",
         ],
         "{text}"
     );

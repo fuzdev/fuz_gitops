@@ -1,11 +1,12 @@
-//! `repos sync`'s pushes over fixture workspaces: a branch ahead pushed
-//! through `origin` to its upstream — the exact commit classified, nothing
-//! else — and every way a push is held, refused, or fails, each run followed
-//! by the exact refs it should leave on both sides.
+//! `repos sync`'s pushes over fixture workspaces: a branch ahead pushed to
+//! its upstream on the registry's repo — the exact commit classified,
+//! nothing else — and every way a push is held, refused, or fails, each run
+//! followed by the exact refs it should leave on both sides. (`repos push`
+//! makes the same push: `push.rs` has its own.)
 //!
 //! Pushes reach the local bare remotes over the fixture's own `ssh`, which
 //! serves the registry's SSH URLs (the support module says how), so the
-//! push runs as it would for real: through `origin`'s push URL, SSH only.
+//! push runs as it would for real: to the registry's URL, SSH only.
 //! The live-sessions reader is the seam for what happens between
 //! classifying and pushing, as in `sync.rs`.
 
@@ -54,7 +55,7 @@ const fn held(action: SyncAction, by: SyncHold) -> BranchOutcome {
 
 fn pushed(from: &str, to: &str) -> BranchOutcome {
     BranchOutcome::Pushed {
-        from: Some(from.to_owned()),
+        from: from.to_owned(),
         to: to.to_owned(),
     }
 }
@@ -392,6 +393,44 @@ fn a_remote_moved_since_the_fetch_refuses_the_push() {
     assert_eq!(ws.git(&ws.bare("app"), &["rev-parse", "main"]), moved);
 }
 
+#[test]
+fn a_remote_branch_deleted_after_the_fetch_is_never_recreated() {
+    let mut ws = FixtureWorkspace::new();
+    ws.remote("app", &[]);
+    ws.upstream_commit("app", "feat");
+    ws.declare_repo("app", "app", "");
+    let app = ws.clone_owned("app", "app", &[]);
+    ws.git(&app, &["branch", "-q", "--track", "feat", "origin/feat"]);
+    let tip = advance(&ws, &app, "feat");
+    ws.assert_track(&app, "feat", "[ahead 1]");
+    ws.write_registry();
+    let env = ws.env();
+    let bare = ws.bare("app");
+    // another hand deletes it after sync's fetch
+    let read = reader_then(2, || {
+        git_env(&env, &bare, &["update-ref", "-d", "refs/heads/feat"]);
+    });
+
+    let run = ws.sync_with(4, &read);
+
+    // the lease on the fetched tip refused it: rerun
+    assert_eq!(
+        outcome(&run, "app", "feat"),
+        &held(push(1), SyncHold::Changed)
+    );
+    assert!(!remote_refs(&ws, "app").contains_key("refs/heads/feat"));
+    assert_eq!(ws.ssh_log().len(), 1);
+
+    // the rerun reads its upstream gone: cleanup, never a push
+    let run = ws.sync();
+    assert_eq!(outcome(&run, "app", "feat"), &BranchOutcome::Untouched);
+    let e = find_entry(&run.entries, "app");
+    assert!(matches!(branch(e, "feat").verdict, Verdict::Cleanup { .. }));
+    assert!(!remote_refs(&ws, "app").contains_key("refs/heads/feat"));
+    assert_eq!(ws.git(&app, &["rev-parse", "feat"]), tip);
+    assert_eq!(ws.ssh_log().len(), 1);
+}
+
 /// A fixture change to a clone's config: the workspace, the clone, and
 /// two config keys a case may use.
 type Setup = fn(&FixtureWorkspace, &Path, &str, &str);
@@ -596,6 +635,43 @@ fn a_remote_tracking_ref_moved_after_classifying_is_held() {
 }
 
 #[test]
+fn a_fetch_after_classifying_never_turns_the_push_into_a_force() {
+    // after classifying, another hand pushes a sibling of the local commit
+    // and a fetch records it: the count ahead is the same, and the lease
+    // would pass — only the fetched tip no longer being an ancestor of the
+    // commit keeps the push from overwriting it
+    let mut ws = FixtureWorkspace::new();
+    let (app, tip) = ahead(&mut ws);
+    let env = ws.env();
+    let up = ws.upstream("app");
+    let theirs = std::sync::Mutex::new(String::new());
+    let read = reader_then(2, || {
+        git_env(
+            &env,
+            &up,
+            &["commit", "-q", "--allow-empty", "-m", "theirs"],
+        );
+        git_env(&env, &up, &["push", "-q", "origin", "main"]);
+        git_env(&env, &app, &["fetch", "-q", "origin"]);
+        *theirs.lock().unwrap() = git_env(&env, &up, &["rev-parse", "HEAD"]);
+    });
+
+    let run = ws.sync_with(4, &read);
+
+    let theirs = theirs.lock().unwrap().clone();
+    let e = find_entry(&run.entries, "app");
+    assert_eq!(branch(e, "main").verdict, Verdict::Act { action: push(1) });
+    let range = format!("{theirs}..{tip}");
+    ws.assert_count(&app, &[&range], 1);
+    assert_eq!(
+        outcome(&run, "app", "main"),
+        &held(push(1), SyncHold::Changed)
+    );
+    assert_eq!(ws.git(&ws.bare("app"), &["rev-parse", "main"]), theirs);
+    assert_eq!(ws.ssh_log(), Vec::<String>::new());
+}
+
+#[test]
 fn a_push_url_set_after_classifying_is_refused() {
     let mut ws = FixtureWorkspace::new();
     ws.remote("other", &[]);
@@ -638,7 +714,7 @@ fn a_remote_helper_set_after_classifying_never_runs() {
             helper_log.display()
         ),
     );
-    let (app, _) = ahead(&mut ws);
+    let (app, tip) = ahead(&mut ws);
     let remote_before = remote_refs(&ws, "app");
     let env = ws.env();
     // origin's push URL stays the registry's; the transport doesn't
@@ -650,18 +726,18 @@ fn a_remote_helper_set_after_classifying_never_runs() {
 
     let e = find_entry(&run.entries, "app");
     assert_eq!(branch(e, "main").verdict, Verdict::Act { action: push(1) });
-    // the push allows SSH alone, whatever the caller's environment does
+    // the push goes to the registry's URL over SSH, never through origin's
+    // transport
     assert_eq!(
         outcome(&run, "app", "main"),
-        &BranchOutcome::PushFailed {
-            failure: RemoteFailure::Failed {
-                message: "fatal: transport 'fixhelper' not allowed".into(),
-            }
-        }
+        &pushed(&remote_before["refs/heads/main"], &tip)
     );
     assert!(!helper_log.exists());
-    assert_eq!(remote_refs(&ws, "app"), remote_before);
-    assert_eq!(ws.ssh_log(), Vec::<String>::new());
+    assert_eq!(
+        remote_refs(&ws, "app"),
+        with(&remote_before, &[("refs/heads/main", &tip)])
+    );
+    assert_eq!(ws.ssh_log().len(), 1);
 }
 
 #[test]
@@ -989,7 +1065,7 @@ fn outcomes_are_the_same_whatever_the_jobs() {
     for name in ["a", "b", "c"] {
         assert!(matches!(
             outcome(&serial, name, "main"),
-            BranchOutcome::Pushed { from: Some(_), .. }
+            BranchOutcome::Pushed { .. }
         ));
         assert_eq!(
             one.git(&one.bare(name), &["rev-parse", "main"]),

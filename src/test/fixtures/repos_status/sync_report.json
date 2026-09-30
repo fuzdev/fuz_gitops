@@ -1,5 +1,5 @@
 {
-	"version": 5,
+	"version": 6,
 	"status": {
 		"version": 12,
 		"workspace": "/home/me/dev",
@@ -1097,9 +1097,12 @@
 				},
 				{
 					"name": "fresh",
-					"kind": "pushed",
-					"from": null,
-					"to": "9999999999999999999999999999999999999999",
+					"kind": "held",
+					"action": {
+						"kind": "push",
+						"commits": 1
+					},
+					"by": "changed",
 					"repeats": null
 				},
 				{

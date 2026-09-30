@@ -1,12 +1,16 @@
 //! `repos` — git state over the repos a `repos.toml` registry declares.
 //!
 //! Exit codes: `0` when the command ran (what the report says is data, not
-//! failure); `1` for a runtime failure, and under `sync` for anything that
+//! failure); `1` for a runtime failure, under `sync` for anything that
 //! failed — a fetch (git's failure, or the tool's refusal to run one whose
 //! refspec it can't confine: the entry went unsynced and a person must
-//! act), a probe, or an action git refused; `2` when the caller must change
-//! something — usage, a missing or invalid registry, git missing or too
-//! old, an unknown target.
+//! act), a probe, or an action git refused — and under `push` for any
+//! target whose branch didn't end in sync with its upstream (held, not
+//! ahead, a person's, no upstream, detached, unread, or a push that
+//! failed), as `git push` exits on a rejected ref; `2` when the caller must
+//! change something — usage, a missing or invalid registry, git missing or
+//! too old, an unknown target, and under `push` the cwd in no entry's
+//! checkout or a third-party or pinned target.
 //!
 //! A fatal error prints `error: …` and `hint: …` on stderr; under `--json`
 //! it also prints one `ErrorReport` document on stdout, in place of the
@@ -17,7 +21,9 @@
 //! Busy detection reads the live Claude Code sessions recorded under
 //! `CLAUDE_CONFIG_DIR` and `~/.claude`, excluding the calling one
 //! (`CLAUDE_PID`, when it's an ancestor of this process). Under
-//! `CLAUDECODE` (an agent's shell) every push is held for the gateway.
+//! `CLAUDECODE` (an agent's shell) every push `sync` would make is held:
+//! an agent pushes through `push`, the gateway, which runs for it as for a
+//! person.
 //!
 //! The text summary wraps at `COLUMNS` (100 when unset or under 40), piped
 //! or not, and colors its group labels only when stdout is a terminal and
@@ -43,22 +49,24 @@ use argh::{EarlyExit, FromArgs};
 use fuz_repos::classify::Refresh;
 use fuz_repos::clone::CLONE_TIMEOUT;
 use fuz_repos::discover::{
-    RegistryLocation, check_discovered_root, find_registry, resolve_checkout, resolve_targets,
+    RegistryLocation, check_discovered_root, find_registry, resolve_checkout, resolve_push_targets,
+    resolve_targets,
 };
 use fuz_repos::error::{Error, Result};
 use fuz_repos::git::Git;
 use fuz_repos::probe::RegistryDirs;
+use fuz_repos::push::{PushOptions, check_pushable, push};
 use fuz_repos::registry::{Entry, ValidRegistry};
-use fuz_repos::report::{ErrorReport, StatusReport, SyncReport};
+use fuz_repos::report::{ErrorReport, PushReport, StatusReport, SyncReport};
 use fuz_repos::scan::{Scan, scan_unregistered};
 use fuz_repos::sessions::{Caller, SessionsSource, read_live_sessions};
 use fuz_repos::status::{EntryTiming, StatusOptions, StatusRun, mark_moved_worktrees, status};
 use fuz_repos::sync::{SyncOptions, sync};
-use fuz_repos::{STATUS_FORMAT_VERSION, SYNC_FORMAT_VERSION};
+use fuz_repos::{PUSH_FORMAT_VERSION, STATUS_FORMAT_VERSION, SYNC_FORMAT_VERSION};
 
 use crate::render::{
-    View, render_brief, render_entry, render_summary, render_sync_summary, render_unregistered,
-    summary_width, use_color,
+    View, render_brief, render_entry, render_push_summary, render_summary, render_sync_summary,
+    render_unregistered, summary_width, use_color,
 };
 
 /// The build's identity: the crate version, and the commit the binary was
@@ -89,6 +97,7 @@ struct Cli {
 enum Command {
     Status(StatusArgs),
     Sync(SyncArgs),
+    Push(PushArgs),
 }
 
 /// Report every entry's git state from local refs, grouped by what to do next.
@@ -136,9 +145,10 @@ struct StatusArgs {
 /// Fetch, then fast-forward each branch behind, move each stale shallow one,
 /// push each one ahead, and clone each missing entry, where safe; report
 /// what was done and what was held. Never force-pushes, merges, rebases, or
-/// deletes; an agent's pushes are held. Third-party references are left as
-/// they are unless named or under --references; pins, and references whose
-/// origin isn't the registry's repo, always are.
+/// deletes; an agent's pushes are held (an agent pushes with repos push).
+/// Third-party references are left as they are unless named or under
+/// --references; pins, and references whose origin isn't the registry's
+/// repo, always are.
 // A flat bundle of CLI switches, not domain state.
 #[allow(clippy::struct_excessive_bools)]
 #[derive(FromArgs, Debug)]
@@ -160,6 +170,36 @@ struct SyncArgs {
     #[argh(switch)]
     verbose: bool,
     /// entries fetched, and repos acted on, at once
+    #[argh(option, default = "16")]
+    jobs: usize,
+    /// print wall time per phase, git spawns, and the slowest entries to
+    /// stderr
+    #[argh(switch)]
+    timings: bool,
+}
+
+/// Push the branch checked out where you are (or in each target's
+/// checkout) to its upstream on origin: fetch, then push a branch ahead as
+/// a fast-forward of exactly what was fetched, to the registry's repo over
+/// SSH. Never force-pushes, pushes a tag, creates a remote branch, or
+/// touches another branch; a checkout another live session works in, and
+/// origin drift, hold it. Exits 0 when every branch ends in sync with its
+/// upstream (pushed, or already there), 1 when any didn't push (held,
+/// behind, diverged, detached, no upstream, a failed fetch or push), 2 for
+/// usage (an unknown target, the cwd in no entry's checkout, a third-party
+/// or pinned target).
+#[derive(FromArgs, Debug)]
+#[argh(subcommand, name = "push")]
+struct PushArgs {
+    /// registry keys or dir names (the entry's own checkout), or paths
+    /// inside checkouts (the checkout holding each, a linked worktree's
+    /// own); default: the checkout holding the cwd
+    #[argh(positional)]
+    targets: Vec<String>,
+    /// print the report as JSON
+    #[argh(switch)]
+    json: bool,
+    /// entries fetched at once
     #[argh(option, default = "16")]
     jobs: usize,
     /// print wall time per phase, git spawns, and the slowest entries to
@@ -200,6 +240,7 @@ fn main() -> ExitCode {
     let json = match &cli.command {
         Some(Command::Status(args)) => args.json.then_some(STATUS_FORMAT_VERSION),
         Some(Command::Sync(args)) => args.json.then_some(SYNC_FORMAT_VERSION),
+        Some(Command::Push(args)) => args.json.then_some(PUSH_FORMAT_VERSION),
         None => None,
     };
     let printed = match run(cli) {
@@ -278,6 +319,7 @@ fn run(cli: Cli) -> Result<Printed> {
     match cli.command {
         Some(Command::Status(args)) => run_status(locate, &args),
         Some(Command::Sync(args)) => run_sync(locate, &args),
+        Some(Command::Push(args)) => run_push(locate, &args),
         None => Err(Error::MissingCommand),
     }
 }
@@ -493,6 +535,75 @@ fn run_sync(locate: Locate<'_>, args: &SyncArgs) -> Result<Printed> {
             probe: run.probe_elapsed,
             act: Some(run.act_elapsed),
             scan: scan_time,
+            render: render_time,
+            total: start.elapsed(),
+            jobs: args.jobs,
+            spawns: git.spawns(),
+            entries: &run.timings,
+        });
+    }
+    Ok(printed)
+}
+
+/// `repos push`: the targets resolved to checkouts and refused when not
+/// pushable before anything is fetched, then each checkout's branch pushed
+/// (`push`); fails (exit `1`) unless every one ends in sync.
+fn run_push(locate: Locate<'_>, args: &PushArgs) -> Result<Printed> {
+    let start = Instant::now();
+    let Loaded { git, loc, all, .. } = load(locate, &[])?;
+    let cwd = std::env::current_dir().map_err(|source| Error::Io {
+        context: "failed to read the current directory".into(),
+        source,
+    })?;
+    let targets = resolve_push_targets(&all, &loc.root, &cwd, &args.targets, &git)?;
+    // a usage error, not a report
+    check_pushable(&targets)?;
+    let load_time = start.elapsed();
+
+    let source = SessionsSource::from_env();
+    let read_live = || read_live_sessions(&source);
+    let run = push(
+        &targets,
+        &RegistryDirs::new(&loc.root, &all),
+        &loc.root,
+        &git,
+        PushOptions {
+            jobs: args.jobs,
+            visibility_base: None,
+            read_live: &read_live,
+        },
+    );
+    let status = StatusReport::new(
+        loc.root.to_string_lossy().into_owned(),
+        loc.path.to_string_lossy().into_owned(),
+        true,
+        run.sessions,
+        run.entries,
+    );
+    let report = PushReport::new(status, run.pushes);
+
+    let render_start = Instant::now();
+    let home = std::env::var("HOME").ok();
+    let view = view(home.as_deref(), args.json);
+    let stdout = if args.json {
+        to_json(&report)?
+    } else {
+        render_push_summary(&report, view)
+    };
+    let render_time = render_start.elapsed();
+
+    let mut printed = Printed {
+        stdout,
+        stderr: String::new(),
+        // as `git push` on a rejected ref: a branch isn't where it was asked
+        failed: !report.in_sync(),
+    };
+    if args.timings {
+        printed.stderr = render_timings(&Timings {
+            load: load_time,
+            probe: run.probe_elapsed,
+            act: Some(run.act_elapsed),
+            scan: None,
             render: render_time,
             total: start.elapsed(),
             jobs: args.jobs,

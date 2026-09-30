@@ -227,10 +227,11 @@ impl SessionsSource {
 /// Who runs the tool: a person, or an agent — a Claude Code agent shell,
 /// which sets `CLAUDECODE`.
 ///
-/// An agent's pushes are held (`HeldBy::Gateway`): agents push through the
-/// gateway, `repos push` with its policy, and until it lands a person runs
-/// `repos sync` to push. The hold lifts with it. Guidance, not a boundary —
-/// an agent can unset the variable; the host's rules are the floor.
+/// An agent's `sync` pushes are held (`HeldBy::Gateway`): an agent pushes
+/// the branch it's on through the gateway, `repos push` with its policy,
+/// which classifies and pushes for anyone as for a person, and a person
+/// runs `repos sync` to push the rest. Guidance, not a boundary — an agent
+/// can unset the variable; the host's rules are the floor.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Caller {
     Person,
