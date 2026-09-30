@@ -144,35 +144,14 @@ use std::collections::BTreeMap;
 use std::ffi::OsStr;
 use std::path::{Component, Path, PathBuf};
 
-use serde::Serialize;
-
 use crate::gitdir::{read_commondir, read_gitfile, read_head};
+use crate::report::Sessions;
 use crate::sessions::{ClaudeLock, LiveSessions, Session, Unavailable, claude_lock};
 use crate::state::UnprobedHead;
 
-/// Busy detection as the report carries it.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-#[serde(tag = "kind", rename_all = "snake_case")]
-pub enum Sessions {
-    /// Every live session was vouched for. Those in a checkout are on it
-    /// (`busy`): by path, by the git dir git would find from a place of
-    /// theirs, as the parent of a worktree under the `.claude/worktrees/`
-    /// Claude Code would root theirs at, or by the lock Claude Code put on
-    /// it for them;
-    /// those working through a git dir no worktree list names that shares an
-    /// entry's refs are on that entry's `unlisted_git_dir` reason.
-    /// `unscoped` are the rest, by pid and cwd — at the workspace root,
-    /// outside it, or in no checkout the run probed (with targets, other
-    /// entries' included). They never block.
-    Available { unscoped: Vec<Session> },
-    /// Some live session couldn't be vouched for: every push, fast-forward,
-    /// and move is held, as though every checkout were busy.
-    Unavailable { reason: Unavailable },
-}
-
 /// Whether busy detection vouched for every live session.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum Detection {
+pub enum Detection {
     Available,
     Unavailable,
 }
@@ -180,7 +159,7 @@ pub(crate) enum Detection {
 /// A checkout whose path couldn't be resolved, so whether a live session
 /// works in it can't be told: it may be busy.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct UnresolvedCheckout {
+pub struct UnresolvedCheckout {
     /// As far as resolving it got: a component in a dir the tool can't
     /// search, or a symlink loop.
     pub path: String,
@@ -194,7 +173,7 @@ pub(crate) struct UnresolvedCheckout {
 /// by `git-new-workdir`, with a `refs` symlinked to the common dir's (or a
 /// `refs/heads`). A commit there moves the entry's branch its `HEAD` names.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct UnlistedGitDir {
+pub struct UnlistedGitDir {
     /// Its `HEAD`, read as git would; `Unknown` when it can't be read or
     /// names no branch or commit (or is a symlink, git's oldest form), so it
     /// might be on any branch.
@@ -204,7 +183,7 @@ pub(crate) struct UnlistedGitDir {
 
 /// The live sessions in one entry's checkouts, what `classify` holds on.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct EntrySessions {
+pub struct EntrySessions {
     pub detection: Detection,
     /// By checkout path, as the probe's facts spell it: the primary's,
     /// each probed worktree's, each unprobed one's.
@@ -227,12 +206,12 @@ pub(crate) struct EntrySessions {
 
 impl EntrySessions {
     /// Detection available, and no session in any checkout.
-    pub(crate) const fn idle() -> Self {
+    pub const fn idle() -> Self {
         Self::empty(Detection::Available)
     }
 
     /// Detection unavailable.
-    pub(crate) const fn unavailable() -> Self {
+    pub const fn unavailable() -> Self {
         Self::empty(Detection::Unavailable)
     }
 
@@ -248,24 +227,24 @@ impl EntrySessions {
     }
 
     /// The sessions in the checkout at `path`.
-    pub(crate) fn at(&self, path: &str) -> &[Session] {
+    pub fn at(&self, path: &str) -> &[Session] {
         self.busy.get(path).map_or(&[], Vec::as_slice)
     }
 
     /// The sessions working in the checkout at `path` itself (`working`).
-    pub(crate) fn working_at(&self, path: &str) -> &[Session] {
+    pub fn working_at(&self, path: &str) -> &[Session] {
         self.working.get(path).map_or(&[], Vec::as_slice)
     }
 
     /// Whether the checkout at `path` couldn't be resolved, so it may be
     /// busy.
-    pub(crate) fn unresolved_at(&self, path: &str) -> bool {
+    pub fn unresolved_at(&self, path: &str) -> bool {
         self.unresolved.contains_key(path)
     }
 
     /// How many unlisted git dirs may be on `branch`: each whose `HEAD`
     /// names it or is unknown.
-    pub(crate) fn unlisted_on(&self, branch: &str) -> usize {
+    pub fn unlisted_on(&self, branch: &str) -> usize {
         self.unlisted
             .values()
             .filter(|u| match &u.head {
@@ -404,7 +383,7 @@ fn resolve(path: &Path) -> Result<PathBuf, Unresolved> {
 /// None when detection is unavailable: a missing dir holds no work to
 /// lose, so a clone doesn't wait on sessions no one can vouch for (the
 /// `classify_missing` doc says what holds a clone).
-pub(crate) fn sessions_under(live: &LiveSessions, path: &Path) -> Vec<Session> {
+pub fn sessions_under(live: &LiveSessions, path: &Path) -> Vec<Session> {
     let LiveSessions::Known(sessions) = live else {
         return Vec::new();
     };
@@ -427,13 +406,13 @@ pub(crate) fn sessions_under(live: &LiveSessions, path: &Path) -> Vec<Session> {
 /// Whether `a` and `b` name one path once each is resolved as the kernel
 /// would (`resolve`: missing components taken as written); `false` when
 /// either can't be.
-pub(crate) fn same_path(a: &Path, b: &Path) -> bool {
+pub fn same_path(a: &Path, b: &Path) -> bool {
     matches!((resolve(a), resolve(b)), (Ok(a), Ok(b)) if a == b)
 }
 
 /// One entry's checkouts, as busy detection scopes sessions to them.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub(crate) struct EntryCheckouts {
+pub struct EntryCheckouts {
     /// Every checkout's path as the probe's facts spell it: the primary's,
     /// each probed worktree's, each unprobed one's.
     pub paths: Vec<String>,
@@ -465,7 +444,7 @@ struct CheckoutLock<'a> {
 /// Every checkout is resolved first, whatever `live` holds: one that can't
 /// be is its owners' `unresolved` (each entry it's a checkout of), and
 /// takes no part in the prefix scoping.
-pub(crate) fn scope_sessions(
+pub fn scope_sessions(
     live: &LiveSessions,
     checkouts: &[EntryCheckouts],
 ) -> (Sessions, Vec<EntrySessions>) {

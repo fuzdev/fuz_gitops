@@ -11,14 +11,13 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use fuz_repos::busy::Sessions;
 use fuz_repos::classify::{NeedsHuman, OriginByHand, OriginFix, OriginRemote};
 use fuz_repos::error::ErrorKind;
 use fuz_repos::registry::{CheckoutList, EntryKind, RegistryIssue, Visibility};
 use fuz_repos::remote::{RefGoneFix, RemoteFailure, UnreachableCause, VisibilityCheck};
 use fuz_repos::report::{
     BranchOutcome, CloneOutcome, ErrorReport, FetchOutcome, PushOutcome, PushReport, RepairBlock,
-    StatusReport, SyncHold, SyncReport, UnregisteredKind,
+    Sessions, StatusReport, SyncHold, SyncReport, UnregisteredKind,
 };
 use fuz_repos::sessions::{Session, SessionSource, Unavailable};
 use fuz_repos::state::{

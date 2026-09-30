@@ -182,26 +182,28 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
-use crate::busy::{Detection, EntryCheckouts, Sessions, scope_sessions, sessions_under};
+use crate::busy::{Detection, EntryCheckouts, scope_sessions, sessions_under};
 use crate::classify::{Refresh, lazy_transport, origin_matches, push_target, push_urls_match};
-use crate::clone::Cloner;
+use crate::clone::{CLONE_TIMEOUT, Cloner};
+use crate::discover::{Locate, Workspace, resolve_targets};
+use crate::error;
 use crate::git::{CallOptions, Git, GitError, NetworkOptions};
 use crate::porcelain::{self, ConfigFacts};
-use crate::probe::{
-    ProbeContext, RegistryDirs, RepoFacts, RepoFetches, STATUS_ARGS, canonical, read_push_urls,
-    read_shallow_roots,
-};
-use crate::registry::{Entry, RepoUrl};
+use crate::probe::{RepoFacts, STATUS_ARGS, canonical, read_push_urls, read_shallow_roots};
+use crate::registry::{Entry, RegistryDirs, RepoUrl};
 use crate::remote::{RefspecContext, RemoteFailure};
 use crate::report::{
     BranchOutcome, BranchSync, CloneOutcome, EntryStatus, EntrySync, FetchOutcome, PushOutcome,
-    SyncHold, UnregisteredClone,
+    Sessions, SyncHold, SyncReport, UnregisteredClone,
 };
-use crate::sessions::LiveSessions;
+use crate::sessions::{LiveSessions, SessionsSource, read_live_sessions};
 use crate::state::{
     BranchNeedsHuman, BranchStatus, CloneRecipe, CloneVerdict, Head, SyncAction, Verdict,
 };
-use crate::status::{Assess, EntryTiming, assess, probe_all, run_pool};
+use crate::status::{
+    EntryTiming, Reported, RunTimings, Survey, assemble_report, probe_and_assess, refresh_asked,
+    run_pool, scan_workspace,
+};
 
 /// The timeout for an action that rewrites a working tree (`merge
 /// --ff-only`, `switch -C`), in place of `LOCAL_TIMEOUT`.
@@ -265,6 +267,83 @@ pub struct SyncRun {
     pub act_elapsed: Duration,
 }
 
+/// How to make `repos sync`'s report (`sync_report`).
+#[derive(Debug, Clone, Copy)]
+pub struct SyncReportOptions<'a> {
+    /// `--references`: refresh every third-party reference; only without
+    /// targets.
+    pub references: bool,
+    /// Git calls in flight at once, at least one.
+    pub jobs: usize,
+    /// Where the live sessions are read (`SessionsSource::from_env`), after
+    /// the fetches and again before each action.
+    pub sessions: &'a SessionsSource,
+}
+
+/// `repos sync` over the entries `targets` name, and its report, the run's
+/// policy included.
+///
+/// Loads the workspace (`Workspace::load`, from `cwd`), resolves `targets`
+/// against it (`resolve_targets`: none is every entry), runs the
+/// unregistered scan when the run needs it — before anything is cloned, so
+/// a missing entry cloned under another name holds its clone — then
+/// fetches, classifies, and acts (`sync`), each clone under
+/// `CLONE_TIMEOUT`, and assembles the report as `status_report` does.
+///
+/// # Errors
+///
+/// As `status_report`'s: nothing has been fetched or acted on when it
+/// fails. A failure in the run is the report's to say.
+pub fn sync_report(
+    git: &Git,
+    cwd: &Path,
+    locate: Locate<'_>,
+    targets: &[String],
+    opts: SyncReportOptions<'_>,
+) -> error::Result<Reported<SyncReport>> {
+    let start = Instant::now();
+    let refresh = refresh_asked(targets, opts.references)?;
+    let ws = Workspace::load(git, cwd, cwd, locate)?;
+    let entries = resolve_targets(&ws.entries, ws.root(), cwd, targets, git)?;
+    let load = start.elapsed();
+    let scan_start = Instant::now();
+    let scan = scan_workspace(&ws, &entries, targets, git)?;
+    let scan_time = scan.as_ref().map(|_| scan_start.elapsed());
+
+    let read_live = || read_live_sessions(opts.sessions);
+    let run = sync(
+        &entries,
+        &ws.registry_dirs(),
+        ws.root(),
+        git,
+        SyncOptions {
+            jobs: opts.jobs,
+            visibility_base: None,
+            read_live: &read_live,
+            clone_timeout: CLONE_TIMEOUT,
+            refresh,
+            unregistered: scan.as_ref().map(|s| &s.unregistered[..]),
+        },
+    );
+    let status = assemble_report(
+        &ws,
+        true,
+        run.sessions,
+        run.entries,
+        scan.filter(|_| targets.is_empty()),
+    );
+    Ok(Reported {
+        report: SyncReport::new(status, run.outcomes),
+        timings: RunTimings {
+            load,
+            scan: scan_time,
+            probe: run.probe_elapsed,
+            act: Some(run.act_elapsed),
+            entries: run.timings,
+        },
+    })
+}
+
 /// Fetches `entries`, classifies them, and acts on each branch's verdict.
 ///
 /// The sessions are read after the fetch, and again before each action (the
@@ -277,32 +356,19 @@ pub fn sync(
     git: &Git,
     opts: SyncOptions<'_>,
 ) -> SyncRun {
-    let start = Instant::now();
-    let fetches = RepoFetches::default();
-    let probes = probe_all(
+    let (assessed, probe_elapsed) = probe_and_assess(
         entries,
-        ProbeContext {
+        Survey {
             git,
             root,
             registry_dirs,
             fetch: true,
             refresh: opts.refresh,
-            fetches: &fetches,
-        },
-        opts.jobs,
-        opts.visibility_base,
-    );
-    let probe_elapsed = start.elapsed();
-    // after the fetches, never before: a session started while they ran holds
-    let assessed = assess(
-        entries,
-        probes,
-        &Assess {
-            root,
-            live: &(opts.read_live)(),
-            refresh: opts.refresh,
+            jobs: opts.jobs,
+            visibility_base: opts.visibility_base,
             unregistered: opts.unregistered.unwrap_or_default(),
         },
+        opts.read_live,
     );
 
     let start = Instant::now();

@@ -8,7 +8,7 @@ use crate::state::{Head, Uncommitted};
 
 /// What `git status --porcelain=v2 --branch --show-stash -z` says.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct StatusFacts {
+pub struct StatusFacts {
     pub head: Head,
     pub uncommitted: Uncommitted,
     pub stashes: u32,
@@ -19,7 +19,7 @@ pub(crate) struct StatusFacts {
 /// # Errors
 ///
 /// Returns a message when the output is malformed or has no branch header.
-pub(crate) fn parse_status(out: &[u8]) -> Result<StatusFacts, String> {
+pub fn parse_status(out: &[u8]) -> Result<StatusFacts, String> {
     let mut oid = None;
     let mut head_name = None;
     let mut stashes = 0;
@@ -84,11 +84,11 @@ pub(crate) fn parse_status(out: &[u8]) -> Result<StatusFacts, String> {
 /// Name, commit, symref target, resolved upstream, the upstream's ref on
 /// its remote, upstream track, worktree path, committer date —
 /// NUL-separated fields, newline-separated records.
-pub(crate) const REFS_FORMAT: &str = "%(refname:lstrip=2)%00%(objectname)%00%(symref)%00%(upstream)%00%(upstream:remoteref)%00%(upstream:track)%00%(worktreepath)%00%(committerdate:unix)";
+pub const REFS_FORMAT: &str = "%(refname:lstrip=2)%00%(objectname)%00%(symref)%00%(upstream)%00%(upstream:remoteref)%00%(upstream:track)%00%(worktreepath)%00%(committerdate:unix)";
 
 /// A local branch as `for-each-ref` reports it.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct RefFacts {
+pub struct RefFacts {
     pub name: String,
     /// The object it holds: the commit a push names, so a commit landing
     /// after the probe is never pushed unseen.
@@ -112,7 +112,7 @@ pub(crate) struct RefFacts {
 /// `%(upstream:track)`: how a branch stands against its resolved upstream.
 /// `Even` is also what a branch with no upstream reports.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum Track {
+pub enum Track {
     Even,
     Ahead(u32),
     Behind(u32),
@@ -163,7 +163,7 @@ fn parse_track(s: &str) -> Result<Track, String> {
 /// # Errors
 ///
 /// Returns a message when a record is malformed.
-pub(crate) fn parse_refs(out: &[u8]) -> Result<Vec<RefFacts>, String> {
+pub fn parse_refs(out: &[u8]) -> Result<Vec<RefFacts>, String> {
     let out = std::str::from_utf8(out).map_err(|_| "for-each-ref: non-UTF-8 output".to_owned())?;
     out.lines()
         .filter(|l| !l.is_empty())
@@ -208,7 +208,7 @@ pub(crate) fn parse_refs(out: &[u8]) -> Result<Vec<RefFacts>, String> {
 
 /// One worktree as `git worktree list --porcelain -z` reports it.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct WorktreeRecord {
+pub struct WorktreeRecord {
     /// The worktree's path as git prints it: the one its `gitdir` file names
     /// (or, for the main worktree, git's view of it), not necessarily with
     /// symlinks resolved.
@@ -222,7 +222,7 @@ pub(crate) struct WorktreeRecord {
 
 /// What a worktree record says its HEAD is.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) enum WorktreeHead {
+pub enum WorktreeHead {
     /// The main worktree of a bare repo.
     Bare,
     Detached {
@@ -239,7 +239,7 @@ pub(crate) enum WorktreeHead {
 
 /// Whether `s` is a full object id (SHA-1 or SHA-256 hex) other than the
 /// null one.
-pub(crate) fn is_object_id(s: &str) -> bool {
+pub fn is_object_id(s: &str) -> bool {
     matches!(s.len(), 40 | 64)
         && s.bytes().all(|b| b.is_ascii_hexdigit())
         && s.bytes().any(|b| b != b'0')
@@ -291,7 +291,7 @@ impl PendingRecord {
 ///
 /// Returns a message on non-UTF-8 output, or a record that doesn't start
 /// with its `worktree` path.
-pub(crate) fn parse_worktrees(out: &[u8]) -> Result<Vec<WorktreeRecord>, String> {
+pub fn parse_worktrees(out: &[u8]) -> Result<Vec<WorktreeRecord>, String> {
     let out = std::str::from_utf8(out).map_err(|_| "worktree list: non-UTF-8 output".to_owned())?;
     let mut records = Vec::new();
     let mut current: Option<PendingRecord> = None;
@@ -353,7 +353,7 @@ pub(crate) fn parse_worktrees(out: &[u8]) -> Result<Vec<WorktreeRecord>, String>
 /// # Errors
 ///
 /// Returns a message on non-UTF-8 output or an entry without its tab.
-pub(crate) fn parse_gitlinks(out: &[u8]) -> Result<Vec<String>, String> {
+pub fn parse_gitlinks(out: &[u8]) -> Result<Vec<String>, String> {
     let out = std::str::from_utf8(out).map_err(|_| "ls-files: non-UTF-8 output".to_owned())?;
     let mut gitlinks = Vec::new();
     for entry in out.split('\0').filter(|e| !e.is_empty()) {
@@ -368,19 +368,19 @@ pub(crate) fn parse_gitlinks(out: &[u8]) -> Result<Vec<String>, String> {
 }
 
 /// The config pattern `ConfigFacts::parse` reads.
-pub(crate) const CONFIG_PATTERN: &str =
+pub const CONFIG_PATTERN: &str =
     r"^(branch|remote)\.|^core\.(sparsecheckout|sshcommand)$|^extensions\.partialclone$";
 
 /// A branch's configured upstream: `branch.<b>.remote` and `.merge`.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub(crate) struct BranchConfig {
+pub struct BranchConfig {
     pub remote: Option<String>,
     pub merge: Option<String>,
 }
 
 impl BranchConfig {
     /// The upstream as a user would name it: `origin/main`.
-    pub(crate) fn display(&self) -> Option<String> {
+    pub fn display(&self) -> Option<String> {
         let merge = self.merge.as_deref()?;
         let merge = merge.strip_prefix("refs/heads/").unwrap_or(merge);
         Some(
@@ -391,7 +391,7 @@ impl BranchConfig {
     }
 
     /// Whether the upstream is a branch on `origin`.
-    pub(crate) fn is_origin(&self) -> bool {
+    pub fn is_origin(&self) -> bool {
         self.remote.as_deref() == Some("origin") && self.merge.is_some()
     }
 }
@@ -403,7 +403,7 @@ impl BranchConfig {
 /// (system, global, worktree, the command line) or from a file the repo's
 /// config includes is out of their reach.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct ConfigValue {
+pub struct ConfigValue {
     pub value: String,
     pub in_repo_file: bool,
 }
@@ -411,7 +411,7 @@ pub(crate) struct ConfigValue {
 #[cfg(test)]
 impl ConfigValue {
     /// A value in the repo's own config file.
-    pub(crate) fn repo(value: &str) -> Self {
+    pub fn repo(value: &str) -> Self {
         Self {
             value: value.to_owned(),
             in_repo_file: true,
@@ -419,7 +419,7 @@ impl ConfigValue {
     }
 
     /// A value from anywhere else.
-    pub(crate) fn elsewhere(value: &str) -> Self {
+    pub fn elsewhere(value: &str) -> Self {
         Self {
             value: value.to_owned(),
             in_repo_file: false,
@@ -430,7 +430,7 @@ impl ConfigValue {
 /// One `remote.origin.url` value, and whether the repo's own config file
 /// holds it (as `ConfigValue`).
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct OriginUrl {
+pub struct OriginUrl {
     /// `None` for a valueless `url` (no `=`), which every git remote command
     /// refuses (`missing value for 'remote.origin.url'`, then `bad config
     /// variable`); `Some("")` for an empty one, which resets the list.
@@ -441,7 +441,7 @@ pub(crate) struct OriginUrl {
 impl OriginUrl {
     /// Whether it ends the list before it: empty, or valueless (no URL is
     /// usable either way).
-    pub(crate) fn resets(&self) -> bool {
+    pub fn resets(&self) -> bool {
         self.value.as_deref().is_none_or(str::is_empty)
     }
 }
@@ -449,7 +449,7 @@ impl OriginUrl {
 #[cfg(test)]
 impl OriginUrl {
     /// A URL in the repo's own config file.
-    pub(crate) fn repo(value: &str) -> Self {
+    pub fn repo(value: &str) -> Self {
         Self {
             value: Some(value.to_owned()),
             in_repo_file: true,
@@ -457,7 +457,7 @@ impl OriginUrl {
     }
 
     /// A URL from anywhere else.
-    pub(crate) fn elsewhere(value: &str) -> Self {
+    pub fn elsewhere(value: &str) -> Self {
         Self {
             value: Some(value.to_owned()),
             in_repo_file: false,
@@ -465,7 +465,7 @@ impl OriginUrl {
     }
 
     /// A valueless `url` in the repo's own config file.
-    pub(crate) const fn valueless() -> Self {
+    pub const fn valueless() -> Self {
         Self {
             value: None,
             in_repo_file: true,
@@ -475,14 +475,14 @@ impl OriginUrl {
 
 /// Another remote's fetch refspec.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct RemoteRefspec {
+pub struct RemoteRefspec {
     pub remote: String,
     pub refspec: String,
 }
 
 /// Where a repo's `remote.origin.*` keys are set.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord)]
-pub(crate) enum OriginKeys {
+pub enum OriginKeys {
     /// Nowhere: git knows no remote `origin`.
     #[default]
     None,
@@ -499,7 +499,7 @@ pub(crate) enum OriginKeys {
 /// What the probe needs from a repo's config, read from every scope as git
 /// reads it.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub(crate) struct ConfigFacts {
+pub struct ConfigFacts {
     /// Every `remote.origin.url` value in the order git reads them, empty
     /// ones included (an empty value resets the list: `origin_url_list`).
     pub origin_urls: Vec<OriginUrl>,
@@ -545,7 +545,7 @@ impl ConfigFacts {
     ///
     /// Returns a message on a non-UTF-8 scope, key, or value, or on output
     /// that isn't whole entries.
-    pub(crate) fn parse(out: &[u8], is_repo_file: impl Fn(&str) -> bool) -> Result<Self, String> {
+    pub fn parse(out: &[u8], is_repo_file: impl Fn(&str) -> bool) -> Result<Self, String> {
         if out.is_empty() {
             return Ok(Self::default());
         }
@@ -659,7 +659,7 @@ impl ConfigFacts {
 
     /// The URL git fetches `origin` from: the first of `origin_url_list`;
     /// `None` when that's empty.
-    pub(crate) fn origin_url(&self) -> Option<&str> {
+    pub fn origin_url(&self) -> Option<&str> {
         self.origin_url_list()
             .first()
             .and_then(|v| v.value.as_deref())

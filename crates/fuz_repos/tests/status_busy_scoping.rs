@@ -5,8 +5,7 @@ mod support;
 
 use std::path::Path;
 
-use fuz_repos::busy::Sessions;
-use fuz_repos::report::EntryStatus;
+use fuz_repos::report::{EntryStatus, Sessions};
 use fuz_repos::sessions::{LiveSessions, Session, SessionSource};
 use fuz_repos::state::{HeldBy, Verdict};
 use support::busy::{

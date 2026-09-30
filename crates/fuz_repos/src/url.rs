@@ -10,7 +10,7 @@ use std::borrow::Cow;
 
 /// A URL's scheme, lowercased: what precedes `://`, when that's a plain
 /// scheme name. `None` for anything else, scp-like SSH syntax included.
-pub(crate) fn url_scheme(url: &str) -> Option<String> {
+pub fn url_scheme(url: &str) -> Option<String> {
     let (scheme, _) = url.split_once("://")?;
     let plain = scheme.starts_with(|c: char| c.is_ascii_alphabetic())
         && scheme
@@ -21,7 +21,7 @@ pub(crate) fn url_scheme(url: &str) -> Option<String> {
 
 /// `url`'s origin, `<scheme>://<authority>` (the authority up to the first
 /// `/`, port included); `None` without a `<scheme>://`.
-pub(crate) fn url_origin(url: &str) -> Option<&str> {
+pub fn url_origin(url: &str) -> Option<&str> {
     let (scheme, rest) = url.split_once("://")?;
     url_scheme(url)?;
     let end = scheme.len() + 3 + rest.find('/').unwrap_or(rest.len());
@@ -31,7 +31,7 @@ pub(crate) fn url_origin(url: &str) -> Option<&str> {
 /// Whether `host` is a plain DNS name: letters, digits, `.`, and `-`,
 /// starting and ending with a letter or digit — no userinfo, port,
 /// IP-literal brackets, or escapes.
-pub(crate) fn is_plain_host(host: &str) -> bool {
+pub fn is_plain_host(host: &str) -> bool {
     host.starts_with(|c: char| c.is_ascii_alphanumeric())
         && host.ends_with(|c: char| c.is_ascii_alphanumeric())
         && host
@@ -43,7 +43,7 @@ pub(crate) fn is_plain_host(host: &str) -> bool {
 /// port if one is named, and the path on that host (trailing `/`s and one
 /// `.git` dropped), read structurally (`remote_parts`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct RemoteParts<'a> {
+pub struct RemoteParts<'a> {
     pub host: &'a str,
     pub port: Option<&'a str>,
     pub path: &'a str,
@@ -71,7 +71,7 @@ pub(crate) struct RemoteParts<'a> {
 /// start of the host text, `user@` included, and scans on for `@[` into
 /// the path, so a bracket can move the host too — all read as `None`.
 /// Nothing is decoded or resolved here.
-pub(crate) fn remote_parts(url: &str) -> Option<RemoteParts<'_>> {
+pub fn remote_parts(url: &str) -> Option<RemoteParts<'_>> {
     if url.contains(['%', '[', ']']) {
         return None;
     }
@@ -127,7 +127,7 @@ fn without_user(authority: &str) -> Option<&str> {
 
 /// Whether `url`'s authority carries userinfo (`user:token@host`), whatever
 /// the scheme.
-pub(crate) fn has_userinfo(url: &str) -> bool {
+pub fn has_userinfo(url: &str) -> bool {
     url.split_once("://").is_some_and(|(_, rest)| {
         rest.split('/')
             .next()
@@ -161,7 +161,7 @@ fn redact_authority<'a>(scheme: &str, authority: &'a str) -> Cow<'a, str> {
 ///
 /// An SSH login name stays; a URL with no `://` (scp-like `git@host:path`,
 /// a path) is returned as is.
-pub(crate) fn without_userinfo(url: &str) -> Cow<'_, str> {
+pub fn without_userinfo(url: &str) -> Cow<'_, str> {
     let Some((scheme, rest)) = url.split_once("://") else {
         return url.into();
     };
@@ -178,7 +178,7 @@ pub(crate) fn without_userinfo(url: &str) -> Cow<'_, str> {
 /// For messages that quote source text, like a TOML parse error's snippet
 /// of the offending line. A URL's authority ends at `/`, a quote, or
 /// whitespace; its scheme is the run of scheme characters before `://`.
-pub(crate) fn redact_userinfo_in(text: &str) -> String {
+pub fn redact_userinfo_in(text: &str) -> String {
     let mut out = String::with_capacity(text.len());
     let mut rest = text;
     while let Some(i) = rest.find("://") {
@@ -200,7 +200,7 @@ pub(crate) fn redact_userinfo_in(text: &str) -> String {
 
 /// `s` as a POSIX extended regex matching it literally, for git's
 /// value-pattern argument (`git config --unset-all <key> <pattern>`).
-pub(crate) fn escape_ere(s: &str) -> String {
+pub fn escape_ere(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     for c in s.chars() {
         if "\\.^$|?*+()[]{}".contains(c) {

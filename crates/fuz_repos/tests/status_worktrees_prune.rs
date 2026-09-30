@@ -6,7 +6,7 @@ mod support;
 use std::path::Path;
 
 use fuz_repos::classify::{NeedsHuman, Refresh};
-use fuz_repos::probe::RegistryDirs;
+use fuz_repos::registry::RegistryDirs;
 use fuz_repos::sessions::LiveSessions;
 use fuz_repos::state::{
     CleanupReason, GitDirHolds, InProgressOp, Prune, PruneLoss, UnprobedHead, UnprobedWhy,

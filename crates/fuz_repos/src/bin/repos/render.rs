@@ -9,13 +9,12 @@ use std::ffi::OsStr;
 use std::fmt::Write as _;
 use std::path::Path;
 
-use fuz_repos::busy::Sessions;
 use fuz_repos::classify::{NeedsHuman, OriginByHand, OriginFix, OriginRemote};
 use fuz_repos::registry::{EntryKind, Visibility};
 use fuz_repos::remote::{RefGoneFix, RemoteFailure, UnreachableCause, VisibilityCheck};
 use fuz_repos::report::{
     BranchOutcome, CloneOutcome, EntryStatus, EntrySync, FetchOutcome, PushOutcome, PushReport,
-    RepairBlock, StatusReport, SyncHold, SyncReport, UnregisteredClone, UnregisteredKind,
+    RepairBlock, Sessions, StatusReport, SyncHold, SyncReport, UnregisteredClone, UnregisteredKind,
 };
 use fuz_repos::sessions::{Session, SessionSource, Unavailable};
 use fuz_repos::state::{

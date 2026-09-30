@@ -8,8 +8,8 @@ mod support;
 
 use std::path::{Path, PathBuf};
 
-use fuz_repos::busy::Sessions;
 use fuz_repos::classify::NeedsHuman;
+use fuz_repos::report::Sessions;
 use fuz_repos::sessions::{LiveSessions, SessionSource};
 use fuz_repos::state::{HeldBy, UnprobedHead, Verdict};
 use support::busy::{MAX_GITFILE_BYTES, ahead_branch, app, held, push, session};

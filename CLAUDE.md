@@ -231,9 +231,11 @@ gitops.config.ts (registry keys) -> repos status --json -> local repos -> GitHub
 - `src/routes/repos.ts` - generated data file with all repo info
 - `src/lib/repos_status.ts` - zod mirror of the `repos status --json`
   document (report and error document), guarded by the goldens
-- `crates/fuz_repos/` - the Rust `repos` tool: registry, git runner, probe,
-  unregistered scan, busy detection, classification, sync, push (library)
-  and the `repos` binary
+- `crates/fuz_repos/` - the Rust `repos` tool: a library — registry, git
+  runner, probe, unregistered scan, busy detection, classification, sync,
+  push, and the entry points that load a registry and return a finished
+  report (`status_report`, `sync_report`, `push_report`) — and the `repos`
+  binary, which parses arguments, renders, and owns exit codes
 - `crates/fuz_repos/tests/` - its integration tests over fixture workspaces
   (`tests/support`)
 - `docs/repos.md` - the `repos` command reference

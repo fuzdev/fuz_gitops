@@ -6,10 +6,9 @@
 
 use std::collections::BTreeSet;
 
-use fuz_repos::busy::Sessions;
 use fuz_repos::classify::NeedsHuman;
 use fuz_repos::remote::RemoteFailure;
-use fuz_repos::report::{EntryStatus, StatusReport};
+use fuz_repos::report::{EntryStatus, Sessions, StatusReport};
 use fuz_repos::state::{Presence, RefreshVerdict, Relation, Verdict};
 
 /// Asserts every entry of `report` has a shape a report can have.

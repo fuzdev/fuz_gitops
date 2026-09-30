@@ -9,14 +9,15 @@
 //! targets — are `Registry::validate`'s, and only its `ValidRegistry` yields
 //! entries.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::fmt;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use serde::de::IgnoredAny;
 use serde::{Deserialize, Serialize};
 
 use crate::error::{Error, Result};
+use crate::probe::canonical;
 
 /// The default branch of a repo whose entry doesn't name one.
 const DEFAULT_BRANCH: &str = "main";
@@ -106,8 +107,13 @@ pub enum Visibility {
 /// name are path segments of letters, digits, `.`, `_`, and `-` (not `.` or
 /// `..`, not starting with `-`), so no query, fragment, escape, or
 /// whitespace can follow. A trailing `/` and a `.git` suffix are dropped.
+///
+/// Sealed (`non_exhaustive`): outside this crate a value is made only
+/// through that parse (`TryFrom<String>`, or a registry's); its fields
+/// stay public, so an edited one is the caller's.
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(try_from = "String", into = "String")]
+#[non_exhaustive]
 pub struct RepoUrl {
     pub host: String,
     pub account: String,
@@ -255,9 +261,16 @@ pub enum EntryKind {
 
 /// One registry entry, repo or reference, with its defaults and derived
 /// fields resolved — what the probe and the report work from.
+///
+/// Sealed (`non_exhaustive`): outside this crate an entry is made only by
+/// `ValidRegistry::entries`, so as made its `dir` passed validation (a
+/// plain name, safe to join to the root) and `writable` was derived from
+/// the owners. Its fields stay public: a caller that edits one owns what
+/// it wrote.
 // Independent declared facts, not a hidden state machine.
 #[allow(clippy::struct_excessive_bools)]
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct Entry {
     pub key: String,
     pub kind: EntryKind,
@@ -300,6 +313,32 @@ impl Entry {
         } else {
             self.url.to_string()
         }
+    }
+}
+
+/// Every registry entry's dir under the workspace root, canonicalized.
+///
+/// Only those that exist. Two entries can share a repo, one a linked
+/// worktree of the other, and a worktree at another entry's dir is never
+/// advised away with a branch.
+#[derive(Debug, Clone, Default)]
+pub struct RegistryDirs(HashSet<PathBuf>);
+
+impl RegistryDirs {
+    /// `entries` must be the whole registry.
+    pub fn new(root: &Path, entries: &[Entry]) -> Self {
+        Self(
+            entries
+                .iter()
+                .filter_map(|e| canonical(&root.join(&e.dir)))
+                .collect(),
+        )
+    }
+
+    /// Whether `path`, canonicalized, is a registry entry's dir; `false` when
+    /// it can't be canonicalized.
+    pub(crate) fn contains(&self, path: &Path) -> bool {
+        canonical(path).is_some_and(|p| self.0.contains(&p))
     }
 }
 

@@ -1,7 +1,6 @@
 //! The hand-built documents the goldens serialize: each report, outcome, and
 //! error document, over the fixed clock and workspace.
 
-use fuz_repos::busy::Sessions;
 use fuz_repos::classify::{NeedsHuman, OriginByHand, OriginFix, OriginRemote, Primary, at_rest};
 use fuz_repos::error::Error;
 use fuz_repos::git::MIN_GIT_VERSION;
@@ -9,8 +8,8 @@ use fuz_repos::registry::{CheckoutList, EntryKind, EntryName, RegistryIssue, Vis
 use fuz_repos::remote::{RefGoneFix, RemoteFailure, UnreachableCause, VisibilityCheck};
 use fuz_repos::report::{
     BranchOutcome, BranchSync, CheckoutPush, CloneOutcome, EntryStatus, EntrySync, FetchOutcome,
-    PushOutcome, PushReport, RepairBlock, StatusReport, SyncHold, SyncReport, UnregisteredClone,
-    UnregisteredKind,
+    PushOutcome, PushReport, RepairBlock, Sessions, StatusReport, SyncHold, SyncReport,
+    UnregisteredClone, UnregisteredKind,
 };
 use fuz_repos::sessions::{Session, SessionSource, Unavailable};
 use fuz_repos::state::{

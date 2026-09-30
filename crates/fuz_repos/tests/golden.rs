@@ -35,11 +35,10 @@ mod invariants;
 
 use std::path::{Path, PathBuf};
 
-use fuz_repos::busy::Sessions;
 use fuz_repos::classify::NeedsHuman;
 use fuz_repos::error::Error;
 use fuz_repos::remote::RemoteFailure;
-use fuz_repos::report::{EntryStatus, ErrorReport, FetchOutcome, PushOutcome};
+use fuz_repos::report::{EntryStatus, ErrorReport, FetchOutcome, PushOutcome, Sessions};
 use fuz_repos::state::{
     AtRest, BranchNeedsHuman, BranchStatus, Presence, RefreshVerdict, Relation, SyncAction, Verdict,
 };

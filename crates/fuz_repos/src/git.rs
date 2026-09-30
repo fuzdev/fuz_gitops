@@ -462,7 +462,7 @@ impl Git {
     /// place — or when git rejects the runner's own flags (git before 2.15
     /// has no `--no-optional-locks`); `Io` when `git --version` otherwise
     /// fails.
-    pub fn check_version(&self, dir: &Path) -> crate::error::Result<GitVersion> {
+    pub(crate) fn check_version(&self, dir: &Path) -> crate::error::Result<GitVersion> {
         use crate::error::Error;
         let out = match self.output_string(dir, &["--version"], CallOptions::default()) {
             Ok(out) => out,

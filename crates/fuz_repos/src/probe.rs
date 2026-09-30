@@ -23,7 +23,7 @@ use crate::gitdir::{dot_git_target, read_head, read_worktree_gitdir};
 use crate::porcelain::{
     self, ConfigFacts, RefFacts, StatusFacts, Track, WorktreeHead, WorktreeRecord,
 };
-use crate::registry::Entry;
+use crate::registry::{Entry, RegistryDirs};
 use crate::regular_file::{open_regular, read_regular};
 use crate::remote::{RefspecContext, RemoteFailure};
 use crate::state::{
@@ -33,7 +33,7 @@ use crate::state::{
 
 /// What the probe needs from its caller.
 #[derive(Debug, Clone, Copy)]
-pub(crate) struct ProbeContext<'a> {
+pub struct ProbeContext<'a> {
     pub git: &'a Git,
     pub root: &'a Path,
     /// Every registry entry's dir, the whole registry's whatever the
@@ -56,7 +56,7 @@ pub(crate) struct ProbeContext<'a> {
 /// once and share the outcome: two fetches of one repo at once race on its
 /// ref locks, and one fails.
 #[derive(Debug, Default)]
-pub(crate) struct RepoFetches(Mutex<HashMap<PathBuf, Arc<Mutex<Option<FetchResult>>>>>);
+pub struct RepoFetches(Mutex<HashMap<PathBuf, Arc<Mutex<Option<FetchResult>>>>>);
 
 /// How a fetch went: `Err` says why it failed or was refused.
 type FetchResult = Result<(), RemoteFailure>;
@@ -77,35 +77,9 @@ impl RepoFetches {
     }
 }
 
-/// Every registry entry's dir under the workspace root, canonicalized.
-///
-/// Only those that exist. Two entries can share a repo, one a linked
-/// worktree of the other, and a worktree at another entry's dir is never
-/// advised away with a branch.
-#[derive(Debug, Clone, Default)]
-pub struct RegistryDirs(HashSet<PathBuf>);
-
-impl RegistryDirs {
-    /// `entries` must be the whole registry.
-    pub fn new(root: &Path, entries: &[Entry]) -> Self {
-        Self(
-            entries
-                .iter()
-                .filter_map(|e| canonical(&root.join(&e.dir)))
-                .collect(),
-        )
-    }
-
-    /// Whether `path`, canonicalized, is a registry entry's dir; `false` when
-    /// it can't be canonicalized.
-    fn contains(&self, path: &Path) -> bool {
-        canonical(path).is_some_and(|p| self.0.contains(&p))
-    }
-}
-
 /// One entry's probe, with its timings.
 #[derive(Debug)]
-pub(crate) struct ProbeRun {
+pub struct ProbeRun {
     pub probed: Probed,
     /// `None` when no fetch was attempted; `Some(Err)` says why it failed.
     /// Shared by entries sharing a repo (`RepoFetches`).
@@ -116,7 +90,7 @@ pub(crate) struct ProbeRun {
 
 /// What the probe found.
 #[derive(Debug)]
-pub(crate) enum Probed {
+pub enum Probed {
     /// Nothing is at the entry's path, not even a dangling symlink.
     Missing,
     /// The dir exists but holds no repo; `detail` says why.
@@ -140,7 +114,7 @@ pub(crate) enum Probed {
 
 /// The facts of a present repo.
 #[derive(Debug, Clone)]
-pub(crate) struct RepoFacts {
+pub struct RepoFacts {
     /// The primary checkout's path.
     pub path: String,
     pub common_dir: PathBuf,
@@ -210,7 +184,7 @@ pub(crate) struct RepoFacts {
 
 /// A local branch's facts.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct BranchFacts {
+pub struct BranchFacts {
     pub branch: RefFacts,
     /// Commits on no remote-tracking ref, minus shallow roots; counted only
     /// where `could_carry_local_work` says so, else zero.
@@ -286,7 +260,7 @@ const fn syncs_owned(entry: &Entry) -> bool {
 }
 
 /// Probes one entry.
-pub(crate) fn probe(entry: &Entry, cx: ProbeContext<'_>) -> ProbeRun {
+pub fn probe(entry: &Entry, cx: ProbeContext<'_>) -> ProbeRun {
     let start = Instant::now();
     let mut early = Recorded::default();
     let probed =
@@ -616,11 +590,7 @@ fn read_fetch_url(git: &Git, dir: &Path, opts: CallOptions<'_>) -> Result<String
 /// # Errors
 ///
 /// Git's message when it can't say (no `origin`, a config it can't read).
-pub(crate) fn read_push_urls(
-    git: &Git,
-    dir: &Path,
-    opts: CallOptions<'_>,
-) -> Result<Vec<String>, String> {
+pub fn read_push_urls(git: &Git, dir: &Path, opts: CallOptions<'_>) -> Result<Vec<String>, String> {
     let out = git
         .output_string(
             dir,
@@ -793,7 +763,7 @@ fn refspec_destination(refspec: &str) -> Option<&str> {
 }
 
 /// The flags step 3's status runs with, in every checkout.
-pub(crate) const STATUS_ARGS: [&str; 8] = [
+pub const STATUS_ARGS: [&str; 8] = [
     "status",
     "--porcelain=v2",
     "--branch",
@@ -1184,7 +1154,7 @@ fn staged_changes(git: &Git, git_dir: &Path) -> Option<bool> {
 }
 
 /// A path canonicalized, or `None` when it can't be.
-pub(crate) fn canonical(path: &Path) -> Option<PathBuf> {
+pub fn canonical(path: &Path) -> Option<PathBuf> {
     path.canonicalize().ok()
 }
 
@@ -1260,19 +1230,19 @@ fn probe_worktree(git: &Git, path: &Path, git_dir: Option<&Path>) -> Result<Stat
 
 /// A linked worktree's own git dir, `<commondir>/worktrees/<id>`.
 #[derive(Debug)]
-pub(crate) struct AdminDir {
-    pub(crate) dir: PathBuf,
+pub struct AdminDir {
+    pub dir: PathBuf,
     /// The worktree path its `gitdir` file names (relative to the git dir
     /// when git writes relative paths), resolved as far as it exists — how
     /// git's worktree list derives the path it prints, so the two compare
     /// equal even when the worktree is gone; `Err` with why it can't be read.
-    pub(crate) worktree: Result<PathBuf, String>,
+    pub worktree: Result<PathBuf, String>,
     /// Whether its `gitdir` names the worktree by a relative path, which git
     /// 2.48+ resolves against the git dir and older gits against the cwd.
-    pub(crate) relative: bool,
+    pub relative: bool,
     /// Whether its `gitdir` is there but can't be read (not missing, not
     /// empty), so the tool can't tell what worktree git names by it.
-    pub(crate) unreadable: bool,
+    pub unreadable: bool,
 }
 
 /// Every git dir under `<commondir>/worktrees/`, readable or not; entries
@@ -1281,7 +1251,7 @@ pub(crate) struct AdminDir {
 /// # Errors
 ///
 /// When `worktrees/` exists but can't be listed.
-pub(crate) fn admin_dirs(common_dir: &Path) -> std::io::Result<Vec<AdminDir>> {
+pub fn admin_dirs(common_dir: &Path) -> std::io::Result<Vec<AdminDir>> {
     let dirs = match std::fs::read_dir(common_dir.join("worktrees")) {
         Ok(dirs) => dirs,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
@@ -1314,7 +1284,7 @@ pub(crate) fn admin_dirs(common_dir: &Path) -> std::io::Result<Vec<AdminDir>> {
 /// read error's kind kept: a missing or empty file is lost (`git worktree
 /// repair` rewrites it), any other failure may hide a worktree in use.
 #[derive(Debug)]
-pub(crate) enum AdminGitdir {
+pub enum AdminGitdir {
     /// The worktree path it names, as git takes it — raw bytes, trailing
     /// whitespace (git's own) trimmed, a trailing `/.git` stripped, then cut
     /// at the first NUL (`read_worktree_gitdir`) — joined to the git dir (git
@@ -1337,7 +1307,7 @@ pub(crate) enum AdminGitdir {
 }
 
 /// Reads a linked worktree's git dir's `gitdir` file.
-pub(crate) fn read_admin_gitdir(admin: &Path) -> AdminGitdir {
+pub fn read_admin_gitdir(admin: &Path) -> AdminGitdir {
     match read_worktree_gitdir(admin) {
         Ok(written) if written.path.as_os_str().is_empty() => AdminGitdir::Empty,
         Ok(written) => AdminGitdir::Names {
@@ -1577,7 +1547,7 @@ fn count_unique(
 }
 
 /// The commits in `<commondir>/shallow`; empty for a full clone.
-pub(crate) fn read_shallow_roots(common_dir: &Path) -> HashSet<String> {
+pub fn read_shallow_roots(common_dir: &Path) -> HashSet<String> {
     read_regular(&common_dir.join("shallow"))
         .map(|s| {
             s.lines()

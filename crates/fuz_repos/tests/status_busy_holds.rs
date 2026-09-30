@@ -3,8 +3,8 @@
 
 mod support;
 
-use fuz_repos::busy::Sessions;
 use fuz_repos::classify::NeedsHuman;
+use fuz_repos::report::Sessions;
 use fuz_repos::sessions::{LiveSessions, SessionSource, Unavailable};
 use fuz_repos::state::{CleanupReason, HeldBy, Verdict};
 use fuz_repos::status::StatusRun;

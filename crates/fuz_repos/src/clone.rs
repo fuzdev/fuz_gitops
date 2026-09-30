@@ -76,8 +76,8 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use crate::classify::Refresh;
 use crate::git::{CallOptions, Git, GitError, NetworkOptions};
-use crate::probe::{ProbeContext, Probed, RegistryDirs, RepoFetches, probe};
-use crate::registry::Entry;
+use crate::probe::{ProbeContext, Probed, RepoFetches, probe};
+use crate::registry::{Entry, RegistryDirs};
 use crate::remote::{RefspecContext, RemoteFailure};
 use crate::report::{CloneOutcome, SyncHold};
 use crate::state::{CloneRecipe, Head};

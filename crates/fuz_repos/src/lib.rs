@@ -1,15 +1,31 @@
 //! `fuz_repos` — deterministic git operations over the repos a `repos.toml`
 //! registry declares.
 //!
-//! The library holds the registry types, the hardened git runner, git's
-//! own files read as git reads them (`gitdir`), the probe, the unregistered
-//! scan, the pure classification, what a remote's answers mean (fetch
-//! failures, the visibility check), busy detection — the live Claude
-//! Code sessions (`sessions`) and the checkouts they sit in (`busy`) —
-//! `sync`, which carries out the verdicts (a missing entry's through
-//! `clone`), and `push`, which carries out one checkout's branch's push
-//! through sync's own. The `repos` binary parses arguments, renders
-//! reports, and owns exit codes.
+//! **Load a registry, get a report.** Each command is one call:
+//! `status::status_report`, `sync::sync_report`, and `push::push_report`
+//! take a git runner (`git::Git`), the cwd, where the registry is
+//! (`discover::Locate`; the default finds it walking up from the cwd), the
+//! targets, and the command's options, and return the finished document
+//! `repos --json` prints (`report::StatusReport`, `SyncReport`,
+//! `PushReport`) with the run's timings. The run's policy is theirs: which
+//! references it refreshes, when the unregistered scan runs, and what of
+//! it the report carries, so any caller gets the binary's verdicts.
+//! `status::checkout_status` is `status --brief`'s probe of the one
+//! checkout holding a path; `discover::Workspace::load` is the loading
+//! alone.
+//!
+//! Beneath them, public for a caller driving one phase (and for the
+//! integration tests): the registry (`registry`: parsed, then validated
+//! into the `ValidRegistry` that alone yields entries), finding it and
+//! resolving targets (`discover`), the unregistered scan (`scan`), the
+//! runs over resolved entries (`status::status`, `sync::sync`,
+//! `push::push`, a missing entry's clone through `clone`), and the live
+//! Claude Code sessions busy detection reads (`sessions`). The report's
+//! vocabulary is `report`, `state`, `classify` (entry-level reasons,
+//! `Refresh`), `remote` (what a remote's answers mean), and `error`. The
+//! probe, busy detection's scoping, URL parsing and redaction (`url`), and
+//! git's files and output formats are private. The `repos` binary parses
+//! arguments, renders reports, and owns exit codes.
 //!
 //! **What it writes.** The tool moves refs it didn't author and reports git
 //! state: it fetches, fast-forwards, moves shallow branches with no local
@@ -30,15 +46,15 @@
 //! detection reads `/proc`, so it works on Linux alone; elsewhere, with any
 //! session recorded, it fails closed.
 
-pub mod busy;
+mod busy;
 pub mod classify;
 pub mod clone;
 pub mod discover;
 pub mod error;
 pub mod git;
 mod gitdir;
-pub mod porcelain;
-pub mod probe;
+mod porcelain;
+mod probe;
 pub mod push;
 pub mod registry;
 mod regular_file;
@@ -49,7 +65,7 @@ pub mod sessions;
 pub mod state;
 pub mod status;
 pub mod sync;
-pub mod url;
+mod url;
 
 /// The version of the `repos status --json` document. Bumped on any change
 /// to its shape, new fields and variants included: consumers parse it with

@@ -42,27 +42,21 @@ mod render;
 
 use std::fmt::Write as _;
 use std::io::{self, IsTerminal as _, Write as _};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use argh::{EarlyExit, FromArgs};
-use fuz_repos::classify::Refresh;
-use fuz_repos::clone::CLONE_TIMEOUT;
-use fuz_repos::discover::{
-    RegistryLocation, check_discovered_root, find_registry, resolve_checkout, resolve_push_targets,
-    resolve_targets,
-};
+use fuz_repos::discover::Locate;
 use fuz_repos::error::{Error, Result};
 use fuz_repos::git::Git;
-use fuz_repos::probe::RegistryDirs;
-use fuz_repos::push::{PushOptions, check_new_branch, check_pushable, push};
-use fuz_repos::registry::{Entry, ValidRegistry};
-use fuz_repos::report::{ErrorReport, PushReport, StatusReport, SyncReport};
-use fuz_repos::scan::{Scan, scan_unregistered};
-use fuz_repos::sessions::{Caller, SessionsSource, read_live_sessions};
-use fuz_repos::status::{EntryTiming, StatusOptions, StatusRun, mark_moved_worktrees, status};
-use fuz_repos::sync::{SyncOptions, sync};
+use fuz_repos::push::{PushReportOptions, push_report};
+use fuz_repos::report::ErrorReport;
+use fuz_repos::sessions::{Caller, SessionsSource};
+use fuz_repos::status::{
+    EntryTiming, Reported, RunTimings, StatusReportOptions, checkout_status, status_report,
+};
+use fuz_repos::sync::{SyncReportOptions, sync_report};
 use fuz_repos::{PUSH_FORMAT_VERSION, STATUS_FORMAT_VERSION, SYNC_FORMAT_VERSION};
 
 use crate::render::{
@@ -339,51 +333,67 @@ fn run(cli: Cli) -> Result<Printed> {
         registry: cli.registry.as_deref().map(Path::new),
         root: cli.root.as_deref().map(Path::new),
     };
-    match cli.command {
-        Some(Command::Status(args)) => run_status(locate, &args),
-        Some(Command::Sync(args)) => run_sync(locate, &args),
-        Some(Command::Push(args)) => run_push(locate, &args),
-        None => Err(Error::MissingCommand),
+    let command = cli.command.ok_or(Error::MissingCommand)?;
+    if let Command::Status(args) = &command
+        && args.brief
+    {
+        return Ok(run_brief(locate, args));
+    }
+    let cx = Context::new(locate)?;
+    match command {
+        Command::Status(args) => run_status(&cx, &args),
+        Command::Sync(args) => run_sync(&cx, &args),
+        Command::Push(args) => run_push(&cx, &args),
     }
 }
 
-/// Where the global flags say the registry and the workspace root are.
-#[derive(Debug, Clone, Copy)]
-struct Locate<'a> {
-    registry: Option<&'a Path>,
-    root: Option<&'a Path>,
-}
-
-/// The registry found and validated, and the entries the targets name.
-struct Loaded {
+/// What every command runs with, read from the process once: when it
+/// started (for `--timings`' total), the git runner, the cwd, where the
+/// global flags say the registry and the workspace root are, where the live
+/// sessions are read, and `HOME` for rendering.
+struct Context<'a> {
+    start: Instant,
     git: Git,
-    loc: RegistryLocation,
-    registry: ValidRegistry,
-    all: Vec<Entry>,
-    entries: Vec<Entry>,
+    cwd: PathBuf,
+    locate: Locate<'a>,
+    sessions: SessionsSource,
+    home: Option<String>,
 }
 
-fn load(locate: Locate<'_>, targets: &[String]) -> Result<Loaded> {
-    let cwd = std::env::current_dir().map_err(|source| Error::Io {
-        context: "failed to read the current directory".into(),
-        source,
-    })?;
-    let git = Git::new();
-    // first: discovery's fallback runs git too
-    git.check_version(&cwd)?;
-    let loc = find_registry(&cwd, locate.registry, locate.root, &git)?;
-    // validated before targets resolve and anything is probed
-    let registry = ValidRegistry::load(&loc.path)?;
-    let all = registry.entries();
-    check_discovered_root(&loc, &all, &git)?;
-    let entries = resolve_targets(&all, &loc.root, &cwd, targets, &git)?;
-    Ok(Loaded {
-        git,
-        loc,
-        registry,
-        all,
-        entries,
-    })
+impl<'a> Context<'a> {
+    fn new(locate: Locate<'a>) -> Result<Self> {
+        let start = Instant::now();
+        let cwd = std::env::current_dir().map_err(|source| Error::Io {
+            context: "failed to read the current directory".into(),
+            source,
+        })?;
+        Ok(Self {
+            start,
+            git: Git::new(),
+            cwd,
+            locate,
+            sessions: SessionsSource::from_env(),
+            home: std::env::var("HOME").ok(),
+        })
+    }
+
+    /// How rendering sees the environment, for the text summary (under
+    /// `--json` nothing renders).
+    fn view(&self) -> View<'_> {
+        let columns = std::env::var("COLUMNS").ok();
+        View {
+            home: self.home.as_deref(),
+            now: SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs(),
+            width: summary_width(columns.as_deref()),
+            color: use_color(
+                io::stdout().is_terminal(),
+                std::env::var_os("NO_COLOR").as_deref(),
+            ),
+        }
+    }
 }
 
 /// Why `status --brief` can't run as asked, when it can't: a flag that
@@ -408,68 +418,6 @@ fn brief_conflict(args: &StatusArgs) -> Option<String> {
     (args.targets.len() > 1).then(|| "--brief takes one path at most".to_owned())
 }
 
-/// Which references a run refreshes: the named ones — every entry of a run
-/// given targets (a path inside a checkout names its entry too) — or,
-/// without targets, every third-party one under `--references`. Both at
-/// once is a usage error: the run would say two things.
-const fn refresh_asked(targets: &[String], references: bool) -> Result<Refresh> {
-    match (targets.is_empty(), references) {
-        (false, true) => Err(Error::ReferencesWithTargets),
-        (false, false) => Ok(Refresh::Named),
-        (true, true) => Ok(Refresh::References),
-        (true, false) => Ok(Refresh::Unasked),
-    }
-}
-
-/// The unregistered scan over the whole workspace: without targets, and
-/// with them when a named entry's dir is missing — a clone the scan finds
-/// already made under another name holds its clone. `None` when it didn't
-/// run. Only a run without targets reports what it found: with them the
-/// report is about the named entries.
-fn scan_workspace(loaded: &Loaded, targets: &[String]) -> Result<Option<Scan>> {
-    // missing as the probe reads it: nothing at the path, not even a link
-    let missing = |e: &Entry| {
-        std::fs::symlink_metadata(loaded.loc.root.join(&e.dir))
-            .is_err_and(|err| err.kind() == io::ErrorKind::NotFound)
-    };
-    if !targets.is_empty() && !loaded.entries.iter().any(missing) {
-        return Ok(None);
-    }
-    scan_unregistered(
-        &loaded.loc.root,
-        &loaded.all,
-        loaded.registry.owners(),
-        &loaded.git,
-    )
-    .map(Some)
-    .map_err(|source| Error::Io {
-        context: format!(
-            "failed to list the workspace root {}",
-            loaded.loc.root.display()
-        ),
-        source,
-    })
-}
-
-/// How rendering sees the environment, for a run printing JSON or not.
-fn view(home: Option<&str>, json: bool) -> View<'_> {
-    let columns = std::env::var("COLUMNS").ok();
-    View {
-        home,
-        now: SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs(),
-        width: summary_width(columns.as_deref()),
-        // never under `--json`, which renders nothing
-        color: !json
-            && use_color(
-                io::stdout().is_terminal(),
-                std::env::var_os("NO_COLOR").as_deref(),
-            ),
-    }
-}
-
 /// A report as `--json` prints it.
 fn to_json(report: &impl serde::Serialize) -> Result<String> {
     let mut json = serde_json::to_string_pretty(report).map_err(|e| Error::Io {
@@ -480,362 +428,186 @@ fn to_json(report: &impl serde::Serialize) -> Result<String> {
     Ok(json)
 }
 
-fn run_sync(locate: Locate<'_>, args: &SyncArgs) -> Result<Printed> {
-    let start = Instant::now();
-    let refresh = refresh_asked(&args.targets, args.references)?;
-    let loaded = load(locate, &args.targets)?;
-    let load_time = start.elapsed();
-    // before anything is cloned: a missing entry cloned under another name
-    // holds its clone
-    let scan_start = Instant::now();
-    let scan = scan_workspace(&loaded, &args.targets)?;
-    let scan_time = scan.as_ref().map(|_| scan_start.elapsed());
-    let Loaded {
-        git,
-        loc,
-        all,
-        entries,
-        ..
-    } = loaded;
-
-    let source = SessionsSource::from_env();
-    let read_live = || read_live_sessions(&source);
-    let run = sync(
-        &entries,
-        &RegistryDirs::new(&loc.root, &all),
-        &loc.root,
-        &git,
-        SyncOptions {
-            jobs: args.jobs,
-            visibility_base: None,
-            read_live: &read_live,
-            clone_timeout: CLONE_TIMEOUT,
-            refresh,
-            unregistered: scan.as_ref().map(|s| &s.unregistered[..]),
-        },
-    );
-    let mut status = StatusReport::new(
-        loc.root.to_string_lossy().into_owned(),
-        loc.path.to_string_lossy().into_owned(),
-        true,
-        run.sessions,
-        run.entries,
-    );
-    if let Some(scan) = scan.filter(|_| args.targets.is_empty()) {
-        // before render: a gone worktree the scan found moved gets no command
-        mark_moved_worktrees(&mut status.entries, &scan);
-        status.unregistered = Some(scan.unregistered);
-    }
-    let report = SyncReport::new(status, run.outcomes);
-
-    let render_start = Instant::now();
-    let home = std::env::var("HOME").ok();
-    let view = view(home.as_deref(), args.json);
-    let stdout = if args.json {
-        to_json(&report)?
-    } else {
-        let mut out = String::new();
-        if args.verbose {
-            for e in &report.status.entries {
-                out.push_str(&render_entry(e, &loc.root, view));
-                out.push('\n');
-            }
-        }
-        out.push_str(&render_sync_summary(&report, view, args.verbose));
-        out
-    };
-    let render_time = render_start.elapsed();
-
-    let mut printed = Printed {
-        stdout,
-        stderr: String::new(),
-        failed: report.failed(),
-    };
-    if args.timings {
-        printed.stderr = render_timings(&Timings {
-            load: load_time,
-            probe: run.probe_elapsed,
-            act: Some(run.act_elapsed),
-            scan: scan_time,
-            render: render_time,
-            total: start.elapsed(),
-            jobs: args.jobs,
-            spawns: git.spawns(),
-            entries: &run.timings,
-        });
-    }
-    Ok(printed)
+/// How a command prints its report: as JSON or text, and whether its
+/// timings follow on stderr.
+#[derive(Debug, Clone, Copy)]
+struct Output {
+    json: bool,
+    timings: bool,
+    jobs: usize,
 }
 
-/// `repos push`: `--new-branch` refused to an agent before anything else,
-/// the targets resolved to checkouts and refused when not pushable before
-/// anything is fetched, then each checkout's branch pushed (`push`); fails
-/// (exit `1`) unless every one ends in sync.
-fn run_push(locate: Locate<'_>, args: &PushArgs) -> Result<Printed> {
-    let start = Instant::now();
-    if args.new_branch {
-        check_new_branch(Caller::from_env())?;
-    }
-    let Loaded { git, loc, all, .. } = load(locate, &[])?;
-    let cwd = std::env::current_dir().map_err(|source| Error::Io {
-        context: "failed to read the current directory".into(),
-        source,
-    })?;
-    let targets = resolve_push_targets(&all, &loc.root, &cwd, &args.targets, &git)?;
-    // a usage error, not a report
-    check_pushable(&targets)?;
-    let load_time = start.elapsed();
-
-    let source = SessionsSource::from_env();
-    let read_live = || read_live_sessions(&source);
-    let run = push(
-        &targets,
-        &RegistryDirs::new(&loc.root, &all),
-        &loc.root,
-        &git,
-        PushOptions {
-            jobs: args.jobs,
-            visibility_base: None,
-            read_live: &read_live,
-            new_branch: args.new_branch,
-        },
-    );
-    let status = StatusReport::new(
-        loc.root.to_string_lossy().into_owned(),
-        loc.path.to_string_lossy().into_owned(),
-        true,
-        run.sessions,
-        run.entries,
-    );
-    let report = PushReport::new(status, run.pushes);
-
+/// Prints a run's report — as JSON under `out.json`, else as `text`
+/// renders it — and, under `out.timings`, the run's phases on stderr.
+fn print_report<R: serde::Serialize>(
+    cx: &Context<'_>,
+    reported: &Reported<R>,
+    out: Output,
+    text: impl FnOnce(&R, View<'_>) -> String,
+) -> Result<Printed> {
     let render_start = Instant::now();
-    let home = std::env::var("HOME").ok();
-    let view = view(home.as_deref(), args.json);
-    let stdout = if args.json {
-        to_json(&report)?
+    let stdout = if out.json {
+        to_json(&reported.report)?
     } else {
-        render_push_summary(&report, view)
+        text(&reported.report, cx.view())
     };
-    let render_time = render_start.elapsed();
-
-    let mut printed = Printed {
+    let render = render_start.elapsed();
+    let stderr = if out.timings {
+        render_timings(&Timings {
+            run: &reported.timings,
+            render,
+            total: cx.start.elapsed(),
+            jobs: out.jobs,
+            spawns: cx.git.spawns(),
+        })
+    } else {
+        String::new()
+    };
+    Ok(Printed {
         stdout,
-        stderr: String::new(),
-        // as `git push` on a rejected ref: a branch isn't where it was asked
-        failed: !report.in_sync(),
-    };
-    if args.timings {
-        printed.stderr = render_timings(&Timings {
-            load: load_time,
-            probe: run.probe_elapsed,
-            act: Some(run.act_elapsed),
-            scan: None,
-            render: render_time,
-            total: start.elapsed(),
-            jobs: args.jobs,
-            spawns: git.spawns(),
-            entries: &run.timings,
-        });
-    }
-    Ok(printed)
+        stderr,
+        failed: false,
+    })
 }
 
-fn run_status(locate: Locate<'_>, args: &StatusArgs) -> Result<Printed> {
-    if args.brief {
-        return Ok(run_brief(locate, args));
-    }
-    let start = Instant::now();
-    let refresh = refresh_asked(&args.targets, args.references)?;
-    let loaded = load(locate, &args.targets)?;
-    let load_time = start.elapsed();
-    // first, since a missing entry cloned under another name holds its
-    // clone; reported without targets only (`scan_workspace`)
-    let scan_start = Instant::now();
-    let scan = scan_workspace(&loaded, &args.targets)?;
-    let scan_time = scan.as_ref().map(|_| scan_start.elapsed());
-    let Loaded {
-        git,
-        loc,
-        all,
-        entries,
-        ..
-    } = loaded;
-
-    let live = read_live_sessions(&SessionsSource::from_env());
-    let run = status(
-        &entries,
-        &RegistryDirs::new(&loc.root, &all),
-        &loc.root,
-        &git,
-        StatusOptions {
+fn run_status(cx: &Context<'_>, args: &StatusArgs) -> Result<Printed> {
+    let reported = status_report(
+        &cx.git,
+        &cx.cwd,
+        cx.locate,
+        &args.targets,
+        StatusReportOptions {
             fetch: args.fetch,
-            refresh,
-            unregistered: scan.as_ref().map(|s| &s.unregistered[..]),
+            references: args.references,
             jobs: args.jobs,
-            visibility_base: None,
-            live: &live,
+            sessions: &cx.sessions,
         },
-    );
-    let mut report = StatusReport::new(
-        loc.root.to_string_lossy().into_owned(),
-        loc.path.to_string_lossy().into_owned(),
-        args.fetch,
-        run.sessions,
-        run.entries,
-    );
-    if let Some(scan) = scan.filter(|_| args.targets.is_empty()) {
-        // before render: a gone worktree the scan found moved gets no command
-        mark_moved_worktrees(&mut report.entries, &scan);
-        report.unregistered = Some(scan.unregistered);
-    }
-
-    let render_start = Instant::now();
-    let home = std::env::var("HOME").ok();
-    let view = view(home.as_deref(), args.json);
-    let out = if args.json {
-        to_json(&report)?
-    } else {
+    )?;
+    let out = Output {
+        json: args.json,
+        timings: args.timings,
+        jobs: args.jobs,
+    };
+    print_report(cx, &reported, out, |report, view| {
         let mut out = String::new();
         if args.verbose {
             for e in &report.entries {
-                out.push_str(&render_entry(e, &loc.root, view));
+                out.push_str(&render_entry(e, Path::new(&report.workspace), view));
                 out.push('\n');
             }
             for u in report.unregistered.iter().flatten() {
-                out.push_str(&render_unregistered(u, &report, view));
+                out.push_str(&render_unregistered(u, report, view));
                 out.push('\n');
             }
         }
-        out.push_str(&render_summary(&report, view, args.verbose));
+        out.push_str(&render_summary(report, view, args.verbose));
         out
-    };
-    let render_time = render_start.elapsed();
-
-    let mut printed = Printed {
-        stdout: out,
-        ..Printed::default()
-    };
-    if args.timings {
-        printed.stderr = render_timings(&Timings {
-            load: load_time,
-            probe: run.elapsed,
-            act: None,
-            scan: scan_time,
-            render: render_time,
-            total: start.elapsed(),
-            jobs: args.jobs,
-            spawns: git.spawns(),
-            entries: &run.timings,
-        });
-    }
-    Ok(printed)
+    })
 }
 
-/// `status --brief`: its line, or nothing — every error is silence
-/// (`brief`).
+fn run_sync(cx: &Context<'_>, args: &SyncArgs) -> Result<Printed> {
+    let reported = sync_report(
+        &cx.git,
+        &cx.cwd,
+        cx.locate,
+        &args.targets,
+        SyncReportOptions {
+            references: args.references,
+            jobs: args.jobs,
+            sessions: &cx.sessions,
+        },
+    )?;
+    let out = Output {
+        json: args.json,
+        timings: args.timings,
+        jobs: args.jobs,
+    };
+    let printed = print_report(cx, &reported, out, |report, view| {
+        let mut out = String::new();
+        if args.verbose {
+            for e in &report.status.entries {
+                out.push_str(&render_entry(e, Path::new(&report.status.workspace), view));
+                out.push('\n');
+            }
+        }
+        out.push_str(&render_sync_summary(report, view, args.verbose));
+        out
+    })?;
+    Ok(Printed {
+        failed: reported.report.failed(),
+        ..printed
+    })
+}
+
+/// `repos push`: fails (exit `1`) unless every target's branch ends in
+/// sync (`push_report`).
+fn run_push(cx: &Context<'_>, args: &PushArgs) -> Result<Printed> {
+    let reported = push_report(
+        &cx.git,
+        &cx.cwd,
+        cx.locate,
+        &args.targets,
+        PushReportOptions {
+            new_branch: args.new_branch,
+            caller: Caller::from_env(),
+            jobs: args.jobs,
+            sessions: &cx.sessions,
+        },
+    )?;
+    let out = Output {
+        json: args.json,
+        timings: args.timings,
+        jobs: args.jobs,
+    };
+    let printed = print_report(cx, &reported, out, |report, view| {
+        render_push_summary(report, view)
+    })?;
+    Ok(Printed {
+        // as `git push` on a rejected ref: a branch isn't where it was asked
+        failed: !reported.report.in_sync(),
+        ..printed
+    })
+}
+
+/// `status --brief`: its line, or nothing — every error is silence, a
+/// refused root included (`checkout_status` says what it probes).
 fn run_brief(locate: Locate<'_>, args: &StatusArgs) -> Printed {
-    let start = Instant::now();
     let path = args.targets.first().map_or(".", String::as_str);
-    let Ok(Some(brief)) = brief(locate, Path::new(path), start) else {
+    let Ok(cx) = Context::new(locate) else {
         return Printed::default();
     };
-    let mut printed = Printed {
-        stdout: brief.line.unwrap_or_default(),
-        ..Printed::default()
+    let Ok(Some(found)) =
+        checkout_status(&cx.git, &cx.cwd, Path::new(path), cx.locate, &cx.sessions)
+    else {
+        return Printed::default();
     };
-    if args.timings {
-        printed.stderr = render_timings(&Timings {
-            load: brief.load,
-            probe: brief.run.elapsed,
-            act: None,
-            scan: None,
-            render: brief.render,
-            total: start.elapsed(),
-            jobs: 1,
-            spawns: brief.spawns,
-            entries: &brief.run.timings,
-        });
-    }
-    printed
-}
-
-/// What `brief` found, and its times.
-struct Brief {
-    /// `None` when there's nothing to say.
-    line: Option<String>,
-    run: StatusRun,
-    load: Duration,
-    render: Duration,
-    spawns: u32,
-}
-
-/// The line on the checkout holding `path` (relative to the cwd); `None`
-/// when `path` is in no entry's checkout, or the one it's in wasn't probed.
-///
-/// The registry is found walking up from `path`, not the cwd — a hook's
-/// cwd needn't be its session's — over its physical path, so `..` after a
-/// symlink goes where the kernel takes it; `--registry` and `--root` are
-/// still relative to the cwd. A refused root (`check_discovered_root`) is
-/// an error, which `run_brief` keeps silent as it does every other. Only
-/// that entry is probed, from local refs, without the unregistered scan;
-/// the live sessions are read, the caller's excluded, to find the others
-/// working in the checkout.
-fn brief(locate: Locate<'_>, path: &Path, start: Instant) -> Result<Option<Brief>> {
-    let cwd = std::env::current_dir().map_err(|source| Error::Io {
-        context: "failed to read the current directory".into(),
-        source,
-    })?;
-    let path = cwd.join(path);
-    let git = Git::new();
-    git.check_version(&cwd)?;
-    let registry = locate.registry.map(|r| cwd.join(r));
-    let root = locate.root.map(|r| cwd.join(r));
-    let loc = find_registry(&path, registry.as_deref(), root.as_deref(), &git)?;
-    let all = ValidRegistry::load(&loc.path)?.entries();
-    check_discovered_root(&loc, &all, &git)?;
-    let Some(target) = resolve_checkout(&all, &loc.root, &path, &git)? else {
-        return Ok(None);
-    };
-    let load = start.elapsed();
-
-    let live = read_live_sessions(&SessionsSource::from_env());
-    let run = status(
-        std::slice::from_ref(&target.entry),
-        &RegistryDirs::new(&loc.root, &all),
-        &loc.root,
-        &git,
-        StatusOptions {
-            fetch: false,
-            // a reference stays as a run that doesn't ask about it sees it
-            refresh: Refresh::Unasked,
-            unregistered: None,
-            jobs: 1,
-            visibility_base: None,
-            live: &live,
-        },
-    );
     let render_start = Instant::now();
-    let Some(entry) = run.entries.first() else {
-        return Ok(None);
+    let entry = &found.report.entry;
+    // a worktree the probe couldn't read: nothing to say of it
+    let Some(checkout) = entry.checkout_at(&found.report.checkout) else {
+        return Printed::default();
     };
-    let Some(checkout) = entry.checkout_at(&target.checkout) else {
-        return Ok(None);
-    };
-    let home = std::env::var("HOME").ok();
     // one plain line, whatever the terminal
     let view = View {
         color: false,
-        ..view(home.as_deref(), false)
+        ..cx.view()
     };
     let line = render_brief(entry, checkout, view);
-    Ok(Some(Brief {
-        line,
-        load,
-        render: render_start.elapsed(),
-        spawns: git.spawns(),
-        run,
-    }))
+    let render = render_start.elapsed();
+    let mut printed = Printed {
+        stdout: line.unwrap_or_default(),
+        ..Printed::default()
+    };
+    if args.timings {
+        printed.stderr = render_timings(&Timings {
+            run: &found.timings,
+            render,
+            total: cx.start.elapsed(),
+            jobs: 1,
+            spawns: cx.git.spawns(),
+        });
+    }
+    printed
 }
 
 /// Writes to stdout, treating a closed pipe (`repos status | head`) as done.
@@ -849,54 +621,51 @@ fn write_stdout(s: &str) -> Result<()> {
     }
 }
 
+/// What `--timings` prints: the run's phases (`RunTimings`), then rendering,
+/// the total, and the git spawns.
 #[derive(Debug)]
 struct Timings<'a> {
-    load: Duration,
-    probe: Duration,
-    /// Sync's acting; `None` for `status`.
-    act: Option<Duration>,
-    /// `None` when the unregistered scan didn't run.
-    scan: Option<Duration>,
+    run: &'a RunTimings,
     render: Duration,
     total: Duration,
     jobs: usize,
     spawns: u32,
-    entries: &'a [EntryTiming],
 }
 
 /// How many of the slowest entries `--timings` names.
 const SLOWEST: usize = 6;
 
 fn render_timings(t: &Timings<'_>) -> String {
+    let run = t.run;
     let ms = |d: Duration| format!("{}ms", d.as_millis());
-    let fetched = t.entries.iter().any(|e| !e.fetch.is_zero());
+    let fetched = run.entries.iter().any(|e| !e.fetch.is_zero());
     let phase = if fetched { "fetch + probe" } else { "probe" };
-    let scan = t
+    let scan = run
         .scan
         .map(|d| format!(" · scan {}", ms(d)))
         .unwrap_or_default();
-    let act = t
+    let act = run
         .act
         .map(|d| format!(" · act {}", ms(d)))
         .unwrap_or_default();
     let mut out = format!(
         "timings   load {} · {phase} {} (jobs {}){act}{scan} · render {} · total {}\n",
-        ms(t.load),
-        ms(t.probe),
+        ms(run.load),
+        ms(run.probe),
         t.jobs,
         ms(t.render),
         ms(t.total),
     );
-    let probe_sum: Duration = t.entries.iter().map(|e| e.probe).sum();
+    let probe_sum: Duration = run.entries.iter().map(|e| e.probe).sum();
     let _ = writeln!(
         out,
         "git       {} spawns over {} entries · probe time summed {}",
         t.spawns,
-        t.entries.len(),
+        run.entries.len(),
         ms(probe_sum)
     );
     let slowest = |pick: fn(&EntryTiming) -> Duration| {
-        let mut sorted: Vec<_> = t.entries.iter().filter(|e| !pick(e).is_zero()).collect();
+        let mut sorted: Vec<_> = run.entries.iter().filter(|e| !pick(e).is_zero()).collect();
         sorted.sort_by_key(|e| std::cmp::Reverse(pick(e)));
         sorted
             .iter()
@@ -907,7 +676,7 @@ fn render_timings(t: &Timings<'_>) -> String {
     };
     let _ = writeln!(out, "slowest   probe: {}", slowest(|e| e.probe));
     if fetched {
-        let fetch_sum: Duration = t.entries.iter().map(|e| e.fetch).sum();
+        let fetch_sum: Duration = run.entries.iter().map(|e| e.fetch).sum();
         let _ = writeln!(
             out,
             "          fetch: {} (summed {})",
@@ -915,7 +684,7 @@ fn render_timings(t: &Timings<'_>) -> String {
             ms(fetch_sum)
         );
     }
-    if t.entries.iter().any(|e| !e.visibility.is_zero()) {
+    if run.entries.iter().any(|e| !e.visibility.is_zero()) {
         let _ = writeln!(out, "          visibility: {}", slowest(|e| e.visibility));
     }
     out

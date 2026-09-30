@@ -8,7 +8,7 @@ mod support;
 
 use std::path::Path;
 
-use fuz_repos::busy::Sessions;
+use fuz_repos::report::Sessions;
 use fuz_repos::sessions::{LiveSessions, Session, SessionSource};
 use fuz_repos::state::{HeldBy, Prune, UnprobedWhy, Verdict};
 use support::busy::{

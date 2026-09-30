@@ -8,10 +8,68 @@ use crate::classify::origin_matches;
 use crate::error::{Error, Result};
 use crate::git::{CallOptions, Git, GitError};
 use crate::gitdir::dot_git_target;
-use crate::registry::Entry;
+use crate::registry::{Entry, RegistryDirs, ValidRegistry};
 
 /// The registry's file name, found by walking up from the cwd.
 pub const REGISTRY_FILE: &str = "repos.toml";
+
+/// Where the caller says the registry and the workspace root are
+/// (`--registry`, `--root`), each relative to the cwd; `None` finds them
+/// (`find_registry`).
+#[derive(Debug, Clone, Copy, Default)]
+pub struct Locate<'a> {
+    pub registry: Option<&'a Path>,
+    pub root: Option<&'a Path>,
+}
+
+/// A workspace loaded: its registry found, validated, and its root vouched
+/// for (`Workspace::load`) — what every command starts from.
+#[derive(Debug)]
+pub struct Workspace {
+    pub location: RegistryLocation,
+    pub registry: ValidRegistry,
+    /// Every entry, as `ValidRegistry::entries` orders them.
+    pub entries: Vec<Entry>,
+}
+
+impl Workspace {
+    /// Checks that git is there and new enough, finds the registry
+    /// (`find_registry`: walking up from `start`, unless `locate` names it,
+    /// relative to `cwd`), loads and validates it, and refuses a root
+    /// found walking up that is an entry's checkout
+    /// (`check_discovered_root`).
+    ///
+    /// # Errors
+    ///
+    /// `GitNotFound` or `GitTooOld` first, since discovery runs git too;
+    /// then what `find_registry` and `ValidRegistry::load` return, and
+    /// `RootInEntry`.
+    pub fn load(git: &Git, cwd: &Path, start: &Path, locate: Locate<'_>) -> Result<Self> {
+        git.check_version(cwd)?;
+        let registry = locate.registry.map(|r| cwd.join(r));
+        let root = locate.root.map(|r| cwd.join(r));
+        let location = find_registry(start, registry.as_deref(), root.as_deref(), git)?;
+        // validated before targets resolve and anything is probed
+        let registry = ValidRegistry::load(&location.path)?;
+        let entries = registry.entries();
+        check_discovered_root(&location, &entries, git)?;
+        Ok(Self {
+            location,
+            registry,
+            entries,
+        })
+    }
+
+    /// The workspace root entry dirs resolve against.
+    pub fn root(&self) -> &Path {
+        &self.location.root
+    }
+
+    /// Every entry's dir, canonicalized (`RegistryDirs`).
+    pub fn registry_dirs(&self) -> RegistryDirs {
+        RegistryDirs::new(&self.location.root, &self.entries)
+    }
+}
 
 /// Where the registry was found.
 ///
@@ -239,7 +297,7 @@ fn main_checkout(cwd: &Path, toplevel: bool, git: &Git) -> Option<MainCheckout> 
 /// # Errors
 ///
 /// `RootInEntry` naming the first such entry, in registry order.
-pub fn check_discovered_root(loc: &RegistryLocation, entries: &[Entry], git: &Git) -> Result<()> {
+fn check_discovered_root(loc: &RegistryLocation, entries: &[Entry], git: &Git) -> Result<()> {
     if !loc.discovered {
         return Ok(());
     }

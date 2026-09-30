@@ -5,11 +5,12 @@ use std::path::Path;
 
 use serde::Serialize;
 
-use crate::busy::{Sessions, same_path};
+use crate::busy::same_path;
 use crate::classify::NeedsHuman;
 use crate::error::{Error, ErrorKind};
 use crate::registry::{EntryKind, Visibility};
 use crate::remote::{RemoteFailure, VisibilityCheck};
+use crate::sessions::{Session, Unavailable};
 use crate::state::{
     AtRest, BranchNeedsHuman, BranchStatus, Checkout, CloneVerdict, HeldBy, Layout, Presence,
     RefreshVerdict, SyncAction, UnprobedWorktreeStatus,
@@ -63,6 +64,26 @@ impl StatusReport {
             unregistered: None,
         }
     }
+}
+
+/// Busy detection as the report carries it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum Sessions {
+    /// Every live session was vouched for. Those in a checkout are on it
+    /// (`busy`): by path, by the git dir git would find from a place of
+    /// theirs, as the parent of a worktree under the `.claude/worktrees/`
+    /// Claude Code would root theirs at, or by the lock Claude Code put on
+    /// it for them;
+    /// those working through a git dir no worktree list names that shares an
+    /// entry's refs are on that entry's `unlisted_git_dir` reason.
+    /// `unscoped` are the rest, by pid and cwd — at the workspace root,
+    /// outside it, or in no checkout the run probed (with targets, other
+    /// entries' included). They never block.
+    Available { unscoped: Vec<Session> },
+    /// Some live session couldn't be vouched for: every push, fast-forward,
+    /// and move is held, as though every checkout were busy.
+    Unavailable { reason: Unavailable },
 }
 
 /// The `--json` document for a fatal error, printed on stdout in place of

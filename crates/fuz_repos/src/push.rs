@@ -51,19 +51,19 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
-use crate::busy::Sessions;
 use crate::classify::{NeedsHuman, Refresh};
-use crate::discover::PathTarget;
+use crate::discover::{Locate, PathTarget, Workspace, resolve_push_targets};
 use crate::error::{Error, Result};
 use crate::git::Git;
-use crate::probe::{ProbeContext, RegistryDirs, RepoFacts, RepoFetches, canonical};
-use crate::registry::Entry;
+use crate::probe::{RepoFacts, canonical};
+use crate::registry::{Entry, RegistryDirs};
 use crate::report::{
-    BranchOutcome, CheckoutPush, EntryStatus, FetchOutcome, PushOutcome, SyncHold,
+    BranchOutcome, CheckoutPush, EntryStatus, FetchOutcome, PushOutcome, PushReport, Sessions,
+    SyncHold,
 };
-use crate::sessions::{Caller, LiveSessions};
+use crate::sessions::{Caller, LiveSessions, SessionsSource, read_live_sessions};
 use crate::state::{BranchNeedsHuman, BranchStatus, Head, Relation, SyncAction, Verdict};
-use crate::status::{Assess, EntryTiming, assess, probe_all};
+use crate::status::{EntryTiming, Reported, RunTimings, Survey, assemble_report, probe_and_assess};
 use crate::sync::{Actor, fetch_outcome};
 
 /// How to run `push`.
@@ -78,8 +78,9 @@ pub struct PushOptions<'a> {
     /// tests.
     pub read_live: &'a (dyn Fn() -> LiveSessions + Sync),
     /// `--new-branch`: create a target's branch on origin when it has no
-    /// upstream there to push to (`new_branch`) — the user's alone
-    /// (`check_new_branch`).
+    /// upstream there to push to (`new_branch`) — the user's alone:
+    /// `push_report` refuses it to an agent; `push` itself doesn't ask who
+    /// runs it.
     pub new_branch: bool,
 }
 
@@ -110,6 +111,78 @@ pub struct PushRun {
     pub act_elapsed: Duration,
 }
 
+/// How to make `repos push`'s report (`push_report`).
+#[derive(Debug, Clone, Copy)]
+pub struct PushReportOptions<'a> {
+    /// `--new-branch` (`PushOptions::new_branch`), refused to an agent.
+    pub new_branch: bool,
+    /// Who runs it (`Caller::from_env`): `new_branch` is the user's alone.
+    pub caller: Caller,
+    /// Entries fetched at once, at least one.
+    pub jobs: usize,
+    /// Where the live sessions are read (`SessionsSource::from_env`), after
+    /// the fetches and again right before each push.
+    pub sessions: &'a SessionsSource,
+}
+
+/// `repos push`'s report: the branch checked out at each checkout `targets`
+/// name, pushed.
+///
+/// `new_branch` is refused to an agent before anything else
+/// (`check_new_branch`). Then it loads the workspace (`Workspace::load`,
+/// from `cwd`), resolves `targets` to checkouts (`resolve_push_targets`:
+/// none is the checkout holding `cwd`) and refuses any not pushable
+/// (`check_pushable`) before anything is fetched, pushes each checkout's
+/// branch (`push`), and assembles the report, with no unregistered scan.
+///
+/// # Errors
+///
+/// `NewBranchByAgent`; what `Workspace::load` and `resolve_push_targets`
+/// return; `PushThirdParty` or `PushPinned`. Nothing has been fetched when
+/// it fails; a push that fails is the report's to say.
+pub fn push_report(
+    git: &Git,
+    cwd: &Path,
+    locate: Locate<'_>,
+    targets: &[String],
+    opts: PushReportOptions<'_>,
+) -> Result<Reported<PushReport>> {
+    let start = Instant::now();
+    if opts.new_branch {
+        check_new_branch(opts.caller)?;
+    }
+    let ws = Workspace::load(git, cwd, cwd, locate)?;
+    let targets = resolve_push_targets(&ws.entries, ws.root(), cwd, targets, git)?;
+    // a usage error, not a report
+    check_pushable(&targets)?;
+    let load = start.elapsed();
+
+    let read_live = || read_live_sessions(opts.sessions);
+    let run = push(
+        &targets,
+        &ws.registry_dirs(),
+        ws.root(),
+        git,
+        PushOptions {
+            jobs: opts.jobs,
+            visibility_base: None,
+            read_live: &read_live,
+            new_branch: opts.new_branch,
+        },
+    );
+    let status = assemble_report(&ws, true, run.sessions, run.entries, None);
+    Ok(Reported {
+        report: PushReport::new(status, run.pushes),
+        timings: RunTimings {
+            load,
+            scan: None,
+            probe: run.probe_elapsed,
+            act: Some(run.act_elapsed),
+            entries: run.timings,
+        },
+    })
+}
+
 /// Refuses targets `repos push` never pushes: a third-party reference's
 /// checkout, or a pin's.
 ///
@@ -138,7 +211,7 @@ pub fn check_pushable(targets: &[PathTarget]) -> Result<()> {
 /// # Errors
 ///
 /// `NewBranchByAgent` when `caller` is an agent.
-pub const fn check_new_branch(caller: Caller) -> Result<()> {
+const fn check_new_branch(caller: Caller) -> Result<()> {
     match caller {
         Caller::Person => Ok(()),
         Caller::Agent => Err(Error::NewBranchByAgent),
@@ -172,33 +245,20 @@ pub fn push(
         })
         .collect();
 
-    let start = Instant::now();
-    let fetches = RepoFetches::default();
-    let probes = probe_all(
+    let (assessed, probe_elapsed) = probe_and_assess(
         &entries,
-        ProbeContext {
+        Survey {
             git,
             root,
             registry_dirs,
             fetch: true,
             // owned entries, never pinned: nothing to refresh
             refresh: Refresh::Unasked,
-            fetches: &fetches,
-        },
-        opts.jobs,
-        opts.visibility_base,
-    );
-    let probe_elapsed = start.elapsed();
-    // after the fetches, never before: a session started while they ran holds
-    let assessed = assess(
-        &entries,
-        probes,
-        &Assess {
-            root,
-            live: &(opts.read_live)(),
-            refresh: Refresh::Unasked,
+            jobs: opts.jobs,
+            visibility_base: opts.visibility_base,
             unregistered: &[],
         },
+        opts.read_live,
     );
 
     let start = Instant::now();
