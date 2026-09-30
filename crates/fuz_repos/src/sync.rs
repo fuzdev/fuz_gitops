@@ -20,7 +20,8 @@
 //!    dirs are plain names under the root, no two alike, so no clone lands
 //!    in another's.
 //!
-//! **Never** a force-push, a tag pushed, a remote branch created, a rebase,
+//! **Never** a force-push, a tag pushed, a remote branch created (the
+//! user's `repos push --new-branch` alone creates one), a rebase,
 //! a merge that isn't a fast-forward, a clone over anything at an entry's
 //! path, a deleted branch, or a pruned worktree (the origin fetch's
 //! `--prune` deletes only remote-tracking refs gone upstream); a pin, once
@@ -31,7 +32,7 @@
 //! does — every branch ahead that nothing holds, busy detection keeping it
 //! off live sessions' checkouts — and `repos push` (the `push` module)
 //! pushes one checkout's branch through this module's one push
-//! (`Actor::act`).
+//! (`Actor::push`).
 //!
 //! **The verdict is a plan; git is the check.** Right before each action,
 //! sync re-reads the live sessions (a hold when busy detection has become
@@ -188,6 +189,7 @@ use crate::clone::{CLONE_TIMEOUT, Cloner};
 use crate::discover::{Locate, Workspace, resolve_targets};
 use crate::error;
 use crate::git::Git;
+use crate::porcelain::RefFacts;
 use crate::probe::{RepoFacts, canonical};
 use crate::registry::{Entry, RegistryDirs};
 use crate::remote::RemoteFailure;
@@ -542,8 +544,9 @@ impl Actor<'_> {
     }
 
     /// Takes `action` on branch `b` of entry `i`, re-checking first — the
-    /// one way sync and `repos push` act.
-    pub(crate) fn act(
+    /// one way sync acts: a push through `push`, a fast-forward or move
+    /// through `update`.
+    fn act(
         &self,
         i: usize,
         facts: &RepoFacts,
@@ -552,28 +555,88 @@ impl Actor<'_> {
     ) -> BranchOutcome {
         let held = |by| BranchOutcome::Held { action, by };
         let failed = |message: String| BranchOutcome::Failed { action, message };
+        let kind = match action {
+            SyncAction::Push { commits } => {
+                return match self.push(i, facts, b, commits) {
+                    Ok(PushDone::Pushed { from, to }) => BranchOutcome::Pushed { from, to },
+                    Ok(PushDone::AlreadyThere) => BranchOutcome::Untouched,
+                    Ok(PushDone::Stopped(Stop::Held(by))) => held(by),
+                    Ok(PushDone::Stopped(Stop::PushFailed(failure))) => {
+                        BranchOutcome::PushFailed { failure }
+                    }
+                    Err(message) => failed(message),
+                };
+            }
+            SyncAction::FastForward { .. } => UpdateKind::FastForward,
+            SyncAction::Move => UpdateKind::Move,
+        };
+        match self.update(i, facts, b, kind) {
+            Ok(UpdateDone::Updated { from, to }) => match kind {
+                UpdateKind::FastForward => BranchOutcome::FastForwarded { from, to },
+                UpdateKind::Move => BranchOutcome::Moved { from, to },
+            },
+            Ok(UpdateDone::AlreadyThere) => BranchOutcome::Untouched,
+            Ok(UpdateDone::Held(by)) => held(by),
+            Err(message) => failed(message),
+        }
+    }
+
+    /// Pushes branch `b` of entry `i`, the `commits` ahead classify
+    /// counted, re-checking first (`Step::push`) — the one push sync and
+    /// `repos push` make.
+    pub(crate) fn push(
+        &self,
+        i: usize,
+        facts: &RepoFacts,
+        b: &BranchStatus,
+        commits: u32,
+    ) -> Result<PushDone, String> {
         // classify never makes a third-party reference's verdict a push (it
         // reads local-only); a second line, before anything is read, should
         // that slip (`a_third_party_push_fails_at_act_time_whatever_the_verdict`)
-        if matches!(action, SyncAction::Push { .. }) && !self.entries[i].writable {
-            return failed(format!(
+        if !self.entries[i].writable {
+            return Err(format!(
                 "{} is a third-party reference's, which is never pushed",
                 b.name
             ));
         }
-        let Some(branch) = facts.branches.iter().find(|f| f.branch.name == b.name) else {
-            return failed(format!("{} isn't among the branches probed", b.name));
+        let ready = match self.ready(i, facts, b)? {
+            Ok(ready) => ready,
+            Err(by) => return Ok(PushDone::Stopped(Stop::Held(by))),
         };
-        let Some(upstream) = branch.branch.upstream_ref.as_deref() else {
-            return failed(format!("{} has no upstream to move to", b.name));
+        let Some(target) = push_target(ready.branch) else {
+            // classify leaves it to a person; never a guess at a ref
+            return Err(format!("{}'s upstream isn't a branch on origin", b.name));
         };
-        // the probed checkouts on it, from the facts classify read: it held
-        // a fast-forward or move on several, or on an unprobed one; a push
-        // on several goes on, since it moves no files
-        let on = checkouts_on(facts, &b.name);
-        if let Some(by) = self.busy_now(i, &b.name, &on) {
-            return held(by);
-        }
+        // a push rewrites no working tree: no lazy fetch
+        let step = Step::new(self.git, self.root, &b.name, &facts.common_dir, None);
+        step.push(
+            Path::new(&facts.path),
+            &Push {
+                oid: &ready.branch.oid,
+                upstream: ready.upstream,
+                target,
+                commits,
+                shallow: facts.layout.shallow,
+                url: &self.entries[i].url,
+                batch_ssh: !facts.config.ssh_command && !self.git.env_configures_ssh(),
+            },
+        )
+    }
+
+    /// Fast-forwards or moves branch `b` of entry `i` to its upstream's tip,
+    /// in the one checkout it's on or in place, re-checking first.
+    fn update(
+        &self,
+        i: usize,
+        facts: &RepoFacts,
+        b: &BranchStatus,
+        kind: UpdateKind,
+    ) -> Result<UpdateDone, String> {
+        let ready = match self.ready(i, facts, b)? {
+            Ok(ready) => ready,
+            Err(by) => return Ok(UpdateDone::Held(by)),
+        };
         // a partial clone lacks the new tip's blobs its checkout needs:
         // fetched on demand from origin alone, over origin's transport
         let lazy = lazy_fetch(
@@ -581,77 +644,73 @@ impl Actor<'_> {
             self.git.env_configures_ssh(),
             &self.entries[i].url,
         );
-        let step = Step::new(
-            self.git,
-            self.root,
-            &b.name,
-            upstream,
-            &facts.common_dir,
-            lazy,
+        let step = Step::new(self.git, self.root, &b.name, &facts.common_dir, lazy);
+        let on = &ready.on;
+        debug_assert!(
+            on.len() <= 1,
+            "{} acts on several checkouts: {on:?}",
+            b.name
         );
-        let result = if let SyncAction::Push { commits } = action {
-            let Some(target) = push_target(&branch.branch) else {
-                // classify leaves it to a person; never a guess at a ref
-                return failed(format!("{}'s upstream isn't a branch on origin", b.name));
-            };
-            step.push(
-                Path::new(&facts.path),
-                &Push {
-                    oid: &branch.branch.oid,
-                    target,
-                    commits,
-                    shallow: facts.layout.shallow,
-                    url: &self.entries[i].url,
-                    batch_ssh: !facts.config.ssh_command && !self.git.env_configures_ssh(),
-                },
-            )
-        } else {
-            debug_assert!(
-                on.len() <= 1,
-                "{} acts on several checkouts: {on:?}",
-                b.name
-            );
-            let checkout = match on[..] {
-                [] => None,
-                [c] => Some(c),
-                // unreachable, but never a guess at which checkout
-                _ => return failed(format!("{} is checked out in several checkouts", b.name)),
-            };
-            match (action, checkout) {
-                (SyncAction::Move, None) => step.move_in_place(Path::new(&facts.path)),
-                (SyncAction::Move, Some(c)) => step.move_in_checkout(Path::new(c)),
-                (_, None) => step.ff_in_place(Path::new(&facts.path)),
-                (_, Some(c)) => step.ff_in_checkout(Path::new(c)),
-            }
+        let checkout = match on[..] {
+            [] => None,
+            [c] => Some(c),
+            // unreachable, but never a guess at which checkout
+            _ => return Err(format!("{} is checked out in several checkouts", b.name)),
         };
-        match result {
-            Ok(Done::Updated { from, to }) if matches!(action, SyncAction::Move) => {
-                BranchOutcome::Moved { from, to }
-            }
-            Ok(Done::Updated { from, to }) => BranchOutcome::FastForwarded { from, to },
-            Ok(Done::Pushed { from, to }) => BranchOutcome::Pushed { from, to },
-            Ok(Done::PushFailed(failure)) => BranchOutcome::PushFailed { failure },
-            Ok(Done::AlreadyThere) => BranchOutcome::Untouched,
-            Ok(Done::Held(by)) => held(by),
-            Err(message) => failed(message),
+        let upstream = ready.upstream;
+        match (kind, checkout) {
+            (UpdateKind::Move, None) => step.move_in_place(Path::new(&facts.path), upstream),
+            (UpdateKind::Move, Some(c)) => step.move_in_checkout(Path::new(c), upstream),
+            (UpdateKind::FastForward, None) => step.ff_in_place(Path::new(&facts.path), upstream),
+            (UpdateKind::FastForward, Some(c)) => step.ff_in_checkout(Path::new(c), upstream),
         }
     }
 
-    /// Creates branch `b` of entry `i` on the registry's repo and sets its
-    /// upstream (`Step::create`), re-checking first as a push does — the
-    /// one way `repos push --new-branch` creates a remote branch.
-    /// `set_upstream`: the branch has no upstream configured (else its
-    /// same-named upstream on origin is gone).
+    /// What a push and an update both read before git runs, in order: the
+    /// branch as probed, its upstream, and the probed checkouts on it —
+    /// then the live sessions re-read (`busy_now`), the inner `Err` holding
+    /// the action. The outer `Err` fails it.
+    fn ready<'f>(
+        &self,
+        i: usize,
+        facts: &'f RepoFacts,
+        b: &BranchStatus,
+    ) -> Result<Result<Ready<'f>, SyncHold>, String> {
+        let Some(branch) = facts.branches.iter().find(|f| f.branch.name == b.name) else {
+            return Err(format!("{} isn't among the branches probed", b.name));
+        };
+        let Some(upstream) = branch.branch.upstream_ref.as_deref() else {
+            return Err(format!("{} has no upstream to move to", b.name));
+        };
+        // the probed checkouts on it, from the facts classify read: it held
+        // a fast-forward or move on several, or on an unprobed one; a push
+        // on several goes on, since it moves no files
+        let on = checkouts_on(facts, &b.name);
+        if let Some(by) = self.busy_now(i, &b.name, &on) {
+            return Ok(Err(by));
+        }
+        Ok(Ok(Ready {
+            branch: &branch.branch,
+            upstream,
+            on,
+        }))
+    }
+
+    /// Creates branch `b` of entry `i` on the registry's repo and makes it
+    /// its upstream (`Step::create`), re-checking first as a push does —
+    /// the one way `repos push --new-branch` creates a remote branch.
+    /// `upstream`: the one it has now, none or origin's same-named branch,
+    /// gone (`creatable`).
     pub(crate) fn create(
         &self,
         i: usize,
         facts: &RepoFacts,
         b: &BranchStatus,
-        set_upstream: bool,
+        upstream: NewBranchUpstream<'_>,
     ) -> PushOutcome {
         let failed = |message: String| PushOutcome::Failed { message };
         // `repos push` refuses a third-party target before anything runs; a
-        // second line, as `act`'s
+        // second line, as `push`'s
         if !self.entries[i].writable {
             return failed(format!(
                 "{} is a third-party reference's, which is never pushed",
@@ -664,20 +723,12 @@ impl Actor<'_> {
         if let Some(by) = self.busy_now(i, &b.name, &checkouts_on(facts, &b.name)) {
             return PushOutcome::Held { by };
         }
-        let upstream = branch.branch.upstream_ref.as_deref().unwrap_or_default();
-        let step = Step::new(
-            self.git,
-            self.root,
-            &b.name,
-            upstream,
-            &facts.common_dir,
-            None,
-        );
+        let step = Step::new(self.git, self.root, &b.name, &facts.common_dir, None);
         let created = step.create(
             Path::new(&facts.path),
             &NewBranch {
                 oid: &branch.branch.oid,
-                set_upstream,
+                upstream,
                 url: &self.entries[i].url,
                 batch_ssh: !facts.config.ssh_command && !self.git.env_configures_ssh(),
             },
@@ -688,10 +739,8 @@ impl Actor<'_> {
                 reason: BranchNeedsHuman::Unmapped,
             },
             Ok(Creation::Exists(at)) => PushOutcome::RemoteBranchExists { at },
-            Ok(Creation::Stopped(Done::Held(by))) => PushOutcome::Held { by },
-            Ok(Creation::Stopped(Done::PushFailed(failure))) => PushOutcome::PushFailed { failure },
-            // never a creation's: a bug, reported rather than passed over
-            Ok(Creation::Stopped(done)) => failed(format!("the creation came out as {done:?}")),
+            Ok(Creation::Stopped(Stop::Held(by))) => PushOutcome::Held { by },
+            Ok(Creation::Stopped(Stop::PushFailed(failure))) => PushOutcome::PushFailed { failure },
             Err(message) => failed(message),
         }
     }
@@ -716,6 +765,25 @@ impl Actor<'_> {
             None
         }
     }
+}
+
+/// Which update an `act` fast-forward or move makes (`Actor::update`).
+#[derive(Debug, Clone, Copy)]
+enum UpdateKind {
+    FastForward,
+    /// A shallow branch's move to the fetched tip.
+    Move,
+}
+
+/// What an action read from the facts before git runs (`Actor::ready`).
+struct Ready<'f> {
+    /// The branch as probed.
+    branch: &'f RefFacts,
+    /// Its resolved upstream ref, a remote-tracking ref under
+    /// `refs/remotes/origin/` (its name there may differ from the branch's).
+    upstream: &'f str,
+    /// The probed checkouts on it (`checkouts_on`).
+    on: Vec<&'f str>,
 }
 
 /// The probed checkouts with `branch` on HEAD, from the facts classify
@@ -755,7 +823,8 @@ fn settled(verdict: &Verdict) -> BranchOutcome {
 }
 
 mod step;
-use step::{Creation, Done, NewBranch, Push, Step, lazy_fetch};
+use step::{Creation, NewBranch, Push, Step, UpdateDone, lazy_fetch};
+pub(crate) use step::{NewBranchUpstream, PushDone, Stop};
 
 #[cfg(test)]
 mod tests;

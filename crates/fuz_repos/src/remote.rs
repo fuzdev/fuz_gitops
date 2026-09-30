@@ -305,18 +305,27 @@ impl RemoteFailure {
         Self::Failed { message }
     }
 
-    /// Classifies a failed network call: git's stderr when it exited
-    /// non-zero (`from_stderr`, with `cx`), `TimedOut` when the runner
-    /// stopped it, else `Failed` with the runner's error.
-    pub(crate) fn from_git_error(e: GitError, cx: RefspecContext<'_>) -> Self {
-        match e {
-            GitError::Failed { stderr, code, .. } if stderr.trim().is_empty() => Self::Failed {
+    /// Classifies a network call that ran and exited non-zero: git's
+    /// `stderr` (`from_stderr`, with `cx`), or, when it said nothing, its
+    /// exit `code` (`None`: killed by a signal).
+    pub(crate) fn from_exit(code: Option<i32>, stderr: &str, cx: RefspecContext<'_>) -> Self {
+        if stderr.trim().is_empty() {
+            return Self::Failed {
                 message: code.map_or_else(
                     || "git was killed by a signal, with no message".to_owned(),
                     |c| format!("git exited {c} with no message"),
                 ),
-            },
-            GitError::Failed { stderr, .. } => Self::from_stderr(&stderr, cx),
+            };
+        }
+        Self::from_stderr(stderr, cx)
+    }
+
+    /// Classifies a failed network call: as it exited when it exited
+    /// non-zero (`from_exit`, with `cx`), `TimedOut` when the runner
+    /// stopped it, else `Failed` with the runner's error.
+    pub(crate) fn from_git_error(e: GitError, cx: RefspecContext<'_>) -> Self {
+        match e {
+            GitError::Failed { stderr, code, .. } => Self::from_exit(code, &stderr, cx),
             GitError::Timeout { after, .. } => Self::TimedOut {
                 after_secs: after.as_secs(),
             },

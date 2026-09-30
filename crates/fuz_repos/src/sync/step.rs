@@ -5,7 +5,7 @@ use std::path::Path;
 use std::time::Duration;
 
 use crate::classify::{lazy_transport, origin_matches, push_urls_match};
-use crate::git::{CallOptions, Git, GitError, NetworkOptions};
+use crate::git::{CallOptions, Git, GitError, GitOutput, NetworkOptions};
 use crate::porcelain::{self, ConfigFacts};
 use crate::probe::{STATUS_ARGS, read_push_urls, read_shallow_roots};
 use crate::registry::RepoUrl;
@@ -22,19 +22,52 @@ use crate::state::Head;
 /// checkout that is making progress; a hung filter still ends.
 const CHECKOUT_TIMEOUT: Duration = Duration::from_secs(10 * 60);
 
-/// How an action went, short of failing.
+/// How a fast-forward or shallow move went, short of failing.
 #[derive(Debug)]
-pub(super) enum Done {
+pub(super) enum UpdateDone {
     /// The branch moved from `from` to `to`.
     Updated { from: String, to: String },
-    /// The remote's branch moved from `from`, the fetched tip, to `to`.
-    Pushed { from: String, to: String },
-    /// The push failed at the remote, or reaching it.
-    PushFailed(RemoteFailure),
     /// The branch already held the tip.
     AlreadyThere,
     /// A re-check held it.
     Held(SyncHold),
+}
+
+/// How a push went, short of failing (`Actor::push`).
+#[derive(Debug)]
+pub enum PushDone {
+    /// The remote's branch moved from `from`, the fetched tip, to `to`.
+    Pushed { from: String, to: String },
+    /// The remote's branch already held the commit.
+    AlreadyThere,
+    /// Held, or failed at the remote.
+    Stopped(Stop),
+}
+
+/// Why a push or a branch's creation stopped short of the remote taking
+/// it: a re-check held it, or the remote refused it or couldn't be
+/// reached.
+#[derive(Debug)]
+pub enum Stop {
+    /// A re-check held it, or git refused it for a remote that moved since
+    /// the fetch (`rejected`).
+    Held(SyncHold),
+    /// The push failed at the remote, or reaching it.
+    PushFailed(RemoteFailure),
+}
+
+/// The upstream a branch has when `repos push --new-branch` creates it on
+/// origin (`creatable`): it decides what the creation re-checks and whether
+/// it sets one.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NewBranchUpstream<'a> {
+    /// None configured (`branch.<b>.merge` unset): creating the branch sets
+    /// one, as `git push -u` does.
+    Unset,
+    /// Origin's branch of the same name, gone there: `tracking`, its
+    /// resolved remote-tracking ref (`refs/remotes/origin/<b>`), is the ref
+    /// the creation writes, and the upstream config stays as it is.
+    Gone { tracking: &'a str },
 }
 
 /// The variables `Step::mapped_upstream`'s `--config-env` reads the
@@ -42,13 +75,14 @@ pub(super) enum Done {
 const UPSTREAM_REMOTE_VAR: &str = "REPOS_UPSTREAM_REMOTE";
 const UPSTREAM_MERGE_VAR: &str = "REPOS_UPSTREAM_MERGE";
 
-/// One action's git calls: on `branch`, toward `upstream`'s tip.
+/// One action's git calls, on `branch`: a fast-forward or move toward the
+/// upstream tip it's given, a push (`Push`), or a creation (`NewBranch`).
 pub(super) struct Step<'a> {
     git: &'a Git,
     opts: CallOptions<'a>,
     branch: &'a str,
-    /// The resolved upstream ref, `refs/remotes/origin/<b>`.
-    upstream: &'a str,
+    /// The branch's ref, `refs/heads/<b>`.
+    local: String,
     common_dir: &'a Path,
     /// A partial clone's lazy fetch, for the actions that rewrite a working
     /// tree (`run_checkout`); `None` keeps it off.
@@ -120,6 +154,9 @@ pub(super) struct Push<'a> {
     /// The commit the branch held when probed: the one pushed, whatever
     /// lands on the branch after.
     pub(super) oid: &'a str,
+    /// The resolved upstream ref, under `refs/remotes/origin/`: the fetched
+    /// tip, and the ref that records the push (`record_push`).
+    pub(super) upstream: &'a str,
     /// The upstream's ref on origin (`push_target`), named explicitly, and
     /// the ref the lease is on.
     pub(super) target: &'a str,
@@ -139,9 +176,9 @@ pub(super) struct NewBranch<'a> {
     /// The commit the branch held when probed: the one the remote branch
     /// is created at.
     pub(super) oid: &'a str,
-    /// The branch has no upstream configured, so creating it sets one;
-    /// else its upstream is origin's same-named branch, gone.
-    pub(super) set_upstream: bool,
+    /// The upstream it has: none, so creating it sets one, or origin's
+    /// same-named branch, gone.
+    pub(super) upstream: NewBranchUpstream<'a>,
     /// The registry's repo: where the branch is created (its SSH URL), and
     /// what origin's push URL must name.
     pub(super) url: &'a RepoUrl,
@@ -155,8 +192,8 @@ struct SendPack<'a> {
     /// The ref on the registry's repo, named explicitly.
     target: &'a str,
     /// What the lease expects the remote's ref to be: the fetched tip, or
-    /// `""` for no such ref.
-    expect: &'a str,
+    /// `None` for no such ref.
+    expect: Option<&'a str>,
     url: &'a RepoUrl,
     batch_ssh: bool,
 }
@@ -169,7 +206,7 @@ enum Sent {
     /// The remote's ref already held it.
     UpToDate,
     /// Refused or not sent: held, or failed at the remote (`rejected`).
-    Stopped(Done),
+    Stopped(Stop),
 }
 
 /// How creating a branch on the remote went, short of failing.
@@ -184,7 +221,7 @@ pub(super) enum Creation {
     /// commit (the one held): never overwritten, or adopted.
     Exists(String),
     /// Held, or failed at the remote.
-    Stopped(Done),
+    Stopped(Stop),
 }
 
 /// The push's command and flags before the lease, the URL, and the
@@ -223,7 +260,6 @@ impl<'a> Step<'a> {
         git: &'a Git,
         root: &'a Path,
         branch: &'a str,
-        upstream: &'a str,
         common_dir: &'a Path,
         lazy: Option<LazyFetch<'a>>,
     ) -> Self {
@@ -234,7 +270,7 @@ impl<'a> Step<'a> {
                 ..CallOptions::default()
             },
             branch,
-            upstream,
+            local: format!("refs/heads/{branch}"),
             common_dir,
             lazy,
         }
@@ -242,40 +278,70 @@ impl<'a> Step<'a> {
 }
 
 impl Step<'_> {
-    /// The commit `rev` names in `dir`.
-    fn resolve(&self, dir: &Path, rev: &str) -> Result<String, String> {
-        let rev = format!("{rev}^{{commit}}");
+    /// Runs git in `dir` (`Git::run`), a call that couldn't run failing
+    /// with its message (`git_message`).
+    fn run(&self, dir: &Path, args: &[&str], opts: CallOptions<'_>) -> Result<GitOutput, String> {
+        self.git.run(dir, args, opts).map_err(|e| git_message(&e))
+    }
+
+    /// Git's stdout, from a call in `dir` that succeeded
+    /// (`Git::output`); else git's message.
+    fn output(&self, dir: &Path, args: &[&str], opts: CallOptions<'_>) -> Result<Vec<u8>, String> {
         self.git
-            .output_string(
-                dir,
-                &["rev-parse", "--verify", "--end-of-options", &rev],
-                self.opts,
-            )
-            .map(|s| s.trim().to_owned())
+            .output(dir, args, opts)
             .map_err(|e| git_message(&e))
     }
 
-    fn local(&self) -> String {
-        format!("refs/heads/{}", self.branch)
+    /// Git's stdout as a string, from a call in `dir` that succeeded
+    /// (`Git::output_string`); else git's message.
+    fn output_string(
+        &self,
+        dir: &Path,
+        args: &[&str],
+        opts: CallOptions<'_>,
+    ) -> Result<String, String> {
+        self.git
+            .output_string(dir, args, opts)
+            .map_err(|e| git_message(&e))
+    }
+
+    /// Runs git in `dir` for an answer it gives by its exit code: its
+    /// output for 0, `None` for 1 (the call's quiet "no"), and git's
+    /// message for anything else.
+    fn answer(&self, dir: &Path, args: &[&str]) -> Result<Option<GitOutput>, String> {
+        let out = self.run(dir, args, self.opts)?;
+        match out.status.code() {
+            Some(0) => Ok(Some(out)),
+            Some(1) => Ok(None),
+            _ => Err(first_message(&out.stderr)),
+        }
+    }
+
+    /// The commit `rev` names in `dir`.
+    fn resolve(&self, dir: &Path, rev: &str) -> Result<String, String> {
+        let rev = format!("{rev}^{{commit}}");
+        self.output_string(
+            dir,
+            &["rev-parse", "--verify", "--end-of-options", &rev],
+            self.opts,
+        )
+        .map(|s| s.trim().to_owned())
     }
 
     /// The commit the branch holds in `dir`, or `None` when the branch no
     /// longer exists (deleted since classifying); any other failure to
     /// resolve it stays an error.
     fn resolve_local(&self, dir: &Path) -> Result<Option<String>, String> {
-        let local = self.local();
-        let err = match self.resolve(dir, &local) {
+        let local = self.local.as_str();
+        let err = match self.resolve(dir, local) {
             Ok(commit) => return Ok(Some(commit)),
             Err(err) => err,
         };
-        let out = self
-            .git
-            .run(
-                dir,
-                &["show-ref", "--exists", "--end-of-options", &local],
-                self.opts,
-            )
-            .map_err(|e| git_message(&e))?;
+        let out = self.run(
+            dir,
+            &["show-ref", "--exists", "--end-of-options", local],
+            self.opts,
+        )?;
         // `--exists`: 2 for a ref that doesn't exist, and only for that
         if out.status.code() == Some(2) {
             Ok(None)
@@ -286,51 +352,33 @@ impl Step<'_> {
 
     /// Whether `ancestor` is `commit` or one of its ancestors.
     fn is_ancestor(&self, dir: &Path, ancestor: &str, commit: &str) -> Result<bool, String> {
-        let out = self
-            .git
-            .run(
-                dir,
-                &["merge-base", "--is-ancestor", ancestor, commit],
-                self.opts,
-            )
-            .map_err(|e| git_message(&e))?;
-        match out.status.code() {
-            Some(0) => Ok(true),
-            Some(1) => Ok(false),
-            _ => Err(first_message(&out.stderr)),
-        }
+        let answer = self.answer(dir, &["merge-base", "--is-ancestor", ancestor, commit])?;
+        Ok(answer.is_some())
     }
 
     /// Whether the branch is a symbolic ref now, which a write to it would
     /// go through to its target.
     fn is_symref(&self, dir: &Path) -> Result<bool, String> {
-        let out = self
-            .git
-            .run(dir, &["symbolic-ref", "-q", &self.local()], self.opts)
-            .map_err(|e| git_message(&e))?;
         // `-q`: 1 for a plain ref (or none), silently
-        match out.status.code() {
-            Some(0) => Ok(true),
-            Some(1) => Ok(false),
-            _ => Err(first_message(&out.stderr)),
-        }
+        let answer = self.answer(dir, &["symbolic-ref", "-q", &self.local])?;
+        Ok(answer.is_some())
     }
 
-    /// Fast-forwards a branch no checkout has to the upstream's tip, with a
+    /// Fast-forwards a branch no checkout has to `upstream`'s tip, with a
     /// fetch from the repo itself (the module doc says why).
-    pub(super) fn ff_in_place(&self, dir: &Path) -> Result<Done, String> {
-        let to = self.resolve(dir, self.upstream)?;
-        let local = self.local();
+    pub(super) fn ff_in_place(&self, dir: &Path, upstream: &str) -> Result<UpdateDone, String> {
+        let to = self.resolve(dir, upstream)?;
+        let local = self.local.as_str();
         let Some(from) = self.resolve_local(dir)? else {
             // deleted since classifying
-            return Ok(Done::Held(SyncHold::Changed));
+            return Ok(UpdateDone::Held(SyncHold::Changed));
         };
         if from == to {
-            return Ok(Done::AlreadyThere);
+            return Ok(UpdateDone::AlreadyThere);
         }
         // the fetch would write through it, unchecked
         if self.is_symref(dir)? {
-            return Ok(Done::Held(SyncHold::Changed));
+            return Ok(UpdateDone::Held(SyncHold::Changed));
         }
         let refspec = format!("{to}:{local}");
         let mut args = LOCAL_FETCH_ARGS.to_vec();
@@ -339,10 +387,7 @@ impl Step<'_> {
             allow_protocol: Some("file"),
             ..self.opts
         };
-        let out = self
-            .git
-            .run(dir, &args, opts)
-            .map_err(|e| git_message(&e))?;
+        let out = self.run(dir, &args, opts)?;
         let stdout = String::from_utf8_lossy(&out.stdout);
         // `<flag> <old> <new> <ref>`, one per ref it considered, the flag a
         // single char (a space for a fast-forward)
@@ -360,15 +405,15 @@ impl Step<'_> {
         }
         // what git says it did, checked against the ref itself
         let Some(now) = self.resolve_local(dir)? else {
-            return Ok(Done::Held(SyncHold::Changed));
+            return Ok(UpdateDone::Held(SyncHold::Changed));
         };
         match line {
-            Some((" ", old, new)) if new == to && now == to => Ok(Done::Updated {
+            Some((" ", old, new)) if new == to && now == to => Ok(UpdateDone::Updated {
                 from: old.to_owned(),
                 to,
             }),
             // up to date: moved there meanwhile
-            None if now == to => Ok(Done::AlreadyThere),
+            None if now == to => Ok(UpdateDone::AlreadyThere),
             _ => Err(format!(
                 "the fetch left {local} at {now}, not {to}: {}",
                 stdout.trim()
@@ -376,21 +421,25 @@ impl Step<'_> {
         }
     }
 
-    /// Fast-forwards the branch in `checkout`, the one it's on, when it's
-    /// still there and clean.
-    pub(super) fn ff_in_checkout(&self, checkout: &Path) -> Result<Done, String> {
+    /// Fast-forwards the branch in `checkout`, the one it's on, to
+    /// `upstream`'s tip, when it's still there and clean.
+    pub(super) fn ff_in_checkout(
+        &self,
+        checkout: &Path,
+        upstream: &str,
+    ) -> Result<UpdateDone, String> {
         if let Some(by) = self.checkout_changed(checkout)? {
-            return Ok(Done::Held(by));
+            return Ok(UpdateDone::Held(by));
         }
         let Some(from) = self.resolve_local(checkout)? else {
-            return Ok(Done::Held(SyncHold::Changed));
+            return Ok(UpdateDone::Held(SyncHold::Changed));
         };
-        let to = self.resolve(checkout, self.upstream)?;
+        let to = self.resolve(checkout, upstream)?;
         if from == to {
-            return Ok(Done::AlreadyThere);
+            return Ok(UpdateDone::AlreadyThere);
         }
         if self.lazy_origin_moved(checkout)? {
-            return Ok(Done::Held(SyncHold::Changed));
+            return Ok(UpdateDone::Held(SyncHold::Changed));
         }
         self.merge_ff(checkout, from, to)
     }
@@ -405,7 +454,7 @@ impl Step<'_> {
         checkout: &Path,
         from: String,
         to: String,
-    ) -> Result<Done, String> {
+    ) -> Result<UpdateDone, String> {
         self.run_checkout(
             checkout,
             &[
@@ -421,85 +470,87 @@ impl Step<'_> {
                 &to,
             ],
         )?;
-        let local = self.local();
+        let local = self.local.as_str();
         let Some(now) = self.resolve_local(checkout)? else {
-            return Ok(Done::Held(SyncHold::Changed));
+            return Ok(UpdateDone::Held(SyncHold::Changed));
         };
         if now == to {
-            return Ok(Done::Updated { from, to });
+            return Ok(UpdateDone::Updated { from, to });
         }
         let head = self
             .git
             .output_string(checkout, &["symbolic-ref", "-q", "HEAD"], self.opts)
             .map_or_else(|_| "a detached HEAD".to_owned(), |s| s.trim().to_owned());
         if head == local && self.is_ancestor(checkout, &to, &now)? {
-            return Ok(Done::Held(SyncHold::Changed));
+            return Ok(UpdateDone::Held(SyncHold::Changed));
         }
         Err(format!(
             "HEAD was on {head} when the merge ran; {local} is at {now}, not {to}"
         ))
     }
 
-    /// Moves a shallow branch no checkout has to the upstream's tip, when it
+    /// Moves a shallow branch no checkout has to `upstream`'s tip, when it
     /// still has nothing on no remote: a compare-and-swap on the commit
     /// counted. A checkout switching to the branch in the instant between
     /// the re-checks and the update finds its HEAD moved under its files: a
     /// staged reverse diff, nothing lost.
-    pub(super) fn move_in_place(&self, dir: &Path) -> Result<Done, String> {
-        let local = self.local();
+    pub(super) fn move_in_place(&self, dir: &Path, upstream: &str) -> Result<UpdateDone, String> {
+        let local = self.local.as_str();
         let Some(from) = self.resolve_local(dir)? else {
-            return Ok(Done::Held(SyncHold::Changed));
+            return Ok(UpdateDone::Held(SyncHold::Changed));
         };
-        let to = self.resolve(dir, self.upstream)?;
+        let to = self.resolve(dir, upstream)?;
         if from == to {
-            return Ok(Done::AlreadyThere);
+            return Ok(UpdateDone::AlreadyThere);
         }
         if self.has_local_work(dir, &from)? {
-            return Ok(Done::Held(SyncHold::Changed));
+            return Ok(UpdateDone::Held(SyncHold::Changed));
         }
         // checked out nowhere, as git records it now
-        let at = self
-            .git
-            .output_string(
-                dir,
-                &["for-each-ref", "--format=%(worktreepath)", &local],
-                self.opts,
-            )
-            .map_err(|e| git_message(&e))?;
+        let at = self.output_string(
+            dir,
+            &["for-each-ref", "--format=%(worktreepath)", local],
+            self.opts,
+        )?;
         if !at.trim().is_empty() || self.is_symref(dir)? {
-            return Ok(Done::Held(SyncHold::Changed));
+            return Ok(UpdateDone::Held(SyncHold::Changed));
         }
-        self.run_in(
+        self.run_ok(
             dir,
             &[
                 "update-ref",
                 "--no-deref",
                 "-m",
                 "repos sync: move to the fetched tip",
-                &local,
+                local,
                 &to,
                 &from,
             ],
             self.opts,
         )?;
-        Ok(Done::Updated { from, to })
+        Ok(UpdateDone::Updated { from, to })
     }
 
-    /// Moves a shallow branch in `checkout`, the one it's on, when it's
-    /// still there and clean and has nothing on no remote.
-    pub(super) fn move_in_checkout(&self, checkout: &Path) -> Result<Done, String> {
+    /// Moves a shallow branch in `checkout`, the one it's on, to
+    /// `upstream`'s tip, when it's still there and clean and has nothing on
+    /// no remote.
+    pub(super) fn move_in_checkout(
+        &self,
+        checkout: &Path,
+        upstream: &str,
+    ) -> Result<UpdateDone, String> {
         if let Some(by) = self.checkout_changed(checkout)? {
-            return Ok(Done::Held(by));
+            return Ok(UpdateDone::Held(by));
         }
         let Some(from) = self.resolve_local(checkout)? else {
-            return Ok(Done::Held(SyncHold::Changed));
+            return Ok(UpdateDone::Held(SyncHold::Changed));
         };
-        let to = self.resolve(checkout, self.upstream)?;
+        let to = self.resolve(checkout, upstream)?;
         if from == to {
-            return Ok(Done::AlreadyThere);
+            return Ok(UpdateDone::AlreadyThere);
         }
         if self.has_local_work(checkout, &from)? || self.lazy_origin_moved(checkout)? {
-            return Ok(Done::Held(SyncHold::Changed));
+            return Ok(UpdateDone::Held(SyncHold::Changed));
         }
         self.switch_reset(checkout, from, to)
     }
@@ -514,29 +565,23 @@ impl Step<'_> {
         let Some(lazy) = self.lazy else {
             return Ok(false);
         };
-        let out = self
-            .git
-            .output_string(dir, &["ls-remote", "--get-url", "origin"], self.opts)
-            .map_err(|e| git_message(&e))?;
+        let out = self.output_string(dir, &["ls-remote", "--get-url", "origin"], self.opts)?;
         let url = out.trim_end_matches('\n');
         if !origin_matches(url, lazy.repo) || lazy_transport(url) != Some(lazy.transport) {
             return Ok(true);
         }
-        let out = self
-            .git
-            .run(
-                dir,
-                &[
-                    "config",
-                    "-z",
-                    "--show-scope",
-                    "--show-origin",
-                    "--get-regexp",
-                    porcelain::CONFIG_PATTERN,
-                ],
-                self.opts,
-            )
-            .map_err(|e| git_message(&e))?;
+        let out = self.run(
+            dir,
+            &[
+                "config",
+                "-z",
+                "--show-scope",
+                "--show-origin",
+                "--get-regexp",
+                porcelain::CONFIG_PATTERN,
+            ],
+            self.opts,
+        )?;
         // exit 1 is "no matching keys"
         if !out.status.success() && out.status.code() != Some(1) {
             return Err(first_message(&out.stderr));
@@ -557,7 +602,7 @@ impl Step<'_> {
         checkout: &Path,
         from: String,
         to: String,
-    ) -> Result<Done, String> {
+    ) -> Result<UpdateDone, String> {
         self.run_checkout(
             checkout,
             &[
@@ -574,9 +619,9 @@ impl Step<'_> {
                 &to,
             ],
         )?;
-        let local = self.local();
+        let local = self.local.as_str();
         let Some(now) = self.resolve_local(checkout)? else {
-            return Ok(Done::Held(SyncHold::Changed));
+            return Ok(UpdateDone::Held(SyncHold::Changed));
         };
         if now != to {
             return Err(format!(
@@ -585,29 +630,26 @@ impl Step<'_> {
         }
         // the switch's own entry, `branch: Reset to <to>`, or none: it was
         // already there
-        let newest = self
-            .git
-            .output_string(
-                checkout,
-                &[
-                    "log",
-                    "-g",
-                    "-1",
-                    "--no-show-signature",
-                    "--format=%gs",
-                    "--end-of-options",
-                    &local,
-                    "--",
-                ],
-                self.opts,
-            )
-            .map_err(|e| git_message(&e))?;
+        let newest = self.output_string(
+            checkout,
+            &[
+                "log",
+                "-g",
+                "-1",
+                "--no-show-signature",
+                "--format=%gs",
+                "--end-of-options",
+                local,
+                "--",
+            ],
+            self.opts,
+        )?;
         if newest.trim() != format!("branch: Reset to {to}") {
-            return Ok(Done::Held(SyncHold::Changed));
+            return Ok(UpdateDone::Held(SyncHold::Changed));
         }
         let before = self.resolve(checkout, &format!("{local}@{{1}}"))?;
         if before == from {
-            Ok(Done::Updated { from, to })
+            Ok(UpdateDone::Updated { from, to })
         } else {
             Err(format!(
                 "{local} was at {before}, not {from}, when the switch moved it to {to}: \
@@ -621,10 +663,7 @@ impl Step<'_> {
     /// fresh, as `status` reads a checkout. A branch made a symbolic ref
     /// reads as its target, so as `Changed`.
     fn checkout_changed(&self, checkout: &Path) -> Result<Option<SyncHold>, String> {
-        let out = self
-            .git
-            .output(checkout, &STATUS_ARGS, self.opts)
-            .map_err(|e| git_message(&e))?;
+        let out = self.output(checkout, &STATUS_ARGS, self.opts)?;
         let status = porcelain::parse_status(&out)?;
         Ok(
             if !matches!(&status.head, Head::Branch { name } if name == self.branch) {
@@ -645,10 +684,8 @@ impl Step<'_> {
 
     /// `commit`'s commits on no remote-tracking ref, shallow roots aside.
     fn count_local_work(&self, dir: &Path, commit: &str) -> Result<usize, String> {
-        let out = self
-            .git
-            .output_string(dir, &["rev-list", commit, "--not", "--remotes"], self.opts)
-            .map_err(|e| git_message(&e))?;
+        let out =
+            self.output_string(dir, &["rev-list", commit, "--not", "--remotes"], self.opts)?;
         let roots = read_shallow_roots(self.common_dir);
         Ok(out.lines().filter(|c| !roots.contains(*c)).count())
     }
@@ -661,51 +698,48 @@ impl Step<'_> {
     /// ancestor of it. Then the remote-tracking ref moves to it
     /// (`record_push`). The module doc says what the lease and the ancestor
     /// check make of the push.
-    pub(super) fn push(&self, dir: &Path, p: &Push<'_>) -> Result<Done, String> {
+    pub(super) fn push(&self, dir: &Path, p: &Push<'_>) -> Result<PushDone, String> {
+        let held = |by| Ok(PushDone::Stopped(Stop::Held(by)));
         if !self.reads_as_classified(dir, p)? {
-            return Ok(Done::Held(SyncHold::Changed));
+            return held(SyncHold::Changed);
         }
         // origin's push going elsewhere is a person's to sort out; the push
         // itself never reads it
         if !push_urls_match(&read_push_urls(self.git, dir, self.opts)?, p.url) {
-            return Ok(Done::Held(SyncHold::PushUrl));
+            return held(SyncHold::PushUrl);
         }
-        let fetched = self.resolve(dir, self.upstream)?;
+        let fetched = self.resolve(dir, p.upstream)?;
         if fetched == p.oid {
-            return Ok(Done::AlreadyThere);
+            return Ok(PushDone::AlreadyThere);
         }
         let ahead = if p.shallow {
             self.count_local_work(dir, p.oid)?
         } else {
             let range = format!("{fetched}..{}", p.oid);
-            self.git
-                .output_string(dir, &["rev-list", "--count", &range], self.opts)
-                .map_err(|e| git_message(&e))?
+            self.output_string(dir, &["rev-list", "--count", &range], self.opts)?
                 .trim()
                 .parse()
                 .map_err(|_| format!("rev-list --count {range}: not a count"))?
         };
         // the lease lifts git's fast-forward check: this is it
         if !self.is_ancestor(dir, &fetched, p.oid)? || ahead != p.commits as usize {
-            return Ok(Done::Held(SyncHold::Changed));
+            return held(SyncHold::Changed);
         }
         let sent = self.send_pack(
             dir,
             &SendPack {
                 oid: p.oid,
                 target: p.target,
-                expect: &fetched,
+                expect: Some(&fetched),
                 url: p.url,
                 batch_ssh: p.batch_ssh,
             },
         )?;
-        // best effort, either way: the push stands whatever the ref says,
-        // and the next fetch writes what origin holds
         match sent {
             Sent::Pushed => {
-                let _ = self.record_push(dir, &fetched, p.oid);
+                self.record_push(dir, p.upstream, &fetched, p.oid);
                 // the lease held the remote at the fetched tip
-                Ok(Done::Pushed {
+                Ok(PushDone::Pushed {
                     from: fetched,
                     to: p.oid.to_owned(),
                 })
@@ -715,10 +749,10 @@ impl Step<'_> {
             // the fetched tip was an ancestor of it, so the ref moves as if
             // this push had put it there
             Sent::UpToDate => {
-                let _ = self.record_push(dir, &fetched, p.oid);
-                Ok(Done::AlreadyThere)
+                self.record_push(dir, p.upstream, &fetched, p.oid);
+                Ok(PushDone::AlreadyThere)
             }
-            Sent::Stopped(done) => Ok(done),
+            Sent::Stopped(stop) => Ok(PushDone::Stopped(stop)),
         }
     }
 
@@ -743,28 +777,28 @@ impl Step<'_> {
     /// set all the same — so a run stopped between the push and the
     /// upstream is finished by the next.
     pub(super) fn create(&self, dir: &Path, n: &NewBranch<'_>) -> Result<Creation, String> {
-        let target = self.local();
-        let upstream = if n.set_upstream {
-            ["", "", ""]
-        } else {
-            [self.upstream, "origin", target.as_str()]
+        let held = |by| Ok(Creation::Stopped(Stop::Held(by)));
+        let target = self.local.as_str();
+        let unset = matches!(n.upstream, NewBranchUpstream::Unset);
+        let upstream = match n.upstream {
+            NewBranchUpstream::Unset => None,
+            NewBranchUpstream::Gone { tracking } => Some([tracking, "origin", target]),
         };
         if !self.reads_as(dir, n.oid, upstream)? {
-            return Ok(Creation::Stopped(Done::Held(SyncHold::Changed)));
+            return held(SyncHold::Changed);
         }
-        if n.set_upstream && self.merge_configured(dir)? {
-            return Ok(Creation::Stopped(Done::Held(SyncHold::Changed)));
+        if unset && self.merge_configured(dir)? {
+            return held(SyncHold::Changed);
         }
         if !push_urls_match(&read_push_urls(self.git, dir, self.opts)?, n.url) {
-            return Ok(Creation::Stopped(Done::Held(SyncHold::PushUrl)));
+            return held(SyncHold::PushUrl);
         }
-        let tracking = if n.set_upstream {
-            match self.mapped_upstream(dir)? {
+        let tracking = match n.upstream {
+            NewBranchUpstream::Unset => match self.mapped_upstream(dir)? {
                 Some(tracking) => tracking,
                 None => return Ok(Creation::Unmapped),
-            }
-        } else {
-            self.upstream.to_owned()
+            },
+            NewBranchUpstream::Gone { tracking } => tracking.to_owned(),
         };
         let tracked = self.resolve_ref(dir, &tracking)?;
         match &tracked {
@@ -775,23 +809,23 @@ impl Step<'_> {
             dir,
             &SendPack {
                 oid: n.oid,
-                target: &target,
-                expect: "",
+                target,
+                expect: None,
                 url: n.url,
                 batch_ssh: n.batch_ssh,
             },
         )?;
-        if let Sent::Stopped(done) = sent {
-            return Ok(Creation::Stopped(done));
+        if let Sent::Stopped(stop) = sent {
+            return Ok(Creation::Stopped(stop));
         }
         // as `git push -u`: the remote-tracking ref, then the upstream. The
         // ref is best effort, as a push's: a fetch that wrote it meanwhile
         // wrote what origin holds, and the next fetch writes it anyway
         // (until then, local refs read the upstream gone)
         if tracked.is_none() {
-            let _ = self.update_tracking(dir, &tracking, n.oid, "");
+            self.update_tracking(dir, &tracking, n.oid, None);
         }
-        if n.set_upstream {
+        if unset {
             self.set_upstream(dir).map_err(|e| {
                 format!(
                     "{target} is on origin at {}, but setting {}'s upstream failed: {e} — \
@@ -804,10 +838,15 @@ impl Step<'_> {
     }
 
     /// Sends `s.oid` to `s.target` on the registry's repo, over SSH, under a
-    /// lease that the remote's ref is `s.expect` (`""`: that it doesn't
-    /// exist), and reads what git and the remote made of it.
+    /// lease that the remote's ref is `s.expect` (`None`: that it doesn't
+    /// exist, an empty value to git), and reads what git and the remote
+    /// made of it.
     fn send_pack(&self, dir: &Path, s: &SendPack<'_>) -> Result<Sent, String> {
-        let lease = format!("--force-with-lease={}:{}", s.target, s.expect);
+        let lease = format!(
+            "--force-with-lease={}:{}",
+            s.target,
+            s.expect.unwrap_or_default()
+        );
         let url = s.url.ssh();
         let refspec = format!("{}:{}", s.oid, s.target);
         let mut args = SEND_PACK_ARGS.to_vec();
@@ -823,7 +862,7 @@ impl Step<'_> {
         let out = match self.git.run(dir, &args, opts) {
             Ok(out) => out,
             Err(e) => {
-                return Ok(Sent::Stopped(Done::PushFailed(
+                return Ok(Sent::Stopped(Stop::PushFailed(
                     RemoteFailure::from_git_error(e, RefspecContext::default()),
                 )));
             }
@@ -849,51 +888,31 @@ impl Step<'_> {
             None if out.status.success() => {
                 Err(format!("git send-pack reported nothing for {}", s.target))
             }
-            None => Ok(Sent::Stopped(Done::PushFailed(
-                RemoteFailure::from_git_error(
-                    GitError::Failed {
-                        args: args.join(" "),
-                        code: out.status.code(),
-                        stderr: out.stderr,
-                    },
-                    RefspecContext::default(),
-                ),
-            ))),
+            None => Ok(Sent::Stopped(Stop::PushFailed(RemoteFailure::from_exit(
+                out.status.code(),
+                &out.stderr,
+                RefspecContext::default(),
+            )))),
         }
     }
 
     /// The commit `r` holds in `dir`, or `None` when there's no such ref.
     fn resolve_ref(&self, dir: &Path, r: &str) -> Result<Option<String>, String> {
-        let out = self
-            .git
-            .run(
-                dir,
-                &["rev-parse", "--verify", "--quiet", "--end-of-options", r],
-                self.opts,
-            )
-            .map_err(|e| git_message(&e))?;
-        match out.status.code() {
-            Some(0) => Ok(Some(String::from_utf8_lossy(&out.stdout).trim().to_owned())),
-            // `--quiet`: 1, silently, for a ref that doesn't exist
-            Some(1) => Ok(None),
-            _ => Err(first_message(&out.stderr)),
-        }
+        // `--quiet`: 1, silently, for a ref that doesn't exist
+        let answer = self.answer(
+            dir,
+            &["rev-parse", "--verify", "--quiet", "--end-of-options", r],
+        )?;
+        Ok(answer.map(|out| String::from_utf8_lossy(&out.stdout).trim().to_owned()))
     }
 
     /// Whether `branch.<b>.merge` is set anywhere git reads config: the
     /// branch has an upstream (or half of one) someone configured.
     fn merge_configured(&self, dir: &Path) -> Result<bool, String> {
         let key = format!("branch.{}.merge", self.branch);
-        let out = self
-            .git
-            .run(dir, &["config", "--get-all", &key], self.opts)
-            .map_err(|e| git_message(&e))?;
         // 1 for a key that isn't set
-        match out.status.code() {
-            Some(0) => Ok(true),
-            Some(1) => Ok(false),
-            _ => Err(first_message(&out.stderr)),
-        }
+        let answer = self.answer(dir, &["config", "--get-all", &key])?;
+        Ok(answer.is_some())
     }
 
     /// The remote-tracking ref the branch would track as `origin`'s
@@ -907,31 +926,25 @@ impl Step<'_> {
     /// would split it at its first `=`.
     fn mapped_upstream(&self, dir: &Path) -> Result<Option<String>, String> {
         let name = self.branch;
-        let local = self.local();
+        let local = self.local.as_str();
         let remote = format!("--config-env=branch.{name}.remote={UPSTREAM_REMOTE_VAR}");
         let merge = format!("--config-env=branch.{name}.merge={UPSTREAM_MERGE_VAR}");
-        let env = [
-            (UPSTREAM_REMOTE_VAR, "origin"),
-            (UPSTREAM_MERGE_VAR, local.as_str()),
-        ];
+        let env = [(UPSTREAM_REMOTE_VAR, "origin"), (UPSTREAM_MERGE_VAR, local)];
         let opts = CallOptions {
             env: &env,
             ..self.opts
         };
-        let out = self
-            .git
-            .output_string(
-                dir,
-                &[
-                    &remote,
-                    &merge,
-                    "for-each-ref",
-                    "--format=%(refname)%00%(upstream)",
-                    &local,
-                ],
-                opts,
-            )
-            .map_err(|e| git_message(&e))?;
+        let out = self.output_string(
+            dir,
+            &[
+                &remote,
+                &merge,
+                "for-each-ref",
+                "--format=%(refname)%00%(upstream)",
+                local,
+            ],
+            opts,
+        )?;
         // the pattern also matches refs under it (`<b>/x`): only the ref
         let upstream = out
             .lines()
@@ -948,92 +961,78 @@ impl Step<'_> {
     /// a run stopped between leaves the merge unset, which still reads as
     /// no upstream (and the next `--new-branch` finishes it).
     fn set_upstream(&self, dir: &Path) -> Result<(), String> {
-        let local = self.local();
-        for (key, value) in [("remote", "origin"), ("merge", local.as_str())] {
+        for (key, value) in [("remote", "origin"), ("merge", self.local.as_str())] {
             let key = format!("branch.{}.{key}", self.branch);
-            self.run_in(dir, &["config", "--replace-all", &key, value], self.opts)?;
+            self.run_ok(dir, &["config", "--replace-all", &key, value], self.opts)?;
         }
         Ok(())
     }
 
-    /// Moves the remote-tracking ref to `pushed`, as `git push` records a
-    /// push, by compare-and-swap on `fetched`: a fetch that moved it in the
-    /// meantime wrote what origin holds, and stands. Only a ref under
-    /// `refs/remotes/origin/`, which classify's push verdict implies.
-    /// Returns whether it moved.
-    pub(super) fn record_push(
-        &self,
-        dir: &Path,
-        fetched: &str,
-        pushed: &str,
-    ) -> Result<bool, String> {
-        self.update_tracking(dir, self.upstream, pushed, fetched)
+    /// Moves `upstream`, the branch's remote-tracking ref, to `pushed`, as
+    /// `git push` records a push, by compare-and-swap on `fetched`: a fetch
+    /// that moved it in the meantime wrote what origin holds, and stands.
+    /// Only a ref under `refs/remotes/origin/`, which classify's push
+    /// verdict implies. Best effort (`update_tracking`).
+    pub(super) fn record_push(&self, dir: &Path, upstream: &str, fetched: &str, pushed: &str) {
+        self.update_tracking(dir, upstream, pushed, Some(fetched));
     }
 
     /// Moves `tracking`, a remote-tracking ref, to `new` by compare-and-swap
-    /// on `old` (`""`: that it doesn't exist), as `git push` records a push.
-    /// Only a ref under `refs/remotes/origin/`. Returns whether it moved.
-    fn update_tracking(
-        &self,
-        dir: &Path,
-        tracking: &str,
-        new: &str,
-        old: &str,
-    ) -> Result<bool, String> {
+    /// on `old` (`None`: that it doesn't exist, an empty value to git), as
+    /// `git push` records a push. Only a ref under `refs/remotes/origin/`.
+    ///
+    /// Best effort, whatever git makes of it: the push it records stands
+    /// whatever the ref says, and the next fetch writes what origin holds.
+    fn update_tracking(&self, dir: &Path, tracking: &str, new: &str, old: Option<&str>) {
         if !tracking.starts_with("refs/remotes/origin/") {
-            return Ok(false);
+            return;
         }
-        let out = self
-            .git
-            .run(
-                dir,
-                &[
-                    "update-ref",
-                    "--no-deref",
-                    "-m",
-                    "repos: update by push",
-                    tracking,
-                    new,
-                    old,
-                ],
-                self.opts,
-            )
-            .map_err(|e| git_message(&e))?;
-        Ok(out.status.success())
+        let _ = self.git.run(
+            dir,
+            &[
+                "update-ref",
+                "--no-deref",
+                "-m",
+                "repos: update by push",
+                tracking,
+                new,
+                old.unwrap_or_default(),
+            ],
+            self.opts,
+        );
     }
 
     /// Whether the branch in `dir` is as classified: the commit `p.oid`, a
     /// plain ref, its upstream the same remote-tracking ref, on `origin`,
     /// at `p.target` there. `false` when deleted since.
     fn reads_as_classified(&self, dir: &Path, p: &Push<'_>) -> Result<bool, String> {
-        self.reads_as(dir, p.oid, [self.upstream, "origin", p.target])
+        self.reads_as(dir, p.oid, Some([p.upstream, "origin", p.target]))
     }
 
     /// Whether the branch in `dir` holds `oid`, is a plain ref, and has
     /// `upstream` — its resolved remote-tracking ref, the remote, and the
-    /// ref there, each `""` for none. `false` when deleted since.
-    fn reads_as(&self, dir: &Path, oid: &str, upstream: [&str; 3]) -> Result<bool, String> {
-        let local = self.local();
-        let out = self
-            .git
-            .output_string(
-                dir,
-                &[
-                    "for-each-ref",
-                    "--format=%(refname)%00%(objectname)%00%(symref)%00%(upstream)%00\
-                     %(upstream:remotename)%00%(upstream:remoteref)",
-                    &local,
-                ],
-                self.opts,
-            )
-            .map_err(|e| git_message(&e))?;
+    /// ref there — or none, `None`. `false` when deleted since.
+    fn reads_as(&self, dir: &Path, oid: &str, upstream: Option<[&str; 3]>) -> Result<bool, String> {
+        let local = self.local.as_str();
+        let out = self.output_string(
+            dir,
+            &[
+                "for-each-ref",
+                "--format=%(refname)%00%(objectname)%00%(symref)%00%(upstream)%00\
+                 %(upstream:remotename)%00%(upstream:remoteref)",
+                local,
+            ],
+            self.opts,
+        )?;
+        // git prints an empty field for each part of an upstream there isn't,
+        // as `%(symref)` is empty for a plain ref
+        let [tracking, remote, remote_ref] = upstream.unwrap_or_default();
+        let expected = [local, oid, "", tracking, remote, remote_ref];
         // the pattern also matches refs under it (`<b>/x`): only the ref
-        let [tracking, remote, remote_ref] = upstream;
-        let expected = [local.as_str(), oid, "", tracking, remote, remote_ref];
         Ok(out
             .lines()
             .map(|l| l.split('\0').collect::<Vec<_>>())
-            .find(|f| f.first() == Some(&local.as_str()))
+            .find(|f| f.first() == Some(&local))
             .is_some_and(|f| f == expected))
     }
 
@@ -1053,12 +1052,12 @@ impl Step<'_> {
                 batch_ssh: lazy.batch_ssh,
             });
         }
-        self.run_in(checkout, args, opts)
+        self.run_ok(checkout, args, opts)
     }
 
-    /// Runs git in `dir`, failing with git's message.
-    fn run_in(&self, dir: &Path, args: &[&str], opts: CallOptions<'_>) -> Result<(), String> {
-        let out = self.git.run(dir, args, opts).map_err(|e| git_message(&e))?;
+    /// Runs git in `dir`, failing with git's message unless it succeeds.
+    fn run_ok(&self, dir: &Path, args: &[&str], opts: CallOptions<'_>) -> Result<(), String> {
+        let out = self.run(dir, args, opts)?;
         if out.status.success() {
             Ok(())
         } else {
@@ -1110,22 +1109,22 @@ pub(super) fn pushed_ref<'a>(stdout: &'a str, dst: &str) -> Option<PushedRef<'a>
 /// remote's refusal (a ruleset, a hook), failed with its reason and the
 /// remote's first error line. A remote whose reason reads exactly as one
 /// of git's is taken for git's: nothing was pushed either way.
-pub(super) fn rejected(why: &str, stderr: &str) -> Done {
+pub(super) fn rejected(why: &str, stderr: &str) -> Stop {
     match why {
-        "stale info" | "fetch first" | "non-fast forward" => Done::Held(SyncHold::Changed),
+        "stale info" | "fetch first" | "non-fast forward" => Stop::Held(SyncHold::Changed),
         "needs force"
         | "already exists"
         | "remote ref updated since checkout"
         | "no match"
         | "expecting report"
         | "atomic push failed"
-        | "" => Done::PushFailed(RemoteFailure::Failed {
+        | "" => Stop::PushFailed(RemoteFailure::Failed {
             message: format!(
                 "rejected: {}",
                 if why.is_empty() { "no reason" } else { why }
             ),
         }),
-        reason => Done::PushFailed(RemoteFailure::Rejected {
+        reason => Stop::PushFailed(RemoteFailure::Rejected {
             reason: reason.to_owned(),
             message: remote_error(stderr),
         }),

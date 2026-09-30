@@ -61,7 +61,7 @@ fn a_rejected_push_is_held_or_failed_by_why() {
     // the remote isn't at the fetched tip: rerun
     for why in ["stale info", "fetch first", "non-fast forward"] {
         assert!(
-            matches!(rejected(why, ""), Done::Held(SyncHold::Changed)),
+            matches!(rejected(why, ""), Stop::Held(SyncHold::Changed)),
             "{why}"
         );
     }
@@ -71,7 +71,7 @@ fn a_rejected_push_is_held_or_failed_by_why() {
                   error: failed to push some refs to 'github.com:me/app'\n";
     assert!(matches!(
         rejected("protected branch hook declined", stderr),
-        Done::PushFailed(RemoteFailure::Rejected { reason, message })
+        Stop::PushFailed(RemoteFailure::Rejected { reason, message })
             if reason == "protected branch hook declined"
                 && message.as_deref()
                     == Some("GH006: Protected branch update failed for refs/heads/main.")
@@ -79,27 +79,27 @@ fn a_rejected_push_is_held_or_failed_by_why() {
     // a host refusing non-fast-forwards words it with a hyphen, as its own
     assert!(matches!(
         rejected("non-fast-forward", "remote: error: denying non-fast-forward\n"),
-        Done::PushFailed(RemoteFailure::Rejected { reason, .. }) if reason == "non-fast-forward"
+        Stop::PushFailed(RemoteFailure::Rejected { reason, .. }) if reason == "non-fast-forward"
     ));
     assert!(matches!(
         rejected("hook declined", "remote: nope\n"),
-        Done::PushFailed(RemoteFailure::Rejected { message: Some(m), .. }) if m == "nope"
+        Stop::PushFailed(RemoteFailure::Rejected { message: Some(m), .. }) if m == "nope"
     ));
     assert!(matches!(
         rejected("hook declined", ""),
-        Done::PushFailed(RemoteFailure::Rejected { message: None, .. })
+        Stop::PushFailed(RemoteFailure::Rejected { message: None, .. })
     ));
     // git's other refusals fail with its words
     for why in ["needs force", "no match", "expecting report"] {
         assert!(matches!(
             rejected(why, ""),
-            Done::PushFailed(RemoteFailure::Failed { message })
+            Stop::PushFailed(RemoteFailure::Failed { message })
                 if message == format!("rejected: {why}")
         ));
     }
     assert!(matches!(
         rejected("", ""),
-        Done::PushFailed(RemoteFailure::Failed { message }) if message == "rejected: no reason"
+        Stop::PushFailed(RemoteFailure::Failed { message }) if message == "rejected: no reason"
     ));
 }
 
@@ -293,14 +293,7 @@ fn write_executable(path: &Path, content: &str) {
 }
 
 fn step<'a>(git: &'a Git, branch: &'a str, common_dir: &'a Path) -> Step<'a> {
-    Step::new(
-        git,
-        Path::new("/"),
-        branch,
-        "refs/remotes/origin/unused",
-        common_dir,
-        None,
-    )
+    Step::new(git, Path::new("/"), branch, common_dir, None)
 }
 
 #[test]
@@ -312,26 +305,18 @@ fn a_push_moves_the_remote_tracking_ref_only_from_the_fetched_tip() {
     let git = repo.runner();
     let common_dir = repo.dir.join(".git");
     let tracking = "refs/remotes/origin/main";
-    let step = Step::new(&git, Path::new("/"), "main", tracking, &common_dir, None);
+    let step = step(&git, "main", &common_dir);
 
     // a fetch moved it after the push: its value stands
     repo.git(&["update-ref", tracking, &meanwhile]);
-    assert_eq!(step.record_push(&repo.dir, &fetched, &pushed), Ok(false));
+    step.record_push(&repo.dir, tracking, &fetched, &pushed);
     assert_eq!(repo.git(&["rev-parse", tracking]), meanwhile);
     // at the fetched tip: moved, as `git push` records a push
     repo.git(&["update-ref", tracking, &fetched]);
-    assert_eq!(step.record_push(&repo.dir, &fetched, &pushed), Ok(true));
+    step.record_push(&repo.dir, tracking, &fetched, &pushed);
     assert_eq!(repo.git(&["rev-parse", tracking]), pushed);
     // never a ref outside origin's remote-tracking refs
-    let local = Step::new(
-        &git,
-        Path::new("/"),
-        "main",
-        "refs/heads/main",
-        &common_dir,
-        None,
-    );
-    assert_eq!(local.record_push(&repo.dir, &fetched, &pushed), Ok(false));
+    step.record_push(&repo.dir, "refs/heads/main", &fetched, &pushed);
     assert_eq!(repo.git(&["rev-parse", "main"]), fetched);
 }
 
@@ -359,7 +344,7 @@ fn a_commit_the_switch_dropped_fails_the_move() {
     let next = repo.child_of(&tip);
     assert!(matches!(
         step.switch_reset(&repo.dir, tip.clone(), next.clone()),
-        Ok(Done::Updated { from, to }) if from == tip && to == next
+        Ok(UpdateDone::Updated { from, to }) if from == tip && to == next
     ));
 }
 
@@ -393,7 +378,7 @@ fn a_head_switched_before_the_merge_fails_the_fast_forward() {
     repo.git(&["switch", "-q", "feat"]);
     assert!(matches!(
         step.merge_ff(&repo.dir, from.clone(), tip.clone()),
-        Ok(Done::Updated { from: f, to }) if f == from && to == tip
+        Ok(UpdateDone::Updated { from: f, to }) if f == from && to == tip
     ));
 }
 
@@ -412,7 +397,7 @@ fn a_branch_moved_past_the_tip_before_the_merge_is_held() {
     // git's "Already up to date", and nothing lost
     assert!(matches!(
         step.merge_ff(&repo.dir, from, tip),
-        Ok(Done::Held(SyncHold::Changed))
+        Ok(UpdateDone::Held(SyncHold::Changed))
     ));
     assert_eq!(repo.git(&["rev-parse", "main"]), past);
 }
@@ -430,7 +415,7 @@ fn a_branch_moved_to_the_tip_by_another_hand_is_held_not_moved() {
 
     assert!(matches!(
         step.switch_reset(&repo.dir, counted, tip.clone()),
-        Ok(Done::Held(SyncHold::Changed))
+        Ok(UpdateDone::Held(SyncHold::Changed))
     ));
     assert_eq!(repo.git(&["rev-parse", "main"]), tip);
 
@@ -448,7 +433,7 @@ fn a_branch_moved_to_the_tip_by_another_hand_is_held_not_moved() {
     assert_eq!(repo.git(&["rev-parse", "main@{1}"]), tip);
     assert!(matches!(
         step.switch_reset(&repo.dir, tip, next.clone()),
-        Ok(Done::Held(SyncHold::Changed))
+        Ok(UpdateDone::Held(SyncHold::Changed))
     ));
     assert_eq!(repo.git(&["rev-parse", "main"]), next);
 }
@@ -610,27 +595,27 @@ fn only_a_checkouts_calls_lift_lazy_fetching() {
         batch_ssh: false,
         repo: &url,
     });
-    let step =
-        |branch, upstream| Step::new(&git, repo.tmp.path(), branch, upstream, &common_dir, lazy);
+    let step = |branch| Step::new(&git, repo.tmp.path(), branch, &common_dir, lazy);
 
-    let updated = |done: Result<Done, String>| matches!(done, Ok(Done::Updated { .. }));
+    let updated = |done: Result<UpdateDone, String>| matches!(done, Ok(UpdateDone::Updated { .. }));
     assert!(updated(
-        step("feat", "refs/remotes/origin/feat").ff_in_place(&repo.dir)
+        step("feat").ff_in_place(&repo.dir, "refs/remotes/origin/feat")
     ));
     assert!(updated(
-        step("main", "refs/remotes/origin/main").ff_in_checkout(&repo.dir)
+        step("main").ff_in_checkout(&repo.dir, "refs/remotes/origin/main")
     ));
     assert!(updated(
-        step("old", "refs/remotes/origin/old").move_in_place(&repo.dir)
+        step("old").move_in_place(&repo.dir, "refs/remotes/origin/old")
     ));
-    let moved = step("main", "refs/remotes/origin/side").move_in_checkout(&repo.dir);
-    assert!(matches!(moved, Ok(Done::Updated { .. })), "{moved:?}");
+    let moved = step("main").move_in_checkout(&repo.dir, "refs/remotes/origin/side");
+    assert!(matches!(moved, Ok(UpdateDone::Updated { .. })), "{moved:?}");
     let oid = repo.git(&["rev-parse", "main"]);
     // held at its re-checks, past its reads
-    let pushed = step("main", "refs/remotes/origin/side").push(
+    let pushed = step("main").push(
         &repo.dir,
         &Push {
             oid: &oid,
+            upstream: "refs/remotes/origin/side",
             target: "refs/heads/main",
             commits: 1,
             shallow: false,
@@ -638,7 +623,10 @@ fn only_a_checkouts_calls_lift_lazy_fetching() {
             batch_ssh: false,
         },
     );
-    assert!(matches!(pushed, Ok(Done::Held(_))), "{pushed:?}");
+    assert!(
+        matches!(pushed, Ok(PushDone::Stopped(Stop::Held(_)))),
+        "{pushed:?}"
+    );
 
     let calls = std::fs::read_to_string(&log).unwrap();
     let mut checkouts = 0;

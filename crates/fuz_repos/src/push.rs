@@ -10,7 +10,7 @@
 //! check); read the live sessions after the fetches, the caller's own
 //! excluded; classify. Then, for each target, read the branch its checkout
 //! has checked out and act on that branch's push verdict alone, through
-//! `Actor::act` — the one push `sync` makes, with every re-check it makes
+//! `Actor::push` — the one push `sync` makes, with every re-check it makes
 //! right before (the live sessions, the branch as classified, origin's push
 //! URL, the commits ahead) and its race closures (the lease on the fetched
 //! tip, the registry's URL pushed to directly, the remote-tracking ref
@@ -58,13 +58,12 @@ use crate::git::Git;
 use crate::probe::{RepoFacts, canonical};
 use crate::registry::{Entry, RegistryDirs};
 use crate::report::{
-    BranchOutcome, CheckoutPush, EntryStatus, FetchOutcome, PushOutcome, PushReport, Sessions,
-    SyncHold,
+    CheckoutPush, EntryStatus, FetchOutcome, PushOutcome, PushReport, Sessions, SyncHold,
 };
 use crate::sessions::{Caller, LiveSessions, SessionsSource, read_live_sessions};
 use crate::state::{BranchNeedsHuman, BranchStatus, Head, Relation, SyncAction, Verdict};
 use crate::status::{EntryTiming, Reported, RunTimings, Survey, assemble_report, probe_and_assess};
-use crate::sync::{Actor, fetch_outcome};
+use crate::sync::{Actor, NewBranchUpstream, PushDone, Stop, fetch_outcome};
 
 /// How to run `push`.
 #[derive(Clone, Copy)]
@@ -397,7 +396,7 @@ fn target_outcome(
         return (branch, PushOutcome::Held { by });
     }
     let repo = || canonical(&facts.common_dir).unwrap_or_else(|| facts.common_dir.clone());
-    if let Some(set_upstream) = create {
+    if let Some(upstream) = create {
         let outcome = if t.status.archived {
             // as a push to an archived repo: a person's
             PushOutcome::NeedsHuman {
@@ -405,17 +404,17 @@ fn target_outcome(
             }
         } else {
             done.entry((repo(), name.clone()))
-                .or_insert_with(|| actor.create(t.i, facts, b, set_upstream))
+                .or_insert_with(|| actor.create(t.i, facts, b, upstream))
                 .clone()
         };
         return (branch, outcome);
     }
     let outcome = match &b.verdict {
         Verdict::Act {
-            action: action @ SyncAction::Push { .. },
+            action: SyncAction::Push { commits },
         } => done
             .entry((repo(), name.clone()))
-            .or_insert_with(|| pushed(actor.act(t.i, facts, b, *action)))
+            .or_insert_with(|| pushed(actor.push(t.i, facts, b, *commits)))
             .clone(),
         Verdict::Held {
             action: SyncAction::Push { .. },
@@ -433,12 +432,12 @@ fn target_outcome(
     (branch, outcome)
 }
 
-/// Whether `--new-branch` creates branch `b` on origin, and if so whether
-/// it sets the upstream: `Some(true)` for a branch with no upstream
-/// configured (`branch.<b>.merge` unset, whatever `.remote` says — `git
-/// push -u` sets both), `Some(false)` for one whose upstream is origin's
-/// branch of the same name, gone (deleted there, so the fetch pruned it),
-/// with commits on no remote; `None` for anything else — a live upstream
+/// Whether `--new-branch` creates branch `b` on origin, by the upstream it
+/// has: `Unset` for a branch with no upstream configured
+/// (`branch.<b>.merge` unset, whatever `.remote` says — `git push -u` sets
+/// both), `Gone` for one whose upstream is origin's branch of the same
+/// name, gone (deleted there, so the fetch pruned it), with commits on no
+/// remote; `None` for anything else — a live upstream
 /// pushes as usual, one on another remote, or origin's under another name,
 /// is a person's to push, and a gone one with nothing on no remote was
 /// merged and deleted there (GitHub deletes a merged PR's branch), so it
@@ -447,39 +446,38 @@ fn target_outcome(
 /// unless it's the branch the entry follows (`default_branch_gone`): its
 /// upstream gone is the remote's default renamed or deleted, a person's to
 /// repoint, never put back.
-fn creatable(facts: &RepoFacts, status: &EntryStatus, b: &BranchStatus) -> Option<bool> {
+fn creatable<'f>(
+    facts: &'f RepoFacts,
+    status: &EntryStatus,
+    b: &BranchStatus,
+) -> Option<NewBranchUpstream<'f>> {
     let config = facts.config.branches.get(&b.name);
     match b.relation {
-        Relation::Untracked => config.is_none_or(|c| c.merge.is_none()).then_some(true),
+        Relation::Untracked => config
+            .is_none_or(|c| c.merge.is_none())
+            .then_some(NewBranchUpstream::Unset),
         Relation::Gone if status.default_branch_gone(&b.name) => None,
         Relation::Gone => {
             let refs = facts.branches.iter().find(|f| f.branch.name == b.name)?;
-            let same = refs.branch.upstream_ref.as_deref()
-                == Some(format!("refs/remotes/origin/{}", b.name).as_str())
+            let tracking = refs.branch.upstream_ref.as_deref()?;
+            let same = tracking == format!("refs/remotes/origin/{}", b.name)
                 && refs.branch.merge_ref.as_deref()
                     == Some(format!("refs/heads/{}", b.name).as_str());
             // merged, and deleted on origin: nothing of it to put back
-            (same && b.unique_commits > 0).then_some(false)
+            (same && b.unique_commits > 0).then_some(NewBranchUpstream::Gone { tracking })
         }
         _ => None,
     }
 }
 
-/// A push's outcome as `sync` reports it, as `repos push` does.
-fn pushed(outcome: BranchOutcome) -> PushOutcome {
-    match outcome {
-        BranchOutcome::Pushed { from, to } => PushOutcome::Pushed { from, to },
+/// A push's outcome (`Actor::push`) as `repos push` reports it.
+fn pushed(result: std::result::Result<PushDone, String>) -> PushOutcome {
+    match result {
+        Ok(PushDone::Pushed { from, to }) => PushOutcome::Pushed { from, to },
         // already where the push would have put it
-        BranchOutcome::Untouched => PushOutcome::InSync,
-        BranchOutcome::Held { by, .. } => PushOutcome::Held { by },
-        BranchOutcome::PushFailed { failure } => PushOutcome::PushFailed { failure },
-        BranchOutcome::Failed { message, .. } => PushOutcome::Failed { message },
-        BranchOutcome::NeedsHuman { reason } => PushOutcome::NeedsHuman { reason },
-        // never a push's: a bug, reported rather than passed over
-        o @ (BranchOutcome::FastForwarded { .. } | BranchOutcome::Moved { .. }) => {
-            PushOutcome::Failed {
-                message: format!("the push came out as another action: {o:?}"),
-            }
-        }
+        Ok(PushDone::AlreadyThere) => PushOutcome::InSync,
+        Ok(PushDone::Stopped(Stop::Held(by))) => PushOutcome::Held { by },
+        Ok(PushDone::Stopped(Stop::PushFailed(failure))) => PushOutcome::PushFailed { failure },
+        Err(message) => PushOutcome::Failed { message },
     }
 }
