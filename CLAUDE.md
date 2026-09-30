@@ -227,6 +227,8 @@ gitops.config.ts -> local repos -> GitHub API -> repos.ts -> UI components
 - `src/lib/github.ts` - GitHub API client for PRs, CI status
 - `src/lib/fetch_repo_data.ts` - fetches remote repo metadata
 - `src/routes/repos.ts` - generated data file with all repo info
+- `src/lib/repos_status.ts` - zod mirror of the `repos status --json`
+  document (report and error document), guarded by the goldens
 - `crates/fuz_repos/` - the Rust `repos` tool: registry, git runner, probe,
   unregistered scan, busy detection, classification, sync, push (library)
   and the `repos` binary
@@ -837,7 +839,8 @@ cloning.
 The Rust test harness is described in [docs/repos.md](docs/repos.md#testing),
 along with the `repos --json` golden documents in
 `src/test/fixtures/repos_status/` (regenerated with `UPDATE_GOLDEN=1 cargo
-test --test golden`, never by hand).
+test --test golden`, never by hand). `src/test/repos_status.golden.test.ts`
+parses the status goldens with the strict schemas of `src/lib/repos_status.ts`.
 
 ## Generated Files & Caches
 

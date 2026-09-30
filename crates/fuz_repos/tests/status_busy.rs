@@ -1965,12 +1965,24 @@ fn repos_status_reads_the_config_dirs_it_is_pointed_at() {
     assert_eq!(
         json["sessions"],
         serde_json::json!({"kind": "available", "unscoped": [
-            {"pid": at_root.pid(), "cwd": path(&ws.root()), "source": "session_file"},
+            {
+                "pid": at_root.pid(),
+                "cwd": path(&ws.root()),
+                "worktree": null,
+                "process_cwd": null,
+                "source": "session_file"
+            },
         ]})
     );
     assert_eq!(
         json["entries"][0]["checkouts"][0]["busy"],
-        serde_json::json!([{"pid": other.pid(), "cwd": path(&app), "source": "session_file"}])
+        serde_json::json!([{
+            "pid": other.pid(),
+            "cwd": path(&app),
+            "worktree": null,
+            "process_cwd": null,
+            "source": "session_file"
+        }])
     );
 
     // `CLAUDE_PID` naming a live session that isn't the binary's ancestor

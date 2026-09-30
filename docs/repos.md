@@ -495,7 +495,8 @@ repos <crate> (<commit>[, dirty]) · formats: status <n>, sync <n>, push <n>
 Each document carries its own as `version` (`sync` and `push` embed a status
 report, which carries the status one). A version is bumped on any change to
 its document's shape, new fields and variants included, since consumers
-parse with strict objects and closed unions; the sync and push versions move
+parse with strict objects and closed unions; an absent value is `null`, never
+an omitted key; the sync and push versions move
 with every status bump. The crate version doesn't track the formats, so a
 consumer checks the one it parses.
 
@@ -529,7 +530,10 @@ against — regenerate them with `UPDATE_GOLDEN=1 cargo test --test golden`,
 never by hand. Each error `repos status --json` can print has its own
 document, `error_report_<kind>.json`; `sync_error_report.json` and
 `push_error_report.json` show the same document shape at those commands'
-versions.
+versions. The status documents' TS mirror, `src/lib/repos_status.ts`, is
+checked by parsing every status golden with its strict schemas
+(`src/test/repos_status.golden.test.ts`); the sync and push documents have
+no TS consumer yet.
 
 The goldens hold to two checks. Every report they build is checked for its
 structure (`crates/fuz_repos/tests/golden/invariants.rs`): keys and dirs

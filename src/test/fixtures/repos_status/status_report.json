@@ -1,5 +1,5 @@
 {
-	"version": 16,
+	"version": 17,
 	"workspace": "/home/me/dev",
 	"registry": "/home/me/dev/repos.toml",
 	"fetched": true,
@@ -9,16 +9,22 @@
 			{
 				"pid": 1200,
 				"cwd": "/home/me/dev",
+				"worktree": null,
+				"process_cwd": null,
 				"source": "session_file"
 			},
 			{
 				"pid": 1300,
 				"cwd": "/home/me/notes",
+				"worktree": null,
+				"process_cwd": null,
 				"source": "roster_worker"
 			},
 			{
 				"pid": 1500,
 				"cwd": "/home/me/dev/webref/src",
+				"worktree": null,
+				"process_cwd": null,
 				"source": "session_file"
 			}
 		]
@@ -105,6 +111,7 @@
 						{
 							"pid": 4242,
 							"cwd": "/home/me/dev",
+							"worktree": null,
 							"process_cwd": "/home/me/dev/app/.claude/worktrees/agent/src",
 							"source": "session_file"
 						}
@@ -387,6 +394,8 @@
 						{
 							"pid": 1400,
 							"cwd": "/home/me/hand",
+							"worktree": null,
+							"process_cwd": null,
 							"source": "session_file"
 						}
 					]
@@ -419,6 +428,7 @@
 							"pid": 4343,
 							"cwd": "/home/me/dev/app-gone/src",
 							"worktree": "/home/me/dev/app-gone",
+							"process_cwd": null,
 							"source": "roster_worker"
 						}
 					]

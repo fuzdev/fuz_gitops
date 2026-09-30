@@ -5,11 +5,15 @@
 			{
 				"pid": 1200,
 				"cwd": "/home/me/dev",
+				"worktree": null,
+				"process_cwd": null,
 				"source": "session_file"
 			},
 			{
 				"pid": 1300,
 				"cwd": "/home/me/notes",
+				"worktree": null,
+				"process_cwd": null,
 				"source": "roster_worker"
 			}
 		]

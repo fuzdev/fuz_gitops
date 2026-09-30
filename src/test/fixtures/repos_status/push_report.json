@@ -1,7 +1,7 @@
 {
-	"version": 6,
+	"version": 7,
 	"status": {
-		"version": 16,
+		"version": 17,
 		"workspace": "/home/me/dev",
 		"registry": "/home/me/dev/repos.toml",
 		"fetched": true,
@@ -72,6 +72,8 @@
 							{
 								"pid": 4242,
 								"cwd": "/home/me/wt/app-feat",
+								"worktree": null,
+								"process_cwd": null,
 								"source": "session_file"
 							}
 						]

@@ -103,10 +103,8 @@ pub struct Session {
     pub cwd: String,
     /// The worktree a roster worker was dispatched into (its recorded
     /// `worktreePath`), where it works too.
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub worktree: Option<String>,
     /// Where its process is now (`/proc/<pid>/cwd`), when that's not `cwd`.
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub process_cwd: Option<String>,
     pub source: SessionSource,
 }

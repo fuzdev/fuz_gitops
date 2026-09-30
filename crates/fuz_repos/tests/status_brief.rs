@@ -431,7 +431,13 @@ fn an_agent_worktree_hears_only_of_sessions_working_in_it() {
     assert_eq!(
         busy_in_wt1,
         Some(serde_json::json!([
-            {"pid": other.pid(), "cwd": app.to_str().unwrap(), "source": "session_file"}
+            {
+                "pid": other.pid(),
+                "cwd": app.to_str().unwrap(),
+                "worktree": null,
+                "process_cwd": null,
+                "source": "session_file"
+            }
         ]))
     );
 
