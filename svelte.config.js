@@ -14,7 +14,7 @@ export default {
 	kit: {
 		adapter: adapter(),
 		paths: { relative: false }, // use root-absolute paths for SSR path comparison: https://svelte.dev/docs/kit/configuration#paths
-		alias: { $routes: 'src/routes', '@fuzdev/fuz_gitops': 'src/lib' },
+		alias: { $routes: 'src/routes' },
 		csp: {
 			directives: create_csp_directives({
 				extend: [csp_directives_of_fuzdev]

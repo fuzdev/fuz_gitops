@@ -1,0 +1,67 @@
+{
+	"version": 18,
+	"error": {
+		"kind": "registry_invalid",
+		"issues": [
+			{
+				"kind": "repo_not_owned",
+				"key": "kit",
+				"account": "sveltejs"
+			},
+			{
+				"kind": "fork_not_owned",
+				"key": "wpt"
+			},
+			{
+				"kind": "dir_not_a_name",
+				"entry": {
+					"kind": "repo",
+					"key": "app"
+				},
+				"dir": "../app"
+			},
+			{
+				"kind": "dir_claimed_twice",
+				"dir": "app",
+				"first": {
+					"kind": "repo",
+					"key": "app"
+				},
+				"second": {
+					"kind": "reference",
+					"key": "app-ref"
+				}
+			},
+			{
+				"kind": "key_in_both",
+				"key": "gro"
+			},
+			{
+				"kind": "key_is_other_dir",
+				"key": "site",
+				"entry": {
+					"kind": "repo",
+					"key": "www"
+				}
+			},
+			{
+				"kind": "unknown_checkout_ref",
+				"key": "app",
+				"field": "requires",
+				"target": "nope"
+			},
+			{
+				"kind": "self_ref",
+				"key": "app",
+				"field": "consults"
+			},
+			{
+				"kind": "requires_and_consults",
+				"key": "app",
+				"target": "gro"
+			}
+		],
+		"message": "invalid registry at /home/me/dev/repos.toml:\n  repo `kit` sits under `sveltejs`, not an owner — a third-party clone belongs in [references]\n  reference `wpt` sets `upstream` but its url isn't owned — a fork is an owned repo\n  repo `app` has dir `../app`, which isn't a plain name — an entry's dir is one directory under the workspace root\n  reference `app-ref` claims dir `app`, already claimed by repo `app`\n  `gro` is both a repo and a reference\n  key `site` is the dir of repo `www` — a target naming it is ambiguous\n  repo `app` requires `nope`, which is neither a repo nor a reference\n  repo `app` consults itself\n  repo `app` both requires and consults `gro` — pick one",
+		"hint": "fix each issue in the registry; nothing is probed until it validates"
+	}
+}

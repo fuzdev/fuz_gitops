@@ -45,3 +45,46 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npx @fuzdev/gro check --workspace --build
+
+  # The Rust `repos` tool (crates/fuz_repos), a Cargo workspace beside the
+  # SvelteKit app that gro never invokes, so it gets its own job.
+  rust:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      # persist-credentials: false keeps the GITHUB_TOKEN out of .git/config (no
+      # step here pushes via git).
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          persist-credentials: false
+
+      # The runner's preinstalled rustup installs the toolchain and components
+      # pinned in rust-toolchain.toml; any rustup 1.28+ reads it with no
+      # arguments, so skip self-updating it.
+      - name: Install Rust
+        run: |
+          rustup toolchain install --no-self-update
+          rustup show active-toolchain
+          cargo --version
+
+      # The integration tests drive real git over fixture repos and need 2.44
+      # or newer; fail here, naming the version, rather than deep in a test.
+      - name: Check git version
+        run: |
+          git --version
+          version=$(git --version | awk '{print $3}')
+          if ! printf '%s\n%s\n' 2.44.0 "$version" | sort -V -C; then
+            echo "::error::the fuz_repos tests need git 2.44 or newer, found $version"
+            exit 1
+          fi
+
+      - name: Format
+        run: cargo fmt --check
+
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
+
+      # --no-fail-fast: report every failing test binary, not just the first.
+      - name: Test
+        run: cargo test --workspace --locked --no-fail-fast

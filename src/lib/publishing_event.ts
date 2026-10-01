@@ -21,16 +21,17 @@ import { z } from 'zod';
  * failure kind without parsing the message.
  */
 export const PublishingErrorCode = z.enum([
+	// the publish step failed — its cause is in the message, not yet classified further
 	'publish',
+	// the published version never appeared on the npm registry within the wait
 	'network',
-	'auth',
-	'dependency',
-	'build',
 	// the real published version diverged from the frozen plan's prediction — an
 	// invariant violation, distinct from an ordinary publish failure (see fail-loud
 	// drift detection in `multi_repo_publisher.ts`)
 	'drift',
-	'other'
+	// the repo wasn't ready when re-checked right before its `gro publish` (origin moved,
+	// a tracked edit, a live session, …) — aborted before any npm side effect
+	'not_ready'
 ]);
 export type PublishingErrorCode = z.infer<typeof PublishingErrorCode>;
 

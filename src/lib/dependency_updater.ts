@@ -111,6 +111,8 @@ export const update_package_json = async (
 		throw new Error(`Failed to write package.json: ${write_result.message}`);
 	}
 
+	const staged: Array<string> = [];
+
 	// Create changeset if we have published version info
 	if (published_versions && published_versions.size > 0) {
 		// Build dependency updates info for changeset
@@ -153,6 +155,7 @@ export const update_package_json = async (
 			if (!add_result.ok) {
 				throw new Error(`Failed to stage changeset: ${add_result.message}`);
 			}
+			staged.push(changeset_path);
 		}
 	}
 
@@ -161,9 +164,12 @@ export const update_package_json = async (
 	if (!add_pkg_result.ok) {
 		throw new Error(`Failed to stage package.json: ${add_pkg_result.message}`);
 	}
+	staged.push('package.json');
 
+	// commit only what this staged, so nothing else in the index rides along
 	const commit_result = await git_ops.commit({
 		message: `update dependencies after publishing`,
+		files: staged,
 		cwd: repo.repo_dir
 	});
 	if (!commit_result.ok) {

@@ -2,13 +2,11 @@ import type { Task } from '@fuzdev/gro';
 import { z } from 'zod';
 import { styleText as st } from 'node:util';
 
-import { get_gitops_ready } from './gitops_task_helpers.ts';
-import { analyze_repos, type DependencyAnalysis } from './graph_validation.ts';
-import {
-	generate_publishing_plan,
-	log_publishing_plan,
-	type PublishingPlan
-} from './publishing_plan.ts';
+import { get_gitops_ready, log_readiness_block } from './gitops_task_helpers.ts';
+import { analyze_repos } from './graph_validation.ts';
+import type { DependencyAnalysis } from './dependency_graph.ts';
+import { generate_publishing_plan, type PublishingPlan } from './publishing_plan.ts';
+import { log_publishing_plan } from './publishing_plan_logging.ts';
 import { execute_publishing_plan, type PublishingOptions } from './multi_repo_publisher.ts';
 import { log_dependency_analysis } from './log_helpers.ts';
 import { GITOPS_CONFIG_PATH_DEFAULT } from './gitops_constants.ts';
@@ -20,18 +18,14 @@ export const Args = z.strictObject({
 		.string()
 		.meta({ description: 'path to the gitops config file, absolute or relative to the cwd' })
 		.default(GITOPS_CONFIG_PATH_DEFAULT),
-	dir: z
+	registry: z
 		.string()
-		.meta({ description: 'path containing the repos, defaults to the parent of the config dir' })
-		.optional(),
-	verbose: z.boolean().meta({ description: 'show additional details' }).default(false),
-	sync: z
-		.boolean()
 		.meta({
 			description:
-				'sync repos (switch branch, pull, install) before validating instead of reading the working tree as-is'
+				'path to the repos.toml registry, when `repos` would not find it walking up from the cwd'
 		})
-		.default(false)
+		.optional(),
+	verbose: z.boolean().meta({ description: 'show additional details' }).default(false)
 });
 export type Args = z.infer<typeof Args>;
 
@@ -41,7 +35,7 @@ export const task: Task<Args> = {
 	summary:
 		'validate gitops configuration by running all read-only commands and checking for issues',
 	run: async ({ args, log }) => {
-		const { config, dir, verbose, sync } = args;
+		const { config, registry, verbose } = args;
 
 		log.info(st('cyan', 'Running Gitops Validation Suite'));
 		log.info(st('dim', 'This runs all read-only commands and checks for consistency.'));
@@ -59,10 +53,11 @@ export const task: Task<Args> = {
 
 		const start_time = Date.now();
 
-		// Load repos once (shared by all commands); read the working tree as-is unless `--sync`
+		// Load repos once (shared by all commands), as they sit, and say which aren't at rest
 		log.info(st('dim', 'Loading repositories...'));
-		const { local_repos } = await get_gitops_ready({ config, dir, download: false, sync, log });
+		const { local_repos } = await get_gitops_ready({ config, registry, log });
 		log.info(st('dim', `   Found ${local_repos.length} local repos`));
+		log_readiness_block(local_repos, log);
 
 		// 1. Run gitops_analyze
 		log.info(st('yellow', 'Running gitops_analyze...'));
@@ -203,21 +198,16 @@ export const task: Task<Args> = {
 			log.error(st('red', `  ✗ gitops_publish (dry run) failed: ${error}`));
 		}
 
-		// 4. Reconcile each repo's declared `ci` against actual workflow files on disk.
+		// 4. Reconcile each repo's registry-declared `ci` against actual workflow files on disk.
 		log.info(st('yellow', 'Running ci_reconcile...'));
 		const ci_start = Date.now();
 		try {
 			const ci_drift = reconcile_ci(
 				local_repos.map((r) => ({
-					repo_url: r.repo_config.repo_url,
-					ci: r.repo_config.ci,
+					repo_url: r.entry.url,
+					ci: r.entry.ci,
 					has_workflows: repo_has_workflows(r.repo_dir),
-					// TODO: `local_repos` only ever holds checked-out repos — a missing repo
-					// throws in `local_repos_ensure` before we reach here — so `checkable` is
-					// always `true` today. The gate exists for a future caller that loads a
-					// partial set; until then the skip path is inert and untested.
-					checkable: true,
-					archived: r.repo_config.archived
+					archived: r.entry.archived
 				}))
 			);
 			const ci_duration = Date.now() - ci_start;

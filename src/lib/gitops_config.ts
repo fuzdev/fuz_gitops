@@ -1,144 +1,33 @@
 /**
- * Configuration types and normalization for gitops multi-repo management.
+ * The gitops config: which repos a project's gitops tasks work over, as a flat
+ * list of `repos.toml` registry keys.
  *
- * Two-phase configuration system:
- * - `RawGitopsConfig` - User-friendly format with optional fields and flexible types
- * - `GitopsConfig` - Internal format with required fields and strict types
- *
- * This allows users to provide minimal configs (e.g., just URLs as strings) while
- * the system works with normalized configs internally for type safety.
+ * Every other fact about a repo — its dir, URL, branch, visibility, `ci`, and
+ * `archived` — comes from the registry, through `repos status --json`, so the
+ * config declares nothing that could drift from it.
  *
  * @module
  */
 
-import type { Url } from '@fuzdev/fuz_util/url.ts';
 import { existsSync } from 'node:fs';
-import { strip_end } from '@fuzdev/fuz_util/string.ts';
-import type { GitBranch } from '@fuzdev/fuz_util/git.ts';
+import { z } from 'zod';
 
-import { DEFAULT_REPOS_DIR } from './paths.ts';
+import type { ReposEntryStatus } from './repos_status.ts';
 
-export interface GitopsConfig {
-	repos: Array<GitopsRepoConfig>;
-	repos_dir: string;
-}
-
-export type CreateGitopsConfig = (
-	base_config: GitopsConfig
-) => RawGitopsConfig | Promise<RawGitopsConfig>;
-
-export interface RawGitopsConfig {
-	repos?: Array<Url | RawGitopsRepoConfig>;
-	repos_dir?: string;
-}
-
-/**
- * Visibility of a repo on its host, mirroring the host's own model
- * (e.g. GitHub's `visibility` field). Named to avoid confusion with the npm
- * `package.json` `private` flag, which is a separate publishing concern.
- */
-export type GitopsRepoVisibility = 'public' | 'private';
-
-export interface GitopsRepoConfig {
-	/**
-	 * The HTTPS URL to the repo. Does not include a `.git` suffix.
-	 * @example
-	 * ```ts
-	 * 'https://github.com/fuzdev/fuz_ui'
-	 * ```
-	 */
-	repo_url: Url;
-
-	/**
-	 * Relative or absolute path to the repo's local directory.
-	 * If `null`, the directory is inferred from the URL and cwd.
-	 * @example
-	 * ```ts
-	 * 'relative/path/to/repo'
-	 * ```
-	 * @example
-	 * ```ts
-	 * '/absolute/path/to/repo'
-	 * ```
-	 */
-	repo_dir: string | null;
-
-	/**
-	 * The branch name to use when fetching the repo. Defaults to `main`.
-	 */
-	branch: GitBranch;
-
-	/**
-	 * Visibility of the repo on its host. Defaults to `'public'`.
-	 */
-	visibility: GitopsRepoVisibility;
-
-	/**
-	 * Whether the repo runs CI. Defaults to `true` for public repos and `false`
-	 * for private repos, unless set explicitly.
-	 */
-	ci: boolean;
-
-	/**
-	 * Whether the repo is archived (read-only) on its host. Defaults to `false`.
-	 */
-	archived: boolean;
-}
-
-export interface RawGitopsRepoConfig {
-	repo_url: Url;
-	repo_dir?: string | null;
-	branch?: GitBranch;
-	/** Visibility of the repo on its host. Defaults to `'public'`. */
-	visibility?: GitopsRepoVisibility;
-	/** Whether the repo runs CI. Defaults to `true` for public, `false` for private. */
-	ci?: boolean;
-	/** Whether the repo is archived (read-only) on its host. Defaults to `false`. */
-	archived?: boolean;
-}
-
-export const create_empty_gitops_config = (): GitopsConfig => ({
-	repos: [],
-	repos_dir: DEFAULT_REPOS_DIR
+/** A project's gitops config. */
+export const GitopsConfig = z.strictObject({
+	repos: z
+		.array(z.string().min(1))
+		.meta({ description: 'repos.toml registry keys of owned repos, in the order tasks list them' })
 });
+export type GitopsConfig = z.infer<typeof GitopsConfig>;
 
-/**
- * Transforms a `RawGitopsConfig` to the more strict `GitopsConfig`.
- * This allows users to provide a more relaxed config.
- */
-export const normalize_gitops_config = (raw_config: RawGitopsConfig): GitopsConfig => {
-	const empty_config = create_empty_gitops_config();
-	// All of the raw config properties are optional,
-	// so fall back to the empty values when `undefined`.
-	const { repos, repos_dir } = raw_config;
-	return {
-		repos: repos ? repos.map((r) => parse_fuz_repo_config(r)) : empty_config.repos,
-		// Default to two dirs up from config if not specified
-		repos_dir: repos_dir ?? DEFAULT_REPOS_DIR
-	};
-};
+/** A config module's default export in function form. */
+export type CreateGitopsConfig = () => GitopsConfig | Promise<GitopsConfig>;
 
-const parse_fuz_repo_config = (r: Url | RawGitopsRepoConfig): GitopsRepoConfig => {
-	if (typeof r === 'string') {
-		return {
-			repo_url: r,
-			repo_dir: null,
-			branch: 'main' as GitBranch, // TODO @zts use flavored for GitBranch
-			visibility: 'public',
-			ci: true,
-			archived: false
-		};
-	}
-	const visibility = r.visibility ?? 'public';
-	return {
-		repo_url: strip_end(r.repo_url, '.git'),
-		repo_dir: r.repo_dir ?? null,
-		branch: r.branch ?? ('main' as GitBranch), // TODO @zts use flavored for GitBranch
-		visibility,
-		ci: r.ci ?? visibility === 'public',
-		archived: r.archived ?? false
-	};
-};
+export interface GitopsConfigModule {
+	readonly default: GitopsConfig | CreateGitopsConfig;
+}
 
 /**
  * The private repos a public host package must not publish. `gitops_sync` writes
@@ -146,32 +35,79 @@ const parse_fuz_repo_config = (r: Url | RawGitopsRepoConfig): GitopsRepoConfig =
  * `repos.json` — a public site's data when the host package is public — so a
  * private repo in that config would leak. Empty when the host is private.
  *
- * @param repos - the configured repos
+ * @param entries - the configured repos' registry entries
  * @param host_is_private - whether the host `package.json` sets `private: true`
  */
 export const gitops_config_leaked_private_repos = (
-	repos: ReadonlyArray<GitopsRepoConfig>,
+	entries: ReadonlyArray<ReposEntryStatus>,
 	host_is_private: boolean
-): Array<GitopsRepoConfig> =>
-	host_is_private ? [] : repos.filter((r) => r.visibility === 'private');
+): Array<ReposEntryStatus> =>
+	host_is_private ? [] : entries.filter((e) => e.visibility === 'private');
 
-export interface GitopsConfigModule {
-	readonly default: RawGitopsConfig | CreateGitopsConfig;
-}
-
+/**
+ * Loads a gitops config module and validates it.
+ *
+ * @returns the config, or `null` when no file exists at `config_path`
+ * @throws {Error} if the module's default export isn't a valid config
+ */
 export const load_gitops_config = async (config_path: string): Promise<GitopsConfig | null> => {
 	if (!existsSync(config_path)) {
 		// No user config file found.
 		return null;
 	}
-	// Import the user's `gitops.config.ts`.
-	const config_module = await import(config_path);
+	// Import the user's `gitops.config.ts`. An import or call failure keeps its
+	// stack, which carries the config's file and line; validation errors don't need one.
+	let config_module: unknown;
+	try {
+		config_module = await import(config_path);
+	} catch (err) {
+		throw Error(`Failed to import the gitops config at ${config_path}:\n${error_with_stack(err)}`);
+	}
 	validate_gitops_config_module(config_module, config_path);
-	return normalize_gitops_config(
-		typeof config_module.default === 'function'
-			? await config_module.default(create_empty_gitops_config())
-			: config_module.default
-	);
+	let raw: unknown;
+	try {
+		raw =
+			typeof config_module.default === 'function'
+				? await config_module.default()
+				: config_module.default;
+	} catch (err) {
+		throw Error(`The gitops config at ${config_path} threw:\n${error_with_stack(err)}`);
+	}
+	return parse_gitops_config(raw, config_path);
+};
+
+const error_with_stack = (err: unknown): string =>
+	err instanceof Error ? (err.stack ?? err.message) : String(err);
+
+/**
+ * Validates a loaded config value: registry keys, each listed once.
+ *
+ * @throws {Error} naming the config and what's wrong with it
+ */
+export const parse_gitops_config = (raw: unknown, config_path: string): GitopsConfig => {
+	const parsed = GitopsConfig.safeParse(raw);
+	if (!parsed.success) {
+		const hint =
+			"\n  `repos` lists repos.toml registry keys; a repo's url, dir, branch, visibility, ci, and archived come from the registry";
+		throw Error(
+			`Invalid gitops config at ${config_path}:\n${z.prettifyError(parsed.error)}${hint}`
+		);
+	}
+	const config = parsed.data;
+	const problems: Array<string> = [];
+	const seen: Set<string> = new Set();
+	for (const key of config.repos) {
+		if (key.includes('/')) {
+			problems.push(`\`${key}\` isn't a registry key — list repos by their repos.toml key`);
+		} else if (seen.has(key)) {
+			problems.push(`\`${key}\` is listed more than once`);
+		}
+		seen.add(key);
+	}
+	if (problems.length) {
+		throw Error(`Invalid gitops config at ${config_path}:\n  ${problems.join('\n  ')}`);
+	}
+	return config;
 };
 
 export const validate_gitops_config_module: (
@@ -180,10 +116,10 @@ export const validate_gitops_config_module: (
 ) => asserts config_module is GitopsConfigModule = (config_module, config_path) => {
 	const config = config_module.default;
 	if (!config) {
-		throw Error(`Invalid Fuz config module at ${config_path}: expected a default export`);
+		throw Error(`Invalid gitops config module at ${config_path}: expected a default export`);
 	} else if (!(typeof config === 'function' || typeof config === 'object')) {
 		throw Error(
-			`Invalid Fuz config module at ${config_path}: the default export must be a function or object`
+			`Invalid gitops config module at ${config_path}: the default export must be a function or object`
 		);
 	}
 };

@@ -83,7 +83,7 @@ Breaking API change`
 				name: '@test/util_d',
 				version: '1.0.0'
 			}
-			// No changesets - should be in info section
+			// No changesets - should be in no_changes
 		}
 	],
 
@@ -117,7 +117,7 @@ Breaking API change`
 		breaking_cascades: {},
 
 		// util_d has no changes
-		info: ['@test/util_d'],
+		no_changes: ['@test/util_d'],
 
 		warnings: [],
 		errors: []

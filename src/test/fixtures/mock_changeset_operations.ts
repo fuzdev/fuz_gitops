@@ -10,7 +10,7 @@ import type { RepoFixtureSet } from './repo_fixture_types.ts';
 /**
  * Create mock changeset operations that read from fixture data.
  */
-export const create_mock_changeset_ops = (fixture: RepoFixtureSet): ChangesetOperations => {
+export const create_fixture_changeset_ops = (fixture: RepoFixtureSet): ChangesetOperations => {
 	// Create lookup map for quick access
 	const repos_by_name = new Map(fixture.repos.map((repo) => [repo.package_json.name, repo]));
 

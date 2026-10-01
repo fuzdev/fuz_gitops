@@ -17,8 +17,10 @@ import {
 	create_mock_package_json_files,
 	create_tracking_process_ops,
 	create_mock_git_ops,
-	create_preflight_mock,
-	create_populated_fs_ops
+	create_populated_fs_ops,
+	create_mock_repos_entry,
+	create_ready_repos_ops,
+	create_stream_log
 } from './test_helpers.ts';
 
 test('wetrun=false predicts versions without publishing', async () => {
@@ -39,8 +41,7 @@ test('wetrun=false predicts versions without publishing', async () => {
 				}
 				return null;
 			}
-		},
-		preflight: create_preflight_mock(['pkg-a', 'pkg-b'])
+		}
 	});
 
 	const result = await publish_repos(repos, {
@@ -68,7 +69,7 @@ test('always fails fast on publish errors', async () => {
 	let publish_attempt = 0;
 	const mock_ops = create_mock_gitops_ops({
 		process: {
-			spawn: async (options) => {
+			run_interactive: async (options) => {
 				if (options.cmd === 'gro' && options.args[0] === 'publish') {
 					publish_attempt++;
 					// Make pkg-a fail
@@ -79,7 +80,6 @@ test('always fails fast on publish errors', async () => {
 				return { ok: true };
 			}
 		},
-		preflight: create_preflight_mock(['pkg-a', 'pkg-b', 'pkg-c']),
 		fs: mock_fs_ops
 	});
 
@@ -118,8 +118,7 @@ test('handles breaking change cascades when wetrun=false', async () => {
 				}
 				return null;
 			}
-		},
-		preflight: create_preflight_mock(['pkg-core', 'pkg-mid', 'pkg-app'])
+		}
 	});
 
 	const result = await publish_repos(repos, {
@@ -178,7 +177,6 @@ test("wetrun publishes a breaking cascade with the plan's escalated versions", a
 				return null;
 			}
 		},
-		preflight: create_preflight_mock(['pkg-core', 'pkg-mid', 'pkg-app']),
 		fs: mock_fs_ops
 	});
 
@@ -237,7 +235,6 @@ test('wetrun fails loud and aborts when a publish drifts from the plan', async (
 				return null;
 			}
 		},
-		preflight: create_preflight_mock(['pkg-core', 'pkg-mid', 'pkg-app']),
 		fs: mock_fs_ops
 	});
 
@@ -278,7 +275,6 @@ test('skips repos without changesets', async () => {
 				value: options.repo.library.name === 'pkg-a'
 			})
 		},
-		preflight: create_preflight_mock(['pkg-a'], ['pkg-b', 'pkg-c']),
 		fs: mock_fs_ops
 	});
 
@@ -310,7 +306,6 @@ test('publishes in dependency order', async () => {
 
 	const mock_ops = create_mock_gitops_ops({
 		process: process_ops,
-		preflight: create_preflight_mock(['lib', 'middleware', 'app']),
 		fs: mock_fs_ops
 	});
 
@@ -333,15 +328,13 @@ test('waits for npm propagation after each publish', async () => {
 	const wait_calls: Array<{ pkg: string; version: string }> = [];
 
 	const mock_ops = create_mock_gitops_ops({
-		preflight: create_preflight_mock(['pkg-a', 'pkg-b']),
 		npm: {
 			wait_for_package: async (options) => {
 				wait_calls.push({ pkg: options.pkg, version: options.version });
 				return { ok: true };
 			},
 			check_auth: async () => ({ ok: true, username: 'testuser' }),
-			check_registry: async () => ({ ok: true }),
-			install: async () => ({ ok: true })
+			check_registry: async () => ({ ok: true })
 		},
 		fs: mock_fs_ops
 	});
@@ -364,9 +357,8 @@ test('updates prod dependencies after publishing (Phase 1)', async () => {
 	const git_commits: Array<{ cwd: string; message: string }> = [];
 
 	const mock_ops = create_mock_gitops_ops({
-		preflight: create_preflight_mock(['lib'], ['app']),
 		git: create_mock_git_ops({
-			add_and_commit: async (options) => {
+			commit: async (options) => {
 				git_commits.push({ cwd: options.cwd || '', message: options.message });
 				return { ok: true };
 			}
@@ -376,9 +368,8 @@ test('updates prod dependencies after publishing (Phase 1)', async () => {
 
 	await publish_repos(repos, { wetrun: true, ops: mock_ops });
 
-	// lib has changesets, so publishing cascades a dependency update to its dependent
-	// (Actual behavior depends on implementation - tests document expected outcome)
-	assert.ok(git_commits.length >= 0);
+	// lib publishes, so its dependent's range is rewritten and committed in the dependent
+	assert.ok(git_commits.some((c) => c.cwd === '/test/app'));
 });
 
 test('updates dev dependencies without republishing (Phase 2)', async () => {
@@ -397,7 +388,6 @@ test('updates dev dependencies without republishing (Phase 2)', async () => {
 				value: options.repo.library.name === 'test-utils'
 			})
 		},
-		preflight: create_preflight_mock(['test-utils'], ['lib']),
 		fs: mock_fs_ops
 	});
 
@@ -440,7 +430,6 @@ test('dev-dep-only update bumps package.json without creating a changeset', asyn
 				value: options.repo.library.name === 'test-utils'
 			})
 		},
-		preflight: create_preflight_mock(['test-utils'], ['lib']),
 		fs: fs_ops
 	});
 
@@ -463,7 +452,6 @@ test('deploys all repos when deploy flag is set (Phase 3)', async () => {
 	const { ops: process_ops, get_commands_by_type } = create_tracking_process_ops();
 
 	const mock_ops = create_mock_gitops_ops({
-		preflight: create_preflight_mock(['pkg-a', 'pkg-b']),
 		process: process_ops,
 		fs: {
 			readFile: async (options) => ({
@@ -503,7 +491,6 @@ test('deploys only repos with changes (skips unchanged repos)', async () => {
 	const { ops: process_ops, get_commands_by_type } = create_tracking_process_ops();
 
 	const mock_ops = create_mock_gitops_ops({
-		preflight: create_preflight_mock(['lib'], ['app-with-dep', 'app-no-dep', 'util-isolated']),
 		changeset: {
 			has_changesets: async (options) => ({
 				ok: true,
@@ -580,7 +567,6 @@ test('no changes results in no deployment', async () => {
 	const { ops: process_ops, get_commands_by_type } = create_tracking_process_ops();
 
 	const mock_ops = create_mock_gitops_ops({
-		preflight: create_preflight_mock([], ['pkg-a', 'pkg-b', 'pkg-c']), // No changesets
 		changeset: {
 			has_changesets: async () => ({ ok: true, value: false }) // No changesets
 		},
@@ -612,7 +598,6 @@ test('applies version strategy (caret vs tilde vs exact)', async () => {
 	const mock_fs_ops = create_populated_fs_ops(repos);
 
 	const mock_ops = create_mock_gitops_ops({
-		preflight: create_preflight_mock(['lib']),
 		fs: mock_fs_ops
 	});
 
@@ -644,7 +629,6 @@ test('handles 4-level transitive dependency chain', async () => {
 
 	const mock_ops = create_mock_gitops_ops({
 		process: process_ops,
-		preflight: create_preflight_mock(['level-1', 'level-2', 'level-3', 'level-4']),
 		fs: {
 			readFile: async (options) => ({
 				ok: true,
@@ -676,7 +660,6 @@ test('handles mixed prod and dev deps on same package', async () => {
 	const mock_fs_ops = create_populated_fs_ops(repos);
 
 	const mock_ops = create_mock_gitops_ops({
-		preflight: create_preflight_mock(['shared']),
 		fs: mock_fs_ops
 	});
 
@@ -693,7 +676,6 @@ test('reports correct duration in result', async () => {
 	const mock_fs_ops = create_populated_fs_ops(repos);
 
 	const mock_ops = create_mock_gitops_ops({
-		preflight: create_preflight_mock(['pkg-a']),
 		fs: mock_fs_ops
 	});
 
@@ -712,7 +694,7 @@ test('wetrun=false skips preflight checks', async () => {
 		preflight: {
 			run_preflight_checks: async () => {
 				preflight_called = true;
-				return create_preflight_mock(['pkg-a']).run_preflight_checks();
+				return { ok: true, warnings: [], errors: [] };
 			}
 		}
 	});
@@ -723,20 +705,50 @@ test('wetrun=false skips preflight checks', async () => {
 	assert.strictEqual(preflight_called, false);
 });
 
+test("wetrun hands preflight the plan's version changes, explicit and auto alike", async () => {
+	const repos: Array<LocalRepo> = [
+		create_mock_repo({ name: 'lib', version: '1.0.0' }),
+		create_mock_repo({ name: 'app', version: '1.0.0', deps: { lib: '^1.0.0' } }),
+		create_mock_repo({ name: 'idle', version: '1.0.0' })
+	];
+
+	let preflight_names: Array<string> | null = null;
+	const mock_ops = create_mock_gitops_ops({
+		changeset: {
+			has_changesets: async (options) => ({ ok: true, value: options.repo.library.name === 'lib' }),
+			predict_next_version: async (options) =>
+				options.repo.library.name === 'lib'
+					? { ok: true, version: '2.0.0', bump_type: 'major' as const }
+					: null
+		},
+		preflight: {
+			run_preflight_checks: async (options) => {
+				preflight_names = options.version_changes.map((vc) => vc.package_name);
+				return { ok: true, warnings: [], errors: [] };
+			}
+		},
+		fs: create_populated_fs_ops(repos)
+	});
+
+	await publish_repos(repos, { wetrun: true, ops: mock_ops });
+
+	// `lib` from its changeset, `app` from the auto-changeset its breaking dep requires;
+	// `idle` has nothing to publish, so preflight never sees it
+	assert.deepEqual(preflight_names, ['lib', 'app']);
+});
+
 test('handles npm propagation failure gracefully', async () => {
 	const repos: Array<LocalRepo> = [create_mock_repo({ name: 'pkg-a', version: '1.0.0' })];
 
 	const mock_fs_ops = create_populated_fs_ops(repos);
 
 	const mock_ops = create_mock_gitops_ops({
-		preflight: create_preflight_mock(['pkg-a']),
 		npm: {
 			wait_for_package: async () => {
 				throw new Error('Timeout waiting for package');
 			},
 			check_auth: async () => ({ ok: true, username: 'testuser' }),
-			check_registry: async () => ({ ok: true }),
-			install: async () => ({ ok: true })
+			check_registry: async () => ({ ok: true })
 		},
 		fs: mock_fs_ops
 	});
@@ -758,12 +770,12 @@ test('handles deploy failures without stopping', async () => {
 	const mock_fs = create_mock_package_json_files(repos);
 	const { ops: process_ops, get_commands_by_type } = create_tracking_process_ops();
 
-	// Override spawn to make pkg-a deploy fail
-	const original_spawn = process_ops.spawn;
-	process_ops.spawn = async (spawn_args) => {
-		const result = await original_spawn(spawn_args);
-		if (spawn_args.cmd === 'gro' && spawn_args.args[0] === 'deploy') {
-			const cwd = spawn_args.cwd ?? '';
+	// Override run_interactive to make pkg-a deploy fail
+	const original_run = process_ops.run_interactive;
+	process_ops.run_interactive = async (run_args) => {
+		const result = await original_run(run_args);
+		if (run_args.cmd === 'gro' && run_args.args[0] === 'deploy') {
+			const cwd = run_args.cwd ?? '';
 			// Make first deploy fail
 			if (cwd.includes('pkg-a')) {
 				return { ok: false, message: 'Deploy failed' };
@@ -773,7 +785,6 @@ test('handles deploy failures without stopping', async () => {
 	};
 
 	const mock_ops = create_mock_gitops_ops({
-		preflight: create_preflight_mock(['pkg-a', 'pkg-b']),
 		process: process_ops,
 		fs: {
 			readFile: async (options) => ({
@@ -803,7 +814,6 @@ test('returns correct PublishedVersion metadata', async () => {
 	const mock_fs = create_mock_package_json_files(repos);
 
 	const mock_ops = create_mock_gitops_ops({
-		preflight: create_preflight_mock(['pkg-a']),
 		changeset: {
 			...create_mock_gitops_ops().changeset,
 			predict_next_version: async () => ({
@@ -851,7 +861,6 @@ test('publishes each package exactly once in a single pass', async () => {
 	} = create_tracking_process_ops();
 
 	const mock_ops = create_mock_gitops_ops({
-		preflight: create_preflight_mock(['lib', 'app']),
 		process: process_ops,
 		fs: mock_fs_ops
 	});
@@ -890,8 +899,7 @@ describe('structured events', () => {
 					}
 					return null;
 				}
-			},
-			preflight: create_preflight_mock(['pkg-a', 'pkg-b'])
+			}
 		});
 
 		const result = await publish_repos(repos, { wetrun: false, ops: mock_ops });
@@ -923,7 +931,6 @@ describe('structured events', () => {
 		const repos: Array<LocalRepo> = [create_mock_repo({ name: 'pkg-a', version: '0.1.0' })];
 
 		const mock_ops = create_mock_gitops_ops({
-			preflight: create_preflight_mock(['pkg-a']),
 			fs: create_populated_fs_ops(repos) // package.json with bumped version for the read-back
 		});
 
@@ -952,8 +959,7 @@ describe('structured events', () => {
 					version: '0.1.1',
 					bump_type: 'patch' as const
 				})
-			},
-			preflight: create_preflight_mock(['pkg-a'])
+			}
 		});
 
 		const result = await publish_repos(repos, {
@@ -1059,6 +1065,7 @@ describe('execute_publishing_plan', () => {
 		breaking_cascades: new Map(),
 		warnings: [],
 		info: [],
+		no_changes: [],
 		errors: [],
 		...overrides
 	});
@@ -1111,6 +1118,132 @@ describe('execute_publishing_plan', () => {
 		assert.deepEqual(result.plan_errors, ['boom']);
 	});
 
+	test('publishes with `gro publish --no-build --no-pull --branch <the entry branch>`', async () => {
+		const main_repo = create_mock_repo({ name: 'pkg', version: '1.0.0' });
+		const develop_repo = create_mock_repo({ name: 'pkg_b', version: '1.0.0' });
+		develop_repo.entry = { ...develop_repo.entry, branch: 'develop' };
+		const repos = [main_repo, develop_repo];
+		const plan = make_plan({
+			publishing_order: ['pkg', 'pkg_b'],
+			version_changes: [
+				make_version_change({ package_name: 'pkg' }),
+				make_version_change({ package_name: 'pkg_b' })
+			]
+		});
+
+		const { ops: process_ops, get_commands_by_type } = create_tracking_process_ops();
+		await execute_publishing_plan(repos, plan, {
+			wetrun: true,
+			ops: create_mock_gitops_ops({
+				fs: create_populated_fs_ops(repos),
+				process: process_ops
+			})
+		});
+
+		assert.deepEqual(
+			get_commands_by_type('publish').map((c) => c.args),
+			[
+				['publish', '--no-build', '--no-pull', '--branch', 'main'],
+				['publish', '--no-build', '--no-pull', '--branch', 'develop']
+			]
+		);
+	});
+
+	describe('the re-check right before each `gro publish`', () => {
+		const setup = (b_entry?: ReturnType<typeof create_mock_repos_entry>) => {
+			const a = create_mock_repo({ name: 'a', version: '1.0.0' });
+			const b = create_mock_repo({ name: 'b', version: '1.0.0', deps: { a: '^1.0.0' } });
+			const repos = [a, b];
+			const plan = make_plan({
+				publishing_order: ['a', 'b'],
+				version_changes: [
+					make_version_change({ package_name: 'a' }),
+					make_version_change({ package_name: 'b' })
+				],
+				dependency_updates: [
+					{
+						dependent_package: 'b',
+						updated_dependency: 'a',
+						current_version: '^1.0.0',
+						new_version: '^1.0.1',
+						type: 'dependencies'
+					}
+				]
+			});
+			const repos_ops = create_ready_repos_ops(b_entry ? { b: b_entry } : {});
+			const tracking = create_tracking_process_ops();
+			const ops = create_mock_gitops_ops({
+				fs: create_populated_fs_ops(repos),
+				process: tracking.ops,
+				repos: repos_ops
+			});
+			return { repos, plan, ops, repos_ops, tracking };
+		};
+
+		test('ready repos proceed, each re-checked with a fetch first', async () => {
+			const { repos, plan, ops, repos_ops, tracking } = setup();
+			const result = await execute_publishing_plan(repos, plan, { wetrun: true, ops });
+			assert.ok(result.ok);
+			assert.deepEqual(repos_ops.calls, [
+				{ keys: ['a'], registry: undefined, fetch: true },
+				{ keys: ['b'], registry: undefined, fetch: true }
+			]);
+			assert.deepEqual(
+				tracking.get_package_names_from_cwd(tracking.get_commands_by_type('publish')),
+				['a', 'b']
+			);
+		});
+
+		test('origin moved mid-cascade: that repo aborts before its `gro publish`', async () => {
+			const { repos, plan, ops, tracking } = setup(
+				create_mock_repos_entry({
+					key: 'b',
+					at_rest: {
+						on_branch: true,
+						clean: true,
+						idle: true,
+						followed: { kind: 'diverged', ahead: 1, behind: 1 }
+					}
+				})
+			);
+			const result = await execute_publishing_plan(repos, plan, { wetrun: true, ops });
+			assert.ok(!result.ok);
+			// `a` published; nothing was spawned for `b`
+			assert.deepEqual(tracking.get_package_names_from_cwd(tracking.get_spawned_commands()), ['a']);
+			assert.strictEqual(result.failed[0]!.name, 'b');
+			assert.include(result.failed[0]!.error.message, 'diverged from origin');
+			const failure = result.events.find((e) => e.event === 'package_failed');
+			assert.ok(failure?.event === 'package_failed');
+			assert.strictEqual(failure.code, 'not_ready');
+		});
+
+		test("ahead from the executor's own dependency-rewrite commit proceeds", async () => {
+			const { repos, plan, ops, tracking } = setup(
+				create_mock_repos_entry({
+					key: 'b',
+					at_rest: {
+						on_branch: true,
+						clean: true,
+						idle: true,
+						followed: { kind: 'ahead', commits: 1 }
+					}
+				})
+			);
+			const result = await execute_publishing_plan(repos, plan, { wetrun: true, ops });
+			assert.ok(result.ok);
+			assert.deepEqual(
+				tracking.get_package_names_from_cwd(tracking.get_commands_by_type('publish')),
+				['a', 'b']
+			);
+		});
+
+		test('a dry run re-checks nothing', async () => {
+			const { repos, plan, ops, repos_ops } = setup();
+			await execute_publishing_plan(repos, plan, { wetrun: false, ops });
+			assert.deepEqual(repos_ops.calls, []);
+		});
+	});
+
 	test('deploy builds fresh — spawns `gro deploy` without --no-build', async () => {
 		const repos = [create_mock_repo({ name: 'pkg', version: '1.0.0' })];
 		const plan = make_plan({
@@ -1123,7 +1256,6 @@ describe('execute_publishing_plan', () => {
 			wetrun: true,
 			deploy: true,
 			ops: create_mock_gitops_ops({
-				preflight: create_preflight_mock(['pkg']),
 				fs: create_populated_fs_ops(repos),
 				process: process_ops
 			})
@@ -1132,6 +1264,105 @@ describe('execute_publishing_plan', () => {
 		const deploy_commands = get_commands_by_type('deploy');
 		assert.strictEqual(deploy_commands.length, 1);
 		assert.deepEqual(deploy_commands[0]!.args, ['deploy']);
+	});
+
+	test('routes `gro publish` and `gro deploy` stdout as `child_stdout` says', async () => {
+		const repos = [create_mock_repo({ name: 'pkg', version: '1.0.0' })];
+		const plan = make_plan({
+			publishing_order: ['pkg'],
+			version_changes: [make_version_change({ package_name: 'pkg' })]
+		});
+		for (const child_stdout of [undefined, 'stdout', 'stderr'] as const) {
+			const { ops: process_ops, get_spawned_commands } = create_tracking_process_ops();
+			await execute_publishing_plan(repos, plan, {
+				wetrun: true,
+				deploy: true,
+				child_stdout,
+				ops: create_mock_gitops_ops({
+					fs: create_populated_fs_ops(repos),
+					process: process_ops
+				})
+			});
+			assert.deepEqual(
+				get_spawned_commands().map((c) => [c.args[0], c.stdout]),
+				[
+					['publish', child_stdout],
+					['deploy', child_stdout]
+				]
+			);
+		}
+	});
+
+	test('a failed `gro publish` carries the end of its stderr, secrets redacted', async () => {
+		const repos = [create_mock_repo({ name: 'pkg', version: '1.0.0' })];
+		const plan = make_plan({
+			publishing_order: ['pkg'],
+			version_changes: [make_version_change({ package_name: 'pkg' })]
+		});
+		const events = capture_handler();
+		const log = create_stream_log();
+		const result = await execute_publishing_plan(repos, plan, {
+			wetrun: true,
+			events,
+			log,
+			ops: create_mock_gitops_ops({
+				fs: create_populated_fs_ops(repos),
+				process: {
+					run_interactive: async () => ({
+						ok: false,
+						message: '`gro publish` failed (code 1)',
+						stderr_tail:
+							'npm error code E401\n//registry.npmjs.org/:_authToken=npm_abcdefghijklmnopqrstuvwxyz'
+					})
+				}
+			})
+		});
+		assert.strictEqual(result.ok, false);
+		const message = result.failed[0]!.error.message;
+		assert.strictEqual(message.split('\n')[0], '`gro publish` failed (code 1)');
+		assert.include(message, 'npm error code E401');
+		assert.include(message, '_authToken=[redacted]');
+		assert.notInclude(message, 'abcdefghijklmnopqrstuvwxyz');
+		const failed = events.events.find((e) => e.event === 'package_failed');
+		assert.ok(failed?.event === 'package_failed');
+		assert.strictEqual(failed.error, message);
+		assert.strictEqual(failed.code, 'publish');
+		// the log names the failure once, without the stderr that just streamed live
+		const failure_logs = log.lines.filter((l) => l.includes('Failed to publish pkg'));
+		assert.deepEqual(
+			failure_logs.map((l) => l.slice(l.indexOf('❌'))),
+			['❌ Failed to publish pkg: `gro publish` failed (code 1)']
+		);
+		assert.notInclude(log.lines.join('\n'), 'E401');
+	});
+
+	test('a failed `gro deploy` carries the end of its stderr into `deploy_failed`', async () => {
+		const repos = [create_mock_repo({ name: 'pkg', version: '1.0.0' })];
+		const plan = make_plan({
+			publishing_order: ['pkg'],
+			version_changes: [make_version_change({ package_name: 'pkg' })]
+		});
+		const events = capture_handler();
+		const result = await execute_publishing_plan(repos, plan, {
+			wetrun: true,
+			deploy: true,
+			events,
+			ops: create_mock_gitops_ops({
+				fs: create_populated_fs_ops(repos),
+				process: {
+					run_interactive: async ({ args }) =>
+						args[0] === 'deploy'
+							? { ok: false, message: '`gro deploy` failed (code 1)', stderr_tail: 'build failed' }
+							: { ok: true }
+				}
+			})
+		});
+		// a failed deploy doesn't fail the run
+		assert.strictEqual(result.ok, true);
+		const failed = events.events.find((e) => e.event === 'deploy_failed');
+		assert.ok(failed?.event === 'deploy_failed');
+		assert.include(failed.error, '`gro deploy` failed (code 1)');
+		assert.include(failed.error, 'build failed');
 	});
 
 	// --- Anti-drift: the executor's event stream must match the derived preview, step for step.
@@ -1199,7 +1430,6 @@ describe('execute_publishing_plan', () => {
 			wetrun: true,
 			...options,
 			ops: create_mock_gitops_ops({
-				preflight: create_preflight_mock(repos.map((r) => r.library.name)),
 				fs
 			})
 		});
@@ -1313,7 +1543,6 @@ describe('execute_publishing_plan', () => {
 		const result = await execute_publishing_plan(repos, plan, {
 			wetrun: true,
 			ops: create_mock_gitops_ops({
-				preflight: create_preflight_mock(['core']),
 				fs,
 				git: {
 					add: async (options) => {

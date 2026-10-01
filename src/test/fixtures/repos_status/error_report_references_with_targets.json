@@ -1,0 +1,8 @@
+{
+	"version": 18,
+	"error": {
+		"kind": "references_with_targets",
+		"message": "--references takes no targets",
+		"hint": "name the references to refresh just those, or pass --references alone to refresh every one"
+	}
+}

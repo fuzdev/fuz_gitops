@@ -1,185 +1,104 @@
 import { assert, describe, test } from 'vitest';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 import {
-	normalize_gitops_config,
-	create_empty_gitops_config,
 	gitops_config_leaked_private_repos,
-	type GitopsRepoConfig,
-	type RawGitopsRepoConfig
+	load_gitops_config,
+	parse_gitops_config
 } from '$lib/gitops_config.ts';
-import type { Url } from '@fuzdev/fuz_util/url.ts';
+import { create_mock_repos_entry } from './test_helpers.ts';
 
-/** Normalizes a single raw repo entry and returns its parsed config. */
-const parse_one = (raw: Url | RawGitopsRepoConfig): GitopsRepoConfig => {
-	const { repos } = normalize_gitops_config({ repos: [raw] });
-	const [first] = repos;
-	assert(first);
-	return first;
+const CONFIG_PATH = '/test/gitops.config.ts';
+
+/** Parses `raw`, returning the error message it throws. */
+const parse_error = (raw: unknown): string => {
+	try {
+		parse_gitops_config(raw, CONFIG_PATH);
+	} catch (err) {
+		assert(err instanceof Error);
+		return err.message;
+	}
+	assert.fail('expected the config to be refused');
 };
 
-describe('normalize_gitops_config', () => {
-	describe('top-level config', () => {
-		test('empty config falls back to defaults', () => {
-			const empty = create_empty_gitops_config();
-			const config = normalize_gitops_config({});
-			assert.deepEqual(config.repos, []);
-			assert.equal(config.repos_dir, empty.repos_dir);
-		});
-
-		test('preserves a provided repos_dir', () => {
-			const config = normalize_gitops_config({ repos_dir: '/custom/repos' });
-			assert.equal(config.repos_dir, '/custom/repos');
-		});
-
-		test('undefined repos normalizes to an empty array', () => {
-			assert.deepEqual(normalize_gitops_config({ repos: undefined }).repos, []);
-		});
+describe('parse_gitops_config', () => {
+	test('accepts a list of registry keys, keeping their order', () => {
+		const config = parse_gitops_config({ repos: ['gro', 'fuz_util', 'tsv.fuz.dev'] }, CONFIG_PATH);
+		assert.deepEqual(config.repos, ['gro', 'fuz_util', 'tsv.fuz.dev']);
 	});
 
-	describe('string repo entries', () => {
-		test('applies all defaults', () => {
-			const repo = parse_one('https://github.com/fuzdev/fuz_ui');
-			assert.deepEqual(repo, {
-				repo_url: 'https://github.com/fuzdev/fuz_ui',
-				repo_dir: null,
-				branch: 'main',
-				visibility: 'public',
-				ci: true,
-				archived: false
-			});
-		});
+	test('accepts an empty list (tasks refuse it before running `repos`)', () => {
+		assert.deepEqual(parse_gitops_config({ repos: [] }, CONFIG_PATH).repos, []);
 	});
 
-	describe('object repo entries', () => {
-		test('applies defaults for a minimal entry', () => {
-			const repo = parse_one({ repo_url: 'https://github.com/fuzdev/fuz_ui' });
-			assert.deepEqual(repo, {
-				repo_url: 'https://github.com/fuzdev/fuz_ui',
-				repo_dir: null,
-				branch: 'main',
-				visibility: 'public',
-				ci: true,
-				archived: false
-			});
-		});
-
-		test('strips a trailing `.git` from the repo_url', () => {
-			const repo = parse_one({ repo_url: 'https://github.com/fuzdev/fuz_ui.git' });
-			assert.equal(repo.repo_url, 'https://github.com/fuzdev/fuz_ui');
-		});
-
-		test('preserves repo_dir and branch', () => {
-			const repo = parse_one({
-				repo_url: 'https://github.com/fuzdev/fuz_ui',
-				repo_dir: 'some/dir',
-				branch: 'next'
-			});
-			assert.equal(repo.repo_dir, 'some/dir');
-			assert.equal(repo.branch, 'next');
-		});
-
-		test('null repo_dir is preserved', () => {
-			assert.equal(
-				parse_one({ repo_url: 'https://github.com/fuzdev/fuz_ui', repo_dir: null }).repo_dir,
-				null
-			);
-		});
+	test('refuses a URL, naming it', () => {
+		const message = parse_error({ repos: ['gro', 'https://github.com/fuzdev/fuz_ui'] });
+		assert.include(message, CONFIG_PATH);
+		assert.include(message, "`https://github.com/fuzdev/fuz_ui` isn't a registry key");
 	});
 
-	describe('visibility', () => {
-		test('defaults to public', () => {
-			assert.equal(parse_one({ repo_url: 'https://github.com/fuzdev/x' }).visibility, 'public');
-		});
-
-		test('preserves an explicit private visibility', () => {
-			assert.equal(
-				parse_one({ repo_url: 'https://github.com/fuzdev/x', visibility: 'private' }).visibility,
-				'private'
-			);
-		});
+	test('refuses an object entry, saying where its fields went', () => {
+		const message = parse_error({ repos: [{ repo_url: 'https://github.com/fuzdev/gro' }] });
+		assert.include(message, CONFIG_PATH);
+		assert.include(message, 'come from the registry');
 	});
 
-	describe('ci derivation', () => {
-		test('public repos default ci to true', () => {
-			assert.equal(parse_one({ repo_url: 'https://github.com/fuzdev/x' }).ci, true);
-		});
-
-		test('private repos default ci to false', () => {
-			assert.equal(
-				parse_one({ repo_url: 'https://github.com/fuzdev/x', visibility: 'private' }).ci,
-				false
-			);
-		});
-
-		test('explicit ci overrides the visibility-derived default', () => {
-			assert.equal(
-				parse_one({ repo_url: 'https://github.com/fuzdev/x', visibility: 'private', ci: true }).ci,
-				true
-			);
-			assert.equal(
-				parse_one({ repo_url: 'https://github.com/fuzdev/x', visibility: 'public', ci: false }).ci,
-				false
-			);
-		});
+	test('refuses a key listed twice', () => {
+		assert.include(parse_error({ repos: ['gro', 'mdz', 'gro'] }), '`gro` is listed more than once');
 	});
 
-	describe('archived', () => {
-		test('defaults to false when not provided', () => {
-			assert.equal(parse_one({ repo_url: 'https://github.com/fuzdev/x' }).archived, false);
-		});
-
-		test('preserves an explicit archived: true', () => {
-			assert.equal(
-				parse_one({ repo_url: 'https://github.com/fuzdev/x', archived: true }).archived,
-				true
-			);
-		});
-
-		test('preserves an explicit archived: false', () => {
-			assert.equal(
-				parse_one({ repo_url: 'https://github.com/fuzdev/x', archived: false }).archived,
-				false
-			);
-		});
+	test('refuses an empty key', () => {
+		assert.include(parse_error({ repos: [''] }), CONFIG_PATH);
 	});
 
-	test('normalizes multiple repos preserving order', () => {
-		const { repos } = normalize_gitops_config({
-			repos: [
-				'https://github.com/fuzdev/a',
-				{ repo_url: 'https://github.com/fuzdev/b', visibility: 'private' }
-			]
-		});
-		assert.equal(repos.length, 2);
-		assert.equal(repos[0]?.repo_url, 'https://github.com/fuzdev/a');
-		assert.equal(repos[1]?.repo_url, 'https://github.com/fuzdev/b');
-		assert.equal(repos[1]?.visibility, 'private');
+	test('refuses unknown fields, `repos_dir` among them', () => {
+		assert.include(parse_error({ repos: ['gro'], repos_dir: '..' }), 'repos_dir');
+	});
+
+	test('refuses a missing `repos`', () => {
+		assert.include(parse_error({}), 'repos');
+	});
+});
+
+describe('load_gitops_config', () => {
+	test('a missing file is `null`', async () => {
+		assert.strictEqual(await load_gitops_config('/nonexistent/gitops.config.ts'), null);
+	});
+
+	test('calls a default export in function form', async () => {
+		const dir = mkdtempSync(join(tmpdir(), 'gitops-config-'));
+		try {
+			const config_path = join(dir, 'gitops.config.js');
+			writeFileSync(config_path, "export default async () => ({repos: ['gro', 'mdz']});\n");
+			const config = await load_gitops_config(config_path);
+			assert.deepEqual(config?.repos, ['gro', 'mdz']);
+		} finally {
+			rmSync(dir, { recursive: true, force: true });
+		}
 	});
 });
 
 describe('gitops_config_leaked_private_repos', () => {
-	const repos = normalize_gitops_config({
-		repos: [
-			'https://github.com/fuzdev/fuz_util',
-			{ repo_url: 'https://github.com/ryanatkn/hidden_repo', visibility: 'private' }
-		]
-	}).repos;
+	const entries = [
+		create_mock_repos_entry({ key: 'fuz_util' }),
+		create_mock_repos_entry({ key: 'hidden_repo', visibility: 'private', ci: false })
+	];
 
 	test('a public host leaks its private repos', () => {
-		const leaked = gitops_config_leaked_private_repos(repos, false);
+		const leaked = gitops_config_leaked_private_repos(entries, false);
 		assert.deepEqual(
-			leaked.map((r) => r.repo_url),
-			['https://github.com/ryanatkn/hidden_repo']
+			leaked.map((e) => e.key),
+			['hidden_repo']
 		);
 	});
 
 	test('a private host leaks nothing', () => {
-		assert.deepEqual(gitops_config_leaked_private_repos(repos, true), []);
+		assert.deepEqual(gitops_config_leaked_private_repos(entries, true), []);
 	});
 
 	test('an all-public config leaks nothing from a public host', () => {
-		const [public_repo] = repos;
-		assert(public_repo);
-		assert.deepEqual(gitops_config_leaked_private_repos([public_repo], false), []);
+		assert.deepEqual(gitops_config_leaked_private_repos(entries.slice(0, 1), false), []);
 	});
 });

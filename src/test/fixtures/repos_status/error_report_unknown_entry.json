@@ -1,0 +1,12 @@
+{
+	"version": 18,
+	"error": {
+		"kind": "unknown_entry",
+		"name": "mta",
+		"suggestions": [
+			"meta"
+		],
+		"message": "unknown target `mta`",
+		"hint": "did you mean: meta"
+	}
+}

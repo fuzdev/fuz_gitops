@@ -1,9 +1,10 @@
 /**
  * Dependency graph data structure and algorithms for multi-repo publishing.
  *
- * Provides `DependencyGraph` class with topological sort (via `@fuzdev/fuz_util/sort.ts`)
- * and cycle detection by dependency type.
- * For validation workflow and publishing order computation, see `graph_validation.ts`.
+ * Provides the `DependencyGraph` class, built from local repos, with topological sort
+ * (via `@fuzdev/fuz_util/sort.ts`), cycle detection by dependency type, and
+ * wildcard-range analysis.
+ * For the publishing order and the analysis workflow, see `graph_validation.ts`.
  *
  * @module
  */
@@ -24,7 +25,6 @@ export type DependencyType = (typeof DEPENDENCY_TYPE)[keyof typeof DEPENDENCY_TY
 export interface DependencySpec {
 	type: DependencyType;
 	version: string;
-	resolved?: string;
 }
 
 export interface DependencyGraphJson {
@@ -33,7 +33,6 @@ export interface DependencyGraphJson {
 		version: string;
 		dependencies: Array<{ name: string; spec: DependencySpec }>;
 		dependents: Array<string>;
-		publishable: boolean;
 	}>;
 	edges: Array<{ from: string; to: string }>;
 }
@@ -41,41 +40,43 @@ export interface DependencyGraphJson {
 export interface DependencyNode {
 	name: string;
 	version: string;
-	repo?: LocalRepo;
 	dependencies: Map<string, DependencySpec>;
 	dependents: Set<string>;
-	publishable: boolean;
+}
+
+/** Cycles and wildcard dependencies found by `DependencyGraph.analyze`. */
+export interface DependencyAnalysis {
+	production_cycles: Array<Array<string>>;
+	dev_cycles: Array<Array<string>>;
+	wildcard_deps: Array<{ pkg: string; dep: string; version: string }>;
 }
 
 export class DependencyGraph {
-	nodes: Map<string, DependencyNode>;
-	edges: Map<string, Set<string>>; // pkg -> dependents
+	nodes: Map<string, DependencyNode> = new Map();
+	edges: Map<string, Set<string>> = new Map(); // pkg -> dependents
 
-	constructor() {
-		this.nodes = new Map();
-		this.edges = new Map();
-	}
-
-	public init_from_repos(repos: Array<LocalRepo>): void {
-		// First pass: create nodes
+	/**
+	 * Builds the graph from local repos.
+	 *
+	 * Two passes: first creates nodes, then builds edges (dependents).
+	 * Prioritizes prod/peer deps over dev deps when the same package appears in
+	 * multiple dependency types (the stronger constraint wins).
+	 */
+	constructor(repos: Array<LocalRepo>) {
+		// first pass: create nodes
 		for (const repo of repos) {
 			const { library, package_json } = repo;
 			const node: DependencyNode = {
 				name: library.name,
 				version: package_json.version || '0.0.0',
-				repo,
 				dependencies: new Map(),
-				dependents: new Set(),
-				publishable: !package_json.private
+				dependents: new Set()
 			};
 
-			// Extract dependencies
 			const deps = package_json.dependencies || (EMPTY_OBJECT as Record<string, string>);
 			const dev_deps = package_json.devDependencies || (EMPTY_OBJECT as Record<string, string>);
 			const peer_deps = package_json.peerDependencies || (EMPTY_OBJECT as Record<string, string>);
 
-			// Add dependencies, prioritizing prod/peer over dev
-			// (if a package appears in multiple dep types, use the stronger constraint)
 			for (const [name, version] of Object.entries(deps)) {
 				node.dependencies.set(name, { type: DEPENDENCY_TYPE.PROD, version });
 			}
@@ -83,7 +84,7 @@ export class DependencyGraph {
 				node.dependencies.set(name, { type: DEPENDENCY_TYPE.PEER, version });
 			}
 			for (const [name, version] of Object.entries(dev_deps)) {
-				// Only add dev deps if not already present as prod/peer
+				// only add dev deps if not already present as prod/peer
 				if (!node.dependencies.has(name)) {
 					node.dependencies.set(name, { type: DEPENDENCY_TYPE.DEV, version });
 				}
@@ -93,12 +94,11 @@ export class DependencyGraph {
 			this.edges.set(library.name, new Set());
 		}
 
-		// Second pass: build edges (dependents)
+		// second pass: build edges (dependents) for internal dependencies
 		for (const node of this.nodes.values()) {
 			for (const [dep_name] of node.dependencies) {
-				if (this.nodes.has(dep_name)) {
-					// Internal dependency
-					const dep_node = this.nodes.get(dep_name)!;
+				const dep_node = this.nodes.get(dep_name);
+				if (dep_node) {
 					dep_node.dependents.add(node.name);
 					this.edges.get(dep_name)!.add(node.name);
 				}
@@ -108,15 +108,6 @@ export class DependencyGraph {
 
 	get_node(name: string): DependencyNode | undefined {
 		return this.nodes.get(name);
-	}
-
-	get_dependents(name: string): Set<string> {
-		return this.edges.get(name) || new Set();
-	}
-
-	get_dependencies(name: string): Map<string, DependencySpec> {
-		const node = this.nodes.get(name);
-		return node ? node.dependencies : new Map();
 	}
 
 	/**
@@ -165,6 +156,23 @@ export class DependencyGraph {
 		const production_cycles = this.#find_cycles((spec) => spec.type !== DEPENDENCY_TYPE.DEV);
 		const dev_cycles = this.#find_cycles((spec) => spec.type === DEPENDENCY_TYPE.DEV);
 		return { production_cycles, dev_cycles };
+	}
+
+	/**
+	 * Reports cycles by type and wildcard (`*`) dependency ranges.
+	 * Tolerates cycles: it reports them rather than throwing.
+	 */
+	analyze(): DependencyAnalysis {
+		const { production_cycles, dev_cycles } = this.detect_cycles_by_type();
+		const wildcard_deps: DependencyAnalysis['wildcard_deps'] = [];
+		for (const node of this.nodes.values()) {
+			for (const [dep_name, spec] of node.dependencies) {
+				if (spec.version === '*') {
+					wildcard_deps.push({ pkg: node.name, dep: dep_name, version: spec.version });
+				}
+			}
+		}
+		return { production_cycles, dev_cycles, wildcard_deps };
 	}
 
 	/** DFS cycle detection following only edges that match the filter. */
@@ -219,8 +227,7 @@ export class DependencyGraph {
 				name,
 				spec
 			})),
-			dependents: Array.from(node.dependents),
-			publishable: node.publishable
+			dependents: Array.from(node.dependents)
 		}));
 
 		const edges: Array<{ from: string; to: string }> = [];
@@ -231,64 +238,5 @@ export class DependencyGraph {
 		}
 
 		return { nodes, edges };
-	}
-}
-
-/**
- * Builder for creating and analyzing dependency graphs.
- */
-export class DependencyGraphBuilder {
-	/**
-	 * Constructs dependency graph from local repos.
-	 *
-	 * Two-pass algorithm: first creates nodes, then builds edges (dependents).
-	 * Prioritizes prod/peer deps over dev deps when same package appears in
-	 * multiple dependency types (stronger constraint wins).
-	 *
-	 * @returns fully initialized dependency graph with all nodes and edges
-	 */
-	build_from_repos(repos: Array<LocalRepo>): DependencyGraph {
-		const graph = new DependencyGraph();
-		graph.init_from_repos(repos);
-		return graph;
-	}
-
-	/**
-	 * Computes publishing order using topological sort with dev deps excluded.
-	 *
-	 * Excludes dev dependencies to break circular dev dependency cycles while
-	 * preserving production/peer dependency ordering. This allows patterns like
-	 * shared test utilities that depend on each other for development.
-	 *
-	 * @returns package names in safe publishing order (dependencies before dependents)
-	 * @throws {Error} if production/peer cycles detected (cannot be resolved by exclusion)
-	 */
-	compute_publishing_order(graph: DependencyGraph): Array<string> {
-		return graph.topological_sort(true); // Exclude dev dependencies
-	}
-
-	analyze(graph: DependencyGraph): {
-		production_cycles: Array<Array<string>>;
-		dev_cycles: Array<Array<string>>;
-		wildcard_deps: Array<{ pkg: string; dep: string; version: string }>;
-		missing_peers: Array<{ pkg: string; dep: string }>;
-	} {
-		const { production_cycles, dev_cycles } = graph.detect_cycles_by_type();
-		const wildcard_deps: Array<{ pkg: string; dep: string; version: string }> = [];
-		const missing_peers: Array<{ pkg: string; dep: string }> = [];
-
-		for (const node of graph.nodes.values()) {
-			for (const [dep_name, spec] of node.dependencies) {
-				if (spec.version === '*') {
-					wildcard_deps.push({ pkg: node.name, dep: dep_name, version: spec.version });
-				}
-				if (spec.type === DEPENDENCY_TYPE.PEER && !graph.nodes.has(dep_name)) {
-					// External peer dependency
-					missing_peers.push({ pkg: node.name, dep: dep_name });
-				}
-			}
-		}
-
-		return { production_cycles, dev_cycles, wildcard_deps, missing_peers };
 	}
 }

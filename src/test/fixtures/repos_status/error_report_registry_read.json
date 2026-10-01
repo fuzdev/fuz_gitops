@@ -1,0 +1,8 @@
+{
+	"version": 18,
+	"error": {
+		"kind": "registry_read",
+		"message": "failed to read the registry at /home/me/dev/repos.toml: Permission denied (os error 13)",
+		"hint": null
+	}
+}

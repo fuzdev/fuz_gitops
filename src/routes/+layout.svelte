@@ -29,7 +29,7 @@
 
 	const repos = repos_parse(
 		repos_json.map((r: RepoJson) => new Repo(r)),
-		'https://gitops.fuz.dev/'
+		pkg_json.homepage!
 	);
 	repos_context.set(repos);
 	// `glyph` and `repo_url` derive from `pkg_json`; `icon` stays explicit (structured `SvgData`).

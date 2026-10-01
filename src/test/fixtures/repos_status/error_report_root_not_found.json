@@ -1,0 +1,8 @@
+{
+	"version": 18,
+	"error": {
+		"kind": "root_not_found",
+		"message": "no workspace root at /home/me/nowhere",
+		"hint": "`--root` names the dir the entries live under"
+	}
+}

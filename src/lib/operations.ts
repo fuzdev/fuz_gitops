@@ -13,23 +13,30 @@
  *
  * **Production usage:**
  * ```typescript
- * import {default_gitops_operations} from './operations_defaults.js';
- * const result = await ops.git.current_branch_name({cwd: '/path'});
+ * import {default_gitops_operations} from './operations_defaults.ts';
+ * const ops = default_gitops_operations;
+ * const result = await ops.git.current_commit_hash({cwd: '/path'});
  * if (!result.ok) {
  *   throw new TaskError(result.message);
  * }
- * const branch = result.value;
+ * const commit = result.value;
  * ```
  *
  * **Test usage:**
  * ```typescript
- * const mock_ops = create_mock_operations();
- * const result = await publish_repos(repos, {...options, ops: mock_ops});
+ * import {create_mock_gitops_ops} from './test_helpers.ts';
+ * const ops = create_mock_gitops_ops({
+ *   changeset: {has_changesets: async () => ({ok: true, value: false})}
+ * });
+ * const result = await publish_repos(repos, {...options, ops});
  * // Assert on result without any real git/npm calls
  * ```
  *
- * See `operations_defaults.ts` for real implementations.
- * See test files (`*.test.ts`) for mock implementations.
+ * See `operations_defaults.ts` for real implementations, and the test-side mock
+ * factories: `create_mock_gitops_ops` in `src/test/test_helpers.ts` (plain
+ * objects with per-group overrides) and `create_fixture_gitops_ops` in
+ * `src/test/fixtures/mock_operations.ts` (a fixture's changesets and
+ * `package.json`s over `create_mock_gitops_ops`).
  *
  * @module
  */
@@ -40,7 +47,7 @@ import type { Logger } from '@fuzdev/fuz_util/log.ts';
 import type { LocalRepo } from './local_repo.ts';
 import type { ChangesetInfo } from './changeset_reader.ts';
 import type { BumpType } from './version_utils.ts';
-import type { PreflightOptions, PreflightResult } from './preflight_checks.ts';
+import type { PreflightResult, RunPreflightChecksOptions } from './preflight_checks.ts';
 import type { WaitOptions } from './npm_registry.ts';
 
 /**
@@ -76,65 +83,18 @@ export interface ChangesetOperations {
 }
 
 /**
- * Git operations for branch management, commits, tags, and workspace state.
- * All operations return `Result` instead of throwing errors.
+ * Git operations the publishing executor authors with: staging and committing
+ * dependency updates and auto-changesets, and reading the commit it published.
+ * All operations return `Result` instead of throwing errors. Where each repo
+ * sits (branch, dirt, relation to origin) is `ReposOperations`'s to report.
  */
 export interface GitOperations {
-	/**
-	 * Gets the current branch name.
-	 */
-	current_branch_name: (options?: {
-		cwd?: string;
-	}) => Promise<Result<{ value: string }, { message: string }>>;
-
 	/**
 	 * Gets the current commit hash.
 	 */
 	current_commit_hash: (options?: {
-		branch?: string;
 		cwd?: string;
 	}) => Promise<Result<{ value: string }, { message: string }>>;
-
-	/**
-	 * Checks if the workspace is clean (no uncommitted changes).
-	 */
-	check_clean_workspace: (options?: {
-		cwd?: string;
-	}) => Promise<Result<{ value: boolean }, { message: string }>>;
-
-	/**
-	 * Checks out a branch.
-	 */
-	checkout: (options: {
-		branch: string;
-		cwd?: string;
-	}) => Promise<Result<object, { message: string }>>;
-
-	/**
-	 * Pulls changes from remote.
-	 */
-	pull: (options?: {
-		origin?: string;
-		branch?: string;
-		cwd?: string;
-	}) => Promise<Result<object, { message: string }>>;
-
-	/**
-	 * Switches to a branch, optionally pulling.
-	 */
-	switch_branch: (options: {
-		branch: string;
-		pull?: boolean;
-		cwd?: string;
-	}) => Promise<Result<object, { message: string }>>;
-
-	/**
-	 * Checks if a remote exists.
-	 */
-	has_remote: (options?: {
-		remote?: string;
-		cwd?: string;
-	}) => Promise<Result<{ value: boolean }, { message: string }>>;
 
 	/**
 	 * Stages files for commit.
@@ -145,93 +105,72 @@ export interface GitOperations {
 	}) => Promise<Result<object, { message: string }>>;
 
 	/**
-	 * Creates a commit.
+	 * Commits `files` alone (`git commit -- <files>`), leaving anything else
+	 * staged out of the commit; `files` must be non-empty.
 	 */
 	commit: (options: {
 		message: string;
+		files: Array<string>;
 		cwd?: string;
 	}) => Promise<Result<object, { message: string }>>;
-
-	/**
-	 * Stages files and creates a commit.
-	 */
-	add_and_commit: (options: {
-		files: string | Array<string>;
-		message: string;
-		cwd?: string;
-	}) => Promise<Result<object, { message: string }>>;
-
-	/**
-	 * Checks whether the working tree has any changes — staged, unstaged, or
-	 * untracked (`git status --porcelain`). Broader than `list_uncommitted_files`,
-	 * which reports only tracked working-tree changes relative to HEAD.
-	 */
-	has_changes: (options?: {
-		cwd?: string;
-	}) => Promise<Result<{ value: boolean }, { message: string }>>;
-
-	/**
-	 * Lists uncommitted files in the working tree (`git diff --name-only HEAD`),
-	 * i.e. working-tree changes relative to HEAD (not a diff between two refs).
-	 */
-	list_uncommitted_files: (options?: {
-		cwd?: string;
-	}) => Promise<Result<{ value: Array<string> }, { message: string }>>;
-
-	/**
-	 * Creates a git tag.
-	 */
-	tag: (options: {
-		tag_name: string;
-		message?: string;
-		cwd?: string;
-	}) => Promise<Result<object, { message: string }>>;
-
-	/**
-	 * Pushes a tag to remote.
-	 */
-	push_tag: (options: {
-		tag_name: string;
-		origin?: string;
-		cwd?: string;
-	}) => Promise<Result<object, { message: string }>>;
-
-	/**
-	 * Stashes uncommitted changes.
-	 */
-	stash: (options?: {
-		message?: string;
-		cwd?: string;
-	}) => Promise<Result<object, { message: string }>>;
-
-	/**
-	 * Pops the most recent stash.
-	 */
-	stash_pop: (options?: { cwd?: string }) => Promise<Result<object, { message: string }>>;
-
-	/**
-	 * Checks if a specific file changed between two commits.
-	 */
-	has_file_changed: (options: {
-		from_commit: string;
-		to_commit: string;
-		file_path: string;
-		cwd?: string;
-	}) => Promise<Result<{ value: boolean }, { message: string }>>;
 }
 
 /**
- * Process spawning operations for running shell commands.
+ * Process operations for the commands the publishing executor runs in a repo
+ * (`gro publish`, `gro deploy`).
  */
 export interface ProcessOperations {
 	/**
-	 * Spawns a child process and waits for completion.
+	 * Runs a command in the foreground and waits for it to exit: stdin is the
+	 * terminal's, so a prompt (npm's 2FA one-time password) can be answered, and
+	 * the child's output shows live — its stdout on ours, or on our stderr when
+	 * `stdout` says so, and its stderr on ours. A failure carries the end of
+	 * what the child wrote to stderr, bounded in lines and characters.
 	 */
-	spawn: (options: {
+	run_interactive: (options: {
 		cmd: string;
 		args: Array<string>;
 		cwd?: string;
-	}) => Promise<Result<{ stdout?: string; stderr?: string }, { message: string; stderr?: string }>>;
+		/**
+		 * Where the child's stdout goes: our stdout, or our stderr when our stdout
+		 * carries a machine-readable stream (JSON-lines events, a JSON or markdown
+		 * report) the child's output would corrupt.
+		 *
+		 * @default 'stdout'
+		 */
+		stdout?: 'stdout' | 'stderr';
+	}) => Promise<Result<object, { message: string; stderr_tail?: string }>>;
+}
+
+/**
+ * What a `repos` command printed and how it exited, unparsed.
+ */
+export interface ReposCommandOutput {
+	stdout: string;
+	stderr: string;
+	/** `0` for a report, `2` for an error document, `1` for a fatal I/O error (maybe no JSON). */
+	exit_code: number;
+}
+
+/**
+ * Operations running the Rust `repos` binary, which owns fleet git state.
+ * Parsing its output is `repos_status_load.ts`'s, not the runner's.
+ */
+export interface ReposOperations {
+	/**
+	 * Runs `repos [--registry <path>] status [--fetch] <keys…> --json` in the
+	 * process's cwd and returns what it printed, whatever its exit code. With
+	 * `fetch`, `repos` fetches each entry from origin first, which writes
+	 * remote-tracking refs and nothing else. Fails only when the binary didn't
+	 * run to an exit: `not_found` when it isn't on `PATH`.
+	 */
+	status: (options: {
+		keys: Array<string>;
+		registry?: string;
+		fetch?: boolean;
+	}) => Promise<
+		Result<{ output: ReposCommandOutput }, { kind: 'not_found' | 'failed'; message: string }>
+	>;
 }
 
 /**
@@ -243,7 +182,6 @@ export interface BuildOperations {
 	 */
 	build_package: (options: {
 		repo: LocalRepo;
-		log?: Logger;
 	}) => Promise<Result<object, { message: string; output?: string }>>;
 }
 
@@ -261,7 +199,7 @@ export interface NpmOperations {
 		version: string;
 		wait_options?: WaitOptions;
 		log?: Logger;
-	}) => Promise<Result<object, { message: string; timeout?: boolean }>>;
+	}) => Promise<Result<object, { message: string }>>;
 
 	/**
 	 * Checks npm authentication status.
@@ -272,31 +210,18 @@ export interface NpmOperations {
 	 * Checks if npm registry is reachable.
 	 */
 	check_registry: () => Promise<Result<object, { message: string }>>;
-
-	/**
-	 * Installs npm dependencies.
-	 */
-	install: (options?: {
-		cwd?: string;
-	}) => Promise<Result<object, { message: string; stderr?: string }>>;
 }
 
 /**
- * Preflight validation operations to ensure repos are ready for publishing.
- * Validates workspace state, branches, builds, and npm authentication.
+ * Preflight validation operations run before publishing: building every
+ * package the plan publishes, and npm authentication. Repo git state is the
+ * readiness gate's, before preflight (see `repo_readiness.ts`).
  */
 export interface PreflightOperations {
 	/**
 	 * Runs preflight validation checks before publishing.
 	 */
-	run_preflight_checks: (options: {
-		repos: Array<LocalRepo>;
-		preflight_options: PreflightOptions;
-		git_ops?: GitOperations;
-		npm_ops?: NpmOperations;
-		build_ops?: BuildOperations;
-		changeset_ops?: ChangesetOperations;
-	}) => Promise<PreflightResult>;
+	run_preflight_checks: (options: RunPreflightChecksOptions) => Promise<PreflightResult>;
 }
 
 /**
@@ -343,4 +268,6 @@ export interface GitopsOperations {
 	preflight: PreflightOperations;
 	fs: FsOperations;
 	build: BuildOperations;
+	/** `repos status`, for the executor's re-check of each repo right before its publish. */
+	repos: ReposOperations;
 }

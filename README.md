@@ -25,10 +25,11 @@ With fuz_gitops you can:
 
 fuz_gitops runs **deterministic, config-driven operations over a declared set
 of repos** — no LLM in the loop, and the repo set comes from a declared list
-(`gitops.config.ts` today). Publishing is its flagship capability, not its whole
-identity. A Rust `repos` tool is planned in this repo — syncing every declared
-repo and acting as the gateway agents use for pushes — along with a rename to
-`fuz_repos`.
+(a `repos.toml` registry, and a `gitops.config.ts` naming a subset of its keys). Publishing is its flagship capability, not its whole
+identity. The Rust `repos` tool in this repo (`crates/fuz_repos`) reports
+every declared repo's git state (`repos status`), syncs them (`repos sync`),
+and is the gateway agents push through (`repos push`); the package is
+renaming to `fuz_repos`.
 
 Deliberately out of scope: single-repo build work (that's [gro](https://github.com/fuzdev/gro)),
 work whose resolution differs per repo and needs judgment, machine and server
@@ -36,8 +37,8 @@ state, and **secrets** — fuz_gitops never stores, transports, or reads secret
 material as data, including env-file contents. Its own GitHub API token
 (noted below) is the one credential it uses, to authenticate itself.
 
-See [CLAUDE.md](CLAUDE.md#scope-and-boundaries) for the capability tiers, the
-known gaps, and the TS/Rust split.
+See [CLAUDE.md](CLAUDE.md#scope-and-boundaries) for the capability tiers, what
+`repos` never does, and the TS/Rust split.
 
 ## Usage
 
@@ -45,7 +46,21 @@ known gaps, and the TS/Rust split.
 npm i -D @fuzdev/fuz_gitops
 ```
 
-- configure [`gitops.config.ts`](/gitops.config.ts)
+- install the `repos` binary, which the tasks read repo state from — it isn't in the npm
+  package: in a checkout of this repo, `cargo install --path crates/fuz_repos --locked`
+- configure [`gitops.config.ts`](/gitops.config.ts) as a list of `repos.toml` registry keys —
+  each repo's dir, URL, branch, visibility, and CI come from the registry:
+
+  ```ts
+  import type { GitopsConfig } from '@fuzdev/fuz_gitops/gitops_config.ts';
+
+  const config: GitopsConfig = { repos: ['fuz_util', 'gro', 'fuz_ui'] };
+
+  export default config;
+  ```
+
+  The tasks find the registry the way `repos` does, walking up from the cwd, or take
+  `--registry <path>`; a repo the registry has but the disk lacks is cloned by `repos sync <key>`.
 - fuz_gitops calls the GitHub API using the environment variable `SECRET_GITHUB_API_TOKEN` for authorization,
   which is a [classic GitHub token](https://github.com/settings/tokens)
   (with "public access" for public repos, no options selected)
@@ -73,16 +88,16 @@ npm i -D @fuzdev/fuz_gitops
   export * from '@fuzdev/fuz_gitops/gitops_validate.task.ts';
   ```
 
-- run `gro gitops_sync` to sync repos and update the local data
+- run `gro gitops_sync` to generate the dashboard's data from the repos
 
 ## Architecture
 
 ```
-gitops.config.ts → local repos → GitHub API → repos.ts → UI components
+gitops.config.ts (registry keys) → repos status --json → local repos → GitHub API → repos.ts → UI components
 ```
 
-- **Operations pattern**: Dependency injection for all side effects (git, npm, fs)
-- **Fixture testing**: Generated git repos for isolated tests
+- **Operations pattern**: Dependency injection for all side effects (git, npm, fs, `repos`)
+- **Fixture testing**: In-memory fixture repos with expected publishing outcomes
 - **Changeset-driven**: Automatic version bumps and dependency updates
 
 See [CLAUDE.md](CLAUDE.md#architecture) for detailed documentation.
@@ -102,14 +117,21 @@ gro gitops_run "git status" --format json  # JSON output for scripting
 - Parallel execution with configurable concurrency (default: 5)
 - Continue-on-error behavior (shows all results)
 - Structured output formats (text or JSON)
-- Uses lightweight repo path resolution (no full sync needed)
+- Uses lightweight repo path resolution through `repos status`; a
+  configured repo that's missing fails the run, naming it
 
-### Syncing repo metadata
+### Generating the dashboard's data
 
 ```bash
-gro gitops_sync               # sync repos and generate UI data
-gro gitops_sync --download    # clone missing repos first
+gro gitops_sync               # fetch, check each repo, then write repos.json + repos.ts
+gro gitops_sync --check       # the readiness report alone: no fetch, no token, nothing written
+gro gitops_sync --allow_dirty # read repos off their branch, dirty, or mid-operation as they sit, warning instead
 ```
+
+It reads each repo as it sits and never moves one (`repos sync` does), so it
+refuses a repo off its registry branch, dirty, or mid-operation — the site
+would show that tree's modules beside origin's CI — and warns on one behind
+origin or missing its `node_modules`.
 
 ### Diagnostic commands (read-only)
 
@@ -117,15 +139,16 @@ gro gitops_sync --download    # clone missing repos first
 gro gitops_validate           # run all validation checks (analyze + plan + dry run)
 gro gitops_analyze            # analyze dependency graph and detect cycles
 gro gitops_plan               # generate publishing plan showing version changes and cascades
-gro gitops_publish            # simulate publishing without side effects (dry run default)
+gro gitops_publish            # simulate publishing, writing nothing in git (dry run default)
 gro gitops_publish --preview  # show the ordered side-effects a --wetrun would perform
 ```
 
 These read each repo's working tree exactly as it sits on disk — no branch
 switching, pulling, or installing — so they're safe to run with feature
-branches checked out and uncommitted changes. Pass `--sync` to refresh repos
-(switch to the configured branch, pull, install) before running, or run
-`gro gitops_sync` first.
+branches checked out and uncommitted changes. Each prints the repos that
+aren't at rest (off their registry branch, dirty, mid-rebase, or not in sync
+with origin as of the last fetch); run `repos sync` first to read them at
+rest.
 
 ### Publishing packages
 
@@ -134,7 +157,32 @@ gro gitops_publish --wetrun  # actually publish all repos with changesets
 gro gitops_publish --wetrun --no-plan  # skip plan confirmation
 ```
 
-**Note:** If publishing fails, simply re-run the same command. Already-published packages are automatically skipped (changesets consumed), failed packages retried naturally.
+Before it shows the plan for confirmation, a real publish fetches every npm repo
+(`repos status --fetch`) and refuses unless each is on its registry branch,
+clean, idle, and in sync with origin or ahead of it, with no other live
+session in its checkout — naming each problem and its fix. It moves nothing to
+get there, and re-checks each repo the same way right before publishing it.
+
+**Note:** If publishing fails, simply re-run the same command.
+Already-published packages are automatically skipped (changesets consumed),
+failed packages retried naturally (see
+[docs/publishing.md](docs/publishing.md#readiness) for what the run leaves
+unpushed).
+
+### The `repos` tool
+
+A Rust CLI over the repos a `repos.toml` registry declares. It moves refs it
+didn't author — fetch, fast-forward, clone, push — and never commits, rebases,
+merges anything but a fast-forward, force-pushes, or pushes tags. It needs git
+2.44 or newer, and Linux for its detection of live Claude Code sessions.
+
+```bash
+cargo install --path crates/fuz_repos --locked # install the `repos` binary
+repos status          # git state of every entry, from local refs
+repos status --fetch  # fetch from origin first (remote-tracking refs only)
+repos sync            # fetch, then fast-forward, push, and clone what's safe
+repos push            # push the branch checked out here, as a fast-forward
+```
 
 **Documentation:**
 
@@ -143,6 +191,7 @@ gro gitops_publish --wetrun --no-plan  # skip plan confirmation
   semantics, examples
 - ./docs/troubleshooting.md - Common errors and
   debugging tips
+- ./docs/repos.md - The `repos` command reference
 
 Getting started as a dev? Start with [Gro](https://github.com/fuzdev/gro)
 and the [Fuz template](https://github.com/fuzdev/fuz_template).

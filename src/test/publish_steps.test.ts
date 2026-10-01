@@ -33,6 +33,7 @@ const make_plan = (overrides: Partial<PublishingPlan> = {}): PublishingPlan => (
 	breaking_cascades: new Map(),
 	warnings: [],
 	info: [],
+	no_changes: [],
 	errors: [],
 	...overrides
 });
@@ -89,10 +90,10 @@ describe('derive_publish_steps', () => {
 		const steps = derive_publish_steps(make_cascade_plan());
 		const publishes = steps.filter((s) => s.kind === 'publish');
 		const via = new Map(publishes.map((s) => [s.repo, s.via]));
-		assert.strictEqual(via.get('core'), 'changeset');
-		assert.strictEqual(via.get('mid'), 'auto_changeset');
+		assert.strictEqual(via.get('core'), 'explicit');
+		assert.strictEqual(via.get('mid'), 'auto');
 		assert.strictEqual(via.get('app'), 'escalation');
-		assert.strictEqual(via.get('tool'), 'changeset');
+		assert.strictEqual(via.get('tool'), 'explicit');
 	});
 
 	test('prod dependency updates carry the published version and create a changeset', () => {

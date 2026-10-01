@@ -50,8 +50,10 @@ export interface RepoFixtureSet {
 		version_changes: Array<RepoFixtureExpectedVersionChange>;
 		/** Expected breaking change cascades (source package -> affected packages) */
 		breaking_cascades?: Record<string, Array<string>>;
-		/** Expected informational messages (packages with no changes) */
+		/** Expected informational sentences (excluded repos, dev cycles) */
 		info?: Array<string>;
+		/** Expected packages with nothing to publish — omitted means none */
+		no_changes?: Array<string>;
 		/** Expected warnings */
 		warnings?: Array<string>;
 		/** Expected errors */

@@ -104,7 +104,7 @@ Small fix in plugin`
 		},
 
 		// adapter has no changes (dev dep update doesn't trigger republish)
-		info: ['@test/adapter'],
+		no_changes: ['@test/adapter'],
 
 		warnings: [],
 		errors: []

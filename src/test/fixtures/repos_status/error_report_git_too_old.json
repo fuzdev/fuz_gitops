@@ -1,0 +1,10 @@
+{
+	"version": 18,
+	"error": {
+		"kind": "git_too_old",
+		"found": "2.39.5",
+		"required": "2.44.0",
+		"message": "git reports version `2.39.5`; repos needs 2.44.0 or newer",
+		"hint": "repos sets `GIT_NO_LAZY_FETCH` (git 2.44+) so a local call on a partial clone never touches the network — upgrade git"
+	}
+}

@@ -22,7 +22,10 @@
 	<ul class="unstyled">
 		{#each repos_modules as pkg_modules (pkg_modules)}
 			<li role="none">
-				<a href="#{pkg_modules.repo.name}" class:selected={pkg_modules.repo.name === page.url.hash}>
+				<a
+					href="#{pkg_modules.repo.name}"
+					class:selected={`#${pkg_modules.repo.name}` === page.url.hash}
+				>
 					{pkg_modules.repo.name}
 				</a>
 			</li>

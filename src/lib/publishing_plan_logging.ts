@@ -9,15 +9,16 @@
 import type { Logger } from '@fuzdev/fuz_util/log.ts';
 import { styleText as st } from 'node:util';
 
-import type {
-	PublishingPlan,
-	VersionChange,
-	DependencyUpdate,
-	VerboseData,
-	VerboseChangesetDetail,
-	VerboseIteration,
-	VerbosePropagationChain,
-	VerboseGraphSummary
+import {
+	version_change_kind,
+	type PublishingPlan,
+	type VersionChange,
+	type DependencyUpdate,
+	type VerboseData,
+	type VerboseChangesetDetail,
+	type VerboseIteration,
+	type VerbosePropagationChain,
+	type VerboseGraphSummary
 } from './publishing_plan.ts';
 
 export interface LogPlanOptions {
@@ -78,11 +79,13 @@ const log_version_change_with_diffs = (
 	const breaking_indicator = change.breaking ? st('red', ' BREAKING') : '';
 	const position = st('dim', `[${index + 1}/${total}]`);
 
+	const kind = version_change_kind(change);
+
 	// Determine scenario label
 	let scenario_label = '';
-	if (change.needs_bump_escalation) {
+	if (kind === 'escalation') {
 		scenario_label = st('yellow', ` [${change.existing_bump} → ${change.required_bump}]`);
-	} else if (change.will_generate_changeset) {
+	} else if (kind === 'auto') {
 		scenario_label = st('cyan', ' [auto-changeset]');
 	}
 
@@ -93,7 +96,7 @@ const log_version_change_with_diffs = (
 	);
 
 	// Show escalation reason
-	if (change.needs_bump_escalation) {
+	if (kind === 'escalation') {
 		log.info(
 			st(
 				'dim',
@@ -103,7 +106,7 @@ const log_version_change_with_diffs = (
 	}
 
 	// Show trigger reason for auto-changesets
-	if (change.will_generate_changeset) {
+	if (kind === 'auto') {
 		// Find what triggered this
 		const triggers: Array<string> = [];
 		for (const [pkg, affected] of breaking_cascades) {
@@ -147,6 +150,7 @@ export const log_publishing_plan = (
 		breaking_cascades,
 		warnings,
 		info,
+		no_changes,
 		errors
 	} = plan;
 
@@ -175,17 +179,17 @@ export const log_publishing_plan = (
 			return idx_a - idx_b;
 		});
 
-		// Separate into groups for headers
-		const with_changesets = ordered_changes.filter(
-			(vc) => vc.has_changesets && !vc.needs_bump_escalation
+		// Separate into groups for headers; each change lands in exactly one
+		const with_changesets = ordered_changes.filter((vc) => version_change_kind(vc) === 'explicit');
+		const with_escalation = ordered_changes.filter(
+			(vc) => version_change_kind(vc) === 'escalation'
 		);
-		const with_escalation = ordered_changes.filter((vc) => vc.needs_bump_escalation);
-		const with_auto_changesets = ordered_changes.filter((vc) => vc.will_generate_changeset);
+		const with_auto_changesets = ordered_changes.filter((vc) => version_change_kind(vc) === 'auto');
 
 		// A single running counter across all groups so positions read 1..N with no
 		// gaps. (Numbering per-group index would make the first group skip the numbers
 		// that land in a later group, e.g. jump from `[9/12]` to `[11/12]`.)
-		const total = with_changesets.length + with_escalation.length + with_auto_changesets.length;
+		const total = ordered_changes.length;
 		let position = 0;
 		const log_change_group = (
 			title: string,
@@ -251,15 +255,20 @@ export const log_publishing_plan = (
 		log.info('');
 	}
 
-	// Info (packages with no changes)
-	if (info.length > 0) {
-		log.info(st('dim', `No changes: ${info.join(', ')}`));
+	// Info sentences, then the packages with nothing to publish
+	for (const line of info) {
+		log.info(st('dim', line));
+	}
+	if (no_changes.length > 0) {
+		log.info(st('dim', `No changes: ${no_changes.join(', ')}`));
+	}
+	if (info.length > 0 || no_changes.length > 0) {
 		log.info('');
 	}
 
 	// Summary
 	const major_count = version_changes.filter((vc) => vc.breaking).length;
-	const auto_count = version_changes.filter((vc) => vc.will_generate_changeset).length;
+	const auto_count = version_changes.filter((vc) => version_change_kind(vc) === 'auto').length;
 	log.info(st('cyan', 'Summary:'));
 	log.info(`  ${version_changes.length} packages to publish`);
 	if (auto_count > 0) {

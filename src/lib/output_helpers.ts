@@ -3,10 +3,24 @@ import { writeFile } from 'node:fs/promises';
 
 export type OutputFormat = 'stdout' | 'json' | 'markdown';
 
+/**
+ * Writes one machine-readable document, or one line of a stream, to stdout,
+ * ending it with a newline.
+ */
+export type WriteStdout = (content: string) => void;
+
 export interface OutputOptions {
 	format: OutputFormat;
 	outfile?: string;
 	log?: Logger;
+	/**
+	 * Where a `json` or `markdown` document goes without `outfile`; the one
+	 * `route_human_output` returns, so the document reaches stdout while the
+	 * logger's lines go to stderr.
+	 *
+	 * @default `console.log`
+	 */
+	write_stdout?: WriteStdout;
 }
 
 export interface OutputFormatters<T> {
@@ -17,6 +31,42 @@ export interface OutputFormatters<T> {
 	 */
 	stdout: (data: T, log: Logger) => void;
 }
+
+/**
+ * Whether a task's stdout carries a machine-readable document: a `json` or
+ * `markdown` report not sent to `--outfile`.
+ *
+ * @param format - the task's `--format`
+ * @param outfile - the task's `--outfile`, if any
+ */
+export const output_is_machine = (format: string, outfile: string | undefined): boolean =>
+	(format === 'json' || format === 'markdown') && !outfile;
+
+/**
+ * Keeps a task's stdout for its machine-readable document or stream when
+ * `machine` is set: the logger's `info` and `debug` lines, which it writes with
+ * `console.log`, go where its errors go — stderr — and child loggers inherit
+ * that. Gro hands a task the logger its own lines go through, so gro's lines
+ * after the task runs (`✓`, the timings) follow to stderr; the two it prints
+ * before the task runs (`invoking`, `→ <task>`) stay on stdout, out of the
+ * task's reach.
+ *
+ * @param log - the task's logger
+ * @param machine - whether stdout carries a machine-readable document or stream
+ * @returns writes to the stdout the logger wrote to before, for the document
+ * @mutates log - overrides its `console` when `machine` is set
+ */
+export const route_human_output = (log: Logger, machine: boolean): WriteStdout => {
+	const stdout = log.console;
+	if (machine) {
+		log.console = {
+			log: (...args) => stdout.error(...args),
+			warn: (...args) => stdout.warn(...args),
+			error: (...args) => stdout.error(...args)
+		};
+	}
+	return (content) => stdout.log(content);
+};
 
 /**
  * Formats data and outputs to file or stdout based on options.
@@ -33,7 +83,7 @@ export const format_and_output = async <T>(
 	formatters: OutputFormatters<T>,
 	options: OutputOptions
 ): Promise<void> => {
-	const { format, outfile, log } = options;
+	const { format, outfile, log, write_stdout = write_console_log } = options;
 
 	// Handle stdout format (special case - uses logger directly)
 	if (format === 'stdout') {
@@ -59,7 +109,9 @@ export const format_and_output = async <T>(
 		// line with `[taskname]`, corrupting JSON and cluttering markdown — keep the
 		// machine-readable formats unprefixed and pipeable (use `--outfile` for output
 		// fully free of Gro's own preamble).
-		// eslint-disable-next-line no-console
-		console.log(content);
+		write_stdout(content);
 	}
 };
+
+// eslint-disable-next-line no-console
+const write_console_log: WriteStdout = (content) => console.log(content);

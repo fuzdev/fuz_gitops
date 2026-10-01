@@ -3,16 +3,25 @@ import { z } from 'zod';
 import { styleText as st } from 'node:util';
 import type { Logger } from '@fuzdev/fuz_util/log.ts';
 
-import { get_gitops_ready } from './gitops_task_helpers.ts';
-import type { DependencyGraph } from './dependency_graph.ts';
-import { repo_is_npm } from './local_repo.ts';
-import { analyze_repos, type DependencyAnalysis } from './graph_validation.ts';
+import {
+	get_gitops_ready,
+	log_readiness_block,
+	type ResolveGitopsReposOptions
+} from './gitops_task_helpers.ts';
+import type { DependencyAnalysis, DependencyGraph } from './dependency_graph.ts';
+import { repo_is_npm, type LocalRepo } from './local_repo.ts';
+import { analyze_repos } from './graph_validation.ts';
 import {
 	format_wildcard_dependencies,
 	format_dev_cycles,
 	format_production_cycles
 } from './log_helpers.ts';
-import { format_and_output, type OutputFormatters } from './output_helpers.ts';
+import {
+	format_and_output,
+	output_is_machine,
+	route_human_output,
+	type OutputFormatters
+} from './output_helpers.ts';
 import { GITOPS_CONFIG_PATH_DEFAULT } from './gitops_constants.ts';
 
 /** @nodocs */
@@ -21,22 +30,18 @@ export const Args = z.strictObject({
 		.string()
 		.meta({ description: 'path to the gitops config file, absolute or relative to the cwd' })
 		.default(GITOPS_CONFIG_PATH_DEFAULT),
-	dir: z
+	registry: z
 		.string()
-		.meta({ description: 'path containing the repos, defaults to the parent of the config dir' })
+		.meta({
+			description:
+				'path to the repos.toml registry, when `repos` would not find it walking up from the cwd'
+		})
 		.optional(),
 	format: z
 		.enum(['stdout', 'json', 'markdown'])
 		.meta({ description: 'output format' })
 		.default('stdout'),
-	outfile: z.string().meta({ description: 'write output to file instead of logging' }).optional(),
-	sync: z
-		.boolean()
-		.meta({
-			description:
-				'sync repos (switch branch, pull, install) before analyzing instead of reading the working tree as-is'
-		})
-		.default(false)
+	outfile: z.string().meta({ description: 'write output to file instead of logging' }).optional()
 });
 export type Args = z.infer<typeof Args>;
 
@@ -45,36 +50,69 @@ export const task: Task<Args> = {
 	Args,
 	summary: 'analyze dependency structure and relationships across repos',
 	run: async ({ args, log }) => {
-		const { config, dir, format, outfile, sync } = args;
-
-		// Get repos ready (without downloading); read the working tree as-is unless `--sync`
-		const { local_repos } = await get_gitops_ready({ config, dir, download: false, sync, log });
-
-		// Only npm packages form the dependency graph; note any non-npm repos (e.g. cargo)
-		// that are excluded so the omission isn't silent.
-		const non_npm_repos = local_repos.filter((r) => !repo_is_npm(r));
-		if (non_npm_repos.length > 0) {
-			log.info(
-				st(
-					'dim',
-					`excluding ${non_npm_repos.length} non-npm repo(s) from analysis (dashboard-only): ` +
-						non_npm_repos.map((r) => r.library.name).join(', ')
-				)
-			);
-		}
-
-		// Build the dependency graph and analyze cycles/wildcards (tolerating cycles)
-		const { graph, analysis, publishing_order } = analyze_repos(local_repos);
-
-		// Format and output using output_helpers
-		const data = {
-			graph,
-			analysis,
-			publishing_order
-		};
-
-		await format_and_output(data, create_formatters(), { format, outfile, log });
+		await run_gitops_analyze(args, log);
 	}
+};
+
+/**
+ * The side effects `run_gitops_analyze` reaches through, injectable for tests.
+ *
+ * @nodocs
+ */
+export interface GitopsAnalyzeDeps {
+	/** Loads the configured repos as they sit (`get_gitops_ready`). */
+	load_repos: (options: ResolveGitopsReposOptions) => Promise<{ local_repos: Array<LocalRepo> }>;
+}
+
+const default_gitops_analyze_deps: GitopsAnalyzeDeps = {
+	load_repos: get_gitops_ready
+};
+
+/**
+ * Runs `gro gitops_analyze`: loads the repos as they sit, logs the readiness
+ * block, and outputs the dependency analysis. Under `--format json` or
+ * `markdown` without `--outfile`, the log goes to stderr and stdout carries
+ * the document alone (`route_human_output`).
+ *
+ * @nodocs
+ */
+export const run_gitops_analyze = async (
+	args: Args,
+	log: Logger,
+	deps: Partial<GitopsAnalyzeDeps> = {}
+): Promise<void> => {
+	const { load_repos } = { ...default_gitops_analyze_deps, ...deps };
+	const { config, registry, format, outfile } = args;
+	const write_stdout = route_human_output(log, output_is_machine(format, outfile));
+
+	// Read the working trees as they sit, and say which aren't at rest
+	const { local_repos } = await load_repos({ config, registry, log });
+	log_readiness_block(local_repos, log);
+
+	// Only npm packages form the dependency graph; note any non-npm repos (e.g. cargo)
+	// that are excluded so the omission isn't silent.
+	const non_npm_repos = local_repos.filter((r) => !repo_is_npm(r));
+	if (non_npm_repos.length > 0) {
+		log.info(
+			st(
+				'dim',
+				`excluding ${non_npm_repos.length} non-npm repo(s) from analysis (dashboard-only): ` +
+					non_npm_repos.map((r) => r.library.name).join(', ')
+			)
+		);
+	}
+
+	// Build the dependency graph and analyze cycles/wildcards (tolerating cycles)
+	const { graph, analysis, publishing_order } = analyze_repos(local_repos);
+
+	// Format and output using output_helpers
+	const data = {
+		graph,
+		analysis,
+		publishing_order
+	};
+
+	await format_and_output(data, create_formatters(), { format, outfile, log, write_stdout });
 };
 
 // Data type for analysis output

@@ -78,7 +78,7 @@ Patch change in repo_c (will escalate to minor due to breaking dependency)`
 				name: '@test/repo_d',
 				version: '0.1.0'
 			}
-			// No changesets, no dependencies - should be in "no changes" info section
+			// No changesets, no dependencies - should be in no_changes
 		},
 
 		// repo_e: Dev-only dependency (doesn't trigger republish)
@@ -134,7 +134,7 @@ Patch change in repo_c (will escalate to minor due to breaking dependency)`
 		},
 
 		// Packages with no changes to publish
-		info: ['@test/repo_d', '@test/repo_e'],
+		no_changes: ['@test/repo_d', '@test/repo_e'],
 
 		warnings: [],
 		errors: []

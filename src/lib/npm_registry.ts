@@ -11,28 +11,44 @@ export interface WaitOptions {
 	timeout?: number;
 }
 
-export interface PackageInfo {
-	name: string;
-	version: string;
+/**
+ * The side effects of the registry checks — running npm, sleeping, and reading
+ * the clock — injected so tests drive them with plain objects.
+ */
+export interface NpmRegistryDeps {
+	/**
+	 * Runs `npm` with `args` and resolves to what it wrote to stdout — empty when
+	 * nothing, or when npm couldn't run. A throw counts as unavailable too.
+	 */
+	run_npm: (args: Array<string>) => Promise<string>;
+	/** Sleeps for `ms` milliseconds. */
+	wait: (ms: number) => Promise<void>;
+	/** The current time in milliseconds, as `Date.now`. */
+	now: () => number;
 }
 
+export const default_npm_registry_deps: NpmRegistryDeps = {
+	run_npm: async (args) => (await spawn_out('npm', args)).stdout ?? '',
+	wait,
+	now: () => Date.now()
+};
+
+/**
+ * Checks whether `pkg@version` is on the npm registry, by `npm view`.
+ *
+ * @returns `true` when the registry reports that exact version, `false` when it
+ * doesn't or npm couldn't run
+ */
 export const check_package_available = async (
 	pkg: string,
 	version: string,
-	options: { log?: Logger } = {}
+	options: { log?: Logger } = {},
+	deps: NpmRegistryDeps = default_npm_registry_deps
 ): Promise<boolean> => {
 	const { log } = options;
 	try {
-		// Use npm view to check if the specific version exists
-		const result = await spawn_out('npm', ['view', `${pkg}@${version}`, 'version']);
-
-		if (result.stdout) {
-			const output = result.stdout.trim();
-			// If we get a version back, it exists
-			return output === version;
-		}
-
-		return false;
+		const stdout = await deps.run_npm(['view', `${pkg}@${version}`, 'version']);
+		return stdout.trim() === version;
 	} catch (error) {
 		log?.debug(`Failed to check ${pkg}@${version}: ${error}`);
 		return false;
@@ -57,7 +73,8 @@ export const check_package_available = async (
 export const wait_for_package = async (
 	pkg: string,
 	version: string,
-	options: WaitOptions = {}
+	options: WaitOptions = {},
+	deps: NpmRegistryDeps = default_npm_registry_deps
 ): Promise<void> => {
 	const {
 		log,
@@ -67,77 +84,35 @@ export const wait_for_package = async (
 		timeout = 300000 // 5 minutes default
 	} = options;
 
-	const start_time = Date.now();
+	const start_time = deps.now();
 	let attempt = 0;
 	let delay = initial_delay;
 
 	while (attempt < max_attempts) {
 		attempt++;
 
-		// Check timeout
-		if (Date.now() - start_time > timeout) {
+		if (deps.now() - start_time > timeout) {
 			throw new Error(`Timeout waiting for ${pkg}@${version} after ${timeout}ms`);
 		}
 
-		// Check if package is available
-
-		if (await check_package_available(pkg, version, { log })) {
+		if (await check_package_available(pkg, version, { log }, deps)) {
 			log?.info(st('green', `    ✓ ${pkg}@${version} is now available on NPM`));
 			return;
 		}
 
 		// Log progress occasionally
-		if (attempt > 0 && attempt % 5 === 0) {
+		if (attempt % 5 === 0) {
 			log?.info(st('dim', `    Still waiting... (attempt ${attempt}/${max_attempts})`));
 		}
 
 		// Wait with exponential backoff + jitter
 		const jitter = Math.random() * delay * 0.1; // 10% jitter
 		const actual_delay = Math.min(delay + jitter, max_delay);
-		await wait(actual_delay);
+		await deps.wait(actual_delay);
 
 		// Exponential backoff
 		delay = Math.min(delay * 1.5, max_delay);
 	}
 
 	throw new Error(`${pkg}@${version} not available after ${max_attempts} attempts`);
-};
-
-/**
- * Fetches package metadata from NPM registry.
- *
- * Returns name and latest version. Returns null if package doesn't exist
- * or registry is unreachable.
- *
- * @returns package info or null on error/not found
- */
-export const get_package_info = async (
-	pkg: string,
-	options: { log?: Logger } = {}
-): Promise<PackageInfo | null> => {
-	const { log } = options;
-	try {
-		const result = await spawn_out('npm', ['view', pkg, '--json']);
-
-		if (result.stdout) {
-			const data = JSON.parse(result.stdout);
-			return {
-				name: data.name,
-				version: data.version
-			};
-		}
-
-		return null;
-	} catch (error) {
-		log?.debug(`Failed to get package info for ${pkg}: ${error}`);
-		return null;
-	}
-};
-
-export const package_exists = async (
-	pkg: string,
-	options: { log?: Logger } = {}
-): Promise<boolean> => {
-	const info = await get_package_info(pkg, options);
-	return info !== null;
 };

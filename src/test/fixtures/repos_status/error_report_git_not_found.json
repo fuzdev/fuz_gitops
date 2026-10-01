@@ -1,0 +1,8 @@
+{
+	"version": 18,
+	"error": {
+		"kind": "git_not_found",
+		"message": "git not found on PATH",
+		"hint": "install git 2.44 or newer"
+	}
+}

@@ -9,15 +9,24 @@
  */
 
 import type { BumpType } from './version_utils.ts';
-import type { PublishingPlan, VersionChange } from './publishing_plan.ts';
+import {
+	version_change_kind,
+	type PublishingPlan,
+	type VersionChange,
+	type VersionChangeKind
+} from './publishing_plan.ts';
 import { UnreachableError } from '@fuzdev/fuz_util/error.ts';
-
-/** How a package's version bump arises in the plan. */
-export type PublishStepVia = 'changeset' | 'auto_changeset' | 'escalation';
 
 /** One ordered side-effect a wetrun would perform. */
 export type PublishStep =
-	| { kind: 'publish'; repo: string; from: string; to: string; bump: BumpType; via: PublishStepVia }
+	| {
+			kind: 'publish';
+			repo: string;
+			from: string;
+			to: string;
+			bump: BumpType;
+			via: VersionChangeKind;
+	  }
 	| { kind: 'npm_wait'; repo: string; version: string }
 	| {
 			kind: 'dependency_update';
@@ -34,13 +43,6 @@ export interface DerivePublishStepsOptions {
 	/** Include the deploy phase (the publisher only deploys with `--deploy`). */
 	deploy?: boolean;
 }
-
-const step_via = (change: VersionChange): PublishStepVia =>
-	change.needs_bump_escalation
-		? 'escalation'
-		: change.has_changesets
-			? 'changeset'
-			: 'auto_changeset';
 
 /**
  * Derives the ordered side-effects a wetrun would perform from a frozen plan.
@@ -72,7 +74,7 @@ export const derive_publish_steps = (
 			from: change.from,
 			to: change.to,
 			bump: change.bump_type,
-			via: step_via(change)
+			via: version_change_kind(change)
 		});
 		steps.push({ kind: 'npm_wait', repo, version: change.to });
 		changed.add(repo);

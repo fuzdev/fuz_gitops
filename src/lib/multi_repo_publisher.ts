@@ -11,7 +11,9 @@ import {
 	type DependencyUpdate,
 	type PublishingPlan
 } from './publishing_plan.ts';
-import type { PreflightOptions } from './preflight_checks.ts';
+import { load_repos_status, to_repos_command } from './repos_status_load.ts';
+import { check_publish_readiness } from './repo_readiness.ts';
+import type { Result } from '@fuzdev/fuz_util/result.ts';
 import type { GitopsOperations } from './operations.ts';
 import { default_gitops_operations } from './operations_defaults.ts';
 import { GITOPS_NPM_WAIT_TIMEOUT_DEFAULT } from './gitops_constants.ts';
@@ -23,7 +25,8 @@ import {
 import {
 	type PublishingEventHandler,
 	capture_handler,
-	multi_handler
+	multi_handler,
+	redact_secrets
 } from './publishing_event_handler.ts';
 
 export interface PublishingOptions {
@@ -33,8 +36,18 @@ export interface PublishingOptions {
 	max_wait?: number;
 	log?: Logger;
 	ops?: GitopsOperations;
+	/** A `repos.toml` for the per-repo readiness re-check, when `repos` wouldn't find it from the cwd. */
+	registry?: string;
 	/** Structured event sink; defaults to capture-only (events surface on the result). */
 	events?: PublishingEventHandler;
+	/**
+	 * Where `gro publish` and `gro deploy` show their stdout: ours, or our stderr
+	 * when our stdout carries a machine-readable stream (`--emit_json`, or a JSON
+	 * or markdown report written to stdout).
+	 *
+	 * @default 'stdout'
+	 */
+	child_stdout?: 'stdout' | 'stderr';
 }
 
 export interface PublishedVersion {
@@ -89,6 +102,7 @@ export const execute_publishing_plan = async (
 ): Promise<PublishingResult> => {
 	const start_time = Date.now();
 	const { wetrun, log, ops = default_gitops_operations } = options;
+	const version_strategy = options.version_strategy ?? 'caret';
 
 	// Only npm repos publish; drop any non-npm repos (e.g. cargo) so preflight and the
 	// executor's name lookup never touch them. The plan already excludes them too.
@@ -110,20 +124,16 @@ export const execute_publishing_plan = async (
 		events_handler.emit(event);
 	};
 
-	// Preflight checks (skip for dry runs since we're not actually publishing)
+	// Preflight checks (skip for dry runs since we're not actually publishing): it builds
+	// exactly the packages the plan publishes. Repo git state isn't preflight's:
+	// `gitops_publish --wetrun` gates on it before its confirmation prompt.
 	if (wetrun) {
-		const preflight_options: PreflightOptions = {
-			skip_changesets: false, // Always check for changesets
-			required_branch: 'main',
-			log
-		};
 		const preflight = await ops.preflight.run_preflight_checks({
 			repos,
-			preflight_options,
-			git_ops: ops.git,
+			version_changes: plan.version_changes,
+			log,
 			npm_ops: ops.npm,
-			build_ops: ops.build,
-			changeset_ops: ops.changeset
+			build_ops: ops.build
 		});
 
 		if (!preflight.ok) {
@@ -172,6 +182,26 @@ export const execute_publishing_plan = async (
 
 		const repo = repo_by_name.get(pkg_name);
 		if (!repo) continue;
+
+		// Re-check the repo right before its `gro publish`: the gate ran before the prompt, and a
+		// cascade's npm waits leave a long window. `--no-pull` means gro won't notice origin
+		// moving until its push is rejected — after `changeset publish` put the version on npm —
+		// and its `commit -a` would sweep a tracked edit made since into the release commit.
+		// Aborting here, before any npm side effect, leaves the dirty state resumption expects.
+		if (wetrun) {
+			const recheck = await recheck_publish_readiness(repo, options.registry, ops);
+			if (!recheck.ok) {
+				const err = new Error(
+					`${pkg_name} isn't ready to publish, re-checked right before \`gro publish\`: ` +
+						`${recheck.message}. Aborting before it touches npm — fix it, then re-run ` +
+						`'gro gitops_publish --wetrun' to re-plan from the current state.`
+				);
+				failed.set(pkg_name, err);
+				emit({ event: 'package_failed', name: pkg_name, error: err.message, code: 'not_ready' });
+				log?.error(st('red', `  ❌ ${err.message}`));
+				break;
+			}
+		}
 
 		// An earlier publish may have rewritten this package's dependency ranges. No install is
 		// needed here: `gro publish` runs its own install (which self-heals npm's stale-cache
@@ -236,12 +266,9 @@ export const execute_publishing_plan = async (
 				});
 
 				if (!wait_result.ok) {
-					// Handle inline (don't throw into the generic catch): the npm-wait failure
-					// carries a typed `timeout` signal, so we know this is a network failure
-					// without sniffing the message.
-					const err = new Error(
-						`Failed to wait for package: ${wait_result.message}${wait_result.timeout ? ' (timeout)' : ''}`
-					);
+					// Handle inline (don't throw into the generic catch): a failed npm wait is a
+					// network failure, known by where it happened rather than by sniffing the message.
+					const err = new Error(`Failed to wait for package: ${wait_result.message}`);
 					failed.set(pkg_name, err);
 					emit({ event: 'package_failed', name: pkg_name, error: err.message, code: 'network' });
 					log?.error(st('red', `  ❌ Failed to publish ${pkg_name}: ${err.message}`));
@@ -251,8 +278,8 @@ export const execute_publishing_plan = async (
 
 				// 3. Update every dependent the plan says has a prod/peer dep on this package.
 				// This rewrites their package.json ranges and creates their auto-changeset,
-				// which a later step of this same pass publishes. The dependent is queued for
-				// a single install just before it publishes (see the top of the loop).
+				// which a later step of this same pass publishes; its `gro publish` installs the
+				// rewritten deps then (see the top of the loop).
 				const dependent_updates = group_dependency_updates(
 					plan.dependency_updates,
 					published,
@@ -281,23 +308,15 @@ export const execute_publishing_plan = async (
 						});
 					}
 					changed_repos.add(dependent_name); // Mark as changed for deployment
-					if (republishes) {
-						await update_package_json(dependent_repo, updates, {
-							strategy: options.version_strategy || 'caret',
-							published_versions: published, // creates the auto-changeset
-							log,
-							git_ops: ops.git,
-							fs_ops: ops.fs
-						});
-					} else {
-						// update-only leaf: rewrite ranges + commit, no changeset (it won't republish)
-						await update_package_json(dependent_repo, updates, {
-							strategy: options.version_strategy || 'caret',
-							log,
-							git_ops: ops.git,
-							fs_ops: ops.fs
-						});
-					}
+					await update_package_json(dependent_repo, updates, {
+						strategy: version_strategy,
+						// `published_versions` creates the auto-changeset; an update-only leaf gets
+						// its ranges rewritten and committed with no changeset (it won't republish)
+						published_versions: republishes ? published : undefined,
+						log,
+						git_ops: ops.git,
+						fs_ops: ops.fs
+					});
 				}
 			}
 		} catch (error) {
@@ -309,10 +328,11 @@ export const execute_publishing_plan = async (
 				error: err.message,
 				// TODO: emit a precise code once the npm/process ops return typed errors —
 				// today a publish-step cause lives in unstructured stderr, so use the honest
-				// coarse bucket rather than guessing 'auth'/'network'/'build' from the message.
+				// coarse bucket rather than guessing a cause (auth, build, …) from the message.
 				code: 'publish'
 			});
-			log?.error(st('red', `  ❌ Failed to publish ${pkg_name}: ${err.message}`));
+			// the first line alone: the stderr tail the rest repeats just streamed live
+			log?.error(st('red', `  ❌ Failed to publish ${pkg_name}: ${err.message.split('\n')[0]}`));
 			break; // Always fail fast on error
 		}
 	}
@@ -354,7 +374,7 @@ export const execute_publishing_plan = async (
 			// package.json but must NOT generate a changeset — dev-only changes redeploy
 			// (rebuild) without republishing, so they shouldn't bump the next release.
 			await update_package_json(repo, dev_updates, {
-				strategy: options.version_strategy || 'caret',
+				strategy: version_strategy,
 				log,
 				git_ops: ops.git,
 				fs_ops: ops.fs
@@ -381,18 +401,26 @@ export const execute_publishing_plan = async (
 				// Build fresh (no --no-build): a deployed site bundles its dependencies, so it
 				// must be rebuilt against the versions this run just published — the preflight
 				// build ran against the old versions, before the cascade rewrote package.json.
-				const deploy_result = await ops.process.spawn({
+				const deploy_result = await ops.process.run_interactive({
 					cmd: 'gro',
 					args: ['deploy'],
-					cwd: repo.repo_dir
+					cwd: repo.repo_dir,
+					stdout: options.child_stdout
 				});
 
 				if (deploy_result.ok) {
 					emit({ event: 'deploy_completed', name: repo.library.name });
 					log?.info(st('green', `  ✅ Deployed ${repo.library.name}`));
 				} else {
-					emit({ event: 'deploy_failed', name: repo.library.name, error: deploy_result.message });
-					log?.warn(st('yellow', `  ⚠️  Failed to deploy ${repo.library.name}`));
+					emit({
+						event: 'deploy_failed',
+						name: repo.library.name,
+						error: format_run_failure(deploy_result)
+					});
+					// the stderr tail just streamed live, so the log names the failure alone
+					log?.warn(
+						st('yellow', `  ⚠️  Failed to deploy ${repo.library.name}: ${deploy_result.message}`)
+					);
 				}
 			} catch (error) {
 				const err = error instanceof Error ? error : new Error(String(error));
@@ -469,10 +497,13 @@ export const execute_publishing_plan = async (
  * Publishes a single repo using `gro publish`.
  *
  * Dry run mode: reports the precomputed plan entry without side effects.
- * Real mode: runs `gro publish --no-build` (builds already validated in preflight),
- * reads the new version from `package.json`, and returns it alongside the plan's
- * predicted bump metadata. The caller compares the read-back version to the plan to
- * detect drift.
+ * Real mode: runs `gro publish --no-build --no-pull --branch <entry branch>` (builds
+ * already validated in preflight; the readiness re-check just found the branch in sync
+ * with origin or ahead of it, so gro's own `git pull` is skipped, and gro checks out the branch the
+ * registry entry follows rather than its `main` default) in the foreground — its output
+ * live and stdin the terminal's, for npm's one-time-password prompt — reads the new version from
+ * `package.json`, and returns it alongside the plan's predicted bump metadata. The
+ * caller compares the read-back version to the plan to detect drift.
  *
  * @throws {Error} if the publish, version read-back, or commit-hash lookup fails
  */
@@ -498,15 +529,16 @@ const publish_single_repo = async (
 		};
 	}
 
-	// Run gro publish with --no-build (builds were validated in preflight checks)
-	const publish_result = await ops.process.spawn({
+	const publish_result = await ops.process.run_interactive({
 		cmd: 'gro',
-		args: ['publish', '--no-build'],
-		cwd: repo.repo_dir
+		args: gro_publish_args(repo),
+		cwd: repo.repo_dir,
+		stdout: options.child_stdout
 	});
 
 	if (!publish_result.ok) {
-		throw new Error(`Failed to publish ${repo.library.name}: ${publish_result.message}`);
+		// no "Failed to publish" prefix: the caller's log and report name the package
+		throw new Error(format_run_failure(publish_result));
 	}
 
 	// Read the new version from package.json after gro publish
@@ -541,6 +573,59 @@ const publish_single_repo = async (
 		tag: `v${new_version}`
 	};
 };
+
+/**
+ * Re-checks one repo's readiness right before its `gro publish`: `repos status
+ * --fetch --json <key>` through `ops.repos`, then `check_publish_readiness` on
+ * that entry — the gate's predicate, so a branch ahead of origin (the
+ * executor's own dependency-rewrite commit leaves a dependent ahead) is ready.
+ *
+ * @returns ok, or the problems found (or why the check couldn't run), joined
+ */
+const recheck_publish_readiness = async (
+	repo: LocalRepo,
+	registry: string | undefined,
+	ops: GitopsOperations
+): Promise<Result<object, { message: string }>> => {
+	const key = repo.entry.key;
+	const loaded = await load_repos_status({
+		keys: [key],
+		registry,
+		fetch: true,
+		repos_ops: ops.repos
+	});
+	if (!loaded.ok) return { ok: false, message: `the check didn't run: ${loaded.message}` };
+	const checked = check_publish_readiness({
+		report: loaded.report,
+		keys: [key],
+		repos_command: to_repos_command(registry)
+	});
+	return checked.ok ? { ok: true } : { ok: false, message: checked.lines.join('; ') };
+};
+
+/**
+ * The `gro publish` arguments the executor runs in a repo: `--no-build`, since
+ * preflight validated the build; `--no-pull`, since the readiness re-check right
+ * before found the branch in sync with origin or ahead of it, so a pull would only
+ * move what the check vouched for; and `--branch` naming the branch the registry entry follows,
+ * which gro checks out (its default is `main`).
+ */
+const gro_publish_args = (repo: Pick<LocalRepo, 'entry'>): Array<string> => {
+	const args = ['publish', '--no-build', '--no-pull'];
+	if (repo.entry.branch !== null) args.push('--branch', repo.entry.branch);
+	return args;
+};
+
+/**
+ * The failure message for a command the executor ran: why it failed on the first
+ * line, then the end of its stderr with known secret shapes redacted, since the
+ * message lands in the result, the event stream, and the JSON or markdown report.
+ * The live log shows the first line alone, the stderr having just streamed.
+ */
+const format_run_failure = (failure: { message: string; stderr_tail?: string }): string =>
+	failure.stderr_tail
+		? `${failure.message}\nthe end of its stderr:\n${redact_secrets(failure.stderr_tail)}`
+		: failure.message;
 
 /**
  * Groups dependency updates by dependent package — `dependent → (dependency → new

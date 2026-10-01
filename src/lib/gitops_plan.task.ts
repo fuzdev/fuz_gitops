@@ -1,15 +1,28 @@
 import type { Task } from '@fuzdev/gro';
+import type { Logger } from '@fuzdev/fuz_util/log.ts';
 import { z } from 'zod';
 import { styleText as st } from 'node:util';
 
-import { get_gitops_ready } from './gitops_task_helpers.ts';
+import {
+	get_gitops_ready,
+	log_readiness_block,
+	type ResolveGitopsReposOptions
+} from './gitops_task_helpers.ts';
+import type { LocalRepo } from './local_repo.ts';
+import type { ChangesetOperations } from './operations.ts';
+import { default_changeset_operations } from './operations_defaults.ts';
 import {
 	generate_publishing_plan,
-	log_publishing_plan,
-	type PublishingPlan,
-	type LogPlanOptions
+	version_change_kind,
+	type PublishingPlan
 } from './publishing_plan.ts';
-import { format_and_output, type OutputFormatters } from './output_helpers.ts';
+import { log_publishing_plan, type LogPlanOptions } from './publishing_plan_logging.ts';
+import {
+	format_and_output,
+	output_is_machine,
+	route_human_output,
+	type OutputFormatters
+} from './output_helpers.ts';
 import { GITOPS_CONFIG_PATH_DEFAULT } from './gitops_constants.ts';
 
 /** @nodocs */
@@ -18,23 +31,19 @@ export const Args = z.strictObject({
 		.string()
 		.meta({ description: 'path to the gitops config file, absolute or relative to the cwd' })
 		.default(GITOPS_CONFIG_PATH_DEFAULT),
-	dir: z
+	registry: z
 		.string()
-		.meta({ description: 'path containing the repos, defaults to the parent of the config dir' })
+		.meta({
+			description:
+				'path to the repos.toml registry, when `repos` would not find it walking up from the cwd'
+		})
 		.optional(),
 	format: z
 		.enum(['stdout', 'json', 'markdown'])
 		.meta({ description: 'output format' })
 		.default('stdout'),
 	outfile: z.string().meta({ description: 'write output to file instead of logging' }).optional(),
-	verbose: z.boolean().meta({ description: 'show additional details' }).default(false),
-	sync: z
-		.boolean()
-		.meta({
-			description:
-				'sync repos (switch branch, pull, install) before planning instead of reading the working tree as-is'
-		})
-		.default(false)
+	verbose: z.boolean().meta({ description: 'show additional details' }).default(false)
 });
 export type Args = z.infer<typeof Args>;
 
@@ -44,7 +53,7 @@ export type Args = z.infer<typeof Args>;
  *
  * Usage:
  *   `gro gitops_plan`
- *   `gro gitops_plan --dir ../repos`
+ *   `gro gitops_plan --registry ../repos.toml`
  *   `gro gitops_plan --config ./custom.config.ts`
  *
  * @nodocs
@@ -53,36 +62,67 @@ export const task: Task<Args> = {
 	summary: 'generate a publishing plan based on changesets',
 	Args,
 	run: async ({ args, log }): Promise<void> => {
-		const { dir, config, format, outfile, verbose, sync } = args;
+		await run_gitops_plan(args, log);
+	}
+};
 
-		log.info(st('cyan', 'Generating multi-repo publishing plan...'));
+/**
+ * The side effects `run_gitops_plan` reaches through, injectable for tests.
+ *
+ * @nodocs
+ */
+export interface GitopsPlanDeps {
+	/** Loads the configured repos as they sit (`get_gitops_ready`). */
+	load_repos: (options: ResolveGitopsReposOptions) => Promise<{ local_repos: Array<LocalRepo> }>;
+	/** Reads each repo's changesets for the plan. */
+	changeset_ops: ChangesetOperations;
+}
 
-		// Load local repos; read the working tree as-is unless `--sync`
-		const { local_repos } = await get_gitops_ready({
-			config,
-			dir,
-			download: false, // Don't download if missing
-			sync,
-			log
-		});
+const default_gitops_plan_deps: GitopsPlanDeps = {
+	load_repos: get_gitops_ready,
+	changeset_ops: default_changeset_operations
+};
 
-		if (local_repos.length === 0) {
-			log.error('No local repos found');
-			return;
-		}
+/**
+ * Runs `gro gitops_plan`: loads the repos as they sit, logs the readiness
+ * block, generates the plan, and outputs it. Under `--format json` or
+ * `markdown` without `--outfile`, the log goes to stderr and stdout carries
+ * the document alone (`route_human_output`).
+ *
+ * @throws {Error} when the plan has errors that would block publishing, after outputting it
+ * @nodocs
+ */
+export const run_gitops_plan = async (
+	args: Args,
+	log: Logger,
+	deps: Partial<GitopsPlanDeps> = {}
+): Promise<void> => {
+	const { load_repos, changeset_ops } = { ...default_gitops_plan_deps, ...deps };
+	const { config, registry, format, outfile, verbose } = args;
+	const write_stdout = route_human_output(log, output_is_machine(format, outfile));
 
-		log.info(`  Found ${local_repos.length} local repos`);
+	log.info(st('cyan', 'Generating multi-repo publishing plan...'));
 
-		// Generate publishing plan
-		const plan = await generate_publishing_plan(local_repos, { log, verbose });
+	// Load local repos as they sit, and say which aren't at rest
+	const { local_repos } = await load_repos({ config, registry, log });
+	log_readiness_block(local_repos, log);
 
-		// Format and output using output_helpers
-		await format_and_output(plan, create_plan_formatters({ verbose }), { format, outfile, log });
+	log.info(`  Found ${local_repos.length} local repos`);
 
-		// Exit with error if there are blocking issues
-		if (plan.errors.length > 0) {
-			throw new Error('Publishing plan found errors that would block publishing');
-		}
+	// Generate publishing plan
+	const plan = await generate_publishing_plan(local_repos, { log, verbose, ops: changeset_ops });
+
+	// Format and output using output_helpers
+	await format_and_output(plan, create_plan_formatters({ verbose }), {
+		format,
+		outfile,
+		log,
+		write_stdout
+	});
+
+	// Exit with error if there are blocking issues
+	if (plan.errors.length > 0) {
+		throw new Error('Publishing plan found errors that would block publishing');
 	}
 };
 
@@ -97,6 +137,7 @@ const create_plan_formatters = (
 			breaking_cascades: Object.fromEntries(plan.breaking_cascades),
 			warnings: plan.warnings,
 			info: plan.info,
+			no_changes: plan.no_changes,
 			errors: plan.errors
 		};
 		return JSON.stringify(output, null, 2);
@@ -114,6 +155,7 @@ const format_plan_as_markdown = (plan: PublishingPlan): Array<string> => {
 		breaking_cascades,
 		warnings,
 		info,
+		no_changes,
 		errors
 	} = plan;
 
@@ -140,21 +182,21 @@ const format_plan_as_markdown = (plan: PublishingPlan): Array<string> => {
 
 	// Version changes
 	if (version_changes.length > 0) {
-		const with_changesets = version_changes.filter(
-			(vc) => vc.has_changesets && !vc.needs_bump_escalation
+		const with_changesets = version_changes.filter((vc) => version_change_kind(vc) === 'explicit');
+		const with_escalation = version_changes.filter(
+			(vc) => version_change_kind(vc) === 'escalation'
 		);
-		const with_escalation = version_changes.filter((vc) => vc.needs_bump_escalation);
-		const with_auto_changesets = version_changes.filter((vc) => vc.will_generate_changeset);
+		const with_auto_changesets = version_changes.filter((vc) => version_change_kind(vc) === 'auto');
 
 		if (with_changesets.length > 0) {
 			lines.push('## Version Changes (from changesets)');
 			lines.push('');
-			lines.push('| Package | From | To | Bump | Major |');
-			lines.push('|---------|------|----|------|-------|');
+			lines.push('| Package | From | To | Bump | Breaking |');
+			lines.push('|---------|------|----|------|----------|');
 			for (const change of with_changesets) {
-				const is_major = change.bump_type === 'major' ? '💥 Yes' : 'No';
+				const breaking = change.breaking ? '💥 Yes' : 'No';
 				lines.push(
-					`| \`${change.package_name}\` | ${change.from} | ${change.to} | ${change.bump_type} | ${is_major} |`
+					`| \`${change.package_name}\` | ${change.from} | ${change.to} | ${change.bump_type} | ${breaking} |`
 				);
 			}
 			lines.push('');
@@ -163,12 +205,12 @@ const format_plan_as_markdown = (plan: PublishingPlan): Array<string> => {
 		if (with_escalation.length > 0) {
 			lines.push('## Version Changes (bump escalation required)');
 			lines.push('');
-			lines.push('| Package | From | To | Changesets Bump | Required Bump | Major |');
-			lines.push('|---------|------|-----|-----------------|---------------|-------|');
+			lines.push('| Package | From | To | Changesets Bump | Required Bump | Breaking |');
+			lines.push('|---------|------|-----|-----------------|---------------|----------|');
 			for (const change of with_escalation) {
-				const is_major = change.bump_type === 'major' ? '💥 Yes' : 'No';
+				const breaking = change.breaking ? '💥 Yes' : 'No';
 				lines.push(
-					`| \`${change.package_name}\` | ${change.from} | ${change.to} | ${change.existing_bump} | ${change.required_bump} | ${is_major} |`
+					`| \`${change.package_name}\` | ${change.from} | ${change.to} | ${change.existing_bump} | ${change.required_bump} | ${breaking} |`
 				);
 			}
 			lines.push('');
@@ -181,12 +223,12 @@ const format_plan_as_markdown = (plan: PublishingPlan): Array<string> => {
 		if (with_auto_changesets.length > 0) {
 			lines.push('## Version Changes (auto-generated for dependency updates)');
 			lines.push('');
-			lines.push('| Package | From | To | Bump | Major |');
-			lines.push('|---------|------|-----|------|-------|');
+			lines.push('| Package | From | To | Bump | Breaking |');
+			lines.push('|---------|------|-----|------|----------|');
 			for (const change of with_auto_changesets) {
-				const is_major = change.bump_type === 'major' ? '💥 Yes' : 'No';
+				const breaking = change.breaking ? '💥 Yes' : 'No';
 				lines.push(
-					`| \`${change.package_name}\` | ${change.from} | ${change.to} | ${change.bump_type} | ${is_major} |`
+					`| \`${change.package_name}\` | ${change.from} | ${change.to} | ${change.bump_type} | ${breaking} |`
 				);
 			}
 			lines.push('');
@@ -255,25 +297,35 @@ const format_plan_as_markdown = (plan: PublishingPlan): Array<string> => {
 		lines.push('');
 	}
 
-	// Info (packages with no changes - normal status)
+	// Info (normal status, not warnings)
 	if (info.length > 0) {
-		lines.push('## ℹ️ No Changes to Publish');
+		lines.push('## ℹ️ Info');
 		lines.push('');
-		lines.push('*These packages have no changesets and no dependency updates:*');
+		for (const line of info) {
+			lines.push(`- ${line}`);
+		}
 		lines.push('');
-		for (const pkg of info) {
+	}
+
+	// Packages with nothing to publish (normal status)
+	if (no_changes.length > 0) {
+		lines.push('## No Changes to Publish');
+		lines.push('');
+		lines.push('*These packages have no changesets and nothing to publish:*');
+		lines.push('');
+		for (const pkg of no_changes) {
 			lines.push(`- \`${pkg}\``);
 		}
 		lines.push('');
 	}
 
 	// Summary
-	const major_bump_count = version_changes.filter((vc) => vc.bump_type === 'major').length;
+	const breaking_count = version_changes.filter((vc) => vc.breaking).length;
 	lines.push('## Summary');
 	lines.push('');
 	lines.push(`- **Packages to publish**: ${version_changes.length}`);
 	lines.push(`- **Dependency updates**: ${dependency_updates.length}`);
-	lines.push(`- **Major version bumps**: ${major_bump_count}`);
+	lines.push(`- **Breaking changes**: ${breaking_count}`);
 	lines.push(`- **Warnings**: ${warnings.length}`);
 	lines.push(`- **Errors**: ${errors.length}`);
 
