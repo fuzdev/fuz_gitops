@@ -259,7 +259,11 @@ its branch or dirty stays as it is until you move it.
 
 ### "Package not publishing even though I have a changeset"
 
-Check:
+When the repo has changeset files but none yields a bump for its package, the
+plan takes no bump from those files (it publishes only if a dependency update
+gives it an auto-changeset) and warns, naming the repo and why — none of the
+files parses, or none that parses names the package (preflight still counts it
+as having changesets and builds it). Check:
 
 1. Changeset file is in `.changeset/` directory
 2. Changeset file is not `README.md`

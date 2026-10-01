@@ -7,11 +7,13 @@
  */
 
 /**
- * Maximum number of iterations for fixed-point iteration during publishing.
- * Used in both plan generation and actual publishing to resolve transitive dependency cascades.
+ * Maximum number of fixed-point iterations plan generation runs to resolve
+ * transitive dependency cascades. Publishing executes the frozen plan in a
+ * single pass and doesn't iterate.
  *
- * In practice, most repos converge in 2-3 iterations.
- * Deep dependency chains may require more iterations.
+ * Each iteration reaches at least one more level of dependents, so a deep dependency
+ * chain needs more; a plan that hits the limit still changing warns, naming
+ * the packages left.
  */
 export const GITOPS_MAX_ITERATIONS_DEFAULT = 10;
 

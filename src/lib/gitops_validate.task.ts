@@ -4,11 +4,8 @@ import { styleText as st } from 'node:util';
 
 import { get_gitops_ready, log_readiness_block } from './gitops_task_helpers.ts';
 import { analyze_repos, type DependencyAnalysis } from './graph_validation.ts';
-import {
-	generate_publishing_plan,
-	log_publishing_plan,
-	type PublishingPlan
-} from './publishing_plan.ts';
+import { generate_publishing_plan, type PublishingPlan } from './publishing_plan.ts';
+import { log_publishing_plan } from './publishing_plan_logging.ts';
 import { execute_publishing_plan, type PublishingOptions } from './multi_repo_publisher.ts';
 import { log_dependency_analysis } from './log_helpers.ts';
 import { GITOPS_CONFIG_PATH_DEFAULT } from './gitops_constants.ts';

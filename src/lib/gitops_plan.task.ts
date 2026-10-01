@@ -5,10 +5,10 @@ import { styleText as st } from 'node:util';
 import { get_gitops_ready, log_readiness_block } from './gitops_task_helpers.ts';
 import {
 	generate_publishing_plan,
-	log_publishing_plan,
-	type PublishingPlan,
-	type LogPlanOptions
+	version_change_kind,
+	type PublishingPlan
 } from './publishing_plan.ts';
+import { log_publishing_plan, type LogPlanOptions } from './publishing_plan_logging.ts';
 import { format_and_output, type OutputFormatters } from './output_helpers.ts';
 import { GITOPS_CONFIG_PATH_DEFAULT } from './gitops_constants.ts';
 
@@ -83,6 +83,7 @@ const create_plan_formatters = (
 			breaking_cascades: Object.fromEntries(plan.breaking_cascades),
 			warnings: plan.warnings,
 			info: plan.info,
+			no_changes: plan.no_changes,
 			errors: plan.errors
 		};
 		return JSON.stringify(output, null, 2);
@@ -100,6 +101,7 @@ const format_plan_as_markdown = (plan: PublishingPlan): Array<string> => {
 		breaking_cascades,
 		warnings,
 		info,
+		no_changes,
 		errors
 	} = plan;
 
@@ -126,21 +128,21 @@ const format_plan_as_markdown = (plan: PublishingPlan): Array<string> => {
 
 	// Version changes
 	if (version_changes.length > 0) {
-		const with_changesets = version_changes.filter(
-			(vc) => vc.has_changesets && !vc.needs_bump_escalation
+		const with_changesets = version_changes.filter((vc) => version_change_kind(vc) === 'explicit');
+		const with_escalation = version_changes.filter(
+			(vc) => version_change_kind(vc) === 'escalation'
 		);
-		const with_escalation = version_changes.filter((vc) => vc.needs_bump_escalation);
-		const with_auto_changesets = version_changes.filter((vc) => vc.will_generate_changeset);
+		const with_auto_changesets = version_changes.filter((vc) => version_change_kind(vc) === 'auto');
 
 		if (with_changesets.length > 0) {
 			lines.push('## Version Changes (from changesets)');
 			lines.push('');
-			lines.push('| Package | From | To | Bump | Major |');
-			lines.push('|---------|------|----|------|-------|');
+			lines.push('| Package | From | To | Bump | Breaking |');
+			lines.push('|---------|------|----|------|----------|');
 			for (const change of with_changesets) {
-				const is_major = change.bump_type === 'major' ? '💥 Yes' : 'No';
+				const breaking = change.breaking ? '💥 Yes' : 'No';
 				lines.push(
-					`| \`${change.package_name}\` | ${change.from} | ${change.to} | ${change.bump_type} | ${is_major} |`
+					`| \`${change.package_name}\` | ${change.from} | ${change.to} | ${change.bump_type} | ${breaking} |`
 				);
 			}
 			lines.push('');
@@ -149,12 +151,12 @@ const format_plan_as_markdown = (plan: PublishingPlan): Array<string> => {
 		if (with_escalation.length > 0) {
 			lines.push('## Version Changes (bump escalation required)');
 			lines.push('');
-			lines.push('| Package | From | To | Changesets Bump | Required Bump | Major |');
-			lines.push('|---------|------|-----|-----------------|---------------|-------|');
+			lines.push('| Package | From | To | Changesets Bump | Required Bump | Breaking |');
+			lines.push('|---------|------|-----|-----------------|---------------|----------|');
 			for (const change of with_escalation) {
-				const is_major = change.bump_type === 'major' ? '💥 Yes' : 'No';
+				const breaking = change.breaking ? '💥 Yes' : 'No';
 				lines.push(
-					`| \`${change.package_name}\` | ${change.from} | ${change.to} | ${change.existing_bump} | ${change.required_bump} | ${is_major} |`
+					`| \`${change.package_name}\` | ${change.from} | ${change.to} | ${change.existing_bump} | ${change.required_bump} | ${breaking} |`
 				);
 			}
 			lines.push('');
@@ -167,12 +169,12 @@ const format_plan_as_markdown = (plan: PublishingPlan): Array<string> => {
 		if (with_auto_changesets.length > 0) {
 			lines.push('## Version Changes (auto-generated for dependency updates)');
 			lines.push('');
-			lines.push('| Package | From | To | Bump | Major |');
-			lines.push('|---------|------|-----|------|-------|');
+			lines.push('| Package | From | To | Bump | Breaking |');
+			lines.push('|---------|------|-----|------|----------|');
 			for (const change of with_auto_changesets) {
-				const is_major = change.bump_type === 'major' ? '💥 Yes' : 'No';
+				const breaking = change.breaking ? '💥 Yes' : 'No';
 				lines.push(
-					`| \`${change.package_name}\` | ${change.from} | ${change.to} | ${change.bump_type} | ${is_major} |`
+					`| \`${change.package_name}\` | ${change.from} | ${change.to} | ${change.bump_type} | ${breaking} |`
 				);
 			}
 			lines.push('');
@@ -241,25 +243,35 @@ const format_plan_as_markdown = (plan: PublishingPlan): Array<string> => {
 		lines.push('');
 	}
 
-	// Info (packages with no changes - normal status)
+	// Info (normal status, not warnings)
 	if (info.length > 0) {
-		lines.push('## ℹ️ No Changes to Publish');
+		lines.push('## ℹ️ Info');
 		lines.push('');
-		lines.push('*These packages have no changesets and no dependency updates:*');
+		for (const line of info) {
+			lines.push(`- ${line}`);
+		}
 		lines.push('');
-		for (const pkg of info) {
+	}
+
+	// Packages with nothing to publish (normal status)
+	if (no_changes.length > 0) {
+		lines.push('## No Changes to Publish');
+		lines.push('');
+		lines.push('*These packages have no changesets and nothing to publish:*');
+		lines.push('');
+		for (const pkg of no_changes) {
 			lines.push(`- \`${pkg}\``);
 		}
 		lines.push('');
 	}
 
 	// Summary
-	const major_bump_count = version_changes.filter((vc) => vc.bump_type === 'major').length;
+	const breaking_count = version_changes.filter((vc) => vc.breaking).length;
 	lines.push('## Summary');
 	lines.push('');
 	lines.push(`- **Packages to publish**: ${version_changes.length}`);
 	lines.push(`- **Dependency updates**: ${dependency_updates.length}`);
-	lines.push(`- **Major version bumps**: ${major_bump_count}`);
+	lines.push(`- **Breaking changes**: ${breaking_count}`);
 	lines.push(`- **Warnings**: ${warnings.length}`);
 	lines.push(`- **Errors**: ${errors.length}`);
 

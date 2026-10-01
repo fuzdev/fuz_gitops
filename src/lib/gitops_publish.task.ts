@@ -19,7 +19,8 @@ import {
 	type PublishingResult
 } from './multi_repo_publisher.ts';
 import { masking_handler, stdout_handler } from './publishing_event_handler.ts';
-import { generate_publishing_plan, log_publishing_plan } from './publishing_plan.ts';
+import { generate_publishing_plan } from './publishing_plan.ts';
+import { log_publishing_plan } from './publishing_plan_logging.ts';
 import { derive_publish_steps, format_publish_steps, type PublishStep } from './publish_steps.ts';
 import { decide_publish_gate, publish_run_failed } from './publish_gate.ts';
 import { format_and_output, type OutputFormatters } from './output_helpers.ts';

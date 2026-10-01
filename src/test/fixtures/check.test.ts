@@ -183,15 +183,19 @@ describe('Success scenario fixtures', () => {
 
 				// Only define if this fixture tests info messages
 				if (fixture.expected_outcomes.info && fixture.expected_outcomes.info.length > 0) {
-					test('reports info for packages with no changes', async () => {
+					test('reports info', async () => {
 						const { plan } = await setup_plan_test(fixture);
-
-						// Check that expected packages are in info
-						for (const pkg of fixture.expected_outcomes.info!) {
-							assert.ok(plan.info.includes(pkg), `Info should include ${pkg}`);
-						}
+						assert_messages(plan.info, fixture.expected_outcomes.info!, 'info');
 					});
 				}
+
+				test('reports packages with no changes', async () => {
+					const { plan } = await setup_plan_test(fixture);
+					assert.deepEqual(
+						[...plan.no_changes].sort(),
+						[...(fixture.expected_outcomes.no_changes ?? [])].sort()
+					);
+				});
 			});
 
 			describe('publish dry_run', () => {
@@ -359,6 +363,7 @@ describe('JSON output format tests', () => {
 		assert.ok(Array.isArray(plan.warnings), 'Should have warnings array');
 		assert.ok(Array.isArray(plan.errors), 'Should have errors array');
 		assert.ok(Array.isArray(plan.info), 'Should have info array');
+		assert.ok(Array.isArray(plan.no_changes), 'Should have no_changes array');
 
 		// Verify version change structure
 		if (plan.version_changes.length > 0) {

@@ -68,6 +68,8 @@ const validate_version_changes = (
 			case 'auto_generated':
 				assert.equal(actual.has_changesets, false);
 				assert.equal(actual.will_generate_changeset, true);
+				assert.equal(actual.needs_bump_escalation, undefined);
+				assert.equal(actual.existing_bump, undefined);
 				break;
 			case 'bump_escalation':
 				assert.equal(actual.has_changesets, true);
@@ -99,7 +101,7 @@ const validate_breaking_cascades = (
 };
 
 /**
- * Validates info messages match expected outcomes
+ * Validates info sentences match expected outcomes
  */
 const validate_info = (
 	plan: PublishingPlan,
@@ -109,9 +111,24 @@ const validate_info = (
 	if (!expected) return;
 
 	assert.deepEqual(
-		plan.info.sort(),
-		expected.sort(),
+		[...plan.info].sort(),
+		[...expected].sort(),
 		`${fixture_name}: Info messages match expected`
+	);
+};
+
+/**
+ * Validates the packages with nothing to publish — none when unspecified
+ */
+const validate_no_changes = (
+	plan: PublishingPlan,
+	expected: Array<string> | undefined,
+	fixture_name: string
+): void => {
+	assert.deepEqual(
+		[...plan.no_changes].sort(),
+		[...(expected ?? [])].sort(),
+		`${fixture_name}: No-change packages match expected`
 	);
 };
 
@@ -126,8 +143,8 @@ const validate_warnings = (
 	if (expected === undefined) return; // Don't validate if not specified
 
 	assert.deepEqual(
-		plan.warnings.sort(),
-		expected.sort(),
+		[...plan.warnings].sort(),
+		[...expected].sort(),
 		`${fixture_name}: Warnings match expected`
 	);
 };
@@ -144,7 +161,11 @@ const validate_errors = (
 		// If no expected errors specified, assert no errors
 		assert.equal(plan.errors.length, 0, `${fixture_name}: No unexpected errors`);
 	} else {
-		assert.deepEqual(plan.errors.sort(), expected.sort(), `${fixture_name}: Errors match expected`);
+		assert.deepEqual(
+			[...plan.errors].sort(),
+			[...expected].sort(),
+			`${fixture_name}: Errors match expected`
+		);
 	}
 };
 
@@ -172,6 +193,7 @@ const test_fixture = async (fixture: RepoFixtureSet): Promise<void> => {
 
 	// Check info messages
 	validate_info(plan, fixture.expected_outcomes.info, fixture.name);
+	validate_no_changes(plan, fixture.expected_outcomes.no_changes, fixture.name);
 
 	// Check warnings
 	validate_warnings(plan, fixture.expected_outcomes.warnings, fixture.name);

@@ -1059,6 +1059,7 @@ describe('execute_publishing_plan', () => {
 		breaking_cascades: new Map(),
 		warnings: [],
 		info: [],
+		no_changes: [],
 		errors: [],
 		...overrides
 	});

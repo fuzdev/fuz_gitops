@@ -58,14 +58,23 @@ Packages can publish in four distinct scenarios:
 - Behavior: Changeset auto-generated, package republished
 - Reported as: "Version Changes (auto-generated for dependency updates)"
 - Example: `gro` publishes → `fuz` depends on `gro` → auto-changeset for `fuz`
+- Never an escalation: when a dependency turns breaking in a later pass (a
+  dependent listed before its dependency in the config), the auto-generated
+  change is raised to the bump that requires and stays in this group
 
 ### 4. No Changes to Publish
 
 - Package has NO `.changeset/*.md` files
 - Package has NO production/peer dependency updates
 - Behavior: Skipped (not published)
-- Reported as: Informational status (not a warning)
+- Reported as: "No changes", the plan's `no_changes` package list (not a
+  warning)
 - This is normal: Only packages with changes should publish
+
+A package with changeset files that yield no bump for it — none parses, or
+none that parses names it — takes no bump from them — it publishes only as an
+auto-generated change if a dependency update requires one — and the plan warns,
+naming the repo and why.
 
 ### Dependency Update Behavior
 
@@ -86,7 +95,9 @@ production/peer takes priority for dependency graph calculations.
   published
 - Uses fixed-point iteration to resolve transitive cascades (max 10 iterations)
 - Shows all 4 publishing scenarios: explicit changesets, bump escalation,
-  auto-generated changesets, and no changes
+  auto-generated changesets, and no changes — each package in exactly one
+- `--format json` carries `no_changes` (package names) apart from `info`
+  (informational sentences: excluded non-npm repos, dev dependency cycles)
 - Read-only - moves no ref and writes nothing in git
 - Reads each repo's working tree **as-is** (whatever branch is checked out, even
   with uncommitted changes), and prints a readiness block naming each repo not
@@ -242,13 +253,16 @@ breaking change cascades:
      - **Bump escalation**: If existing changesets specify lower bump than
        required, escalate
      - **Auto-changesets**: If no changesets but deps updated, generate
-       auto-changeset
+       auto-changeset; if one already planned needs a larger bump now, raise
+       it (still an auto-changeset, not an escalation)
      - Track breaking changes to propagate to dependents
    - Loop until no new version changes discovered (fixed point reached)
 3. **Final pass**: Calculate all dependency updates and cascades
 
 The 10-iteration limit prevents infinite loops while handling complex dependency
-graphs. In practice, most repos converge in 2-3 iterations.
+graphs. Each iteration reaches at least one more level of dependents; a plan
+that hits the limit still changing warns, naming the packages one more pass
+would change.
 
 This iteration happens during **plan generation**. The real publish
 (`gro gitops_publish --wetrun`) then executes the frozen plan in a single linear
@@ -356,8 +370,9 @@ gro gitops_publish --wetrun
 # Plan shows cascade
 gro gitops_plan
 # Output:
-#   @my/core: 1.0.0 → 2.0.0 (major, BREAKING)
-#   @my/ui: 1.5.0 → 2.0.0 (auto-changeset, BREAKING cascade)
+#   [1/2] @my/core: 1.0.0 → 2.0.0 (major) BREAKING
+#   [2/2] @my/ui: 1.5.0 → 2.0.0 (major) [auto-changeset] BREAKING
+#         triggered by: @my/core (BREAKING)
 
 # Publish in dependency order
 gro gitops_publish --wetrun
@@ -385,8 +400,9 @@ gro gitops_publish --wetrun
 # Plan shows escalation
 gro gitops_plan
 # Output:
-#   @my/core: 1.0.0 → 2.0.0 (major, BREAKING)
-#   @my/app: 2.0.0 → 3.0.0 (patch → major, escalated)
+#   [1/2] @my/core: 1.0.0 → 2.0.0 (major) BREAKING
+#   [2/2] @my/app: 2.0.0 → 3.0.0 (major) [patch → major] BREAKING
+#         changesets specify patch, dependencies require major
 
 # Publish handles escalation automatically
 gro gitops_publish --wetrun
