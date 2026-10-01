@@ -11,7 +11,7 @@
 		nav,
 		children
 	}: {
-		repo: { pkg_json: PkgJson } | { url: string; pkg_json: null };
+		repo: { pkg_json: PkgJson };
 		nav_attrs?: SvelteHTMLElements['nav'];
 		attrs?: SvelteHTMLElements['header'];
 		nav?: Snippet;
@@ -24,7 +24,7 @@
 	{#if nav}
 		{@render nav()}
 	{:else}
-		<nav {...nav_attrs}><Breadcrumb>{repo.pkg_json?.glyph}</Breadcrumb></nav>
+		<nav {...nav_attrs}><Breadcrumb>{repo.pkg_json.glyph}</Breadcrumb></nav>
 	{/if}
 </header>
 

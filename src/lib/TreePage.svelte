@@ -34,9 +34,7 @@
 			{/snippet}
 		</ReposTree>
 	</section>
-	<section class="box mb_xl7">
-		<PageFooter />
-	</section>
+	<PageFooter />
 </main>
 
 <style>

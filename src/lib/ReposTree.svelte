@@ -1,7 +1,6 @@
 <script lang="ts">
 	import LibrarySummary from '@fuzdev/fuz_ui/LibrarySummary.svelte';
 	import { resolve } from '$app/paths';
-	import { format_url } from '@fuzdev/fuz_util/url.ts';
 	import type { Snippet } from 'svelte';
 
 	import type { Repo } from './repo.svelte.ts';
@@ -39,24 +38,11 @@
 		<menu class="summaries">
 			{#each repos as repo (repo.name)}
 				<li class="panel p_md box">
-					{#if repo.package_json}
-						<LibrarySummary library={repo.library}>
-							{#snippet repo_name(repo_name)}
-								<a href={resolve(`/tree/${repo_name}`)} class="repo-name">{repo_name}</a>
-							{/snippet}
-						</LibrarySummary>
-					{:else}
-						<div class="width_atmost_sm">
-							<p>
-								failed to load library metadata for
-								<!-- eslint-disable-next-line svelte/no-navigation-without-resolve --><a
-									href={repo.repo_url}
-								>
-									{format_url(repo.repo_url)}
-								</a>
-							</p>
-						</div>
-					{/if}
+					<LibrarySummary library={repo.library}>
+						{#snippet repo_name(repo_name)}
+							<a href={resolve(`/tree/${repo_name}`)} class="repo-name">{repo_name}</a>
+						{/snippet}
+					</LibrarySummary>
 				</li>
 			{/each}
 		</menu>

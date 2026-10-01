@@ -20,15 +20,15 @@
 
 	// Get modules from each repo's source_json
 	const repos_modules = $derived(
-		repos
-			.filter((repo): repo is Repo & { source_json: { modules: Array<unknown> } } =>
-				Boolean(repo.source_json.modules?.length)
-			)
-			.map((repo) => ({
-				repo,
-				modules: repo.source_json.modules
-			}))
+		repos.flatMap((repo) => {
+			const { modules } = repo.source_json;
+			return modules?.length ? [{ repo, modules }] : [];
+		})
 	);
+
+	// TODO this is a hack that could be fixed by adding an optional `base: './'` that defaults to './src/lib/'
+	const to_module_url = (repo: Repo, path: string): string =>
+		`${ensure_end(repo.repo_url, '/')}blob/${repo.branch}/${path === 'package.json' ? '' : 'src/lib/'}${path}`;
 
 	// TODO add favicon (from library? gro?)
 </script>
@@ -59,20 +59,13 @@
 							class:json={path.endsWith('.json')}
 						>
 							<div class="module-file">
-								{#if repo.repo_url}
-									<div class="chip row">
-										<!-- TODO this is a hack that could be fixed by adding an optional `base: './'` that defaults to './src/lib/'  -->
-										<!-- eslint-disable-next-line svelte/no-navigation-without-resolve --><a
-											href="{ensure_end(repo.repo_url, '/')}blob/main/{path === 'package.json'
-												? ''
-												: 'src/lib/'}{path}"
-										>
-											{path}
-										</a>
-									</div>
-								{:else}
-									<span class="chip">{path}</span>
-								{/if}
+								<div class="chip row">
+									<!-- eslint-disable-next-line svelte/no-navigation-without-resolve --><a
+										href={to_module_url(repo, path)}
+									>
+										{path}
+									</a>
+								</div>
 							</div>
 							{#if declarations?.length}
 								<ul class="declarations unstyled">

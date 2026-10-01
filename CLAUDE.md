@@ -545,6 +545,8 @@ computed via topological sort on prod/peer deps only.
 ```ts
 class Repo {
 	readonly library: Library;
+	readonly package_json: PackageJson; // the full package.json, deps included
+	readonly branch: string; // the registry branch CI was fetched for; the dashboard's links use it
 	check_runs: GithubCheckRunsItem | null;
 	pull_requests: Array<GithubPullRequest> | null;
 }
