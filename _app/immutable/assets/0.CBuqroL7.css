@@ -1148,7 +1148,6 @@ These are used as modifiers to buttons.
 .p_xl { padding: var(--space_xl); }
 .pb_0 { padding-bottom: 0; }
 .pb_xl { padding-bottom: var(--space_xl); }
-.pl_md { padding-left: var(--space_md); }
 .pl_lg { padding-left: var(--space_lg); }
 .pl_xl { padding-left: var(--space_xl); }
 .pl_xl2 { padding-left: var(--space_xl2); }
@@ -1176,7 +1175,6 @@ These are used as modifiers to buttons.
 .gap_xs2 { gap: var(--space_xs2); }
 .gap_md { gap: var(--space_md); }
 .align-items\:center { align-items: center; }
-.align-items\:start { align-items: start; }
 .display\:block { display: block; }
 .display\:flex { display: flex; }
 .display\:inline-flex { display: inline-flex; }
@@ -1189,7 +1187,6 @@ These are used as modifiers to buttons.
 .position\:relative { position: relative; }
 .position\:sticky { position: sticky; }
 .text-align\:center { text-align: center; }
-.text-align\:right { text-align: right; }
 .word-break\:break-all { word-break: break-all; }
 
 
