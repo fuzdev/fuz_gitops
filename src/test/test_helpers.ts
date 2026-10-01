@@ -116,13 +116,7 @@ export const create_mock_gitops_ops = (
 	},
 	npm: create_mock_npm_ops(overrides.npm),
 	preflight: {
-		run_preflight_checks: async () => ({
-			ok: true,
-			warnings: [],
-			errors: [],
-			repos_with_changesets: new Set(),
-			repos_without_changesets: new Set()
-		}),
+		run_preflight_checks: async () => ({ ok: true, warnings: [], errors: [] }),
 		...overrides.preflight
 	},
 	fs: {
@@ -216,30 +210,6 @@ export const create_mock_build_ops = (
 ): BuildOperations => ({
 	build_package: async () => ({ ok: true }),
 	...overrides
-});
-
-/**
- * Creates a successful preflight mock with specified repos
- */
-export const create_preflight_mock = (
-	repos_with_changesets: Array<string> = [],
-	repos_without_changesets: Array<string> = []
-): {
-	run_preflight_checks: () => Promise<{
-		ok: boolean;
-		warnings: Array<string>;
-		errors: Array<string>;
-		repos_with_changesets: Set<string>;
-		repos_without_changesets: Set<string>;
-	}>;
-} => ({
-	run_preflight_checks: async () => ({
-		ok: true,
-		warnings: [],
-		errors: [],
-		repos_with_changesets: new Set(repos_with_changesets),
-		repos_without_changesets: new Set(repos_without_changesets)
-	})
 });
 
 /**

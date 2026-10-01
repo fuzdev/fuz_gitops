@@ -406,8 +406,7 @@ const plan_initial_pass = async (
 /**
  * Words the warning for a repo whose changeset files yield no bump for its
  * package. It takes no bump from them: it publishes only as the auto-generated
- * change a dependency update requires, and otherwise not at all, though
- * preflight counts it as having changesets and builds it.
+ * change a dependency update requires, and otherwise not at all.
  *
  * @param publishes - whether the settled plan has a version change for the repo
  */
@@ -419,7 +418,7 @@ const describe_changesets_without_bump = async (
 	const pkg_name = repo.library.name;
 	const consequence = publishes
 		? 'it takes no bump from them and publishes only as the auto-generated change a dependency update requires'
-		: 'it will not publish, though preflight still builds it';
+		: 'it will not publish';
 	// no `log`: `predict_next_version` already logged any invalid files
 	const read = await ops.read_changesets({ repo });
 	if (!read.ok) {

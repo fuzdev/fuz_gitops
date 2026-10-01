@@ -2,7 +2,6 @@ import { assert, test, describe } from 'vitest';
 
 import { summarize_events, type PublishingEvent } from '$lib/publishing_event.ts';
 import {
-	null_handler,
 	capture_handler,
 	multi_handler,
 	masking_handler,
@@ -31,12 +30,6 @@ describe('event handlers', () => {
 		assert.strictEqual(capture.events.length, 2);
 		assert.strictEqual(capture.events[0]!.event, 'run_started');
 		assert.strictEqual(capture.events[1]!.event, 'package_completed');
-	});
-
-	test('null_handler drops events without throwing', () => {
-		const handler = null_handler();
-		handler.emit(run_started); // should be a no-op
-		assert.ok(handler);
 	});
 
 	test('multi_handler fans out to every handler', () => {
@@ -76,7 +69,7 @@ describe('event handlers', () => {
 			event: 'package_failed',
 			name: 'pkg-a',
 			error: 'publish failed: SECRET_NPM_TOKEN=hunter2',
-			code: 'auth'
+			code: 'publish'
 		});
 		const event = inner.events[0]!;
 		assert.strictEqual(event.event, 'package_failed');

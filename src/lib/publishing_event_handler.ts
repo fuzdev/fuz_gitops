@@ -4,7 +4,8 @@
  * A `PublishingEventHandler` is anything that can receive a `PublishingEvent`. Handlers
  * compose: `multi_handler` fans out, `masking_handler` redacts secrets then forwards.
  * Emission is best-effort and synchronous — an observability sink must never fail or
- * slow a run. The default sink is `null_handler` (drops everything).
+ * slow a run. The executor always captures events for its result (`capture_handler`)
+ * and forwards them to the caller's sink when one is supplied.
  *
  * @module
  */
@@ -20,11 +21,6 @@ export interface PublishingEventHandler {
 export interface CapturingEventHandler extends PublishingEventHandler {
 	readonly events: Array<PublishingEvent>;
 }
-
-/** Drops every event. The default when no handler is supplied. */
-export const null_handler = (): PublishingEventHandler => ({
-	emit: () => {}
-});
 
 /** Collects events in memory. Used to build the run report and in tests. */
 export const capture_handler = (): CapturingEventHandler => {
@@ -61,17 +57,14 @@ export const multi_handler = (handlers: Array<PublishingEventHandler>): Publishi
 });
 
 /**
- * Wraps a handler, masking secrets in each event's string fields before forwarding.
+ * Wraps a handler, masking secrets in each event's string fields (`mask_secrets`)
+ * before forwarding.
  *
  * @param inner - the handler to forward masked events to
- * @param mask - the masking function, defaults to `mask_secrets`
  */
-export const masking_handler = (
-	inner: PublishingEventHandler,
-	mask: (event: PublishingEvent) => PublishingEvent = mask_secrets
-): PublishingEventHandler => ({
+export const masking_handler = (inner: PublishingEventHandler): PublishingEventHandler => ({
 	emit: (event) => {
-		inner.emit(mask(event));
+		inner.emit(mask_secrets(event));
 	}
 });
 

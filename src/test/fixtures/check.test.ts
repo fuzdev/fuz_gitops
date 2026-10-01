@@ -393,37 +393,15 @@ describe('JSON output format tests', () => {
 
 /**
  * Test preflight operation mocks.
- * Uses basic_publishing fixture as it has varied changeset scenarios.
  */
 describe('Preflight mock tests', () => {
 	const fixture = basic_publishing;
 
-	test('preflight mock operations categorize repos correctly', async () => {
+	test('basic preflight mock passes', async () => {
 		const mock_ops = create_mock_gitops_ops(fixture);
-
-		// Preflight ops should categorize repos based on changeset data
 		const result = await mock_ops.preflight.run_preflight_checks({} as any);
-		assert.ok(result.repos_with_changesets instanceof Set, 'Should have repos_with_changesets set');
-		assert.ok(
-			result.repos_without_changesets instanceof Set,
-			'Should have repos_without_changesets set'
-		);
-
-		// Verify categorization matches fixture data
-		for (const repo of fixture.repos) {
-			const has_changesets = repo.changesets && repo.changesets.length > 0;
-			if (has_changesets) {
-				assert.ok(
-					result.repos_with_changesets.has(repo.package_json.name),
-					`${repo.package_json.name} should be in repos_with_changesets`
-				);
-			} else {
-				assert.ok(
-					result.repos_without_changesets.has(repo.package_json.name),
-					`${repo.package_json.name} should be in repos_without_changesets`
-				);
-			}
-		}
+		assert.equal(result.ok, true);
+		assert.deepEqual(result.errors, []);
 	});
 
 	test('configurable preflight can simulate failures', async () => {

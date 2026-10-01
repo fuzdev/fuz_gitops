@@ -104,32 +104,11 @@ export const create_mock_build_ops = (): BuildOperations => ({
 });
 
 /**
- * Create basic preflight operations.
- * Returns success for all fixture repos.
+ * Create basic preflight operations that always pass.
  */
-export const create_mock_preflight_ops = (fixture: RepoFixtureSet): PreflightOperations => {
-	// Determine which repos have changesets
-	const repos_with_changesets: Set<string> = new Set();
-	const repos_without_changesets: Set<string> = new Set();
-
-	for (const repo of fixture.repos) {
-		if (repo.changesets && repo.changesets.length > 0) {
-			repos_with_changesets.add(repo.package_json.name);
-		} else {
-			repos_without_changesets.add(repo.package_json.name);
-		}
-	}
-
-	return {
-		run_preflight_checks: async () => ({
-			ok: true,
-			warnings: [],
-			errors: [],
-			repos_with_changesets,
-			repos_without_changesets
-		})
-	};
-};
+export const create_mock_preflight_ops = (): PreflightOperations => ({
+	run_preflight_checks: async () => ({ ok: true, warnings: [], errors: [] })
+});
 
 /**
  * Create complete gitops operations for a fixture using basic mocks.
@@ -141,7 +120,7 @@ export const create_mock_gitops_ops = (fixture: RepoFixtureSet): GitopsOperation
 	process: create_mock_process_ops(),
 	fs: create_fixture_fs_ops(fixture),
 	build: create_mock_build_ops(),
-	preflight: create_mock_preflight_ops(fixture),
+	preflight: create_mock_preflight_ops(),
 	repos: create_ready_repos_ops()
 });
 
@@ -215,42 +194,19 @@ export const create_configurable_build_ops = (
  * Create configurable preflight operations for testing specific scenarios.
  */
 export const create_configurable_preflight_ops = (
-	fixture: RepoFixtureSet,
 	config: MockOperationsConfig['preflight'] = {}
-): PreflightOperations => {
-	// Determine which repos have changesets
-	const repos_with_changesets: Set<string> = new Set();
-	const repos_without_changesets: Set<string> = new Set();
-
-	for (const repo of fixture.repos) {
-		if (repo.changesets && repo.changesets.length > 0) {
-			repos_with_changesets.add(repo.package_json.name);
-		} else {
-			repos_without_changesets.add(repo.package_json.name);
-		}
-	}
-
-	return {
-		run_preflight_checks: async () => {
-			if (config.fails) {
-				return {
-					ok: false,
-					warnings: config.warnings || [],
-					errors: config.errors || ['Preflight checks failed'],
-					repos_with_changesets,
-					repos_without_changesets
-				};
-			}
+): PreflightOperations => ({
+	run_preflight_checks: async () => {
+		if (config.fails) {
 			return {
-				ok: true,
+				ok: false,
 				warnings: config.warnings || [],
-				errors: config.errors || [],
-				repos_with_changesets,
-				repos_without_changesets
+				errors: config.errors || ['Preflight checks failed']
 			};
 		}
-	};
-};
+		return { ok: true, warnings: config.warnings || [], errors: config.errors || [] };
+	}
+});
 
 /**
  * Create complete configurable gitops operations.
@@ -265,7 +221,7 @@ export const create_configurable_gitops_ops = (
 	process: create_mock_process_ops(),
 	fs: create_fixture_fs_ops(fixture),
 	build: create_configurable_build_ops(config.build),
-	preflight: create_configurable_preflight_ops(fixture, config.preflight),
+	preflight: create_configurable_preflight_ops(config.preflight),
 	repos: create_ready_repos_ops()
 });
 

@@ -11,7 +11,6 @@ import {
 	type DependencyUpdate,
 	type PublishingPlan
 } from './publishing_plan.ts';
-import type { PreflightOptions } from './preflight_checks.ts';
 import { load_repos_status, to_repos_command } from './repos_status_load.ts';
 import { check_publish_readiness } from './repo_readiness.ts';
 import type { Result } from '@fuzdev/fuz_util/result.ts';
@@ -125,19 +124,16 @@ export const execute_publishing_plan = async (
 		events_handler.emit(event);
 	};
 
-	// Preflight checks (skip for dry runs since we're not actually publishing). Repo git state
-	// isn't preflight's: `gitops_publish --wetrun` gates on it before its confirmation prompt.
+	// Preflight checks (skip for dry runs since we're not actually publishing): it builds
+	// exactly the packages the plan publishes. Repo git state isn't preflight's:
+	// `gitops_publish --wetrun` gates on it before its confirmation prompt.
 	if (wetrun) {
-		const preflight_options: PreflightOptions = {
-			skip_changesets: false, // Always check for changesets
-			log
-		};
 		const preflight = await ops.preflight.run_preflight_checks({
 			repos,
-			preflight_options,
+			version_changes: plan.version_changes,
+			log,
 			npm_ops: ops.npm,
-			build_ops: ops.build,
-			changeset_ops: ops.changeset
+			build_ops: ops.build
 		});
 
 		if (!preflight.ok) {
@@ -332,7 +328,7 @@ export const execute_publishing_plan = async (
 				error: err.message,
 				// TODO: emit a precise code once the npm/process ops return typed errors —
 				// today a publish-step cause lives in unstructured stderr, so use the honest
-				// coarse bucket rather than guessing 'auth'/'network'/'build' from the message.
+				// coarse bucket rather than guessing a cause (auth, build, …) from the message.
 				code: 'publish'
 			});
 			// the first line alone: the stderr tail the rest repeats just streamed live

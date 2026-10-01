@@ -13,7 +13,8 @@
  *
  * **Production usage:**
  * ```typescript
- * import {default_gitops_operations} from './operations_defaults.js';
+ * import {default_gitops_operations} from './operations_defaults.ts';
+ * const ops = default_gitops_operations;
  * const result = await ops.git.current_commit_hash({cwd: '/path'});
  * if (!result.ok) {
  *   throw new TaskError(result.message);
@@ -23,13 +24,18 @@
  *
  * **Test usage:**
  * ```typescript
- * const mock_ops = create_mock_operations();
- * const result = await publish_repos(repos, {...options, ops: mock_ops});
+ * import {create_mock_gitops_ops} from './test_helpers.ts';
+ * const ops = create_mock_gitops_ops({
+ *   changeset: {has_changesets: async () => ({ok: true, value: false})}
+ * });
+ * const result = await publish_repos(repos, {...options, ops});
  * // Assert on result without any real git/npm calls
  * ```
  *
- * See `operations_defaults.ts` for real implementations.
- * See test files (`*.test.ts`) for mock implementations.
+ * See `operations_defaults.ts` for real implementations, and the test-side mock
+ * factories: `create_mock_gitops_ops` in `src/test/test_helpers.ts` (plain
+ * objects with per-group overrides) and the fixture-driven factories in
+ * `src/test/fixtures/mock_operations.ts`.
  *
  * @module
  */
@@ -40,7 +46,7 @@ import type { Logger } from '@fuzdev/fuz_util/log.ts';
 import type { LocalRepo } from './local_repo.ts';
 import type { ChangesetInfo } from './changeset_reader.ts';
 import type { BumpType } from './version_utils.ts';
-import type { PreflightOptions, PreflightResult } from './preflight_checks.ts';
+import type { PreflightResult, RunPreflightChecksOptions } from './preflight_checks.ts';
 import type { WaitOptions } from './npm_registry.ts';
 
 /**
@@ -175,7 +181,6 @@ export interface BuildOperations {
 	 */
 	build_package: (options: {
 		repo: LocalRepo;
-		log?: Logger;
 	}) => Promise<Result<object, { message: string; output?: string }>>;
 }
 
@@ -207,21 +212,15 @@ export interface NpmOperations {
 }
 
 /**
- * Preflight validation operations run before publishing: changesets, builds,
- * and npm authentication. Repo git state is the readiness gate's, before
- * preflight (see `repo_readiness.ts`).
+ * Preflight validation operations run before publishing: building every
+ * package the plan publishes, and npm authentication. Repo git state is the
+ * readiness gate's, before preflight (see `repo_readiness.ts`).
  */
 export interface PreflightOperations {
 	/**
 	 * Runs preflight validation checks before publishing.
 	 */
-	run_preflight_checks: (options: {
-		repos: Array<LocalRepo>;
-		preflight_options: PreflightOptions;
-		npm_ops?: NpmOperations;
-		build_ops?: BuildOperations;
-		changeset_ops?: ChangesetOperations;
-	}) => Promise<PreflightResult>;
+	run_preflight_checks: (options: RunPreflightChecksOptions) => Promise<PreflightResult>;
 }
 
 /**

@@ -118,8 +118,9 @@ gro build  # See the full build error
 gro build  # Verify it works
 ```
 
-Build validation runs during preflight checks to prevent broken state. All
-packages must build successfully before any publishing begins.
+Build validation runs during preflight checks to prevent broken state. Every
+package the plan publishes — explicit changesets and auto-generated alike —
+must build before any publishing begins.
 
 ### "Plan differs from actual publish"
 
@@ -262,8 +263,9 @@ its branch or dirty stays as it is until you move it.
 When the repo has changeset files but none yields a bump for its package, the
 plan takes no bump from those files (it publishes only if a dependency update
 gives it an auto-changeset) and warns, naming the repo and why — none of the
-files parses, or none that parses names the package (preflight still counts it
-as having changesets and builds it). Check:
+files parses, or none that parses names the package. Preflight builds only
+what the plan publishes, so it builds the repo only when it publishes that way.
+Check:
 
 1. Changeset file is in `.changeset/` directory
 2. Changeset file is not `README.md`
@@ -313,10 +315,10 @@ gro gitops_publish --wetrun --format json --outfile result.json
 ```
 
 `result.json`'s `events` list each package's outcome in order. A failure is a
-`package_failed` event whose `code` says why: `drift` (the version `changeset
-version` wrote isn't the plan's; its `error` names both), `not_ready`,
-`network` (the npm wait), `publish` (its `error` ends with the end of `gro
-publish`'s stderr), and so on. `failed[]` names the packages, but its `error`
+`package_failed` event whose `code` says why — one of `drift` (the version
+`changeset version` wrote isn't the plan's; its `error` names both),
+`not_ready`, `network` (the npm wait), or `publish` (its `error` ends with the
+end of `gro publish`'s stderr). `failed[]` names the packages, but its `error`
 values serialize empty, so read the events. `--emit_json` streams the same
 events live, secrets masked. Under `--emit_json`, or a report written to
 stdout rather than `--outfile`, the stdout of `gro publish` and `gro deploy`

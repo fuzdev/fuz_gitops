@@ -194,7 +194,7 @@ flowchart TD
     C -->|no| R{"readiness gate: every npm repo fetched, on its branch, clean, in sync or ahead, not busy?"}
     R -->|no| W["Refuse — nothing changed"]
     R -->|yes| P["Show plan, confirm"]
-    P --> D["Preflight: changesets, build, npm auth"]
+    P --> D["Preflight: build every package the plan publishes; npm auth"]
     D --> E{"next package in topological order"}
     E -->|package| Q{"re-check: this repo still ready?"}
     Q -->|no| V["Abort — not_ready, before npm"]
@@ -210,6 +210,13 @@ flowchart TD
     M -->|no| Z["Done"]
     N --> Z
 ```
+
+Preflight takes the plan's version changes and builds exactly those packages —
+explicit, escalated, and auto-generated alike — against the current, pre-cascade
+dependency versions, then checks npm authentication and the registry. Any build
+failure stops the run before anything touches npm. It reads no changesets and no
+git: the plan already decided what publishes, and the readiness gate owns git
+state.
 
 Each `gro publish --no-build --no-pull` step is itself a pipeline: it checks out the
 branch the registry entry follows (`--branch`), skips its own `git pull` (the

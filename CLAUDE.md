@@ -385,7 +385,7 @@ a branch, pulls, or installs:
   - Critical for multi-repo: ensures dependencies are fetchable before
     publishing dependents
 - Updates cross-repo dependencies automatically
-- Preflight checks validate changesets, builds, and npm authentication
+- Preflight builds every package the plan publishes and checks npm auth
   (skipped for dry runs); repo git state is the readiness gate's
 
 **Readiness Gate (Read-Only)**
@@ -407,7 +407,9 @@ The publishing workflow includes build validation in preflight checks to prevent
 broken state:
 
 1. **Preflight phase** (before any publishing):
-   - Runs `gro build` on all packages with changesets
+   - Runs `gro build` on every package the plan publishes — its `version_changes`,
+     explicit, escalated, and auto-generated alike — and no others; it reads no
+     changesets of its own
    - This is a **builds-today smoke test** against the current, pre-cascade
      dependency versions — it catches a repo that won't build at all before the
      run starts touching npm, but it cannot validate a package against the
@@ -513,11 +515,13 @@ published.
 - `graph_validation.ts` - Shared cycle detection and publishing order
   computation
 - `version_utils.ts` - Version comparison and bump type detection
-- `npm_registry.ts` - NPM availability checks with retry
+- `npm_registry.ts` - NPM availability checks with retry (`NpmRegistryDeps`
+  injects npm, the sleep, and the clock)
 - `dependency_updater.ts` - Package.json updates with changesets
 - `repo_readiness.ts` - The readiness predicates the gate and the diagnostics'
   block read
-- `preflight_checks.ts` - Pre-publish validation: changesets, builds, npm auth
+- `preflight_checks.ts` - Pre-publish validation: builds what the plan publishes,
+  npm auth
 - `operations.ts` - Dependency injection interfaces for testability (including
   build operations)
 
@@ -717,8 +721,8 @@ When fuz_gitops updates dependencies, it preserves existing prefixes:
 
 ## Testability & Operations Pattern
 
-This project uses **dependency injection** for all side effects, making it fully
-testable without mocks:
+This project uses **dependency injection** for all side effects, making it
+testable without mocking libraries:
 
 **Why:** Functions that call git, npm, or file system are hard to test. The
 operations pattern abstracts these into interfaces.
@@ -757,8 +761,12 @@ mock factories.
 
 ## Testing
 
-Uses vitest with **zero mocks** - all tests use the operations pattern for
-dependency injection (see above).
+Uses vitest with **no mocking libraries** in the domain tests — they inject
+plain-object operations (see above), and `npm_registry.test.ts` drives the
+npm wait through `NpmRegistryDeps` with a fake registry and clock. The one
+exception is `operations_defaults.test.ts`, which tests the real
+implementations themselves: it stubs `spawn_out` for `npm ping` and spies on
+stderr while running real `node` children.
 
 ```bash
 gro test                         # run all tests
@@ -772,7 +780,7 @@ Core modules tested:
 - `changeset_reader.test.ts` - Changeset parsing and version prediction
 - `dependency_graph.test.ts` - Topological sorting and cycle detection
 - `changeset_generator.test.ts` - Auto-changeset content generation
-- `preflight_checks.test.ts` - Changeset, build, and npm validation
+- `preflight_checks.test.ts` - Builds of the plan's packages, and npm validation
 - `repo_readiness.test.ts` - Readiness predicates, the gate's refusal,
   `gitops_sync`'s policy, the diagnostics' block
 - `gitops_publish.test.ts` - The gate's order in a real publish: before the
