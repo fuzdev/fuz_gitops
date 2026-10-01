@@ -1,12 +1,20 @@
 use super::*;
 use crate::sessions::SessionSource;
 
+/// A checkout by path alone, with no git dir and no lock.
+fn keys(path: &str) -> CheckoutKeys {
+    CheckoutKeys {
+        path: path.to_owned(),
+        ..CheckoutKeys::default()
+    }
+}
+
 /// Entries' checkouts by path alone, with no git dirs.
 fn at_paths(entries: Vec<Vec<String>>) -> Vec<EntryCheckouts> {
     entries
         .into_iter()
         .map(|paths| EntryCheckouts {
-            paths,
+            checkouts: paths.iter().map(|p| keys(p)).collect(),
             ..EntryCheckouts::default()
         })
         .collect()
@@ -238,10 +246,15 @@ fn scoping_marks_the_checkouts_whose_lock_names_a_session() {
     };
     let live = LiveSessions::Known(vec![s(1, 10), s(2, 20)]);
     let checkout = |paths: &[&str], locks: &[(&str, &str)]| EntryCheckouts {
-        paths: paths.iter().map(|&p| p.to_owned()).collect(),
-        locks: locks
+        checkouts: paths
             .iter()
-            .map(|&(p, r)| (p.to_owned(), r.to_owned()))
+            .map(|&p| CheckoutKeys {
+                lock: locks
+                    .iter()
+                    .find(|&&(l, _)| l == p)
+                    .map(|&(_, r)| r.to_owned()),
+                ..keys(p)
+            })
             .collect(),
         ..EntryCheckouts::default()
     };
@@ -302,13 +315,15 @@ fn working_is_busy_less_the_agent_worktrees_a_session_elsewhere_holds() {
         s(3, 30, "/nonexistent-ws"),
     ]);
     let checkouts = vec![EntryCheckouts {
-        paths: vec![app.to_owned(), wt1.to_owned(), wt2.to_owned()],
+        checkouts: vec![
+            keys(app),
+            keys(wt1),
+            CheckoutKeys {
+                lock: Some("claude agent wt2 (pid 3 start 30)".to_owned()),
+                ..keys(wt2)
+            },
+        ],
         common_dir: Some(PathBuf::from(format!("{app}/.git"))),
-        locks: vec![(
-            wt2.to_owned(),
-            "claude agent wt2 (pid 3 start 30)".to_owned(),
-        )],
-        ..EntryCheckouts::default()
     }];
     let (report, per_entry) = scope_sessions(&live, &checkouts);
     assert_eq!(report, Sessions::Available { unscoped: vec![] });

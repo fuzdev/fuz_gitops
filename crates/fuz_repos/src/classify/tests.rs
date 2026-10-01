@@ -122,13 +122,12 @@ fn facts(head: Head, branches: &[B<'_>]) -> RepoFacts {
         in_progress: None,
         primary_linked: false,
         primary_locked: false,
-        locks: Vec::new(),
         worktrees: Vec::new(),
         registry_worktrees: HashSet::new(),
         unprobed: Vec::new(),
         relative_gitdir: None,
         unreadable: Vec::new(),
-        git_dirs: Vec::new(),
+        checkout_keys: Vec::new(),
         bare_main: None,
         branches: branches
             .iter()

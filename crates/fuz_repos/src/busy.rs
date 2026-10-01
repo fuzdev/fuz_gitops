@@ -146,6 +146,7 @@ use std::path::{Path, PathBuf};
 
 use crate::gitdir::{read_commondir, read_gitfile, read_head};
 use crate::paths::{Unresolved, resolve};
+use crate::probe::CheckoutKeys;
 use crate::report::Sessions;
 use crate::sessions::{ClaudeLock, LiveSessions, Session, Unavailable, claude_lock};
 use crate::state::Head;
@@ -350,19 +351,13 @@ pub fn any_session_under(live: &LiveSessions, path: &Path) -> bool {
 /// One entry's checkouts, as busy detection scopes sessions to them.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct EntryCheckouts {
-    /// Every checkout's path as the probe's facts spell it: the primary's,
-    /// each probed worktree's, each unprobed one's.
-    pub paths: Vec<String>,
-    /// Each checkout's own git dir, canonicalized when it can be, with its
-    /// path as `paths` spells it (`RepoFacts::git_dirs`).
-    pub git_dirs: Vec<(PathBuf, String)>,
+    /// Every checkout's path, own git dir, and lock
+    /// (`RepoFacts::checkout_keys`): a lock Claude Code wrote names the
+    /// session working there (`claude_lock`).
+    pub checkouts: Vec<CheckoutKeys>,
     /// The repo's common dir (`RepoFacts::common_dir`): a git dir no
     /// worktree list names that shares it is `unlisted`.
     pub common_dir: Option<PathBuf>,
-    /// Each locked checkout's lock reason, with its path as `paths` spells
-    /// it (`RepoFacts::locks`): one Claude Code wrote names the session
-    /// working there (`claude_lock`).
-    pub locks: Vec<(String, String)>,
 }
 
 /// A checkout's lock that Claude Code wrote, by entry and path as the
@@ -391,14 +386,15 @@ pub fn scope_sessions(
     let mut known = KnownGitDirs::default();
     let mut locks = Vec::new();
     for (e, entry) in checkouts.iter().enumerate() {
-        locks.extend(entry.locks.iter().filter_map(|(checkout, reason)| {
-            claude_lock(reason).map(|lock| CheckoutLock {
-                entry: e,
-                checkout,
-                lock,
-            })
-        }));
-        for checkout in &entry.paths {
+        for keys in &entry.checkouts {
+            let checkout = keys.path.as_str();
+            if let Some(lock) = keys.lock.as_deref().and_then(claude_lock) {
+                locks.push(CheckoutLock {
+                    entry: e,
+                    checkout,
+                    lock,
+                });
+            }
             match resolve(Path::new(checkout)) {
                 Ok(real) => resolved.push(Candidate {
                     entry: e,
@@ -406,16 +402,12 @@ pub fn scope_sessions(
                     real,
                 }),
                 Err(Unresolved { path, error }) => {
-                    unresolved[e].insert(checkout.clone(), UnresolvedCheckout { path, error });
+                    unresolved[e].insert(keys.path.clone(), UnresolvedCheckout { path, error });
                 }
             }
-        }
-        for (git_dir, checkout) in &entry.git_dirs {
-            known
-                .owners
-                .entry(git_dir)
-                .or_default()
-                .push((e, checkout.as_str()));
+            if let Some(git_dir) = &keys.git_dir {
+                known.owners.entry(git_dir).or_default().push((e, checkout));
+            }
         }
         if let Some(common) = &entry.common_dir {
             let real = common.canonicalize().unwrap_or_else(|_| common.clone());

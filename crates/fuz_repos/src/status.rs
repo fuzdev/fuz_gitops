@@ -601,22 +601,17 @@ fn classify_missing_at(entry: &Entry, cx: &Assess<'_>, recorded: &[&str]) -> Cla
     )
 }
 
-/// A probed repo's checkouts: their paths as its facts spell them — the
-/// primary's, each probed worktree's, each unprobed one's — their own git
-/// dirs, and their locks. None when the probe found no repo or failed.
+/// A probed repo's checkouts: each one's path as its facts spell it — the
+/// primary's, each probed worktree's, each unprobed one's — its own git
+/// dir, and its lock (`RepoFacts::checkout_keys`). None when the probe
+/// found no repo or failed.
 pub(crate) fn entry_checkouts(probed: &Probed) -> EntryCheckouts {
     let Probed::Present(facts) = probed else {
         return EntryCheckouts::default();
     };
     EntryCheckouts {
-        paths: std::iter::once(&facts.path)
-            .chain(facts.worktrees.iter().map(|c| &c.path))
-            .chain(facts.unprobed.iter().map(|u| &u.path))
-            .cloned()
-            .collect(),
-        git_dirs: facts.git_dirs.clone(),
+        checkouts: facts.checkout_keys.clone(),
         common_dir: Some(facts.common_dir.clone()),
-        locks: facts.locks.clone(),
     }
 }
 

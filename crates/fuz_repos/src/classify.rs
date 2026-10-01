@@ -1046,153 +1046,203 @@ fn verdict(
         .map_or(Verdict::Act { action }, |by| Verdict::Held { action, by })
 }
 
+/// Why `sync` would stop on a present entry and leave it to a person, in
+/// the order the report lists them: the checkouts' operations, and the git
+/// dirs where one can't be ruled out (`operation_reasons`); `origin` and
+/// where a fetch from it reaches (`OriginMismatch`, `fetch_url_reason`,
+/// `origin_not_https`); the branch the entry follows
+/// (`followed_branch_reason`) and the primary's HEAD
+/// (`unexpected_detached`); the checkouts a live session may work in
+/// unseen (`unseen_checkout_reasons`); and where a push goes
+/// (`push_url_reason`).
 fn needs_human(
     entry: &Entry,
     facts: &RepoFacts,
     sessions: &EntrySessions,
     refresh: Refresh,
 ) -> Vec<NeedsHuman> {
-    let mut reasons = Vec::new();
-    // one per checkout with an operation mid-way, the primary's first, then
-    // the other worktrees', probed or not
-    let ops = std::iter::once((&facts.path, facts.in_progress))
-        .chain(facts.worktrees.iter().map(|c| (&c.path, c.in_progress)))
-        .chain(facts.unprobed.iter().map(|u| (&u.path, u.in_progress)));
-    for (checkout, op) in ops {
-        if let Some(op) = op {
-            reasons.push(NeedsHuman::OperationInProgress {
-                checkout: checkout.clone(),
-                op,
-            });
-        }
-    }
-    // an operation there can't be ruled out
-    for path in &facts.unreadable {
-        reasons.push(NeedsHuman::WorktreeUnreadable { path: path.clone() });
-    }
     let origin = origin_drift(entry, &facts.config);
-    let drift = origin.is_some();
-    if let Some(origin) = origin {
-        reasons.push(NeedsHuman::OriginMismatch {
+    // where a fetch or push through origin reaches is said with a matching
+    // origin only: origin drift already holds the entry, and its fix may fix
+    // these too
+    let matching = origin.is_none();
+    operation_reasons(facts)
+        .chain(origin.map(|origin| NeedsHuman::OriginMismatch {
             origin,
             expected: entry.remote_url(),
             fix: OriginFix::decide(&facts.config),
-        });
-    }
-    // an owned entry's fetch that would reach elsewhere, rewrites applied
-    if !drift && let Some(fetch_url) = fetch_url_mismatch(entry, &facts.config) {
-        let rewritten = facts.config.origin_url() != Some(fetch_url);
-        reasons.push(NeedsHuman::FetchUrlMismatch {
-            fetch_url: without_userinfo(fetch_url).into_owned(),
-            expected: entry.remote_url(),
-            fix: (!rewritten).then(|| OriginFix::decide(&facts.config)),
-        });
-    }
-    // a refresh's fetch that wouldn't reach the repo over HTTPS
-    if let (
+        }))
+        .chain(fetch_url_reason(entry, facts).filter(|_| matching))
+        .chain(origin_not_https(entry, facts, refresh))
+        .chain(followed_branch_reason(entry, facts, refresh))
+        .chain(unexpected_detached(entry, facts))
+        .chain(unseen_checkout_reasons(facts, sessions))
+        .chain(push_url_reason(entry, facts).filter(|_| matching))
+        .collect()
+}
+
+/// One reason per checkout with an operation mid-way, in
+/// `RepoFacts::checkout_operations` order (the primary's first) — then one
+/// per git dir whose in-progress markers can't be read, where an operation
+/// can't be ruled out.
+fn operation_reasons(facts: &RepoFacts) -> impl Iterator<Item = NeedsHuman> {
+    let ops = facts.checkout_operations().filter_map(|(checkout, op)| {
+        op.map(|op| NeedsHuman::OperationInProgress {
+            checkout: checkout.to_owned(),
+            op,
+        })
+    });
+    let unreadable = facts
+        .unreadable
+        .iter()
+        .map(|path| NeedsHuman::WorktreeUnreadable { path: path.clone() });
+    ops.chain(unreadable)
+}
+
+/// An owned entry's fetch from `origin` that would reach elsewhere,
+/// rewrites applied (`fetch_url_mismatch`).
+fn fetch_url_reason(entry: &Entry, facts: &RepoFacts) -> Option<NeedsHuman> {
+    let fetch_url = fetch_url_mismatch(entry, &facts.config)?;
+    Some(NeedsHuman::FetchUrlMismatch {
+        fetch_url: without_userinfo(fetch_url).into_owned(),
+        expected: entry.remote_url(),
+        fix: origin_fix_unless_rewritten(&facts.config, fetch_url),
+    })
+}
+
+/// A refresh's fetch that wouldn't reach the registry's repo over HTTPS
+/// (`RefreshHold::OriginNotHttps`).
+fn origin_not_https(entry: &Entry, facts: &RepoFacts, refresh: Refresh) -> Option<NeedsHuman> {
+    let held = matches!(
+        refresh_verdict(entry, refresh, &facts.config),
         Some(RefreshVerdict::Held {
             by: RefreshHold::OriginNotHttps,
-        }),
-        Some(fetch_url),
-    ) = (
-        refresh_verdict(entry, refresh, &facts.config),
-        &facts.config.origin_fetch_url,
-    ) {
-        let rewritten = facts.config.origin_url() != Some(fetch_url.as_str());
-        reasons.push(NeedsHuman::OriginNotHttps {
-            fetch_url: without_userinfo(fetch_url).into_owned(),
-            expected: entry.remote_url(),
-            fix: (!rewritten).then(|| OriginFix::decide(&facts.config)),
+        })
+    );
+    let fetch_url = facts.config.origin_fetch_url.as_deref().filter(|_| held)?;
+    Some(NeedsHuman::OriginNotHttps {
+        fetch_url: without_userinfo(fetch_url).into_owned(),
+        expected: entry.remote_url(),
+        fix: origin_fix_unless_rewritten(&facts.config, fetch_url),
+    })
+}
+
+/// How to point `origin` at the registry's URL (`OriginFix::decide`), when
+/// a fetch from it reaches `fetch_url` — `None` when a `url.<base>.insteadOf`
+/// rewrite took it there, which setting the URL may not undo.
+fn origin_fix_unless_rewritten(config: &ConfigFacts, fetch_url: &str) -> Option<OriginFix> {
+    let rewritten = config.origin_url() != Some(fetch_url);
+    (!rewritten).then(|| OriginFix::decide(config))
+}
+
+/// The branch the entry follows, when anything is expected of its primary
+/// checkout: a pin's checkout is its consumer's, wherever its HEAD is.
+fn expected_branch(entry: &Entry) -> Option<&String> {
+    entry.branch.as_ref().filter(|_| !entry.pinned)
+}
+
+/// What's wrong with the branch the entry follows, the first that holds:
+/// missing, its upstream gone from origin (when the entry is compared
+/// against origin), or no origin upstream at all.
+fn followed_branch_reason(
+    entry: &Entry,
+    facts: &RepoFacts,
+    refresh: Refresh,
+) -> Option<NeedsHuman> {
+    let branch = expected_branch(entry)?;
+    let Some(followed) = facts.branches.iter().find(|b| b.branch.name == *branch) else {
+        return Some(NeedsHuman::DefaultBranchMissing {
+            branch: branch.clone(),
+        });
+    };
+    if tracked(entry, refresh, &facts.config) && relation(followed, facts) == Relation::Gone {
+        return Some(NeedsHuman::DefaultBranchGone {
+            branch: branch.clone(),
         });
     }
-    let head = &facts.status.head;
-    // the branch the entry follows; a pin's checkout is its consumer's,
-    // wherever its HEAD is, so nothing is expected of it
-    if let (Some(branch), false) = (&entry.branch, entry.pinned) {
-        let followed = facts.branches.iter().find(|b| b.branch.name == *branch);
-        if followed.is_none() {
-            reasons.push(NeedsHuman::DefaultBranchMissing {
-                branch: branch.clone(),
-            });
-        } else if followed.is_some_and(|b| {
-            tracked(entry, refresh, &facts.config) && relation(b, facts) == Relation::Gone
-        }) {
-            reasons.push(NeedsHuman::DefaultBranchGone {
-                branch: branch.clone(),
-            });
-        } else if !facts
-            .config
-            .branches
-            .get(branch)
-            .is_some_and(BranchConfig::is_origin)
-        {
-            reasons.push(NeedsHuman::DefaultBranchNoUpstream {
-                branch: branch.clone(),
-            });
-        }
-        // a rebase or bisect detaches HEAD by design: the operation is
-        // the reason, and reattaching mid-way would be the wrong fix; a
-        // merge, cherry-pick, revert, sequencer, or am keeps HEAD on its
-        // branch, so a detach beside one is still unexpected. Only the
-        // primary's HEAD and operation count: a linked worktree detached
-        // is normal, and its operation can't explain the primary's HEAD
-        if matches!(head, Head::Detached { .. })
-            && !matches!(
-                facts.in_progress,
-                Some(InProgressOp::Rebase | InProgressOp::Bisect)
-            )
-        {
-            reasons.push(NeedsHuman::UnexpectedDetached {
-                checkout: facts.path.clone(),
-            });
-        }
-    }
-    // in the order the checkouts are probed: the primary, then the other
-    // worktrees, probed or not. Said once: a checkout at or under a git dir
-    // that can't be read (an unlisted worktree whose worktree git dir can't be
-    // looked up is that git dir) is that reason's to name, and it holds
-    // the entry already
+    let origin_upstream = facts
+        .config
+        .branches
+        .get(branch)
+        .is_some_and(BranchConfig::is_origin);
+    (!origin_upstream).then(|| NeedsHuman::DefaultBranchNoUpstream {
+        branch: branch.clone(),
+    })
+}
+
+/// The primary's HEAD detached in an entry that follows a branch.
+///
+/// A rebase or bisect detaches HEAD by design: the operation is the
+/// reason, and reattaching mid-way would be the wrong fix; a merge,
+/// cherry-pick, revert, sequencer, or am keeps HEAD on its branch, so a
+/// detach beside one is still unexpected. Only the primary's HEAD and
+/// operation count: a linked worktree detached is normal, and its
+/// operation can't explain the primary's HEAD.
+fn unexpected_detached(entry: &Entry, facts: &RepoFacts) -> Option<NeedsHuman> {
+    expected_branch(entry)?;
+    let detached = matches!(facts.status.head, Head::Detached { .. })
+        && !matches!(
+            facts.in_progress,
+            Some(InProgressOp::Rebase | InProgressOp::Bisect)
+        );
+    detached.then(|| NeedsHuman::UnexpectedDetached {
+        checkout: facts.path.clone(),
+    })
+}
+
+/// The checkouts a live session may work in unseen: each whose path can't
+/// be resolved, in `RepoFacts::checkout_paths` order, then each git dir no
+/// worktree list names that a session works through.
+///
+/// An unresolvable checkout is said once: one at or under a git dir that
+/// can't be read (an unlisted worktree whose worktree git dir can't be
+/// looked up is that git dir) is that reason's to name, and it holds the
+/// entry already.
+fn unseen_checkout_reasons(
+    facts: &RepoFacts,
+    sessions: &EntrySessions,
+) -> impl Iterator<Item = NeedsHuman> {
     let unreadable = |checkout: &str| {
         facts
             .unreadable
             .iter()
             .any(|p| Path::new(checkout).starts_with(p))
     };
-    let checkouts = std::iter::once(&facts.path)
-        .chain(facts.worktrees.iter().map(|c| &c.path))
-        .chain(facts.unprobed.iter().map(|u| &u.path))
-        .filter(|c| !unreadable(c));
-    for checkout in checkouts {
-        if let Some(u) = sessions.unresolved.get(checkout) {
-            reasons.push(NeedsHuman::CheckoutUnresolvable {
-                checkout: checkout.clone(),
-                path: u.path.clone(),
-                error: u.error.clone(),
-            });
-        }
-    }
-    for (git_dir, u) in &sessions.unlisted {
-        reasons.push(NeedsHuman::UnlistedGitDir {
+    let unresolvable = facts
+        .checkout_paths()
+        .filter(move |checkout| !unreadable(checkout))
+        .filter_map(|checkout| {
+            sessions
+                .unresolved
+                .get(checkout)
+                .map(|u| NeedsHuman::CheckoutUnresolvable {
+                    checkout: checkout.to_owned(),
+                    path: u.path.clone(),
+                    error: u.error.clone(),
+                })
+        });
+    let unlisted = sessions
+        .unlisted
+        .iter()
+        .map(|(git_dir, u)| NeedsHuman::UnlistedGitDir {
             git_dir: git_dir.clone(),
             head: u.head.clone(),
             busy: u.busy.clone(),
         });
-    }
-    // said with a matching origin only: origin drift already holds the
-    // entry, and its fix may fix this too
-    if let Some(urls) = &facts.push_urls
-        && !drift
-        && !push_urls_match(urls, &entry.url)
-    {
-        reasons.push(NeedsHuman::PushUrlMismatch {
-            push_urls: urls
-                .iter()
-                .map(|u| without_userinfo(u).into_owned())
-                .collect(),
-            expected: entry.remote_url(),
-        });
-    }
-    reasons
+    unresolvable.chain(unlisted)
+}
+
+/// A push through `origin` that wouldn't reach the registry's repo over
+/// SSH (`push_urls_match`), when the probe read where a push goes.
+fn push_url_reason(entry: &Entry, facts: &RepoFacts) -> Option<NeedsHuman> {
+    let urls = facts.push_urls.as_ref()?;
+    (!push_urls_match(urls, &entry.url)).then(|| NeedsHuman::PushUrlMismatch {
+        push_urls: urls
+            .iter()
+            .map(|u| without_userinfo(u).into_owned())
+            .collect(),
+        expected: entry.remote_url(),
+    })
 }
 
 /// `origin` as git sees it, when it isn't the registry's repo

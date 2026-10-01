@@ -136,13 +136,6 @@ pub struct RepoFacts {
     pub primary_linked: bool,
     /// Whether the primary is a locked linked worktree.
     pub primary_locked: bool,
-    /// Each locked checkout's lock reason as git lists it (empty when none
-    /// was given), with its path as `path`, `worktrees`, and `unprobed`
-    /// spell it: the primary's when it's a locked linked worktree. A
-    /// worktree git doesn't list has none here, its reason unread. Busy
-    /// detection reads the ones Claude Code writes, which name the session
-    /// working there.
-    pub locks: Vec<(String, String)>,
     /// The repo's other worktrees probed — linked ones, and the main one
     /// when the primary is linked — in `git worktree list` order.
     pub worktrees: Vec<Checkout>,
@@ -160,12 +153,9 @@ pub struct RepoFacts {
     /// relative path. Git 2.48+ resolves one against the git dir, older gits
     /// against the cwd, so every worktree path of the repo is uncertain.
     pub relative_gitdir: Option<PathBuf>,
-    /// Each checkout's own git dir, canonicalized when it can be, with the
-    /// checkout's path as `path`, `worktrees`, and `unprobed` spell it: the
-    /// primary's, and every other worktree's the probe found (not one git
-    /// lists that no worktree git dir matches). Busy detection attributes a
-    /// live session to the checkout whose git dir its `.git` names.
-    pub git_dirs: Vec<(PathBuf, String)>,
+    /// What busy detection knows each checkout by, one per checkout in
+    /// `checkout_paths` order.
+    pub checkout_keys: Vec<CheckoutKeys>,
     /// The main worktree's path as git lists it, when the repo is bare. It
     /// has no files, so it's never probed, yet `%(worktreepath)` names it
     /// for the branch its HEAD is on.
@@ -189,6 +179,50 @@ pub struct RepoFacts {
     /// may push a branch — owned, not pinned or archived, with an `origin`
     /// URL, and a branch ahead; `None` otherwise.
     pub push_urls: Option<Vec<String>>,
+}
+
+impl RepoFacts {
+    /// Every checkout's path as the facts spell it, with the operation in
+    /// progress there: the primary's first, then each probed worktree's,
+    /// then each unprobed one's.
+    pub fn checkout_operations(&self) -> impl Iterator<Item = (&str, Option<InProgressOp>)> {
+        std::iter::once((self.path.as_str(), self.in_progress))
+            .chain(
+                self.worktrees
+                    .iter()
+                    .map(|c| (c.path.as_str(), c.in_progress)),
+            )
+            .chain(
+                self.unprobed
+                    .iter()
+                    .map(|u| (u.path.as_str(), u.in_progress)),
+            )
+    }
+
+    /// Every checkout's path as the facts spell it, in `checkout_operations`
+    /// order: the primary's, each probed worktree's, each unprobed one's.
+    pub fn checkout_paths(&self) -> impl Iterator<Item = &str> {
+        self.checkout_operations().map(|(path, _)| path)
+    }
+}
+
+/// What busy detection knows one checkout by: its path, its own git dir,
+/// and its lock.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct CheckoutKeys {
+    /// The checkout's path as `RepoFacts::checkout_paths` spells it.
+    pub path: String,
+    /// Its own git dir, canonicalized when it can be — the primary's, and
+    /// every other worktree's the probe found; `None` for one git lists that
+    /// no worktree git dir matches. Busy detection attributes a live session
+    /// to the checkout whose git dir its `.git` names.
+    pub git_dir: Option<PathBuf>,
+    /// Its lock reason as git lists it (empty when none was given), when
+    /// it's locked — the primary only when it's a locked linked worktree.
+    /// `None` for a worktree git doesn't list, its reason unread. Busy
+    /// detection reads the ones Claude Code writes, which name the session
+    /// working there.
+    pub lock: Option<String>,
 }
 
 /// A local branch's facts.
@@ -372,7 +406,7 @@ fn probe_present(
     let mut worktrees = other_worktrees(cx.git, &dirs, &branches, local)?;
 
     // the files: the primary's operation and each worktree's `FETCH_HEAD`,
-    // and every checkout's git dir and lock, the primary's first
+    // and every checkout's keys, the primary's first
     let RepoDirs {
         path,
         git_dir,
@@ -385,18 +419,21 @@ fn probe_present(
     let registry_worktrees = worktrees
         .probed
         .iter()
-        .filter(|c| cx.registry_dirs.contains(Path::new(&c.path)))
-        .map(|c| c.path.clone())
+        .filter(|(c, _)| cx.registry_dirs.contains(Path::new(&c.path)))
+        .map(|(c, _)| c.path.clone())
         .collect();
-    let mut git_dirs = vec![(own_git_dir(&git_dir), path.clone())];
-    git_dirs.append(&mut worktrees.git_dirs);
     let primary_locked = worktrees.primary_lock.is_some();
-    let mut locks: Vec<(String, String)> = worktrees
-        .primary_lock
-        .map(|reason| (path.clone(), reason))
-        .into_iter()
+    let primary_keys = CheckoutKeys {
+        path: path.clone(),
+        git_dir: Some(own_git_dir(&git_dir)),
+        lock: worktrees.primary_lock,
+    };
+    let (probed, probed_keys): (Vec<_>, Vec<_>) = worktrees.probed.into_iter().unzip();
+    let (unprobed, unprobed_keys): (Vec<_>, Vec<_>) = worktrees.unprobed.into_iter().unzip();
+    let checkout_keys = std::iter::once(primary_keys)
+        .chain(probed_keys)
+        .chain(unprobed_keys)
         .collect();
-    locks.append(&mut worktrees.locks);
 
     Ok(Probed::Present(Box::new(RepoFacts {
         path,
@@ -407,13 +444,12 @@ fn probe_present(
         in_progress,
         primary_linked,
         primary_locked,
-        locks,
-        worktrees: worktrees.probed,
+        worktrees: probed,
         registry_worktrees,
-        unprobed: worktrees.unprobed,
+        unprobed,
         unreadable: worktrees.unreadable,
         relative_gitdir: worktrees.relative_gitdir,
-        git_dirs,
+        checkout_keys,
         bare_main: worktrees.bare_main,
         branches,
         layout,
@@ -975,24 +1011,20 @@ pub const STATUS_ARGS: [&str; 8] = [
 /// The repo's worktrees other than the primary.
 #[derive(Debug, Default)]
 struct Worktrees {
-    probed: Vec<Checkout>,
-    unprobed: Vec<UnprobedWorktree>,
+    /// Each worktree probed, with its keys.
+    probed: Vec<(Checkout, CheckoutKeys)>,
+    /// Each worktree that couldn't be probed, with its keys.
+    unprobed: Vec<(UnprobedWorktree, CheckoutKeys)>,
     /// Git dirs whose in-progress markers couldn't be read.
     unreadable: Vec<String>,
     /// The primary's lock reason, when it's locked (only a linked
     /// worktree can be).
     primary_lock: Option<String>,
-    /// Each other listed worktree's lock reason, with its path as `probed`
-    /// or `unprobed` spells it.
-    locks: Vec<(String, String)>,
     /// Every worktree git dir under `<commondir>/worktrees/`, each linked
     /// worktree's own git dir (where it keeps its `FETCH_HEAD`).
     worktree_git_dirs: Vec<PathBuf>,
     /// The first worktree git dir whose `gitdir` is relative.
     relative_gitdir: Option<PathBuf>,
-    /// Each worktree's own git dir that was found, canonicalized when it can
-    /// be, with its path as `probed` or `unprobed` spells it.
-    git_dirs: Vec<(PathBuf, String)>,
     /// The main worktree's path as git lists it, when the repo is bare.
     bare_main: Option<String>,
 }
@@ -1072,8 +1104,13 @@ fn probe_worktrees(
             continue;
         }
         let unlisted = unlisted_worktree(worktree_git_dir, &mut w.unreadable);
-        w.git_dirs.push((own_git_dir(dir), unlisted.path.clone()));
-        w.unprobed.push(unlisted);
+        let keys = CheckoutKeys {
+            path: unlisted.path.clone(),
+            git_dir: Some(own_git_dir(dir)),
+            // its lock's reason unread: git doesn't list it
+            lock: None,
+        };
+        w.unprobed.push((unlisted, keys));
     }
     Ok(w)
 }
@@ -1118,14 +1155,13 @@ fn probe_record(
     w: &mut Worktrees,
 ) {
     let path = PathBuf::from(&record.path);
-    if let Some(d) = git_dir {
-        w.git_dirs.push((own_git_dir(d), record.path.clone()));
-    }
+    let keys = CheckoutKeys {
+        path: record.path.clone(),
+        git_dir: git_dir.map(own_git_dir),
+        lock: record.locked.clone(),
+    };
     let in_progress = git_dir.and_then(|d| markers(d, &mut w.unreadable));
     let locked = record.locked.is_some();
-    if let Some(reason) = &record.locked {
-        w.locks.push((record.path.clone(), reason.clone()));
-    }
     let probed = gone(&path, record.prunable.is_some()).and_then(|()| {
         probe_worktree(git, &path, git_dir).map_err(|error| UnprobedWhy::Failed { error })
     });
@@ -1144,19 +1180,22 @@ fn probe_record(
             // reaches here; it would count as submodules, failing closed
             let submodules =
                 git_dir.map_or(Some(true), |d| submodule_refusal(git, &path, d, candidate));
-            w.probed.push(Checkout {
-                path: record.path,
-                primary: false,
-                linked,
-                head: status.head,
-                uncommitted: status.uncommitted,
-                in_progress,
-                locked,
-                submodules,
-                // filled once the live sessions are scoped (`status`)
-                busy: Vec::new(),
-                working: Vec::new(),
-            });
+            w.probed.push((
+                Checkout {
+                    path: record.path,
+                    primary: false,
+                    linked,
+                    head: status.head,
+                    uncommitted: status.uncommitted,
+                    in_progress,
+                    locked,
+                    submodules,
+                    // filled once the live sessions are scoped (`status`)
+                    busy: Vec::new(),
+                    working: Vec::new(),
+                },
+                keys,
+            ));
         }
         Err(why) => {
             // git lists a HEAD it couldn't read as detached, or with no head
@@ -1171,7 +1210,7 @@ fn probe_record(
             let holds = git_dir
                 .filter(|_| why == UnprobedWhy::Prunable)
                 .map(|d| git_dir_holds(git, d, head.as_ref()));
-            w.unprobed.push(UnprobedWorktree {
+            let unprobed = UnprobedWorktree {
                 path: record.path,
                 git_dir: git_dir.map(shown_git_dir),
                 head,
@@ -1179,7 +1218,8 @@ fn probe_record(
                 in_progress,
                 why,
                 holds,
-            });
+            };
+            w.unprobed.push((unprobed, keys));
         }
     }
 }

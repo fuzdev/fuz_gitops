@@ -393,8 +393,10 @@ fn a_failed_record_takes_its_head_from_its_git_dir() {
     probe_record(&git, record, Some(&git_dir), true, &HashSet::new(), &mut w);
     assert_eq!(git.spawns(), 0);
     assert_eq!(w.unprobed.len(), 1);
-    assert_eq!(w.unprobed[0].head, None);
-    assert_eq!(w.unprobed[0].why, UnprobedWhy::Missing);
+    let (unprobed, keys) = &w.unprobed[0];
+    assert_eq!(unprobed.head, None);
+    assert_eq!(unprobed.why, UnprobedWhy::Missing);
+    assert_eq!(keys.lock.as_deref(), Some(""));
 }
 
 #[test]
