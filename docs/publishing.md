@@ -298,7 +298,6 @@ utilities) while preventing runtime dependency issues.
 
 Packages with `"private": true` in package.json never publish:
 
-- Marked as `publishable: false` in the dependency graph
 - Excluded from the plan's version changes — no publish, npm-wait, bump
   escalation, or auto-changeset — so the executor skips them (they keep their
   slot in the topological order)

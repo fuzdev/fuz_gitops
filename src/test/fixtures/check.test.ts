@@ -114,11 +114,7 @@ describe('Success scenario fixtures', () => {
 					const local_repos = get_fixture_repos(fixture);
 
 					// Validate dependency graph directly
-					const { publishing_order: order } = validate_dependency_graph(local_repos, {
-						throw_on_prod_cycles: false,
-						log_cycles: false,
-						log_order: false
-					});
+					const { publishing_order: order } = validate_dependency_graph(local_repos);
 
 					// Verify publishing order
 					assert.ok(order, 'Should have publishing_order');
@@ -264,11 +260,7 @@ describe('Error scenario fixtures', () => {
 					const local_repos = get_fixture_repos(fixture);
 
 					// Validate dependency graph - should detect cycles
-					const { publishing_order: order } = validate_dependency_graph(local_repos, {
-						throw_on_prod_cycles: false,
-						log_cycles: false,
-						log_order: false
-					});
+					const { publishing_order: order } = validate_dependency_graph(local_repos);
 
 					// For error fixtures, publishing order should be empty or contain errors
 					assert.ok(
@@ -380,11 +372,7 @@ describe('JSON output format tests', () => {
 	test('analyze output has expected JSON structure', () => {
 		const local_repos = get_fixture_repos(fixture);
 
-		const result = validate_dependency_graph(local_repos, {
-			throw_on_prod_cycles: false,
-			log_cycles: false,
-			log_order: false
-		});
+		const result = validate_dependency_graph(local_repos);
 
 		assert.ok(result.graph, 'Should have dependency graph');
 		assert.ok(Array.isArray(result.publishing_order), 'Should have publishing order');
@@ -398,7 +386,6 @@ describe('JSON output format tests', () => {
 				assert.ok('version' in node, 'Node should have version');
 				assert.ok('dependencies' in node, 'Node should have dependencies');
 				assert.ok('dependents' in node, 'Node should have dependents');
-				assert.ok('publishable' in node, 'Node should have publishable flag');
 			}
 		}
 	});

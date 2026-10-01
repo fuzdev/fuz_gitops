@@ -6,10 +6,8 @@
  * off for private) with per-repo overrides; this check catches drift between
  * that declaration and reality —
  * a repo that claims CI but ships no workflow, or one that disclaims CI yet
- * still carries one. Repos that aren't checked out locally can't be judged, so
- * the caller marks them uncheckable and they're skipped. Archived repos are
- * frozen on their host, so their CI state is intentionally left alone and they're
- * skipped too.
+ * still carries one. Archived repos are frozen on their host, so their CI state
+ * is intentionally left alone and they're skipped.
  *
  * @module
  */
@@ -38,8 +36,6 @@ export interface CiReconcileInput {
 	ci: boolean;
 	/** Whether the repo has at least one workflow file on disk. */
 	has_workflows: boolean;
-	/** Whether the repo is checked out locally; uncheckable repos are skipped. */
-	checkable: boolean;
 	/** Whether the repo is archived (frozen) on its host; archived repos are skipped. */
 	archived: boolean;
 }
@@ -51,7 +47,7 @@ export interface CiReconcileInput {
 export const reconcile_ci = (repos: Array<CiReconcileInput>): Array<CiDrift> => {
 	const drift: Array<CiDrift> = [];
 	for (const repo of repos) {
-		if (!repo.checkable || repo.archived) continue;
+		if (repo.archived) continue;
 		const { repo_url, ci, has_workflows } = repo;
 		if (ci && !has_workflows) {
 			drift.push({ repo_url, ci, has_workflows, kind: 'missing_ci' });

@@ -167,11 +167,7 @@ export const generate_publishing_plan = async (
 	let graph: DependencyGraph;
 
 	try {
-		const validation = validate_dependency_graph(repos, {
-			throw_on_prod_cycles: false, // Collect errors instead of throwing
-			log_cycles: false, // We'll handle our own error collection
-			log_order: false // Plan generation doesn't need to log order
-		});
+		const validation = validate_dependency_graph(repos);
 		publishing_order = validation.publishing_order;
 		production_cycles = validation.production_cycles;
 		dev_cycles = validation.dev_cycles;

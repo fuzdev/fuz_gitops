@@ -3,7 +3,8 @@ import { z } from 'zod';
 import { styleText as st } from 'node:util';
 
 import { get_gitops_ready, log_readiness_block } from './gitops_task_helpers.ts';
-import { analyze_repos, type DependencyAnalysis } from './graph_validation.ts';
+import { analyze_repos } from './graph_validation.ts';
+import type { DependencyAnalysis } from './dependency_graph.ts';
 import { generate_publishing_plan, type PublishingPlan } from './publishing_plan.ts';
 import { log_publishing_plan } from './publishing_plan_logging.ts';
 import { execute_publishing_plan, type PublishingOptions } from './multi_repo_publisher.ts';
@@ -206,8 +207,6 @@ export const task: Task<Args> = {
 					repo_url: r.entry.url,
 					ci: r.entry.ci,
 					has_workflows: repo_has_workflows(r.repo_dir),
-					// a configured repo that isn't present fails the load (`local_repos_resolve`)
-					checkable: r.entry.presence.kind === 'present',
 					archived: r.entry.archived
 				}))
 			);

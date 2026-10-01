@@ -509,7 +509,7 @@ published.
 - `publish_steps.ts` - Derives the ordered side-effect preview (`--preview`) from a plan
 - `changeset_reader.ts` - Parses changesets and predicts versions
 - `changeset_generator.ts` - Auto-generates changesets for dependency updates
-- `dependency_graph.ts` - Topological sorting and cycle detection
+- `dependency_graph.ts` - Topological sorting, cycle detection, and wildcard analysis
 - `graph_validation.ts` - Shared cycle detection and publishing order
   computation
 - `version_utils.ts` - Version comparison and bump type detection

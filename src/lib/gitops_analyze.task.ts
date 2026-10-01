@@ -4,9 +4,9 @@ import { styleText as st } from 'node:util';
 import type { Logger } from '@fuzdev/fuz_util/log.ts';
 
 import { get_gitops_ready, log_readiness_block } from './gitops_task_helpers.ts';
-import type { DependencyGraph } from './dependency_graph.ts';
+import type { DependencyAnalysis, DependencyGraph } from './dependency_graph.ts';
 import { repo_is_npm } from './local_repo.ts';
-import { analyze_repos, type DependencyAnalysis } from './graph_validation.ts';
+import { analyze_repos } from './graph_validation.ts';
 import {
 	format_wildcard_dependencies,
 	format_dev_cycles,
