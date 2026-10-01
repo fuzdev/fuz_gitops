@@ -326,6 +326,10 @@ fn a_separate_git_dir_repos_worktrees_are_rooted_where_claude_code_roots_them() 
     ws.add_worktree(&app, &wt, &["side"]);
     let in_git_dir = git_dir.join(".claude/worktrees/q");
     ws.add_worktree(&app, &in_git_dir, &["gamma"]);
+    // the exclude, in the separate git dir, keeps the primary clean
+    for c in [&app, &in_primary, &wt, &in_git_dir] {
+        ws.assert_clean(c);
+    }
 
     let cases: [(&Path, &[&Path]); 2] = [
         // the git dir's worktrees too: the repo's root is held for any
@@ -352,6 +356,7 @@ fn a_session_in_a_moved_worktree_holds_the_worktrees_under_it() {
     ahead_branch(&ws, &app, "gamma");
     let q = moved.join(".claude/worktrees/q");
     ws.add_worktree(&moved, &q, &["gamma"]);
+    ws.assert_clean(&moved);
 
     let s = session(9, &moved, SessionSource::SessionFile);
     let run = ws.status_live(&LiveSessions::Known(vec![s]));

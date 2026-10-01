@@ -27,9 +27,17 @@
 //! the fixture's, git's own programs linked but the curl helpers for
 //! `https`, `ftp`, and `ftps`, and its `git-remote-https` refuses every URL
 //! (`https_refused_log`) until a test swaps in one serving the bare
-//! remotes (`serve_https`). The visibility check reads under
-//! `visibility_base`, a `file://` dir or a loopback `http` server, so it
-//! stays local too.
+//! remotes (`serve_https`). The visibility check stays local too: the
+//! lower-level runs point it at `visibility_base`, a `file://` dir or a
+//! loopback `http` server, and a run through an entry point reads the
+//! registry's HTTPS URL, which the fixture's `https` refuses — so a test of
+//! the check runs `status_with`.
+//!
+//! The runs that are the command's (`status`, `sync`, `push`, and kin) go
+//! through the library's entry points (`status_report`, `sync_report`,
+//! `push_report`), the run's policy theirs; the lower-level `status`,
+//! `sync`, and `push` run only where a test injects a seam the entry
+//! points don't take (the "running the tool" section says which).
 //!
 //! Setups assert the git state they build (`assert_track` and kin) before the
 //! tool reads it: a setup that silently builds the wrong state tests nothing.
@@ -51,6 +59,7 @@ pub mod busy;
 pub mod cli;
 pub mod push;
 pub mod remote;
+pub mod sync;
 pub mod unregistered;
 pub mod worktrees;
 
@@ -61,20 +70,20 @@ use std::fmt::Write as _;
 use std::os::unix::fs::{MetadataExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{Duration, SystemTime};
 
 use fuz_repos::classify::Refresh;
 use fuz_repos::clone::CLONE_TIMEOUT;
-use fuz_repos::discover::{REGISTRY_FILE, find_registry, resolve_push_targets};
+use fuz_repos::discover::{Locate, REGISTRY_FILE, find_registry, resolve_push_targets};
 use fuz_repos::git::Git;
-use fuz_repos::push::{PushOptions, PushRun, check_pushable, push};
+use fuz_repos::push::{PushOptions, PushReportOptions, PushRun, check_pushable, push, push_report};
 use fuz_repos::registry::{Entry, RegistryDirs, ValidRegistry};
-use fuz_repos::report::{EntryStatus, UnregisteredClone};
-use fuz_repos::scan::scan_unregistered;
-use fuz_repos::sessions::{LiveSessions, stat_starttime};
+use fuz_repos::report::{EntryStatus, StatusReport, UnregisteredClone};
+use fuz_repos::sessions::{Caller, LiveSessions, SessionsSource, stat_starttime};
 use fuz_repos::state::{BranchStatus, SyncAction, UnprobedWorktree};
-use fuz_repos::status::{StatusOptions, StatusRun, status};
-use fuz_repos::sync::{SyncOptions, SyncRun, sync};
+use fuz_repos::status::{StatusOptions, StatusReportOptions, StatusRun, status, status_report};
+use fuz_repos::sync::{SyncOptions, SyncReportOptions, SyncRun, sync, sync_report};
 use tempfile::TempDir;
 
 /// The registry's owner account: its repos are writable.
@@ -183,17 +192,6 @@ fn real_exec_path() -> &'static Path {
         assert!(out.status.success(), "git --exec-path failed");
         PathBuf::from(String::from_utf8(out.stdout).unwrap().trim())
     })
-}
-
-/// How `FixtureWorkspace::sync_full` runs `sync`.
-pub struct SyncRunOptions<'a> {
-    pub jobs: usize,
-    pub read_live: &'a (dyn Fn() -> LiveSessions + Sync),
-    pub clone_timeout: Duration,
-    pub refresh: Refresh,
-    /// Run the unregistered scan first and hand sync its dirs, as a run
-    /// without targets does.
-    pub scanned: bool,
 }
 
 /// A workspace of fixture repos under one tempdir.
@@ -700,21 +698,80 @@ impl FixtureWorkspace {
     }
 
     // --- running the tool ---
+    //
+    // A run that's the command's runs through the library's entry points —
+    // `status_report`, `sync_report`, `push_report` — as the binary does,
+    // the run's policy theirs (the unregistered scan, which references a
+    // run refreshes, the push targets it refuses), with no live session
+    // anywhere. The lower-level `status`, `sync`, and `push` run only for a
+    // seam the entry points don't take: the live sessions handed in or a
+    // reader that changes the fixture, a runner of the test's own, where
+    // the visibility check reads, a clone timeout — or a job count compared
+    // serial against parallel.
 
-    /// `status` over every entry, local refs only.
+    /// `repos status` from the workspace root, the report as the binary
+    /// makes it: `targets` (none is every entry, after the unregistered
+    /// scan), fetching first under `fetch`, every third-party reference
+    /// previewed under `references`.
+    pub fn status_report(&self, targets: &[&str], fetch: bool, references: bool) -> StatusReport {
+        self.status_report_located(Locate::default(), targets, fetch, references)
+    }
+
+    /// `status_report`, the registry and root where `locate` says
+    /// (`--registry`, `--root`).
+    pub fn status_report_located(
+        &self,
+        locate: Locate<'_>,
+        targets: &[&str],
+        fetch: bool,
+        references: bool,
+    ) -> StatusReport {
+        self.write_registry();
+        let targets: Vec<String> = targets.iter().map(|&t| t.to_owned()).collect();
+        status_report(
+            &self.runner(),
+            &self.root(),
+            locate,
+            &targets,
+            StatusReportOptions {
+                fetch,
+                references,
+                jobs: 4,
+                sessions: &no_sessions(),
+            },
+        )
+        .unwrap()
+        .report
+    }
+
+    /// `repos status` over every entry, local refs only.
     pub fn status(&self) -> Vec<EntryStatus> {
-        self.status_at(&self.root(), false)
+        self.status_report(&[], false, false).entries
     }
 
-    /// `status --fetch` over every entry.
+    /// `repos status --fetch` over every entry.
     pub fn status_with_fetch(&self) -> Vec<EntryStatus> {
-        self.status_at(&self.root(), true)
+        self.status_report(&[], true, false).entries
     }
 
-    /// `status` over every entry with `root` as the workspace root — another
-    /// path to the same dir, such as a symlink to it.
-    pub fn status_at(&self, root: &Path, fetch: bool) -> Vec<EntryStatus> {
-        self.status_with(root, fetch, &self.runner(), &self.visibility_base())
+    /// `repos status --root <root>` over every entry, local refs only:
+    /// `root` another path to the workspace root, such as a symlink to it.
+    pub fn status_at(&self, root: &Path) -> Vec<EntryStatus> {
+        let locate = Locate {
+            registry: None,
+            root: Some(root),
+        };
+        self.status_report_located(locate, &[], false, false)
+            .entries
+    }
+
+    /// `repos status` over every entry, refreshing the references `refresh`
+    /// asks for: `Refresh::Named` names every entry, `Refresh::References`
+    /// is `--references`.
+    pub fn status_asked(&self, fetch: bool, refresh: Refresh) -> Vec<EntryStatus> {
+        let keys = self.keys();
+        let (targets, references) = asked(&keys, refresh);
+        self.status_report(&targets, fetch, references).entries
     }
 
     /// `status` over every entry with `root` as the workspace root, run by
@@ -726,49 +783,6 @@ impl FixtureWorkspace {
         git: &Git,
         visibility_base: &str,
     ) -> Vec<EntryStatus> {
-        self.status_asked_with(root, fetch, git, visibility_base, Refresh::Unasked, None)
-    }
-
-    /// `status` over every entry, refreshing the references `refresh`
-    /// asks for — `Refresh::Named` as a run naming every entry would.
-    pub fn status_asked(&self, fetch: bool, refresh: Refresh) -> Vec<EntryStatus> {
-        let root = self.root();
-        self.status_asked_with(
-            &root,
-            fetch,
-            &self.runner(),
-            &self.visibility_base(),
-            refresh,
-            None,
-        )
-    }
-
-    /// `status` over every entry, local refs only, after the unregistered
-    /// scan, as a run without targets makes it.
-    pub fn status_scanned(&self) -> Vec<EntryStatus> {
-        let root = self.root();
-        let unregistered = self.unregistered();
-        self.status_asked_with(
-            &root,
-            false,
-            &self.runner(),
-            &self.visibility_base(),
-            Refresh::Unasked,
-            Some(&unregistered),
-        )
-    }
-
-    /// `status_with`, refreshing what `refresh` asks for, with the
-    /// unregistered scan's dirs when it ran.
-    pub fn status_asked_with(
-        &self,
-        root: &Path,
-        fetch: bool,
-        git: &Git,
-        visibility_base: &str,
-        refresh: Refresh,
-        unregistered: Option<&[UnregisteredClone]>,
-    ) -> Vec<EntryStatus> {
         let entries = self.entries();
         let run = status(
             &entries,
@@ -777,11 +791,11 @@ impl FixtureWorkspace {
             git,
             StatusOptions {
                 fetch,
-                refresh,
-                unregistered,
+                refresh: Refresh::Unasked,
+                unregistered: None,
                 jobs: 4,
                 visibility_base: Some(visibility_base),
-                live: &LiveSessions::Known(vec![]),
+                live: &quiet(),
             },
         );
         run.entries
@@ -812,6 +826,49 @@ impl FixtureWorkspace {
         )
     }
 
+    /// `repos sync` from the workspace root of `targets` (none is every
+    /// entry, after the unregistered scan), every third-party reference
+    /// refreshed under `references`, with `jobs` in flight; as a `SyncRun`,
+    /// the report's parts.
+    pub fn sync_report(&self, targets: &[&str], references: bool, jobs: usize) -> SyncRun {
+        self.write_registry();
+        let targets: Vec<String> = targets.iter().map(|&t| t.to_owned()).collect();
+        let reported = sync_report(
+            &self.runner(),
+            &self.root(),
+            Locate::default(),
+            &targets,
+            SyncReportOptions {
+                references,
+                jobs,
+                sessions: &no_sessions(),
+            },
+        )
+        .unwrap();
+        let (report, timings) = (reported.report, reported.timings);
+        SyncRun {
+            entries: report.status.entries,
+            sessions: report.status.sessions,
+            outcomes: report.entries,
+            timings: timings.entries,
+            probe_elapsed: timings.probe,
+            act_elapsed: timings.act.unwrap_or_default(),
+        }
+    }
+
+    /// `repos sync` over every entry.
+    pub fn sync(&self) -> SyncRun {
+        self.sync_report(&[], false, 4)
+    }
+
+    /// `repos sync` over every entry, refreshing the references `refresh`
+    /// asks for (as `status_asked`), with `jobs` in flight.
+    pub fn sync_asked(&self, refresh: Refresh, jobs: usize) -> SyncRun {
+        let keys = self.keys();
+        let (targets, references) = asked(&keys, refresh);
+        self.sync_report(&targets, references, jobs)
+    }
+
     /// `sync` over every entry with `jobs` in flight, `read_live` reading
     /// the live sessions each time sync asks.
     pub fn sync_with(&self, jobs: usize, read_live: &(dyn Fn() -> LiveSessions + Sync)) -> SyncRun {
@@ -825,67 +882,71 @@ impl FixtureWorkspace {
         read_live: &(dyn Fn() -> LiveSessions + Sync),
         clone_timeout: Duration,
     ) -> SyncRun {
-        self.sync_full(&SyncRunOptions {
-            jobs,
-            read_live,
-            clone_timeout,
-            refresh: Refresh::Unasked,
-            scanned: false,
-        })
-    }
-
-    /// `sync` with no live session anywhere, refreshing the
-    /// references `refresh` asks for, with `jobs` in flight.
-    pub fn sync_asked(&self, refresh: Refresh, jobs: usize) -> SyncRun {
-        self.sync_full(&SyncRunOptions {
-            jobs,
-            read_live: &|| LiveSessions::Known(vec![]),
-            clone_timeout: CLONE_TIMEOUT,
-            refresh,
-            scanned: false,
-        })
-    }
-
-    /// `sync` with no live session anywhere, after the unregistered
-    /// scan, as a run without targets makes it.
-    pub fn sync_scanned(&self) -> SyncRun {
-        self.sync_full(&SyncRunOptions {
-            jobs: 4,
-            read_live: &|| LiveSessions::Known(vec![]),
-            clone_timeout: CLONE_TIMEOUT,
-            refresh: Refresh::Unasked,
-            scanned: true,
-        })
-    }
-
-    /// `sync` over every entry, as `opts` says.
-    pub fn sync_full(&self, opts: &SyncRunOptions<'_>) -> SyncRun {
         let entries = self.entries();
         let root = self.root();
-        let unregistered = opts.scanned.then(|| self.unregistered());
         sync(
             &entries,
             &RegistryDirs::new(&root, &entries),
             &root,
             &self.runner(),
             SyncOptions {
-                jobs: opts.jobs,
+                jobs,
                 visibility_base: Some(&self.visibility_base()),
-                read_live: &opts.read_live,
-                clone_timeout: opts.clone_timeout,
-                refresh: opts.refresh,
-                unregistered: unregistered.as_deref(),
+                read_live: &read_live,
+                clone_timeout,
+                refresh: Refresh::Unasked,
+                unregistered: None,
             },
         )
     }
 
-    /// `sync` over every entry, no live session anywhere.
-    pub fn sync(&self) -> SyncRun {
-        self.sync_with(4, &|| LiveSessions::Known(vec![]))
+    /// `repos push` of `targets` from `cwd` (none: the checkout holding
+    /// `cwd`), `--new-branch` under `new_branch`, run by a person; as a
+    /// `PushRun`, the report's parts.
+    pub fn push_report(&self, targets: &[&str], cwd: &Path, new_branch: bool) -> PushRun {
+        self.write_registry();
+        let targets: Vec<String> = targets.iter().map(|&t| t.to_owned()).collect();
+        let reported = push_report(
+            &self.runner(),
+            cwd,
+            Locate::default(),
+            &targets,
+            PushReportOptions {
+                new_branch,
+                caller: Caller::Person,
+                jobs: 4,
+                sessions: &no_sessions(),
+            },
+        )
+        .unwrap();
+        let (report, timings) = (reported.report, reported.timings);
+        PushRun {
+            entries: report.status.entries,
+            sessions: report.status.sessions,
+            pushes: report.pushes,
+            timings: timings.entries,
+            probe_elapsed: timings.probe,
+            act_elapsed: timings.act.unwrap_or_default(),
+        }
     }
 
-    /// `repos push` of `targets`, resolved from `cwd` as the binary resolves
-    /// them (none: the checkout holding `cwd`), `read_live` reading the live
+    /// `repos push` of `targets` from the workspace root.
+    pub fn push(&self, targets: &[&str]) -> PushRun {
+        self.push_report(targets, &self.root(), false)
+    }
+
+    /// `repos push` of `targets` from `cwd`.
+    pub fn push_from(&self, targets: &[&str], cwd: &Path) -> PushRun {
+        self.push_report(targets, cwd, false)
+    }
+
+    /// `repos push --new-branch` of `targets` from the workspace root.
+    pub fn push_new_branch(&self, targets: &[&str]) -> PushRun {
+        self.push_report(targets, &self.root(), true)
+    }
+
+    /// `push` of `targets`, resolved from `cwd` as the binary resolves them
+    /// and refused as it refuses them, `read_live` reading the live
     /// sessions each time the push asks.
     pub fn push_with(
         &self,
@@ -896,8 +957,8 @@ impl FixtureWorkspace {
         self.push_full(targets, cwd, read_live, false)
     }
 
-    /// `repos push`, as `push_with`, creating a branch with no upstream on
-    /// origin when `new_branch` (`--new-branch`).
+    /// `push_with`, creating a branch with no upstream on origin when
+    /// `new_branch` (`--new-branch`).
     pub fn push_full(
         &self,
         targets: &[&str],
@@ -925,16 +986,9 @@ impl FixtureWorkspace {
         )
     }
 
-    /// `repos push` of `targets` from the workspace root, no live session
-    /// anywhere.
-    pub fn push(&self, targets: &[&str]) -> PushRun {
-        self.push_with(targets, &self.root(), &|| LiveSessions::Known(vec![]))
-    }
-
-    /// `repos push --new-branch` of `targets` from the workspace root, no
-    /// live session anywhere.
-    pub fn push_new_branch(&self, targets: &[&str]) -> PushRun {
-        self.push_full(targets, &self.root(), &|| LiveSessions::Known(vec![]), true)
+    /// Every entry's key, in the registry's order.
+    fn keys(&self) -> Vec<String> {
+        self.entries().into_iter().map(|e| e.key).collect()
     }
 
     /// Every ref of `repo` (`refs/…` by name, with its object), and `HEAD`:
@@ -1022,14 +1076,11 @@ impl FixtureWorkspace {
         );
     }
 
-    /// The unregistered scan over the workspace root, with the registry's
-    /// entries and owners as the binary loads them.
+    /// The unregistered dirs `repos status` reports, run without targets.
     pub fn unregistered(&self) -> Vec<UnregisteredClone> {
-        let entries = self.entries();
-        let registry = ValidRegistry::load(&self.root().join(REGISTRY_FILE)).unwrap();
-        scan_unregistered(&self.root(), &entries, registry.owners(), &self.runner())
-            .unwrap()
+        self.status_report(&[], false, false)
             .unregistered
+            .expect("a run without targets reports the scan")
     }
 
     /// One entry's status, from a run over every entry.
@@ -1118,6 +1169,32 @@ impl FixtureWorkspace {
             .unwrap()
             .parse()
             .unwrap()
+    }
+
+    /// Asserts `repo`'s `branch` is behind at `name`'s bare remote alone:
+    /// the remote's `branch` is `tip`, a descendant of the local one, and
+    /// nothing has fetched it — `origin/<branch>` is still the local tip,
+    /// even with it, its upstream `origin/<branch>`.
+    pub fn assert_behind_at_remote(&self, repo: &Path, name: &str, branch: &str, tip: &str) {
+        let local = self.git(repo, &["rev-parse", &format!("refs/heads/{branch}")]);
+        assert_ne!(
+            local,
+            tip,
+            "{branch} in {} is already at {tip}",
+            repo.display()
+        );
+        assert_eq!(
+            self.git(
+                repo,
+                &["rev-parse", &format!("refs/remotes/origin/{branch}")]
+            ),
+            local
+        );
+        self.assert_track(repo, branch, "");
+        self.assert_upstream(repo, branch, &format!("refs/remotes/origin/{branch}"));
+        let bare = self.bare(name);
+        assert_eq!(self.git(&bare, &["rev-parse", branch]), tip);
+        self.git(&bare, &["merge-base", "--is-ancestor", &local, tip]);
     }
 
     /// Asserts which branch HEAD is on (`None` when detached).
@@ -1461,4 +1538,105 @@ pub const fn ff(commits: u32) -> SyncAction {
 
 pub fn path(p: &Path) -> String {
     p.to_str().unwrap().to_owned()
+}
+
+/// No live session anywhere.
+pub const fn quiet() -> LiveSessions {
+    LiveSessions::Known(Vec::new())
+}
+
+/// Where the entry points read the live sessions: no config dir, no
+/// caller — nothing to read, so no live session anywhere (`quiet`).
+const fn no_sessions() -> SessionsSource {
+    SessionsSource {
+        config_dirs: Ok(Vec::new()),
+        claude_pid: None,
+        ancestors: BTreeMap::new(),
+    }
+}
+
+/// The targets and `--references` of a run refreshing what `refresh` asks
+/// for: every key named, `--references`, or neither.
+fn asked(keys: &[String], refresh: Refresh) -> (Vec<&str>, bool) {
+    match refresh {
+        Refresh::Unasked => (Vec::new(), false),
+        Refresh::Named => (keys.iter().map(String::as_str).collect(), false),
+        Refresh::References => (Vec::new(), true),
+    }
+}
+
+/// Runs git in `dir` under the fixture's environment `env` (a `Sync`
+/// stand-in for `FixtureWorkspace::git` inside a reader), asserting success.
+pub fn git_env(env: &[(OsString, OsString)], dir: &Path, args: &[&str]) -> String {
+    let out = Command::new("git")
+        .env_clear()
+        .envs(env.iter().map(|(k, v)| (k, v)))
+        .current_dir(dir)
+        .args(args)
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "git {args:?}: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    String::from_utf8(out.stdout).unwrap().trim().to_owned()
+}
+
+/// A reader that finds no session, and on its call number `at` first runs
+/// `then`: the first call is the one after the fetches, each later one
+/// right before an action (a fast-forward, a move, a push).
+pub fn reader_then(at: usize, then: impl Fn() + Sync) -> impl Fn() -> LiveSessions + Sync {
+    let calls = AtomicUsize::new(0);
+    move || {
+        if calls.fetch_add(1, Ordering::SeqCst) + 1 == at {
+            then();
+        }
+        quiet()
+    }
+}
+
+/// The workspace root's entries, sorted: what a run left there.
+pub fn root_listing(ws: &FixtureWorkspace) -> Vec<String> {
+    let mut names: Vec<String> = std::fs::read_dir(ws.root())
+        .unwrap()
+        .map(|e| e.unwrap().file_name().into_string().unwrap())
+        .collect();
+    names.sort();
+    names
+}
+
+/// The files of a checkout, `.git` aside, relative and sorted.
+pub fn files(dir: &Path) -> Vec<String> {
+    fn walk(root: &Path, dir: &Path, out: &mut Vec<String>) {
+        for e in std::fs::read_dir(dir).unwrap() {
+            let path = e.unwrap().path();
+            if path.file_name().is_some_and(|n| n == ".git") {
+                continue;
+            }
+            if path.is_dir() {
+                walk(root, &path, out);
+            } else {
+                out.push(path.strip_prefix(root).unwrap().display().to_string());
+            }
+        }
+    }
+    let mut out = Vec::new();
+    walk(dir, dir, &mut out);
+    out.sort();
+    out
+}
+
+/// Every object reachable from a ref of `repo`, missing ones marked `?`.
+pub fn objects(ws: &FixtureWorkspace, repo: &Path) -> String {
+    ws.git(repo, &["rev-list", "--objects", "--all", "--missing=print"])
+}
+
+/// How many objects reachable from any ref the repo lacks: a partial
+/// clone's unfetched blobs.
+pub fn missing_objects(ws: &FixtureWorkspace, repo: &Path) -> usize {
+    objects(ws, repo)
+        .lines()
+        .filter(|l| l.starts_with('?'))
+        .count()
 }

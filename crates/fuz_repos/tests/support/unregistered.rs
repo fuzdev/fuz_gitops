@@ -100,7 +100,62 @@ pub fn moved_by_hand(ws: &FixtureWorkspace, app: &Path, name: &str) -> (PathBuf,
     let git_dir = ws.add_worktree(app, &wt, &["-b", name]);
     let moved_to = ws.dir(&format!("{name}-moved"));
     std::fs::rename(&wt, &moved_to).unwrap();
+    assert_moved_by_hand(ws, app, &wt, &moved_to, &git_dir);
     (moved_to, git_dir)
+}
+
+/// Asserts what moving `repo`'s worktree from `from` to `to` by hand left,
+/// as git reads it: `worktree list` still names it at `from`, prunable, and
+/// nothing at `to`, where git still runs through its git dir `git_dir`.
+pub fn assert_moved_by_hand(
+    ws: &FixtureWorkspace,
+    repo: &Path,
+    from: &Path,
+    to: &Path,
+    git_dir: &Path,
+) {
+    let record = ws.worktree_record(repo, from);
+    assert!(
+        record.iter().any(|l| l.starts_with("prunable")),
+        "{record:?}"
+    );
+    assert!(
+        !listed(ws, repo).iter().any(|(path, _)| path == to),
+        "{} is listed",
+        to.display()
+    );
+    assert_eq!(
+        PathBuf::from(ws.git(to, &["rev-parse", "--absolute-git-dir"])),
+        git_dir
+    );
+}
+
+/// Asserts `git worktree list` of `repo`: its linked worktrees, each at the
+/// path its git dir names, and whether git finds it prunable — nothing of
+/// it there — sorted by path. Hand moves change what's at those paths,
+/// never what git lists.
+pub fn assert_listed(ws: &FixtureWorkspace, repo: &Path, want: &[(&Path, bool)]) {
+    let mut want: Vec<(PathBuf, bool)> = want.iter().map(|&(p, pr)| (p.to_owned(), pr)).collect();
+    want.sort();
+    assert_eq!(listed(ws, repo), want);
+}
+
+/// `repo`'s linked worktrees as `git worktree list` gives them, the primary
+/// aside: each at its path, with whether it's prunable, sorted by path.
+fn listed(ws: &FixtureWorkspace, repo: &Path) -> Vec<(PathBuf, bool)> {
+    let out = ws.git_raw(repo, &["worktree", "list", "--porcelain"]);
+    let mut got: Vec<(PathBuf, bool)> = out
+        .split("\n\n")
+        .filter(|r| !r.is_empty())
+        .skip(1)
+        .map(|r| {
+            let path = r.lines().next().unwrap().strip_prefix("worktree ").unwrap();
+            let prunable = r.lines().any(|l| l.starts_with("prunable"));
+            (PathBuf::from(path), prunable)
+        })
+        .collect();
+    got.sort();
+    got
 }
 
 /// Where a checkout's `.git` file points, by the git dir's name.

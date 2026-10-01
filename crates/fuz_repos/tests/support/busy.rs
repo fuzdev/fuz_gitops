@@ -108,7 +108,16 @@ pub fn ahead_branch(ws: &FixtureWorkspace, repo: &Path, branch: &str) {
 pub fn app(ws: &mut FixtureWorkspace) -> PathBuf {
     let app = ws.owned_repo("app", &[]);
     write(&app, ".git/info/exclude", ".claude/\n");
+    assert_ignores_claude_worktrees(ws, &app);
     app
+}
+
+/// Asserts git ignores a worktree nested where Claude Code puts one under
+/// `repo` (`.claude/worktrees/<name>`), and `repo` is clean: one added
+/// there later leaves it clean.
+pub fn assert_ignores_claude_worktrees(ws: &FixtureWorkspace, repo: &Path) {
+    ws.git(repo, &["check-ignore", "-q", ".claude/worktrees/x/a.txt"]);
+    ws.assert_clean(repo);
 }
 
 /// `app` with `main` ahead in the primary and `feat` ahead in a linked

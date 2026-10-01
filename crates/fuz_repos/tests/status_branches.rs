@@ -448,7 +448,7 @@ fn a_symlinked_root_still_holds_a_dirty_primary_as_dirty() {
     let link = ws.outside("ws-link");
     std::os::unix::fs::symlink(ws.root(), &link).unwrap();
 
-    let entries = ws.status_at(&link, false);
+    let entries = ws.status_at(&link);
     let e = find_entry(&entries, "app");
     let linked = link.join("app");
     assert_eq!(e.checkouts[0].path, linked.to_str().unwrap());

@@ -16,12 +16,15 @@ fn references_workspace() -> FixtureWorkspace {
     ws.owned_repo("app", &[]);
     ws.remote("lib", &[]);
     ws.declare_reference("lib", THIRD_PARTY, "lib", "");
-    ws.clone_third_party_over_https("lib", "lib", &[]);
-    ws.upstream_commit("lib", "main");
+    let lib = ws.clone_third_party_over_https("lib", "lib", &[]);
+    let lib_tip = ws.upstream_commit("lib", "main");
     ws.remote("oracle", &[]);
     ws.declare_reference("oracle", THIRD_PARTY, "oracle", "pinned = true");
-    ws.clone_third_party_over_https("oracle", "oracle", &[]);
-    ws.upstream_commit("oracle", "main");
+    let oracle = ws.clone_third_party_over_https("oracle", "oracle", &[]);
+    let oracle_tip = ws.upstream_commit("oracle", "main");
+    // each behind once a fetch reaches it
+    ws.assert_behind_at_remote(&lib, "lib", "main", &lib_tip);
+    ws.assert_behind_at_remote(&oracle, "oracle", "main", &oracle_tip);
     ws.serve_https();
     ws.write_registry();
     ws

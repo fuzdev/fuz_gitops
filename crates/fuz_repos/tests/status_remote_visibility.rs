@@ -36,7 +36,8 @@ fn a_private_repo_anyone_can_read_is_a_leak() {
     }
     assert!(!ws.dir("absent").exists());
 
-    let entries = ws.status_with_fetch();
+    // the check reads under the fixture's `visibility_base`
+    let entries = ws.status_with(&ws.root(), true, &ws.runner(), &ws.visibility_base());
     assert_eq!(
         find_entry(&entries, "leaky").visibility_check,
         Some(VisibilityCheck::Leak)
@@ -64,7 +65,8 @@ fn a_private_repo_nobody_can_find_is_private() {
     ws.clone_third_party("lib", "lib", &[]);
     assert!(!ws.anonymous_dir().exists());
 
-    let entries = ws.status_with_fetch();
+    // the check reads under the fixture's `visibility_base`
+    let entries = ws.status_with(&ws.root(), true, &ws.runner(), &ws.visibility_base());
     let sealed = find_entry(&entries, "sealed");
     // the host answers as for a repo that doesn't exist
     assert_eq!(sealed.visibility_check, Some(VisibilityCheck::Private));

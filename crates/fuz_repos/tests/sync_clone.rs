@@ -17,59 +17,21 @@ use std::time::Duration;
 use fuz_repos::classify::NeedsHuman;
 use fuz_repos::clone::temp_dir_name;
 use fuz_repos::remote::RemoteFailure;
-use fuz_repos::report::{CloneOutcome, CloneSyncHold, EntrySync, FetchOutcome, UnregisteredKind};
-use fuz_repos::sessions::{LiveSessions, Session, SessionSource, Unavailable};
+use fuz_repos::report::{CloneOutcome, CloneSyncHold, FetchOutcome, UnregisteredKind};
+use fuz_repos::sessions::{LiveSessions, SessionSource, Unavailable};
 use fuz_repos::state::{CloneHold, CloneRecipe, CloneVerdict, Presence, Verdict};
 use fuz_repos::sync::SyncRun;
-use support::{FixtureWorkspace, LiveChild, OWNER, THIRD_PARTY, find_entry, write};
-
-const fn quiet() -> LiveSessions {
-    LiveSessions::Known(Vec::new())
-}
-
-fn outcomes<'a>(run: &'a SyncRun, key: &str) -> &'a EntrySync {
-    run.outcomes
-        .iter()
-        .find(|e| e.key == key)
-        .unwrap_or_else(|| panic!("no outcomes for {key}: {:?}", run.outcomes))
-}
+use support::busy::live_session;
+use support::sync::outcomes;
+use support::{
+    FixtureWorkspace, LiveChild, OWNER, THIRD_PARTY, files, find_entry, quiet, root_listing, write,
+};
 
 fn cloned(run: &SyncRun, key: &str) -> CloneOutcome {
     outcomes(run, key)
         .clone
         .clone()
         .unwrap_or_else(|| panic!("no clone outcome for {key}: {:?}", run.outcomes))
-}
-
-/// The workspace root's entries, sorted: what a run left there.
-fn root_listing(ws: &FixtureWorkspace) -> Vec<String> {
-    let mut names: Vec<String> = std::fs::read_dir(ws.root())
-        .unwrap()
-        .map(|e| e.unwrap().file_name().into_string().unwrap())
-        .collect();
-    names.sort();
-    names
-}
-
-/// The files of a checkout, `.git` aside, relative and sorted.
-fn files(dir: &Path) -> Vec<String> {
-    fn walk(root: &Path, dir: &Path, out: &mut Vec<String>) {
-        for e in std::fs::read_dir(dir).unwrap() {
-            let path = e.unwrap().path();
-            if path.file_name().is_some_and(|n| n == ".git") {
-                continue;
-            }
-            if path.is_dir() {
-                walk(root, &path, out);
-            } else {
-                out.push(path.strip_prefix(root).unwrap().display().to_string());
-            }
-        }
-    }
-    let mut out = Vec::new();
-    walk(dir, dir, &mut out);
-    out.sort();
-    out
 }
 
 /// The repo's local config, one `key=value` per line, sorted.
@@ -99,16 +61,6 @@ fn remote_heads(ws: &FixtureWorkspace, name: &str) -> BTreeMap<String, String> {
         (r.to_owned(), oid.to_owned())
     })
     .collect()
-}
-
-/// A live session of `child` recorded at `cwd`, as the reader vouches for it.
-fn session(child: &LiveChild, cwd: &Path) -> Session {
-    Session::at(
-        child.pid(),
-        child.proc_start().parse().unwrap(),
-        cwd.to_str().unwrap().to_owned(),
-        SessionSource::SessionFile,
-    )
 }
 
 /// The clone verdict status gives an entry.
@@ -640,7 +592,11 @@ fn a_session_at_the_missing_path_holds_its_clone() {
     let child = LiveChild::spawn();
     // its dir was deleted from under it: the recorded cwd stays
     let deep = ws.dir("app").join("src");
-    let live = LiveSessions::Known(vec![session(&child, &deep)]);
+    let live = LiveSessions::Known(vec![live_session(
+        &child,
+        &deep,
+        SessionSource::SessionFile,
+    )]);
 
     // the preview
     let run = ws.status_live(&live);
@@ -685,7 +641,11 @@ fn a_session_at_the_missing_path_holds_its_clone() {
     // recorded through a symlink to the root: resolved, it's there
     let link = ws.outside("link");
     std::os::unix::fs::symlink(ws.root(), &link).unwrap();
-    let linked = LiveSessions::Known(vec![session(&child, &link.join("app"))]);
+    let linked = LiveSessions::Known(vec![live_session(
+        &child,
+        &link.join("app"),
+        SessionSource::SessionFile,
+    )]);
     let run = ws.sync_with(4, &|| linked.clone());
     assert_eq!(
         cloned(&run, "app"),
@@ -696,7 +656,11 @@ fn a_session_at_the_missing_path_holds_its_clone() {
     assert!(!ws.dir("app").exists());
 
     // a session beside it, at a path sharing its name's prefix, holds nothing
-    let beside = LiveSessions::Known(vec![session(&child, &ws.dir("app-wt"))]);
+    let beside = LiveSessions::Known(vec![live_session(
+        &child,
+        &ws.dir("app-wt"),
+        SessionSource::SessionFile,
+    )]);
     let run = ws.sync_with(4, &|| beside.clone());
     assert!(matches!(cloned(&run, "app"), CloneOutcome::Cloned { .. }));
     assert!(ws.ssh_log().len() == 1, "{:?}", ws.ssh_log());

@@ -12,6 +12,7 @@ use std::path::{Path, PathBuf};
 use std::process::Output;
 use std::time::{Duration, SystemTime};
 
+use support::busy::assert_ignores_claude_worktrees;
 use support::{ClaudeDir, FixtureWorkspace, LiveChild, THIRD_PARTY, proc_start};
 
 const REPOS: &str = env!("CARGO_BIN_EXE_repos");
@@ -42,10 +43,11 @@ fn brief(ws: &FixtureWorkspace, path: &Path) -> String {
 }
 
 /// `app` with Claude Code's worktrees dir ignored, as a user's global
-/// excludes would.
+/// excludes would, so a worktree nested in it leaves the primary clean.
 fn app(ws: &mut FixtureWorkspace) -> PathBuf {
     let app = ws.owned_repo("app", &[("a.txt", "a\n")]);
     support::write(&app, ".git/info/exclude", ".claude/\n");
+    assert_ignores_claude_worktrees(ws, &app);
     app
 }
 
@@ -400,6 +402,7 @@ fn an_agent_worktree_hears_only_of_sessions_working_in_it() {
     // where Claude Code puts a `--worktree` session's, or a subagent's
     let wt1 = app.join(".claude/worktrees/wt1");
     ws.add_worktree(&app, &wt1, &["-b", "wt1"]);
+    ws.assert_clean(&app);
     let claude = ClaudeDir::new(ws.outside("claude"));
     // the caller in the worktree, another session in the primary
     let me = std::process::id();

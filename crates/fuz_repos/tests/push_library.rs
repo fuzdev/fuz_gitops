@@ -15,8 +15,8 @@ use fuz_repos::report::{BranchSyncHold, FetchOutcome, PushOutcome};
 use fuz_repos::sessions::{LiveSessions, Session, SessionSource};
 use fuz_repos::state::{BranchNeedsHuman, Relation, SyncAction, Verdict};
 use support::cli::{repos, stderr, stdout};
-use support::push::{ahead, feat_ahead, only, pushed, pushes_served, quiet, remote_refs, with};
-use support::{FixtureWorkspace, LiveChild, branch, find_entry};
+use support::push::{ahead, feat_ahead, only, pushed, pushes_served, remote_refs, with};
+use support::{FixtureWorkspace, LiveChild, branch, find_entry, quiet};
 
 // --- what's pushed ---
 
@@ -105,7 +105,7 @@ fn targets_name_their_checkouts() {
     );
 
     // the cwd in the worktree, no target: its branch, not the primary's
-    let run = ws.push_with(&[], &wt, &quiet);
+    let run = ws.push_from(&[], &wt);
     assert_eq!(only(&run), (Some("feat"), &pushed(&origin_feat, &feat_tip)));
     assert_eq!(run.pushes[0].checkout, wt.to_str().unwrap());
     assert_eq!(
@@ -114,13 +114,13 @@ fn targets_name_their_checkouts() {
     );
     // a key, a dir name, and a path in the primary, the cwd a subdir: each
     // names the primary, pushed once and in sync after
-    let run = ws.push_with(&["app", "app-dir", "."], &app.join("sub"), &quiet);
+    let run = ws.push_from(&["app", "app-dir", "."], &app.join("sub"));
     assert_eq!(only(&run), (Some("main"), &pushed(&origin_main, &main_tip)));
     assert_eq!(run.pushes[0].checkout, app.to_str().unwrap());
-    let run = ws.push_with(&[], &app.join("sub"), &quiet);
+    let run = ws.push_from(&[], &app.join("sub"));
     assert_eq!(only(&run), (Some("main"), &PushOutcome::InSync));
     // the worktree by its path, beside the primary by key
-    let run = ws.push_with(&["app", wt.to_str().unwrap()], &ws.root(), &quiet);
+    let run = ws.push_from(&["app", wt.to_str().unwrap()], &ws.root());
     let got: Vec<_> = run
         .pushes
         .iter()

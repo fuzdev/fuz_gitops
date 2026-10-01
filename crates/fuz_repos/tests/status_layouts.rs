@@ -7,20 +7,7 @@ mod support;
 use fuz_repos::state::{
     BranchNeedsHuman, Head, Presence, ProbeErrorKind, Relation, SyncAction, Verdict,
 };
-use support::{FixtureWorkspace, branch, find_entry};
-
-/// Every object reachable from a ref, missing ones marked `?`.
-fn objects(ws: &FixtureWorkspace, repo: &std::path::Path) -> String {
-    ws.git(repo, &["rev-list", "--objects", "--all", "--missing=print"])
-}
-
-/// Objects the partial clone lacks.
-fn missing_objects(ws: &FixtureWorkspace, repo: &std::path::Path) -> usize {
-    objects(ws, repo)
-        .lines()
-        .filter(|l| l.starts_with('?'))
-        .count()
-}
+use support::{FixtureWorkspace, branch, find_entry, missing_objects, objects};
 
 #[test]
 fn shallow_clones_subtract_their_roots() {

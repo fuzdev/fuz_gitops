@@ -15,10 +15,8 @@
 
 mod support;
 
-use std::collections::BTreeMap;
 use std::ffi::OsString;
-use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::path::Path;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use fuz_repos::classify::NeedsHuman;
@@ -26,28 +24,12 @@ use fuz_repos::remote::{RemoteFailure, UnreachableCause};
 use fuz_repos::report::{BranchOutcome, BranchSyncHold};
 use fuz_repos::sessions::{LiveSessions, Session, SessionSource};
 use fuz_repos::state::{BranchHold, BranchNeedsHuman, SyncAction, Verdict};
-use fuz_repos::sync::SyncRun;
-use support::{FixtureWorkspace, LiveChild, branch, find_entry, write_executable};
-
-const fn push(commits: u32) -> SyncAction {
-    SyncAction::Push { commits }
-}
-
-const fn quiet() -> LiveSessions {
-    LiveSessions::Known(Vec::new())
-}
-
-fn outcome<'a>(run: &'a SyncRun, key: &str, name: &str) -> &'a BranchOutcome {
-    &run.outcomes
-        .iter()
-        .find(|e| e.key == key)
-        .unwrap_or_else(|| panic!("no outcomes for {key}: {:?}", run.outcomes))
-        .branches
-        .iter()
-        .find(|b| b.name == name)
-        .unwrap_or_else(|| panic!("no branch {key}:{name}: {:?}", run.outcomes))
-        .outcome
-}
+use support::busy::push;
+use support::push::{ahead, remote_refs, with};
+use support::sync::outcome;
+use support::{
+    FixtureWorkspace, LiveChild, branch, find_entry, git_env, quiet, reader_then, write_executable,
+};
 
 const fn held(action: SyncAction, by: BranchSyncHold) -> BranchOutcome {
     BranchOutcome::Held { action, by }
@@ -60,37 +42,6 @@ fn pushed(from: &str, to: &str) -> BranchOutcome {
     }
 }
 
-/// Runs git in `dir` under the fixture's environment `env` (a `Sync`
-/// stand-in for `FixtureWorkspace::git` inside a reader), asserting success.
-fn git_env(env: &[(OsString, OsString)], dir: &Path, args: &[&str]) -> String {
-    let out = Command::new("git")
-        .env_clear()
-        .envs(env.iter().map(|(k, v)| (k, v)))
-        .current_dir(dir)
-        .args(args)
-        .output()
-        .unwrap();
-    assert!(
-        out.status.success(),
-        "git {args:?}: {}",
-        String::from_utf8_lossy(&out.stderr)
-    );
-    String::from_utf8(out.stdout).unwrap().trim().to_owned()
-}
-
-/// A reader that finds no session, and on its call number `at` (the first
-/// is the one after the fetches, the second right before the first action)
-/// first runs `then`.
-fn reader_then(at: usize, then: impl Fn() + Sync) -> impl Fn() -> LiveSessions + Sync {
-    let calls = AtomicUsize::new(0);
-    move || {
-        if calls.fetch_add(1, Ordering::SeqCst) + 1 == at {
-            then();
-        }
-        quiet()
-    }
-}
-
 /// Moves `branch` one commit forward — a child with the same tree —
 /// without touching HEAD or the files. Returns the new commit.
 fn advance(ws: &FixtureWorkspace, repo: &Path, branch: &str) -> String {
@@ -99,31 +50,6 @@ fn advance(ws: &FixtureWorkspace, repo: &Path, branch: &str) -> String {
     let oid = ws.git(repo, &["commit-tree", &tree, "-p", &parent, "-m", "local"]);
     ws.git(repo, &["update-ref", &parent, &oid]);
     oid
-}
-
-/// `app`, owned, its `main` ahead of origin by one commit; returns the
-/// clone and that commit.
-fn ahead(ws: &mut FixtureWorkspace) -> (PathBuf, String) {
-    let app = ws.owned_repo("app", &[]);
-    let tip = ws.commit(&app, "local");
-    ws.assert_track(&app, "main", "[ahead 1]");
-    ws.write_registry();
-    (app, tip)
-}
-
-/// The remote's refs: every ref of `name`'s bare remote, tags included, and
-/// its `HEAD`.
-fn remote_refs(ws: &FixtureWorkspace, name: &str) -> BTreeMap<String, String> {
-    ws.refs(&ws.bare(name))
-}
-
-/// `before` with `changes` applied.
-fn with(before: &BTreeMap<String, String>, changes: &[(&str, &str)]) -> BTreeMap<String, String> {
-    let mut refs = before.clone();
-    for (r, oid) in changes {
-        refs.insert((*r).to_owned(), (*oid).to_owned());
-    }
-    refs
 }
 
 #[test]
@@ -1014,9 +940,12 @@ fn fleet() -> FixtureWorkspace {
     for name in ["a", "b", "c"] {
         let repo = ws.owned_repo(name, &[]);
         ws.commit(&repo, "local");
+        ws.assert_track(&repo, "main", "[ahead 1]");
     }
-    ws.owned_repo("d", &[]);
-    ws.upstream_commit("d", "main");
+    let d = ws.owned_repo("d", &[]);
+    let tip = ws.upstream_commit("d", "main");
+    // behind once sync fetches
+    ws.assert_behind_at_remote(&d, "d", "main", &tip);
     ws.write_registry();
     ws
 }

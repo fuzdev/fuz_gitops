@@ -14,87 +14,23 @@
 mod support;
 
 use std::collections::BTreeMap;
-use std::ffi::OsString;
-use std::path::Path;
-use std::process::Command;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use fuz_repos::classify::NeedsHuman;
 use fuz_repos::remote::RemoteFailure;
-use fuz_repos::report::{BranchOutcome, BranchSync, BranchSyncHold, EntrySync, FetchOutcome};
-use fuz_repos::sessions::{LiveSessions, Session, SessionSource, Unavailable};
+use fuz_repos::report::{BranchOutcome, BranchSync, BranchSyncHold, FetchOutcome};
+use fuz_repos::sessions::{LiveSessions, SessionSource, Unavailable};
 use fuz_repos::state::{BranchHold, BranchNeedsHuman, Relation, SyncAction, Verdict};
-use fuz_repos::sync::SyncRun;
-use support::{FixtureWorkspace, LiveChild, branch, find_entry, write};
-
-const fn ff(commits: u32) -> SyncAction {
-    SyncAction::FastForward { commits }
-}
-
-const fn quiet() -> LiveSessions {
-    LiveSessions::Known(Vec::new())
-}
-
-fn outcomes<'a>(run: &'a SyncRun, key: &str) -> &'a EntrySync {
-    run.outcomes
-        .iter()
-        .find(|e| e.key == key)
-        .unwrap_or_else(|| panic!("no outcomes for {key}: {:?}", run.outcomes))
-}
-
-fn outcome<'a>(run: &'a SyncRun, key: &str, name: &str) -> &'a BranchOutcome {
-    &outcomes(run, key)
-        .branches
-        .iter()
-        .find(|b| b.name == name)
-        .unwrap_or_else(|| panic!("no branch {key}:{name}: {:?}", run.outcomes))
-        .outcome
-}
+use support::busy::live_session;
+use support::sync::{outcome, outcomes};
+use support::{
+    FixtureWorkspace, LiveChild, branch, ff, find_entry, git_env, quiet, reader_then, write,
+};
 
 fn moved(from: &str, to: &str) -> BranchOutcome {
     BranchOutcome::FastForwarded {
         from: from.to_owned(),
         to: to.to_owned(),
-    }
-}
-
-/// A live session of `child` working in `cwd`, as the reader vouches for it.
-fn session(child: &LiveChild, cwd: &Path) -> Session {
-    Session::at(
-        child.pid(),
-        child.proc_start().parse().unwrap(),
-        cwd.to_str().unwrap().to_owned(),
-        SessionSource::SessionFile,
-    )
-}
-
-/// Runs git in `dir` under the fixture's environment `env` (a `Sync` stand-in
-/// for `FixtureWorkspace::git` inside a reader), asserting success.
-fn git_env(env: &[(OsString, OsString)], dir: &Path, args: &[&str]) -> String {
-    let out = Command::new("git")
-        .env_clear()
-        .envs(env.iter().map(|(k, v)| (k, v)))
-        .current_dir(dir)
-        .args(args)
-        .output()
-        .unwrap();
-    assert!(
-        out.status.success(),
-        "git {args:?}: {}",
-        String::from_utf8_lossy(&out.stderr)
-    );
-    String::from_utf8(out.stdout).unwrap().trim().to_owned()
-}
-
-/// A reader that finds no session, and on its call number `at` (the first
-/// is the one after the fetches) first runs `then`.
-fn reader_then(at: usize, then: impl Fn() + Sync) -> impl Fn() -> LiveSessions + Sync {
-    let calls = AtomicUsize::new(0);
-    move || {
-        if calls.fetch_add(1, Ordering::SeqCst) + 1 == at {
-            then();
-        }
-        quiet()
     }
 }
 
@@ -254,7 +190,7 @@ fn a_busy_checkout_holds_its_branch() {
     let (app, _, feat_tip) = behind_twice(&mut ws);
     let before = ws.refs(&app);
     let child = LiveChild::spawn();
-    let live = LiveSessions::Known(vec![session(&child, &app)]);
+    let live = LiveSessions::Known(vec![live_session(&child, &app, SessionSource::SessionFile)]);
 
     let run = ws.sync_with(4, &|| live.clone());
 
@@ -302,7 +238,7 @@ fn sessions_are_read_after_the_fetch_and_again_before_acting() {
             main_tip,
             "read {n} came before the fetch"
         );
-        LiveSessions::Known(vec![session(&child, &app)])
+        LiveSessions::Known(vec![live_session(&child, &app, SessionSource::SessionFile)])
     };
     let run = ws.sync_with(1, &read);
     assert_eq!(
@@ -323,7 +259,7 @@ fn sessions_are_read_after_the_fetch_and_again_before_acting() {
     let (app, _, feat_tip) = behind_twice(&mut ws);
     let before = ws.refs(&app);
     let calls = AtomicUsize::new(0);
-    let late = LiveSessions::Known(vec![session(&child, &app)]);
+    let late = LiveSessions::Known(vec![live_session(&child, &app, SessionSource::SessionFile)]);
     let read = || {
         if calls.fetch_add(1, Ordering::SeqCst) == 0 {
             quiet()

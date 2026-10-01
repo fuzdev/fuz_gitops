@@ -7,7 +7,9 @@ use std::os::unix::ffi::OsStrExt;
 use std::path::Path;
 
 use fuz_repos::report::{RepairBlock, UnregisteredKind};
-use support::unregistered::{app, copy_dir, moved, moved_by_hand, moved_rewrites, shared, stray};
+use support::unregistered::{
+    app, assert_moved_by_hand, copy_dir, moved, moved_by_hand, moved_rewrites, shared, stray,
+};
 use support::{FixtureWorkspace, owned_origin};
 
 /// A gitfile naming `git_dir`, with `head` before it and `tail` after.
@@ -87,7 +89,7 @@ fn a_moved_worktrees_commondir_is_read_as_git_reads_it() {
 fn a_hazard_gitfile_is_parsed_as_git_parses_it() {
     let mut ws = FixtureWorkspace::new();
     let app = app(&mut ws);
-    let (s_moved, _) = moved_by_hand(&ws, &app, "s");
+    let (s_moved, s_git_dir) = moved_by_hand(&ws, &app, "s");
     // `h` elsewhere, its `.git` naming its own git dir past a NUL: git reads
     // it right, and a repair leaves it be
     let h = ws.outside("h");
@@ -107,6 +109,7 @@ fn a_hazard_gitfile_is_parsed_as_git_parses_it() {
     // on a second line: git can't parse it, so a repair would rewrite it
     let s_again = ws.dir("s-again");
     std::fs::rename(&s_moved, &s_again).unwrap();
+    assert_moved_by_hand(&ws, &app, &s_moved, &s_again, &s_git_dir);
     std::fs::write(h.join(".git"), gitfile(b"x\n", &h_git_dir, b"\n")).unwrap();
     ws.git_fails(&h, &["status"]);
     assert_eq!(

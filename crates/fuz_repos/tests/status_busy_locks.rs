@@ -23,16 +23,26 @@ fn lib_with_an_agent_worktree(ws: &mut FixtureWorkspace) -> (PathBuf, PathBuf, P
     ahead_branch(ws, &lib, "feat");
     let wt = lib.join(".claude/worktrees/agent-a1");
     ws.add_worktree(&lib, &wt, &["feat"]);
+    // the exclude keeps the primary clean around it
+    ws.assert_clean(&lib);
+    ws.assert_clean(&wt);
     (app, lib, wt)
 }
 
 /// Locks `repo`'s worktree `wt` with `reason`, as `git worktree lock`
 /// writes it, in place of any lock it had.
 fn relock(ws: &FixtureWorkspace, repo: &Path, wt: &Path, reason: &str) {
-    let wt = wt.to_str().unwrap();
+    let wt_s = wt.to_str().unwrap();
     // fails when it isn't locked, which is as good
-    let _ = ws.git_output(repo, &["worktree", "unlock", wt]);
-    ws.git(repo, &["worktree", "lock", "--reason", reason, wt]);
+    let _ = ws.git_output(repo, &["worktree", "unlock", wt_s]);
+    ws.git(repo, &["worktree", "lock", "--reason", reason, wt_s]);
+    // the reason, as git reads it back
+    let locked: Vec<String> = ws
+        .worktree_record(repo, wt)
+        .into_iter()
+        .filter(|l| l.starts_with("locked"))
+        .collect();
+    assert_eq!(locked, [format!("locked {reason}")]);
 }
 
 /// Under `live`, `lib`'s checkout at `wt` is busy with `holder` alone and

@@ -15,9 +15,11 @@ use fuz_repos::sessions::{LiveSessions, Session, SessionSource};
 use fuz_repos::state::{BranchNeedsHuman, Relation};
 use support::cli::{repos, stderr, stdout};
 use support::push::{
-    assert_tracks_origin, feat_ahead, only, pushed, pushes_served, quiet, remote_refs, topic, with,
+    assert_tracks_origin, feat_ahead, only, pushed, pushes_served, remote_refs, topic, with,
 };
-use support::{FixtureWorkspace, LiveChild, branch, find_entry, owned_origin, write_executable};
+use support::{
+    FixtureWorkspace, LiveChild, branch, find_entry, owned_origin, quiet, write_executable,
+};
 
 #[test]
 fn new_branch_creates_a_branch_with_no_upstream_and_tracks_it() {

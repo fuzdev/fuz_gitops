@@ -14,6 +14,7 @@ use fuz_repos::state::{
     BranchHold, CleanupReason, Head, InProgressOp, Relation, SyncAction, UnprobedWhy,
     UnprobedWorktree, Verdict,
 };
+use support::unregistered::copy_dir;
 use support::worktrees::{app, behind_branch, pushed_branch};
 use support::{FixtureWorkspace, Unseal, branch, ff, path, unprobed_facts};
 
@@ -800,13 +801,7 @@ fn copied_git_dir_serves_one_worktree(copy_name: &str, copy_head: &str) {
     let git_dir = ws.add_worktree(&app, &wt, &["-b", "b1"]);
     // a copy of its git dir, claiming the same path, on another branch
     let copy = git_dir.with_file_name(copy_name);
-    let status = std::process::Command::new("cp")
-        .arg("-r")
-        .arg(&git_dir)
-        .arg(&copy)
-        .status()
-        .unwrap();
-    assert!(status.success());
+    copy_dir(&ws, &git_dir, &copy);
     std::fs::write(copy.join("HEAD"), format!("ref: refs/heads/{copy_head}\n")).unwrap();
     let list = ws.git(&app, &["worktree", "list", "--porcelain"]);
     assert_eq!(

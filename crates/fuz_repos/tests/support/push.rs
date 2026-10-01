@@ -7,11 +7,6 @@ use std::path::{Path, PathBuf};
 use super::FixtureWorkspace;
 use fuz_repos::push::PushRun;
 use fuz_repos::report::PushOutcome;
-use fuz_repos::sessions::LiveSessions;
-
-pub const fn quiet() -> LiveSessions {
-    LiveSessions::Known(Vec::new())
-}
 
 /// The one target's outcome, and the branch it names.
 pub fn only(run: &PushRun) -> (Option<&str>, &PushOutcome) {
@@ -45,13 +40,15 @@ pub fn with(
     refs
 }
 
-/// The receive-pack calls the fixture's `ssh` served, by the command the
-/// host ran.
+/// The calls `ssh_push_log` holds — every push, or try at one — each as the
+/// command it asked the host for (the whole line when it named no host).
 pub fn pushes_served(ws: &FixtureWorkspace) -> Vec<String> {
-    ws.ssh_log()
-        .iter()
-        .filter_map(|l| l.rsplit_once(" git@github.com ").map(|(_, c)| c.to_owned()))
-        .filter(|c| c.starts_with("git-receive-pack"))
+    ws.ssh_push_log()
+        .into_iter()
+        .map(|l| match l.rsplit_once(" git@github.com ") {
+            Some((_, command)) => command.to_owned(),
+            None => l,
+        })
         .collect()
 }
 

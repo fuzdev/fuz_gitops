@@ -545,7 +545,8 @@ The test files split by command and aspect: `status_*.rs`, `sync.rs` and
 `sync_*.rs`, `push_*.rs`, `cli_*.rs` (the binary's documents, text, and exit
 codes), `targets.rs`, `registry_real.rs`, and `golden.rs` with its
 `golden/` modules. Helpers a family shares sit beside `support/mod.rs` in
-`support/` (`busy`, `cli`, `push`, `remote`, `unregistered`, `worktrees`).
+`support/` (`busy`, `cli`, `push`, `remote`, `sync`, `unregistered`,
+`worktrees`).
 
 The tests need git 2.44 or newer on `PATH`, and Linux (`/proc`,
 `/etc/machine-id`). CI runs these fmt, clippy, and test commands (with

@@ -84,6 +84,8 @@ fn a_session_in_a_hand_made_git_dir_holds_the_branch_it_is_on() {
         std::fs::write(git_dir.join("commondir"), common).unwrap();
         std::fs::write(git_dir.join("HEAD"), "ref: refs/heads/other\n").unwrap();
         ws.git(&hand, &["reset", "-q"]);
+        assert_git_dirs(&ws, &hand, &git_dir, &app.join(".git"));
+        assert_eq!(ws.git(&hand, &["symbolic-ref", "HEAD"]), "refs/heads/other");
         ws.commit(&hand, "hand");
         ws.assert_track(&app, "other", "[ahead 2]");
         assert!(!ws.git(&app, &["worktree", "list"]).contains("hand"));
@@ -127,6 +129,9 @@ fn a_hand_made_git_dirs_head_decides_what_it_holds() {
     // detached: no branch moves
     let commit = ws.git(&app, &["rev-parse", "main"]);
     std::fs::write(git_dir.join("HEAD"), format!("{commit}\n")).unwrap();
+    assert_git_dirs(&ws, &hand, &git_dir, &app.join(".git"));
+    ws.assert_head(&hand, None);
+    assert_eq!(ws.git(&hand, &["rev-parse", "HEAD"]), commit);
     assert_unlisted(
         &ws,
         &hand,
@@ -137,6 +142,8 @@ fn a_hand_made_git_dirs_head_decides_what_it_holds() {
     );
     // unknown: any branch might
     std::fs::write(git_dir.join("HEAD"), "ref: refs/tags/v1\n").unwrap();
+    assert_eq!(ws.git(&hand, &["symbolic-ref", "HEAD"]), "refs/tags/v1");
+    assert!(!ws.has_ref(&hand, "HEAD"));
     assert_unlisted(
         &ws,
         &hand,
@@ -148,14 +155,33 @@ fn a_hand_made_git_dirs_head_decides_what_it_holds() {
 }
 
 /// A hand-made git dir at `hand` whose `commondir` is `commondir` and whose
-/// `HEAD` is `head`, its index read from the commit git finds through them.
-fn hand_made(ws: &FixtureWorkspace, hand: &Path, commondir: &[u8], head: &[u8]) -> PathBuf {
+/// `HEAD` is `head`, its index read from the commit git finds through them;
+/// asserts git resolves its common dir as `common`.
+fn hand_made(
+    ws: &FixtureWorkspace,
+    hand: &Path,
+    commondir: &[u8],
+    head: &[u8],
+    common: &Path,
+) -> PathBuf {
     let git_dir = hand.join(".git");
     std::fs::create_dir_all(&git_dir).unwrap();
     std::fs::write(git_dir.join("commondir"), commondir).unwrap();
     std::fs::write(git_dir.join("HEAD"), head).unwrap();
     ws.git(hand, &["reset", "-q"]);
+    assert_git_dirs(ws, hand, &git_dir, common);
     git_dir
+}
+
+/// Asserts git, run in `checkout`, resolves its git dir as `git_dir` and
+/// its common dir as `common`.
+fn assert_git_dirs(ws: &FixtureWorkspace, checkout: &Path, git_dir: &Path, common: &Path) {
+    let resolved = |args: &[&str]| PathBuf::from(ws.git(checkout, args));
+    assert_eq!(resolved(&["rev-parse", "--absolute-git-dir"]), git_dir);
+    assert_eq!(
+        resolved(&["rev-parse", "--path-format=absolute", "--git-common-dir"]),
+        common
+    );
 }
 
 #[test]
@@ -191,7 +217,7 @@ fn a_hand_made_git_dirs_commondir_and_head_are_read_as_git_reads_them() {
         let hand = ws.outside("hand");
         let mut common = app.join(".git").into_os_string().into_encoded_bytes();
         common.extend_from_slice(commondir_tail);
-        let git_dir = hand_made(&ws, &hand, &common, &head);
+        let git_dir = hand_made(&ws, &hand, &common, &head, &app.join(".git"));
         // git itself reads both so, and commits to `other` through them
         assert_eq!(
             ws.git(&hand, &["symbolic-ref", "HEAD"]),

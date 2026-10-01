@@ -14,47 +14,11 @@ mod support;
 
 use std::ffi::OsString;
 use std::path::Path;
-use std::process::Command;
-use std::sync::atomic::{AtomicUsize, Ordering};
 
 use fuz_repos::report::{BranchSyncHold, PushOutcome};
-use fuz_repos::sessions::LiveSessions;
 use fuz_repos::state::Relation;
-use support::push::{
-    ahead, feat_ahead, only, pushed, pushes_served, quiet, remote_refs, topic, with,
-};
-use support::{FixtureWorkspace, branch, find_entry, write_executable};
-
-/// Runs git in `dir` under the fixture's environment `env` (a `Sync`
-/// stand-in for `FixtureWorkspace::git` inside a reader), asserting success.
-fn git_env(env: &[(OsString, OsString)], dir: &Path, args: &[&str]) -> String {
-    let out = Command::new("git")
-        .env_clear()
-        .envs(env.iter().map(|(k, v)| (k, v)))
-        .current_dir(dir)
-        .args(args)
-        .output()
-        .unwrap();
-    assert!(
-        out.status.success(),
-        "git {args:?}: {}",
-        String::from_utf8_lossy(&out.stderr)
-    );
-    String::from_utf8(out.stdout).unwrap().trim().to_owned()
-}
-
-/// A reader that finds no session, and on its call number `at` (the first
-/// is the one after the fetches, the second right before the push) first
-/// runs `then`.
-fn reader_then(at: usize, then: impl Fn() + Sync) -> impl Fn() -> LiveSessions + Sync {
-    let calls = AtomicUsize::new(0);
-    move || {
-        if calls.fetch_add(1, Ordering::SeqCst) + 1 == at {
-            then();
-        }
-        quiet()
-    }
-}
+use support::push::{ahead, feat_ahead, only, pushed, pushes_served, remote_refs, topic, with};
+use support::{FixtureWorkspace, branch, find_entry, git_env, reader_then, write_executable};
 
 #[test]
 fn a_remote_rewound_after_the_fetch_is_never_overwritten() {

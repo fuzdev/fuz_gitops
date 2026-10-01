@@ -13,8 +13,8 @@ use std::path::{Path, PathBuf};
 
 use fuz_repos::report::{RepairBlock, UnregisteredKind};
 use support::unregistered::{
-    app, copy_dir, gitdir_file, moved, moved_by_hand, moved_relative, moved_rewrites, points_at,
-    shared, shared_unnamed, stray,
+    app, assert_listed, assert_moved_by_hand, copy_dir, gitdir_file, moved, moved_by_hand,
+    moved_relative, moved_rewrites, points_at, shared, shared_unnamed, stray,
 };
 use support::{FixtureWorkspace, assert_git_dir_unchanged, owned_origin, snapshot_git_dir};
 
@@ -59,6 +59,11 @@ fn swapped_worktrees_are_repaired_one_safe_step_at_a_time() {
         gitdir_file(&git_dir("app-feat")),
         feat.join(".git").to_str().unwrap()
     );
+    // git lists them where they were: `app-feat` there (the other's files),
+    // `app-new` gone; each checkout on its own branch through its own git dir
+    assert_listed(&ws, &app, &[(&feat, false), (&new, true)]);
+    ws.assert_head(&old, Some("feat"));
+    ws.assert_head(&feat, Some("new"));
 
     // git dir `app-feat` names the path `app-feat` now holds, whose `.git`
     // names `app-new`: repairing that one first would take `app-feat`'s
@@ -107,11 +112,10 @@ fn a_repair_that_would_rewrite_another_checkout_is_not_offered() {
     std::fs::remove_dir_all(&q).unwrap();
     std::fs::rename(&q2, &q).unwrap();
     assert_eq!(points_at(&q), "q2");
+    ws.assert_head(&q, Some("y2"));
     // an unrelated worktree, moved
-    let s_dir = ws.dir("s");
-    ws.add_worktree(&app, &s_dir, &["-b", "s"]);
-    let s_moved = ws.dir("s-moved");
-    std::fs::rename(&s_dir, &s_moved).unwrap();
+    let (s_moved, _) = moved_by_hand(&ws, &app, "s");
+    assert_listed(&ws, &app, &[(&q, false), (&q2, true), (&ws.dir("s"), true)]);
 
     let origin = owned_origin("app");
     assert_eq!(
@@ -149,10 +153,9 @@ fn a_repair_that_would_write_into_a_plain_dir_is_not_offered() {
     ws.add_worktree(&app, &z, &["-b", "z"]);
     std::fs::remove_dir_all(&z).unwrap();
     std::fs::write(&z, "a file\n").unwrap();
-    let s_dir = ws.dir("s");
-    ws.add_worktree(&app, &s_dir, &["-b", "s"]);
-    let s_moved = ws.dir("s-moved");
-    std::fs::rename(&s_dir, &s_moved).unwrap();
+    let (s_moved, _) = moved_by_hand(&ws, &app, "s");
+    // no `.git` at any path git names
+    assert_listed(&ws, &app, &[(&y, true), (&z, true), (&ws.dir("s"), true)]);
 
     assert_eq!(
         ws.unregistered(),
@@ -260,10 +263,9 @@ fn a_named_path_holding_a_git_dir_is_left_alone_by_a_repair() {
             y.to_str().unwrap(),
         ],
     );
-    let s_dir = ws.dir("s");
-    ws.add_worktree(&app, &s_dir, &["-b", "s"]);
-    let s_moved = ws.dir("s-moved");
-    std::fs::rename(&s_dir, &s_moved).unwrap();
+    let (s_moved, _) = moved_by_hand(&ws, &app, "s");
+    // a `.git` at `y`, so git lists it there, not prunable
+    assert_listed(&ws, &app, &[(&y, false), (&ws.dir("s"), true)]);
 
     assert_eq!(
         ws.unregistered(),
@@ -290,7 +292,7 @@ fn a_moved_worktree_whose_git_is_a_link_is_not_repairable() {
     let app = app(&mut ws);
     // its `.git` a link to a gitfile kept elsewhere
     let x = ws.dir("x");
-    ws.add_worktree(&app, &x, &["-b", "x"]);
+    let x_git_dir = ws.add_worktree(&app, &x, &["-b", "x"]);
     let store = ws.outside("store");
     std::fs::create_dir(&store).unwrap();
     std::fs::rename(x.join(".git"), store.join("x.gitfile")).unwrap();
@@ -301,6 +303,7 @@ fn a_moved_worktree_whose_git_is_a_link_is_not_repairable() {
 
     // moved: a repair would write the link's target into the git dir
     std::fs::rename(&x, ws.dir("x-moved")).unwrap();
+    assert_moved_by_hand(&ws, &app, &x, &ws.dir("x-moved"), &x_git_dir);
     assert_eq!(
         ws.unregistered(),
         [stray(
@@ -316,10 +319,7 @@ fn a_moved_worktree_whose_git_is_a_link_is_not_repairable() {
 fn a_gitdir_without_a_git_suffix_names_the_dir_itself() {
     let mut ws = FixtureWorkspace::new();
     let app = app(&mut ws);
-    let s_dir = ws.dir("s");
-    ws.add_worktree(&app, &s_dir, &["-b", "s"]);
-    let s_moved = ws.dir("s-moved");
-    std::fs::rename(&s_dir, &s_moved).unwrap();
+    let (s_moved, _) = moved_by_hand(&ws, &app, "s");
     // git dir `k` names `<app>/sub` by hand: git takes it as the worktree
     // itself, not `<app>`
     let k = ws.outside("k");
@@ -350,10 +350,7 @@ fn a_gitdir_without_a_git_suffix_names_the_dir_itself() {
 fn a_hazard_git_that_is_broken_or_a_link_is_judged_as_git_does() {
     let mut ws = FixtureWorkspace::new();
     let app = app(&mut ws);
-    let s_dir = ws.dir("s");
-    ws.add_worktree(&app, &s_dir, &["-b", "s"]);
-    let s_moved = ws.dir("s-moved");
-    std::fs::rename(&s_dir, &s_moved).unwrap();
+    moved_by_hand(&ws, &app, "s");
     // `h` elsewhere, its `.git` a link to a gitfile naming its own git dir:
     // git follows the link, finds it right, and leaves it be
     let h = ws.outside("h");
@@ -409,6 +406,10 @@ fn two_swapped_worktrees_are_told_to_move_back() {
     std::fs::rename(&tmp, &wb).unwrap();
     assert_eq!(points_at(&wa), "wb");
     assert_eq!(points_at(&wb), "wa");
+    // git lists both as before, each path holding the other's checkout
+    assert_listed(&ws, &app, &[(&wa, false), (&wb, false)]);
+    ws.assert_head(&wa, Some("b"));
+    ws.assert_head(&wb, Some("a"));
 
     let origin = owned_origin("app");
     let swapped = |git_dir: &Path, with: &str| UnregisteredKind::MovedWorktree {
@@ -431,6 +432,8 @@ fn two_swapped_worktrees_are_told_to_move_back() {
     std::fs::rename(&wa, &tmp).unwrap();
     std::fs::rename(&wb, &wa).unwrap();
     std::fs::rename(&tmp, &wb).unwrap();
+    ws.assert_head(&wa, Some("a"));
+    ws.assert_head(&wb, Some("b"));
     assert_eq!(ws.unregistered(), []);
 
     // a three-way rotation isn't a swap: wa's claimant has its own dir
@@ -500,10 +503,34 @@ fn three_worktrees(moves: &[(&str, &str)]) -> (FixtureWorkspace, impl Fn(&str) -
     for id in ["wa", "wb", "wc"] {
         ws.add_worktree(&app, &ws.dir(id), &["-b", id]);
     }
+    // where each worktree's files end up
+    let mut at: Vec<(&str, &str)> = vec![("wa", "wa"), ("wb", "wb"), ("wc", "wc")];
     for (from, to) in moves {
         std::fs::rename(ws.dir(from), ws.dir(to)).unwrap();
+        for (_, dir) in &mut at {
+            if dir == from {
+                *dir = to;
+            }
+        }
     }
     let worktrees = app.join(".git/worktrees");
+    // git lists each where it was added, prunable when nothing's there now,
+    // and runs in each through its own git dir wherever it went
+    let wa = ws.dir("wa");
+    let wb = ws.dir("wb");
+    let wc = ws.dir("wc");
+    let listed: Vec<(&Path, bool)> = [&wa, &wb, &wc]
+        .into_iter()
+        .map(|p| (p.as_path(), !p.exists()))
+        .collect();
+    assert_listed(&ws, &app, &listed);
+    for (id, dir) in at {
+        assert_eq!(
+            PathBuf::from(ws.git(&ws.dir(dir), &["rev-parse", "--absolute-git-dir"])),
+            worktrees.join(id),
+            "{id} at {dir}"
+        );
+    }
     (ws, move |id: &str| worktrees.join(id))
 }
 
@@ -516,10 +543,7 @@ fn a_repair_git_complains_through_is_offered_with_its_noise() {
     ws.add_worktree(&app, &y, &["-b", "y"]);
     std::fs::remove_dir_all(&y).unwrap();
     std::fs::write(&y, "a file\n").unwrap();
-    let s_dir = ws.dir("s");
-    ws.add_worktree(&app, &s_dir, &["-b", "s"]);
-    let s_moved = ws.dir("s-moved");
-    std::fs::rename(&s_dir, &s_moved).unwrap();
+    let (s_moved, _) = moved_by_hand(&ws, &app, "s");
 
     assert_eq!(
         ws.unregistered(),
@@ -615,9 +639,10 @@ fn a_repair_leaves_the_old_path_of_its_own_git_dir_alone() {
     // complain about it if another git dir named it, but this one's is
     // repointed first
     let old = ws.outside("s");
-    ws.add_worktree(&app, &old, &["-b", "s"]);
+    let git_dir = ws.add_worktree(&app, &old, &["-b", "s"]);
     let s_moved = ws.dir("s-moved");
     std::fs::rename(&old, &s_moved).unwrap();
+    assert_moved_by_hand(&ws, &app, &old, &s_moved, &git_dir);
     ws.git(
         ws.base(),
         &[
@@ -628,6 +653,8 @@ fn a_repair_leaves_the_old_path_of_its_own_git_dir_alone() {
             old.to_str().unwrap(),
         ],
     );
+    // a `.git` at the old path again, so git lists it there, not prunable
+    assert_listed(&ws, &app, &[(&old, false)]);
 
     assert_eq!(
         ws.unregistered(),
@@ -648,10 +675,11 @@ fn a_moved_worktree_whose_old_path_is_now_a_file_is_repairable() {
     let mut ws = FixtureWorkspace::new();
     let app = app(&mut ws);
     let old = ws.outside("s");
-    ws.add_worktree(&app, &old, &["-b", "s"]);
+    let git_dir = ws.add_worktree(&app, &old, &["-b", "s"]);
     let s_moved = ws.dir("s-moved");
     std::fs::rename(&old, &s_moved).unwrap();
     std::fs::write(&old, "a file\n").unwrap();
+    assert_moved_by_hand(&ws, &app, &old, &s_moved, &git_dir);
 
     assert_eq!(
         ws.unregistered(),
@@ -687,10 +715,7 @@ fn a_blocking_path_shows_as_the_git_dir_writes_it() {
         format!("{}\n", written.join(".git").display()),
     )
     .unwrap();
-    let s_dir = ws.dir("s");
-    ws.add_worktree(&app, &s_dir, &["-b", "s"]);
-    let s_moved = ws.dir("s-moved");
-    std::fs::rename(&s_dir, &s_moved).unwrap();
+    moved_by_hand(&ws, &app, "s");
 
     assert_eq!(
         ws.unregistered(),
@@ -718,10 +743,7 @@ fn a_relative_gitdir_blocks_every_repair_in_its_repo() {
         k
     );
     // an unrelated worktree, moved
-    let s_dir = ws.dir("s");
-    ws.add_worktree(&app, &s_dir, &["-b", "s"]);
-    let s_moved = ws.dir("s-moved");
-    std::fs::rename(&s_dir, &s_moved).unwrap();
+    moved_by_hand(&ws, &app, "s");
     let origin = owned_origin("app");
 
     let blocked = [stray(
@@ -759,10 +781,7 @@ fn a_noisy_path_shows_as_the_git_dir_writes_it() {
         format!("{}\n", written.join(".git").display()),
     )
     .unwrap();
-    let s_dir = ws.dir("s");
-    ws.add_worktree(&app, &s_dir, &["-b", "s"]);
-    let s_moved = ws.dir("s-moved");
-    std::fs::rename(&s_dir, &s_moved).unwrap();
+    moved_by_hand(&ws, &app, "s");
 
     assert_eq!(
         ws.unregistered(),
@@ -946,9 +965,10 @@ fn a_moved_worktree_whose_path_is_not_utf8_gets_no_repair_command() {
     let mut ws = FixtureWorkspace::new();
     let app = app(&mut ws);
     let b = ws.dir("b");
-    ws.add_worktree(&app, &b, &["-b", "b"]);
+    let git_dir = ws.add_worktree(&app, &b, &["-b", "b"]);
     let odd = ws.root().join(OsStr::from_bytes(b"b\xff"));
     std::fs::rename(&b, &odd).unwrap();
+    assert_moved_by_hand(&ws, &app, &b, &odd, &git_dir);
     ws.assert_head(&odd, Some("b"));
     // the path shown lossily names no dir: git refuses to repair it
     let lossy = odd.to_string_lossy().into_owned();
@@ -968,6 +988,7 @@ fn a_moved_worktree_whose_path_is_not_utf8_gets_no_repair_command() {
     // reconnects it
     let renamed = ws.dir("b-renamed");
     std::fs::rename(&odd, &renamed).unwrap();
+    assert_moved_by_hand(&ws, &app, &b, &renamed, &git_dir);
     assert_eq!(
         ws.unregistered(),
         [stray("b-renamed", Some(&origin), true, moved("app"))]

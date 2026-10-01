@@ -16,84 +16,19 @@ mod support;
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
-use std::process::Command;
-use std::sync::atomic::{AtomicUsize, Ordering};
 
 use fuz_repos::classify::{NeedsHuman, OriginFix, Refresh};
-use fuz_repos::report::{
-    BranchOutcome, BranchSyncHold, CloneOutcome, CloneSyncHold, EntrySync, FetchOutcome,
-};
-use fuz_repos::sessions::LiveSessions;
+use fuz_repos::report::{BranchOutcome, BranchSyncHold, CloneOutcome, CloneSyncHold, FetchOutcome};
 use fuz_repos::state::{
     BranchNeedsHuman, CloneHold, CloneVerdict, Presence, ProbeErrorKind, RefreshHold,
     RefreshVerdict, Relation, SyncAction, Verdict,
 };
 use fuz_repos::sync::SyncRun;
-use support::{FixtureWorkspace, OWNER, THIRD_PARTY, branch, find_entry, write};
-
-const fn ff(commits: u32) -> SyncAction {
-    SyncAction::FastForward { commits }
-}
-
-fn outcomes<'a>(run: &'a SyncRun, key: &str) -> &'a EntrySync {
-    run.outcomes
-        .iter()
-        .find(|e| e.key == key)
-        .unwrap_or_else(|| panic!("no outcomes for {key}: {:?}", run.outcomes))
-}
-
-fn outcome<'a>(run: &'a SyncRun, key: &str, name: &str) -> &'a BranchOutcome {
-    &outcomes(run, key)
-        .branches
-        .iter()
-        .find(|b| b.name == name)
-        .unwrap_or_else(|| panic!("no branch {key}:{name}: {:?}", run.outcomes))
-        .outcome
-}
-
-fn https_url(name: &str) -> String {
-    format!("https://github.com/{THIRD_PARTY}/{name}")
-}
-
-/// The files of a checkout, `.git` aside, relative and sorted.
-fn files(dir: &Path) -> Vec<String> {
-    fn walk(root: &Path, dir: &Path, out: &mut Vec<String>) {
-        for e in std::fs::read_dir(dir).unwrap() {
-            let path = e.unwrap().path();
-            if path.file_name().is_some_and(|n| n == ".git") {
-                continue;
-            }
-            if path.is_dir() {
-                walk(root, &path, out);
-            } else {
-                out.push(path.strip_prefix(root).unwrap().display().to_string());
-            }
-        }
-    }
-    let mut out = Vec::new();
-    walk(dir, dir, &mut out);
-    out.sort();
-    out
-}
-
-/// How many objects reachable from any ref the repo lacks: a partial
-/// clone's unfetched blobs.
-fn missing_objects(ws: &FixtureWorkspace, repo: &Path) -> usize {
-    ws.git(repo, &["rev-list", "--objects", "--all", "--missing=print"])
-        .lines()
-        .filter(|l| l.starts_with('?'))
-        .count()
-}
-
-/// The workspace root's entries, sorted: what a run left there.
-fn root_listing(ws: &FixtureWorkspace) -> Vec<String> {
-    let mut names: Vec<String> = std::fs::read_dir(ws.root())
-        .unwrap()
-        .map(|e| e.unwrap().file_name().into_string().unwrap())
-        .collect();
-    names.sort();
-    names
-}
+use support::sync::{outcome, outcomes};
+use support::{
+    FixtureWorkspace, OWNER, THIRD_PARTY, branch, ff, files, find_entry, git_env, missing_objects,
+    quiet, reader_then, root_listing, third_party_origin, write,
+};
 
 /// A third-party reference `name`, cloned (with `args`) with `origin` its
 /// HTTPS URL and nothing rewriting it, served by the fixture's `https`;
@@ -189,7 +124,7 @@ fn a_named_reference_is_fetched_over_https_and_fast_forwarded() {
         }
     );
     // over HTTPS alone, once
-    assert_eq!(ws.https_log(), [https_url("lib")]);
+    assert_eq!(ws.https_log(), [third_party_origin("lib")]);
     assert!(ws.ssh_log().is_empty());
     assert_eq!(
         ws.refs(&lib),
@@ -250,7 +185,7 @@ fn references_refreshes_every_third_party_reference_and_no_pin() {
     assert_eq!(ws.refs(&wpt), wpt_before);
     let mut log = ws.https_log();
     log.sort();
-    assert_eq!(log, [https_url("dom"), https_url("lib")]);
+    assert_eq!(log, [third_party_origin("dom"), third_party_origin("lib")]);
     assert!(ws.ssh_log().is_empty(), "{:?}", ws.ssh_log());
 }
 
@@ -321,7 +256,7 @@ fn assert_held_not_https(
             e.needs_human,
             [NeedsHuman::OriginNotHttps {
                 fetch_url: fetch_url.to_owned(),
-                expected: https_url("lib"),
+                expected: third_party_origin("lib"),
                 fix: fix.cloned(),
             }]
         );
@@ -362,14 +297,17 @@ fn a_refresh_whose_origin_is_the_repo_over_ssh_is_held() {
     assert_held_not_https(&ws, &lib, &ssh, Some(&OriginFix::SetUrl));
 
     // the control: its origin set as the fix says, it's fetched
-    ws.git(&lib, &["remote", "set-url", "origin", &https_url("lib")]);
+    ws.git(
+        &lib,
+        &["remote", "set-url", "origin", &third_party_origin("lib")],
+    );
     let run = ws.sync_asked(Refresh::Named, 4);
     assert_eq!(
         find_entry(&run.entries, "lib").refresh,
         Some(RefreshVerdict::Act)
     );
     assert_eq!(outcomes(&run, "lib").fetch, FetchOutcome::Fetched);
-    assert_eq!(ws.https_log(), [https_url("lib")]);
+    assert_eq!(ws.https_log(), [third_party_origin("lib")]);
     assert!(ws.ssh_log().is_empty(), "{:?}", ws.ssh_log());
 }
 
@@ -474,7 +412,12 @@ fn a_refresh_whose_origin_is_an_https_fork_writes_no_fork_refs() {
     ws.upstream_commit("lib-fork", "patched");
     ws.git(
         &lib,
-        &["remote", "set-url", "origin", &https_url("lib-fork")],
+        &[
+            "remote",
+            "set-url",
+            "origin",
+            &third_party_origin("lib-fork"),
+        ],
     );
     let before = ws.refs(&lib);
 
@@ -493,10 +436,13 @@ fn a_refresh_whose_origin_is_an_https_fork_writes_no_fork_refs() {
     assert!(!ws.has_ref(&lib, "refs/remotes/origin/patched"));
 
     // the control: its origin set right, it's fetched
-    ws.git(&lib, &["remote", "set-url", "origin", &https_url("lib")]);
+    ws.git(
+        &lib,
+        &["remote", "set-url", "origin", &third_party_origin("lib")],
+    );
     let run = ws.sync_asked(Refresh::Named, 4);
     assert_eq!(outcomes(&run, "lib").fetch, FetchOutcome::Fetched);
-    assert_eq!(ws.https_log(), [https_url("lib")]);
+    assert_eq!(ws.https_log(), [third_party_origin("lib")]);
 }
 
 // --- what a refresh does, and doesn't ---
@@ -720,7 +666,7 @@ fn a_sparse_reference_fast_forwards_fetching_its_cones_blobs() {
     // the refresh's fetch, then the checkout's fetch of the cone's blob
     assert_eq!(
         ws.https_log()[clone_log..],
-        [https_url("lib"), https_url("lib")]
+        [third_party_origin("lib"), third_party_origin("lib")]
     );
 }
 
@@ -787,42 +733,14 @@ fn an_unpinned_sparse_fork_moves_fetching_its_cones_blobs() {
 #[test]
 fn origin_rewritten_before_a_partial_checkout_holds_it() {
     let mut ws = FixtureWorkspace::new();
-    ws.remote("wpt", &[("css/a.css", "a {}\n"), ("html/c.html", "<p>\n")]);
-    ws.upstream_commit("wpt", "fork");
-    ws.declare_reference(
-        "wpt",
-        OWNER,
-        "wpt",
-        "branch = \"fork\"\nshallow = true\nsparse = \"css\"",
-    );
-    ws.write_registry();
-    ws.sync();
-    let wpt = ws.dir("wpt");
-    let up = ws.upstream("wpt");
-    ws.git(&up, &["checkout", "-q", "fork"]);
-    write(&up, "css/a.css", "a { color: red }\n");
-    ws.git(&up, &["commit", "-q", "-am", "css"]);
-    ws.git(&up, &["push", "-q", "origin", "fork"]);
-    let tip = ws.git(&up, &["rev-parse", "HEAD"]);
-    let was = ws.git(&wpt, &["rev-parse", "fork"]);
+    let (wpt, tip, was) = sparse_fork_behind(&mut ws);
     let calls = ws.ssh_log().len();
     let env = ws.env();
     let rewrite = "url.git@github.com:me/other.insteadOf";
     // after the fetch and classifying, right before the move
-    let reads = AtomicUsize::new(0);
-    let read = || {
-        if reads.fetch_add(1, Ordering::SeqCst) == 1 {
-            let out = Command::new("git")
-                .env_clear()
-                .envs(env.iter().map(|(k, v)| (k, v)))
-                .current_dir(&wpt)
-                .args(["config", rewrite, "git@github.com:me/wpt"])
-                .output()
-                .unwrap();
-            assert!(out.status.success());
-        }
-        LiveSessions::Known(vec![])
-    };
+    let read = reader_then(2, || {
+        git_env(&env, &wpt, &["config", rewrite, "git@github.com:me/wpt"]);
+    });
 
     let run = ws.sync_with(4, &read);
 
@@ -865,7 +783,7 @@ fn origin_rewritten_before_a_partial_checkout_holds_it() {
 /// branch's commit before it.
 fn sparse_fork_behind(ws: &mut FixtureWorkspace) -> (PathBuf, String, String) {
     ws.remote("wpt", &[("css/a.css", "a {}\n"), ("html/c.html", "<p>\n")]);
-    ws.upstream_commit("wpt", "fork");
+    let cloned_at = ws.upstream_commit("wpt", "fork");
     ws.declare_reference(
         "wpt",
         OWNER,
@@ -873,8 +791,23 @@ fn sparse_fork_behind(ws: &mut FixtureWorkspace) -> (PathBuf, String, String) {
         "branch = \"fork\"\nshallow = true\nsparse = \"css\"",
     );
     ws.write_registry();
-    ws.sync();
+    let run = ws.sync();
+    assert_eq!(
+        outcomes(&run, "wpt").clone,
+        Some(CloneOutcome::Cloned {
+            branch: "fork".into(),
+            head: cloned_at,
+        })
+    );
     let wpt = ws.dir("wpt");
+    // shallow, partial, and sparse to its cone, on `fork` and clean
+    ws.assert_shallow(&wpt, true);
+    assert_eq!(ws.git(&wpt, &["config", "remote.origin.promisor"]), "true");
+    assert_eq!(ws.git(&wpt, &["sparse-checkout", "list"]), "css");
+    assert_eq!(files(&wpt), ["README", "css/a.css", "upstream-fork.txt"]);
+    ws.assert_head(&wpt, Some("fork"));
+    ws.assert_upstream(&wpt, "fork", "refs/remotes/origin/fork");
+    ws.assert_clean(&wpt);
     let up = ws.upstream("wpt");
     ws.git(&up, &["checkout", "-q", "fork"]);
     write(&up, "css/a.css", "a { color: red }\n");
@@ -962,25 +895,14 @@ fn a_promisor_remote_added_before_a_partial_checkout_holds_it() {
     let calls = ws.ssh_log().len();
     let env = ws.env();
     // after the fetch and classifying, right before the move
-    let reads = AtomicUsize::new(0);
-    let read = || {
-        if reads.fetch_add(1, Ordering::SeqCst) == 1 {
-            for args in [
-                &["remote", "add", "mirror", "git@github.com:me/other"][..],
-                &["config", "remote.mirror.promisor", "true"],
-            ] {
-                let out = Command::new("git")
-                    .env_clear()
-                    .envs(env.iter().map(|(k, v)| (k, v)))
-                    .current_dir(&wpt)
-                    .args(args)
-                    .output()
-                    .unwrap();
-                assert!(out.status.success());
-            }
-        }
-        LiveSessions::Known(vec![])
-    };
+    let read = reader_then(2, || {
+        git_env(
+            &env,
+            &wpt,
+            &["remote", "add", "mirror", "git@github.com:me/other"],
+        );
+        git_env(&env, &wpt, &["config", "remote.mirror.promisor", "true"]);
+    });
 
     let run = ws.sync_with(4, &read);
 
@@ -1011,9 +933,23 @@ fn a_second_promisor_remote_keeps_the_checkouts_fetch_off() {
     ws.declare_reference("lib", THIRD_PARTY, "lib", "sparse = \"css\"");
     ws.serve_https();
     ws.write_registry();
-    ws.sync();
+    let run = ws.sync();
+    assert!(
+        matches!(
+            outcomes(&run, "lib").clone,
+            Some(CloneOutcome::Cloned { .. })
+        ),
+        "{:?}",
+        run.outcomes
+    );
     let lib = ws.dir("lib");
-    ws.git(&lib, &["remote", "add", "mirror", &https_url("lib-mirror")]);
+    // partial and sparse to its cone
+    assert_eq!(ws.git(&lib, &["config", "remote.origin.promisor"]), "true");
+    assert_eq!(ws.git(&lib, &["sparse-checkout", "list"]), "css");
+    ws.git(
+        &lib,
+        &["remote", "add", "mirror", &third_party_origin("lib-mirror")],
+    );
     ws.git(&lib, &["config", "remote.mirror.promisor", "true"]);
     let up = ws.upstream("lib");
     write(&up, "css/a.css", "a { color: red }\n");
@@ -1033,7 +969,7 @@ fn a_second_promisor_remote_keeps_the_checkouts_fetch_off() {
         run.outcomes
     );
     // the fetch alone reached a remote; the branch and files as they were
-    assert_eq!(ws.https_log()[log..], [https_url("lib")]);
+    assert_eq!(ws.https_log()[log..], [third_party_origin("lib")]);
     assert_eq!(ws.refs(&lib), ws.refs_after_fetch("lib", &before, &[]));
     ws.assert_clean(&lib);
     assert_eq!(
@@ -1059,7 +995,7 @@ fn a_missing_entry_cloned_under_another_name_is_held() {
     let listing = root_listing(&ws);
 
     // status previews it, once the scan has run
-    let entries = ws.status_scanned();
+    let entries = ws.status();
     let e = find_entry(&entries, "app");
     assert_eq!(e.presence, Presence::Missing);
     assert_eq!(
@@ -1080,7 +1016,7 @@ fn a_missing_entry_cloned_under_another_name_is_held() {
         Some(CloneVerdict::Act { .. })
     ));
 
-    let run = ws.sync_scanned();
+    let run = ws.sync();
 
     assert_eq!(
         outcomes(&run, "app").clone,
@@ -1103,8 +1039,9 @@ fn a_missing_entry_cloned_under_another_name_is_held() {
         ws.ssh_log()
     );
 
-    // without the scan's dirs it isn't seen: cloned
-    let run = ws.sync();
+    // without the scan's dirs it isn't seen: cloned (the library's `sync`,
+    // handed none)
+    let run = ws.sync_with(4, &quiet);
     assert!(matches!(
         outcomes(&run, "app").clone,
         Some(CloneOutcome::Cloned { .. })
@@ -1137,7 +1074,7 @@ fn a_missing_entry_cloned_under_its_old_name_is_held() {
     ws.write_registry();
     let before = ws.refs(&old);
 
-    let entries = ws.status_scanned();
+    let entries = ws.status();
     let e = find_entry(&entries, name);
     assert_eq!(
         e.needs_human,
@@ -1157,7 +1094,7 @@ fn a_missing_entry_cloned_under_its_old_name_is_held() {
         Some(CloneVerdict::Act { .. })
     ));
 
-    let run = ws.sync_scanned();
+    let run = ws.sync();
     assert_eq!(
         outcomes(&run, name).clone,
         Some(CloneOutcome::Held {
@@ -1193,7 +1130,7 @@ fn status_previews_a_refresh_and_fetches_only_under_fetch() {
     let e = support::take_entry(ws.status_asked(true, Refresh::Named), "lib");
     assert_eq!(e.fetch_error, None);
     assert_eq!(branch(&e, "main").verdict, Verdict::Act { action: ff(1) });
-    assert_eq!(ws.https_log(), [https_url("lib")]);
+    assert_eq!(ws.https_log(), [third_party_origin("lib")]);
     assert_eq!(ws.refs(&lib), ws.refs_after_fetch("lib", &before, &[]));
     assert_ne!(ws.git(&lib, &["rev-parse", "main"]), tip);
 }

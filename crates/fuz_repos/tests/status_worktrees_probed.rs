@@ -428,7 +428,7 @@ fn a_worktree_that_is_another_entrys_dir_is_never_removable() {
     let link = ws.outside("ws-link");
     std::os::unix::fs::symlink(ws.root(), &link).unwrap();
     for root in [ws.root(), link] {
-        let entries = ws.status_at(&root, false);
+        let entries = ws.status_at(&root);
         let e = find_entry(&entries, "app");
         assert_eq!(
             branch(e, "old").verdict,
@@ -482,7 +482,7 @@ fn a_symlinked_root_reports_git_paths_for_worktrees() {
     let link = ws.outside("ws-link");
     std::os::unix::fs::symlink(ws.root(), &link).unwrap();
 
-    let entries = ws.status_at(&link, false);
+    let entries = ws.status_at(&link);
     let e = find_entry(&entries, "app");
     assert_eq!(e.checkouts[0].path, path(&link.join("app")));
     let linked: Vec<&str> = e.checkouts[1..].iter().map(|c| c.path.as_str()).collect();
