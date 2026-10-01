@@ -13,7 +13,7 @@ use fuz_repos::state::{
     UnprobedWorktree, Verdict,
 };
 use fuz_repos::status::{StatusOptions, status};
-use support::worktrees::{NOTHING_HELD, app, pushed_branch};
+use support::worktrees::{NOTHING_HELD, app, makes_reftable_repos, pushed_branch, reftable_repo};
 use support::{FixtureWorkspace, branch, path, unprobed_facts};
 
 #[test]
@@ -562,27 +562,10 @@ fn what_a_gone_worktrees_index_and_refs_hold() {
 fn a_reftable_gone_worktrees_refs_are_read_from_git() {
     let mut ws = FixtureWorkspace::new();
     // a git that can't make reftable repos has nothing to read here
-    let probe = ws.outside("reftable-probe");
-    let made = ws.git_output(
-        ws.base(),
-        &[
-            "init",
-            "-q",
-            "--ref-format=reftable",
-            probe.to_str().unwrap(),
-        ],
-    );
-    if !made.status.success() {
-        eprintln!("skipped: this git makes no reftable repos");
+    if !makes_reftable_repos(&ws) {
         return;
     }
-    ws.remote("app", &[("tracked.txt", "one\n")]);
-    ws.declare_repo("app", "app", "");
-    let app = ws.clone_owned("app", "app", &["--ref-format=reftable"]);
-    assert_eq!(
-        ws.git(&app, &["rev-parse", "--show-ref-format"]),
-        "reftable"
-    );
+    let app = reftable_repo(&mut ws, "app");
     // `plain` holds nothing of its own; `bs`, `wt`, and `rw` each a ref in
     // one of git's per-worktree namespaces
     let gone = |name: &str, per_worktree: Option<&str>| {

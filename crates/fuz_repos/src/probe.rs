@@ -482,7 +482,7 @@ fn probe_present(
         repo_key,
     } = dirs;
     let primary_linked = canonical(&git_dir) != canonical(&common_dir);
-    let in_progress = markers(&git_dir, &mut worktrees.unreadable);
+    let in_progress = markers(cx.git, &git_dir, &mut worktrees.unreadable);
     let fetched_at = newest_fetch(&git_dir, &common_dir, &worktrees.worktree_git_dirs);
     let registry_worktrees = worktrees
         .probed
@@ -1171,7 +1171,7 @@ fn probe_worktrees(
         if used || (primary_git_dir.is_some() && canonical(dir) == primary_git_dir) {
             continue;
         }
-        let unlisted = unlisted_worktree(worktree_git_dir, &mut w.unreadable);
+        let unlisted = unlisted_worktree(git, worktree_git_dir, &mut w.unreadable);
         let keys = CheckoutKeys {
             path: unlisted.path.clone(),
             git_dir: Some(own_git_dir(dir)),
@@ -1228,7 +1228,7 @@ fn probe_record(
         git_dir: git_dir.map(own_git_dir),
         lock: record.locked.clone(),
     };
-    let in_progress = git_dir.and_then(|d| markers(d, &mut w.unreadable));
+    let in_progress = git_dir.and_then(|d| markers(git, d, &mut w.unreadable));
     let locked = record.locked.is_some();
     let probed = gone(&path, record.prunable.is_some()).and_then(|()| {
         probe_worktree(git, &path, git_dir).map_err(|error| UnprobedWhy::Failed { error })
@@ -1296,9 +1296,13 @@ fn probe_record(
 /// worktree: its path is the worktree its `gitdir` names when that's
 /// readable, else the worktree git dir itself; its HEAD and markers come
 /// from the worktree git dir.
-fn unlisted_worktree(git_dir: &WorktreeGitDir, unreadable: &mut Vec<String>) -> UnprobedWorktree {
+fn unlisted_worktree(
+    git: &Git,
+    git_dir: &WorktreeGitDir,
+    unreadable: &mut Vec<String>,
+) -> UnprobedWorktree {
     let dir = &git_dir.dir;
-    let (path, reason) = match named_worktree(dir, &git_dir.gitdir) {
+    let (path, reason) = match named_worktree(git, dir, &git_dir.gitdir) {
         Ok(worktree) => (worktree, format!("its git dir is {}", dir.display())),
         Err(reason) => (dir.clone(), reason),
     };
@@ -1307,7 +1311,7 @@ fn unlisted_worktree(git_dir: &WorktreeGitDir, unreadable: &mut Vec<String>) -> 
         git_dir: Some(shown_git_dir(dir)),
         head: read_head(dir),
         locked: dir.join("locked").exists(),
-        in_progress: markers(dir, unreadable),
+        in_progress: markers(git, dir, unreadable),
         why: UnprobedWhy::Failed {
             error: format!("not listed by git: {reason}"),
         },
@@ -1540,7 +1544,7 @@ fn probe_worktree(git: &Git, path: &Path, git_dir: Option<&Path>) -> Result<Stat
 
 /// The worktree path a worktree git dir, `git_dir`, names, from its
 /// `gitdir` as read; `Err` with why it can't be read.
-fn named_worktree(git_dir: &Path, gitdir: &GitdirTarget) -> Result<PathBuf, String> {
+fn named_worktree(git: &Git, git_dir: &Path, gitdir: &GitdirTarget) -> Result<PathBuf, String> {
     let file = git_dir.join("gitdir");
     match gitdir {
         GitdirTarget::Names { worktree, .. } => Ok(worktree.clone()),
@@ -1548,7 +1552,7 @@ fn named_worktree(git_dir: &Path, gitdir: &GitdirTarget) -> Result<PathBuf, Stri
         // never `git worktree prune`: it prunes every gone worktree of the
         // repo, not just this one
         GitdirTarget::Missing(_) if !git_dir.join("HEAD").exists() => {
-            let kept = kept_without_worktree(git_dir);
+            let kept = kept_without_worktree(git, git_dir);
             Err(if kept.is_empty() {
                 format!(
                     "{} holds no worktree (no gitdir, no HEAD); delete that dir by hand",
@@ -1573,7 +1577,7 @@ fn named_worktree(git_dir: &Path, gitdir: &GitdirTarget) -> Result<PathBuf, Stri
 /// so the add may be under way, and `git worktree prune` skips it), an
 /// index (maybe staged changes), an operation's state, submodules' repos,
 /// per-worktree refs. Anything that can't be looked at counts as kept.
-fn kept_without_worktree(git_dir: &Path) -> Vec<String> {
+fn kept_without_worktree(git: &Git, git_dir: &Path) -> Vec<String> {
     let mut kept = Vec::new();
     if git_dir.join("locked").try_exists().unwrap_or(true) {
         kept.push("a lock (a git worktree add may be under way)".to_owned());
@@ -1581,7 +1585,7 @@ fn kept_without_worktree(git_dir: &Path) -> Vec<String> {
     if git_dir.join("index").try_exists().unwrap_or(true) {
         kept.push("an index (maybe staged changes)".to_owned());
     }
-    match read_in_progress(git_dir) {
+    match read_in_progress(git, git_dir) {
         Ok(None) => {}
         Ok(Some(op)) => kept.push(format!("a {} in progress", op.label())),
         Err(_) => kept.push("operation markers it can't read".to_owned()),
@@ -1779,35 +1783,93 @@ pub fn read_shallow_roots(common_dir: &Path) -> HashSet<String> {
         .unwrap_or_default()
 }
 
-/// An operation stopped mid-way, from its marker in the checkout's git dir.
-/// Never `REBASE_HEAD`: git leaves it behind after a finished rebase.
+/// An operation stopped mid-way, from its marker in the checkout's git dir,
+/// in the order git's own status reads them. Never `REBASE_HEAD`: git
+/// leaves it behind after a finished rebase.
 ///
 /// # Errors
 ///
-/// When a marker's presence can't be known — the git dir can't be read.
-fn read_in_progress(git_dir: &Path) -> std::io::Result<Option<InProgressOp>> {
-    for (marker, op) in [
-        ("rebase-merge", InProgressOp::Rebase),
+/// When a marker's presence can't be known — the git dir can't be read, or
+/// git can't say whether a reftable one holds a pseudoref.
+fn read_in_progress(git: &Git, git_dir: &Path) -> std::io::Result<Option<InProgressOp>> {
+    let file = |marker: &str| git_dir.join(marker).try_exists();
+    Ok(if file("rebase-merge")? {
+        Some(InProgressOp::Rebase)
+    } else if file("rebase-apply/applying")? {
         // `git am` and the apply backend of `git rebase` share
         // `rebase-apply/`; am marks it `applying`, as git's own status reads
-        ("rebase-apply/applying", InProgressOp::Am),
-        ("rebase-apply", InProgressOp::Rebase),
-        ("MERGE_HEAD", InProgressOp::Merge),
-        ("CHERRY_PICK_HEAD", InProgressOp::CherryPick),
-        ("REVERT_HEAD", InProgressOp::Revert),
-        ("BISECT_LOG", InProgressOp::Bisect),
-        ("sequencer", InProgressOp::Sequencer),
-    ] {
-        if git_dir.join(marker).try_exists()? {
-            return Ok(Some(op));
-        }
+        Some(InProgressOp::Am)
+    } else if file("rebase-apply")? {
+        Some(InProgressOp::Rebase)
+    } else if file("MERGE_HEAD")? {
+        Some(InProgressOp::Merge)
+    } else if pseudoref_exists(git, git_dir, "CHERRY_PICK_HEAD")? {
+        Some(InProgressOp::CherryPick)
+    } else if pseudoref_exists(git, git_dir, "REVERT_HEAD")? {
+        Some(InProgressOp::Revert)
+    } else if file("BISECT_LOG")? {
+        Some(InProgressOp::Bisect)
+    } else if file("sequencer")? {
+        Some(InProgressOp::Sequencer)
+    } else {
+        None
+    })
+}
+
+/// Whether a checkout's git dir holds the pseudoref `name`
+/// (`CHERRY_PICK_HEAD`, `REVERT_HEAD`), which git keeps in the ref store,
+/// one per worktree.
+///
+/// The files format keeps it as a file in the git dir, looked for without
+/// running git. A reftable git dir (`reftable/`) keeps it in its tables,
+/// with no file, so git is asked (`reftable_pseudoref_exists`).
+///
+/// # Errors
+///
+/// When the git dir can't be read, or git can't tell.
+fn pseudoref_exists(git: &Git, git_dir: &Path, name: &str) -> std::io::Result<bool> {
+    if git_dir.join(name).try_exists()? {
+        return Ok(true);
     }
-    Ok(None)
+    if git_dir.join("reftable").try_exists()? {
+        reftable_pseudoref_exists(git, git_dir, name)
+    } else {
+        Ok(false)
+    }
+}
+
+/// `pseudoref_exists` for a reftable git dir, from `show-ref --exists`,
+/// which reads the ref alone — a ref to a missing object still exists —
+/// and tells a missing ref (exit `2`) from a lookup that failed (`1`:
+/// tables it can't parse). An emptied or missing `tables.list` reads as
+/// an empty store, so as missing.
+///
+/// # Errors
+///
+/// When git can't tell: it couldn't run, the lookup failed, the dir isn't a
+/// git dir it can open, or its path can't be given to git.
+fn reftable_pseudoref_exists(git: &Git, git_dir: &Path, name: &str) -> std::io::Result<bool> {
+    let Some(git_dir_str) = git_dir.to_str() else {
+        return Err(std::io::Error::other("a git dir path git can't be given"));
+    };
+    let git_dir_arg = format!("--git-dir={git_dir_str}");
+    let args = [git_dir_arg.as_str(), "show-ref", "--exists", name];
+    let out = git
+        .run(git_dir, &args, CallOptions::default())
+        .map_err(|e| std::io::Error::other(e.to_string()))?;
+    match out.status.code() {
+        Some(0) => Ok(true),
+        Some(2) => Ok(false),
+        _ => Err(std::io::Error::other(format!(
+            "show-ref --exists {name} failed: {}",
+            out.stderr.trim()
+        ))),
+    }
 }
 
 /// `read_in_progress`, recording a git dir it can't read in `unreadable`.
-fn markers(git_dir: &Path, unreadable: &mut Vec<String>) -> Option<InProgressOp> {
-    read_in_progress(git_dir).unwrap_or_else(|_| {
+fn markers(git: &Git, git_dir: &Path, unreadable: &mut Vec<String>) -> Option<InProgressOp> {
+    read_in_progress(git, git_dir).unwrap_or_else(|_| {
         unreadable.push(git_dir.to_string_lossy().into_owned());
         None
     })

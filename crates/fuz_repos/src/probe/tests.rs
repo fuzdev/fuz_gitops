@@ -296,10 +296,10 @@ fn a_clone_time_is_read_from_the_first_line_alone() {
 fn in_progress_ignores_a_stale_rebase_head() {
     let tmp = tempfile::tempdir().unwrap();
     std::fs::write(tmp.path().join("REBASE_HEAD"), "abc\n").unwrap();
-    assert_eq!(read_in_progress(tmp.path()).unwrap(), None);
+    assert_eq!(read_in_progress(&Git::new(), tmp.path()).unwrap(), None);
     std::fs::create_dir(tmp.path().join("rebase-merge")).unwrap();
     assert_eq!(
-        read_in_progress(tmp.path()).unwrap(),
+        read_in_progress(&Git::new(), tmp.path()).unwrap(),
         Some(InProgressOp::Rebase)
     );
 }
@@ -310,14 +310,50 @@ fn in_progress_tells_am_from_an_apply_rebase() {
     let apply = tmp.path().join("rebase-apply");
     std::fs::create_dir(&apply).unwrap();
     assert_eq!(
-        read_in_progress(tmp.path()).unwrap(),
+        read_in_progress(&Git::new(), tmp.path()).unwrap(),
         Some(InProgressOp::Rebase)
     );
     std::fs::write(apply.join("applying"), "").unwrap();
     assert_eq!(
-        read_in_progress(tmp.path()).unwrap(),
+        read_in_progress(&Git::new(), tmp.path()).unwrap(),
         Some(InProgressOp::Am)
     );
+}
+
+#[test]
+fn in_progress_reads_a_files_git_dirs_pseudorefs_without_git() {
+    let tmp = tempfile::tempdir().unwrap();
+    let git = Git::new();
+    assert_eq!(read_in_progress(&git, tmp.path()).unwrap(), None);
+    std::fs::write(tmp.path().join("REVERT_HEAD"), "abc\n").unwrap();
+    assert_eq!(
+        read_in_progress(&git, tmp.path()).unwrap(),
+        Some(InProgressOp::Revert)
+    );
+    // a cherry-pick before a revert, as git's status reads them
+    std::fs::write(tmp.path().join("CHERRY_PICK_HEAD"), "abc\n").unwrap();
+    assert_eq!(
+        read_in_progress(&git, tmp.path()).unwrap(),
+        Some(InProgressOp::CherryPick)
+    );
+    assert_eq!(git.spawns(), 0);
+}
+
+#[test]
+fn in_progress_fails_when_git_cannot_read_a_reftable_git_dir() {
+    // `reftable/` in a dir git can't open as a git dir: unknown, not idle
+    let tmp = tempfile::tempdir().unwrap();
+    std::fs::create_dir(tmp.path().join("reftable")).unwrap();
+    let git = Git::new();
+    assert!(read_in_progress(&git, tmp.path()).is_err());
+    assert_eq!(git.spawns(), 1);
+    // a marker kept as a file is still read first, without git
+    std::fs::write(tmp.path().join("MERGE_HEAD"), "abc\n").unwrap();
+    assert_eq!(
+        read_in_progress(&git, tmp.path()).unwrap(),
+        Some(InProgressOp::Merge)
+    );
+    assert_eq!(git.spawns(), 1);
 }
 
 #[test]
@@ -337,7 +373,7 @@ fn an_unlisted_worktree_takes_its_path_from_a_readable_gitdir() {
             nul: false,
         },
     };
-    let u = unlisted_worktree(&named, &mut unreadable);
+    let u = unlisted_worktree(&Git::new(), &named, &mut unreadable);
     assert_eq!(u.path, "/ws/app-feat");
     assert_eq!(
         u.why,
@@ -357,7 +393,7 @@ fn an_unlisted_worktree_takes_its_path_from_a_readable_gitdir() {
         dir: git_dir.clone(),
         gitdir: GitdirTarget::Empty,
     };
-    let u = unlisted_worktree(&unnamed, &mut unreadable);
+    let u = unlisted_worktree(&Git::new(), &unnamed, &mut unreadable);
     assert_eq!(u.path, git_dir.to_str().unwrap());
     assert_eq!(
         u.why,

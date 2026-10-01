@@ -13,7 +13,9 @@ use fuz_repos::state::{
     UnprobedWhy, UnprobedWorktree, Verdict,
 };
 use fuz_repos::status::{StatusOptions, status};
-use support::worktrees::{NOTHING_HELD, app, behind_branch, pushed_branch};
+use support::worktrees::{
+    NOTHING_HELD, app, behind_branch, makes_reftable_repos, pushed_branch, reftable_repo,
+};
 use support::{FixtureWorkspace, branch, ff, find_entry, path, unprobed_facts};
 
 #[test]
@@ -777,6 +779,173 @@ fn an_operation_in_a_worktree_that_is_gone_is_still_a_reason() {
             action: SyncAction::Push { commits: 1 },
             by: BranchHold::Entry
         }
+    );
+}
+
+/// Asserts the checkout with git dir `git_dir` is stopped in a cherry-pick
+/// (`picking`) or a revert as a reftable repo keeps it: git's status says
+/// so, the pseudoref exists, and no file in the git dir marks it.
+fn assert_reftable_op(ws: &FixtureWorkspace, checkout: &Path, git_dir: &Path, picking: bool) {
+    let (pseudoref, says) = if picking {
+        ("CHERRY_PICK_HEAD", "You are currently cherry-picking")
+    } else {
+        ("REVERT_HEAD", "You are currently reverting")
+    };
+    assert!(git_dir.join("reftable").is_dir(), "{}", git_dir.display());
+    let status = ws.git(checkout, &["status"]);
+    assert!(status.contains(says), "{}: {status}", checkout.display());
+    ws.git(checkout, &["rev-parse", "--verify", "-q", pseudoref]);
+    for marker in [
+        "CHERRY_PICK_HEAD",
+        "REVERT_HEAD",
+        "MERGE_HEAD",
+        "rebase-merge",
+        "rebase-apply",
+        "BISECT_LOG",
+        "sequencer",
+    ] {
+        assert!(
+            !git_dir.join(marker).exists(),
+            "{} in {}",
+            marker,
+            git_dir.display()
+        );
+    }
+}
+
+/// A linked worktree of `repo` on a new branch `name`, two commits to
+/// `tracked.txt` ahead of `main`; returns its path and its own git dir.
+fn worktree_two_ahead(
+    ws: &FixtureWorkspace,
+    repo: &Path,
+    name: &str,
+) -> (std::path::PathBuf, std::path::PathBuf) {
+    let wt = ws.outside(name);
+    let git_dir = ws.add_worktree(repo, &wt, &["-b", name]);
+    for content in ["two\n", "three\n"] {
+        support::write(&wt, "tracked.txt", content);
+        ws.git(&wt, &["commit", "-q", "-a", "-m", content.trim()]);
+    }
+    (wt, git_dir)
+}
+
+#[test]
+fn a_reftable_repos_cherry_pick_or_revert_is_an_operation_in_progress() {
+    let mut ws = FixtureWorkspace::new();
+    // a reftable repo keeps `CHERRY_PICK_HEAD` and `REVERT_HEAD` in its
+    // tables, one per worktree, with no file in the git dir
+    if !makes_reftable_repos(&ws) {
+        return;
+    }
+    let picks = reftable_repo(&mut ws, "picks");
+    let reverts = reftable_repo(&mut ws, "reverts");
+
+    // `picks`: the primary stopped clean on a pick that came out empty, a
+    // linked worktree on a revert that conflicted
+    ws.git_fails(&picks, &["cherry-pick", "HEAD"]);
+    ws.assert_clean(&picks);
+    let (reverting, reverting_git_dir) = worktree_two_ahead(&ws, &picks, "reverting");
+    ws.git_fails(&reverting, &["revert", "--no-edit", "HEAD~1"]);
+    ws.assert_porcelain(&reverting, &["UU tracked.txt"]);
+    assert_reftable_op(&ws, &picks, &picks.join(".git"), true);
+    assert_reftable_op(&ws, &reverting, &reverting_git_dir, false);
+
+    // `reverts`: the primary stopped clean on a revert left uncommitted, a
+    // linked worktree on a pick that conflicted
+    ws.commit(&reverts, "local");
+    ws.git(&reverts, &["revert", "--no-commit", "HEAD"]);
+    ws.assert_porcelain(&reverts, &["D  local.txt"]);
+    let (picking, picking_git_dir) = worktree_two_ahead(&ws, &reverts, "picking");
+    ws.git(&picking, &["reset", "-q", "--hard", "HEAD~2"]);
+    ws.git_fails(&picking, &["cherry-pick", "HEAD@{1}"]);
+    ws.assert_porcelain(&picking, &["UU tracked.txt"]);
+    assert_reftable_op(&ws, &reverts, &reverts.join(".git"), false);
+    assert_reftable_op(&ws, &picking, &picking_git_dir, true);
+    // each pseudoref is its worktree's alone
+    ws.git_fails(&picks, &["rev-parse", "--verify", "-q", "REVERT_HEAD"]);
+    ws.git_fails(&picking, &["rev-parse", "--verify", "-q", "REVERT_HEAD"]);
+
+    let before = [&picks, &reverts].map(|r| support::snapshot_git_dir(&r.join(".git")));
+    for (key, primary, primary_op, linked, linked_op) in [
+        (
+            "picks",
+            &picks,
+            InProgressOp::CherryPick,
+            &reverting,
+            InProgressOp::Revert,
+        ),
+        (
+            "reverts",
+            &reverts,
+            InProgressOp::Revert,
+            &picking,
+            InProgressOp::CherryPick,
+        ),
+    ] {
+        let e = ws.entry(key);
+        assert!(
+            e.unprobed_worktrees.is_empty(),
+            "{:?}",
+            e.unprobed_worktrees
+        );
+        assert_eq!(e.checkouts.len(), 2, "{key}");
+        assert_eq!(e.checkouts[0].path, path(primary));
+        assert_eq!(e.checkouts[0].in_progress, Some(primary_op), "{key}");
+        assert_eq!(e.checkouts[1].path, path(linked));
+        assert_eq!(e.checkouts[1].in_progress, Some(linked_op), "{key}");
+        assert_eq!(
+            e.needs_human,
+            [
+                NeedsHuman::OperationInProgress {
+                    checkout: path(primary),
+                    op: primary_op
+                },
+                NeedsHuman::OperationInProgress {
+                    checkout: path(linked),
+                    op: linked_op
+                },
+            ],
+            "{key}"
+        );
+    }
+    // asking git wrote nothing
+    for (repo, before) in [&picks, &reverts].into_iter().zip(&before) {
+        support::assert_git_dir_unchanged(before, &support::snapshot_git_dir(&repo.join(".git")));
+    }
+}
+
+#[test]
+fn a_reftable_repo_whose_tables_cannot_be_read_is_not_idle() {
+    let mut ws = FixtureWorkspace::new();
+    if !makes_reftable_repos(&ws) {
+        return;
+    }
+    let app = reftable_repo(&mut ws, "app");
+    let wt = ws.outside("feat");
+    let git_dir = ws.add_worktree(&app, &wt, &["-b", "feat"]);
+    ws.git_fails(&wt, &["cherry-pick", "HEAD"]);
+    assert_reftable_op(&ws, &wt, &git_dir, true);
+    // the worktree's own tables, where its pseudorefs live: git can no
+    // longer say whether one exists (exit 1, neither there nor missing)
+    std::fs::write(git_dir.join("reftable/tables.list"), "garbage\n").unwrap();
+    let asked = ws.git_output(
+        &app,
+        &[
+            &format!("--git-dir={}", git_dir.display()),
+            "show-ref",
+            "--exists",
+            "CHERRY_PICK_HEAD",
+        ],
+    );
+    assert_eq!(asked.status.code(), Some(1), "{asked:?}");
+
+    let e = ws.entry("app");
+    assert!(
+        e.needs_human.contains(&NeedsHuman::WorktreeUnreadable {
+            path: path(&git_dir)
+        }),
+        "{:?}",
+        e.needs_human
     );
 }
 

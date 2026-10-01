@@ -42,3 +42,38 @@ pub fn pushed_branch(ws: &FixtureWorkspace, app: &Path, name: &str) {
     ws.assert_track(app, name, "");
     ws.assert_upstream(app, name, &format!("refs/remotes/origin/{name}"));
 }
+
+/// Whether this git makes reftable repos (git 2.45 on), by making one
+/// outside the workspace; says so on stderr when it doesn't, for a test to
+/// skip on.
+pub fn makes_reftable_repos(ws: &FixtureWorkspace) -> bool {
+    let probe = ws.outside("reftable-probe");
+    let made = ws.git_output(
+        ws.base(),
+        &[
+            "init",
+            "-q",
+            "--ref-format=reftable",
+            probe.to_str().unwrap(),
+        ],
+    );
+    if !made.status.success() {
+        eprintln!("skipped: this git makes no reftable repos");
+    }
+    made.status.success()
+}
+
+/// An owned repo cloned with its refs in the reftable format, a tracked
+/// file in it, clean on `main`: its remote, its entry, and its clone at
+/// `<root>/<name>`.
+pub fn reftable_repo(ws: &mut FixtureWorkspace, name: &str) -> PathBuf {
+    ws.remote(name, &[("tracked.txt", "one\n")]);
+    ws.declare_repo(name, name, "");
+    let repo = ws.clone_owned(name, name, &["--ref-format=reftable"]);
+    assert_eq!(
+        ws.git(&repo, &["rev-parse", "--show-ref-format"]),
+        "reftable"
+    );
+    ws.assert_clean(&repo);
+    repo
+}
