@@ -121,13 +121,18 @@ fn partial_hint(dir: &str) -> String {
     )
 }
 
+/// `REF_GONE` as a literal, which the `ref_gone` hints `concat!` onto.
+macro_rules! ref_gone {
+    () => {
+        "a fetch refspec names a branch deleted or renamed on the remote, so nothing was fetched"
+    };
+}
+
 /// Why a fetch named a ref the remote no longer has fetched nothing.
-const REF_GONE: &str = "a fetch refspec names a branch deleted or renamed on the remote, so \
-     nothing was fetched";
+const REF_GONE: &str = ref_gone!();
 
 /// The summary's `ref_gone` hint: each entry's repair differs.
-const REF_GONE_HINT: &str = "a fetch refspec names a branch deleted or renamed on the remote, \
-     so nothing was fetched — each entry's repair under --verbose";
+const REF_GONE_HINT: &str = concat!(ref_gone!(), " — each entry's repair under --verbose");
 
 /// A `ref_gone` entry's hint: the repair the library decided (`RefGoneFix`),
 /// worded, `dir` as in `partial_hint`.
@@ -157,8 +162,10 @@ const HOST_KEY_HINT: &str = "repos never asks to trust a host — check its key 
      certificate), then connect once by hand to record it";
 
 /// `REF_GONE_HINT` for `repos push`, which has no `--verbose`.
-const PUSH_REF_GONE_HINT: &str = "a fetch refspec names a branch deleted or renamed on the \
-     remote, so nothing was fetched — each entry's repair under repos status --fetch --verbose";
+const PUSH_REF_GONE_HINT: &str = concat!(
+    ref_gone!(),
+    " — each entry's repair under repos status --fetch --verbose"
+);
 
 /// A branch `repos push` found behind its upstream, or a stale shallow
 /// one: sync's to move, never the push's.

@@ -41,11 +41,7 @@ fn entry(key: &str, mode: Mode<'_>, head: &str) -> EntryStatus {
         refresh: None,
         presence: Presence::Present,
         clone: None,
-        layout: Some(Layout {
-            shallow: false,
-            sparse: false,
-            partial_filter: None,
-        }),
+        layout: Some(Layout::default()),
         checkouts: vec![Checkout {
             path: format!("/home/me/dev/{key}"),
             primary: true,
@@ -1238,9 +1234,8 @@ fn a_failed_probe_of_a_partial_clone_hints_how_to_fill_it() {
         e.checkouts = vec![];
         e.fetched_at = None;
         e.layout = Some(Layout {
-            shallow: false,
-            sparse: false,
             partial_filter: partial_filter.map(str::to_owned),
+            ..Layout::default()
         });
         e.probe_error = Some(ProbeError::new(
             ProbeErrorKind::GitFailed,
@@ -2496,9 +2491,8 @@ fn printed_commands_are_shell_quoted() {
     app.dir = "my app".into();
     app.checkouts[0].path = "/home/me/dev/my app".into();
     app.layout = Some(Layout {
-        shallow: false,
-        sparse: false,
         partial_filter: Some("tree:0".into()),
+        ..Layout::default()
     });
     app.probe_error = Some(ProbeError::new(
         ProbeErrorKind::GitFailed,

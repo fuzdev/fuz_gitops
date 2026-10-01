@@ -71,7 +71,7 @@ use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 
-use crate::regular_file::read_bounded_bytes;
+use crate::regular_file::read_bounded;
 
 /// The largest session file or roster the reader reads; a larger one
 /// can't be read.
@@ -731,12 +731,6 @@ fn parse_proc_start(s: &str) -> Result<u64, String> {
     } else {
         Err(format!("procStart {s:?} isn't a number"))
     }
-}
-
-/// A regular file's contents, at most `max` bytes, as UTF-8.
-fn read_bounded(path: &Path, max: u64) -> std::io::Result<String> {
-    String::from_utf8(read_bounded_bytes(path, max)?)
-        .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))
 }
 
 /// Every live Claude Code session on this machine but the caller's, or why

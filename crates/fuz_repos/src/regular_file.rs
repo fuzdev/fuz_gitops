@@ -43,6 +43,17 @@ pub fn read_bounded_bytes(path: &Path, max: u64) -> std::io::Result<Vec<u8>> {
     Ok(bytes)
 }
 
+/// A regular file's contents (the path followed) as UTF-8, at most `max`
+/// bytes.
+///
+/// # Errors
+///
+/// As `read_bounded_bytes`, or when it isn't UTF-8 (`InvalidData`).
+pub fn read_bounded(path: &Path, max: u64) -> std::io::Result<String> {
+    String::from_utf8(read_bounded_bytes(path, max)?)
+        .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))
+}
+
 /// A regular file's contents (the path followed) as UTF-8, whole.
 ///
 /// # Errors

@@ -10,7 +10,7 @@ use std::path::PathBuf;
 use serde::Serialize;
 use thiserror::Error;
 
-use crate::git::GitVersion;
+use crate::git::{GitVersion, MIN_GIT_VERSION};
 use crate::registry::RegistryIssue;
 
 /// A failure that stops a run before it has a report.
@@ -143,7 +143,11 @@ impl Error {
                 "run from the workspace root, link the registry there (a repos.toml \
                  symlink to it), or pass `--root <dir>` or `--registry <path>`"
             }
-            Self::GitNotFound => "install git 2.44 or newer",
+            Self::GitNotFound => {
+                // the floor is a minor release, so its patch goes unsaid
+                let GitVersion { major, minor, .. } = MIN_GIT_VERSION;
+                return Some(Cow::Owned(format!("install git {major}.{minor} or newer")));
+            }
             Self::GitTooOld { .. } => {
                 "repos sets `GIT_NO_LAZY_FETCH` (git 2.44+) so a local call on a partial \
                  clone never touches the network — upgrade git"
@@ -313,7 +317,7 @@ mod tests {
             Error::GitNotFound,
             Error::GitTooOld {
                 found: "2.40.0".into(),
-                required: crate::git::MIN_GIT_VERSION,
+                required: MIN_GIT_VERSION,
             },
             Error::UnknownEntry {
                 name: "x".into(),
@@ -379,10 +383,14 @@ mod tests {
     }
 
     #[test]
-    fn git_too_old_names_both_versions_and_why() {
+    fn git_version_errors_name_the_versions_and_why() {
+        assert_eq!(
+            Error::GitNotFound.hint().as_deref(),
+            Some("install git 2.44 or newer")
+        );
         let e = Error::GitTooOld {
             found: "2.40.0".into(),
-            required: crate::git::MIN_GIT_VERSION,
+            required: MIN_GIT_VERSION,
         };
         assert_eq!(
             e.to_string(),
@@ -410,7 +418,7 @@ mod tests {
         assert_eq!(
             json(&Error::GitTooOld {
                 found: "2.40.0".into(),
-                required: crate::git::MIN_GIT_VERSION,
+                required: MIN_GIT_VERSION,
             }),
             serde_json::json!({"kind": "git_too_old", "found": "2.40.0", "required": "2.44.0"})
         );

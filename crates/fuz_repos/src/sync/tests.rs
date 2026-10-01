@@ -4,7 +4,9 @@ use super::step::{LazyFetch, PushedRef, first_message, pushed_ref, rejected};
 use super::*;
 use crate::classify::lazy_transport;
 use crate::porcelain::{self, ConfigFacts};
+use crate::probe::test_facts;
 use crate::registry::RepoUrl;
+use crate::state::Head;
 
 #[test]
 fn git_s_first_error_line_is_the_message() {
@@ -109,38 +111,13 @@ fn a_rejected_push_is_held_or_failed_by_why() {
 /// would read it, its verdict a push; no branch probed, so past the
 /// guards the push would fail on it.
 fn ahead_main() -> (RepoFacts, BranchStatus) {
-    let facts = RepoFacts {
-        path: "/ws/app".into(),
-        common_dir: PathBuf::from("/ws/app/.git"),
-        repo_key: PathBuf::from("/ws/app/.git"),
-        config: ConfigFacts::default(),
-        status: porcelain::StatusFacts {
-            head: Head::Branch {
-                name: "main".into(),
-            },
-            uncommitted: crate::state::Uncommitted::default(),
-            stashes: 0,
+    let facts = test_facts(
+        Head::Branch {
+            name: "main".into(),
         },
-        in_progress: None,
-        primary_linked: false,
-        primary_locked: false,
-        worktrees: Vec::new(),
-        registry_worktrees: std::collections::HashSet::new(),
-        unprobed: Vec::new(),
-        unreadable: Vec::new(),
-        relative_gitdir: None,
-        checkout_keys: Vec::new(),
-        bare_main: None,
-        branches: Vec::new(),
-        layout: crate::state::Layout {
-            shallow: false,
-            sparse: false,
-            partial_filter: None,
-        },
-        fetched_at: None,
-        fetch_failed: false,
-        push_urls: Some(vec!["git@github.com:me/app".into()]),
-    };
+        ConfigFacts::default(),
+        Vec::new(),
+    );
     let b = BranchStatus {
         name: "main".into(),
         upstream: Some("origin/main".into()),

@@ -521,7 +521,7 @@ pub(crate) fn classify(
                 .branches
                 .get(&b.branch.name)
                 .and_then(BranchConfig::display);
-            let on = checkouts_on(b, facts, sessions);
+            let on = fold_checkouts_on(b, facts, sessions);
             let holds = Holds {
                 pinned: entry.pinned,
                 entry: entry_held,
@@ -851,10 +851,10 @@ impl Holds<'_, '_> {
     }
 }
 
-/// Folds every checkout whose HEAD is the branch — the primary, each probed
-/// worktree, and each unprobed one on it; an unprobed one whose HEAD is
-/// unknown might be on any branch, so it counts for all. Matched by name,
-/// never by path: `%(worktreepath)` names only one checkout, git's paths are
+/// Folds every checkout whose HEAD is the branch — the primary and each
+/// probed worktree (`RepoFacts::checkouts_on`), and each unprobed one on it;
+/// an unprobed one whose HEAD is unknown might be on any branch, so it counts
+/// for all. Matched by name, never by path: `%(worktreepath)` names only one checkout, git's paths are
 /// resolved while the primary's is root-joined, and a symlinked workspace
 /// root makes them differ. (Sessions, and checkouts that couldn't be
 /// resolved, are looked up by the path each checkout's facts spell, which
@@ -870,29 +870,24 @@ impl Holds<'_, '_> {
 /// branch, but it has no files to hold. So does a git dir no worktree list
 /// names that shares the refs, when a live session works through it and
 /// its HEAD is on the branch or unknown.
-fn checkouts_on<'a>(
+fn fold_checkouts_on<'a>(
     b: &BranchFacts,
     facts: &'a RepoFacts,
     sessions: &EntrySessions,
 ) -> CheckoutsOn<'a> {
     let name = b.branch.name.as_str();
-    let on = |head: &Head| matches!(head, Head::Branch { name: n } if n == name);
     let busy = |path: &str| !sessions.at(path).is_empty();
     let maybe_busy = |path: &str| sessions.unresolved_at(path);
     let mut folded = CheckoutsOn::default();
     let mut count = 0;
     let mut removable = None;
-    if on(&facts.status.head) {
+    for on in facts.checkouts_on(name) {
         count += 1;
-        folded.dirty |= !facts.status.uncommitted.is_clean();
-        folded.busy |= busy(&facts.path);
-        folded.maybe_busy |= maybe_busy(&facts.path);
-    }
-    for c in facts.worktrees.iter().filter(|c| on(&c.head)) {
-        count += 1;
-        folded.dirty |= !c.uncommitted.is_clean();
-        folded.busy |= busy(&c.path);
-        folded.maybe_busy |= maybe_busy(&c.path);
+        folded.dirty |= !on.uncommitted.is_clean();
+        folded.busy |= busy(on.path);
+        folded.maybe_busy |= maybe_busy(on.path);
+        // the primary is never removed with a branch
+        let Some(c) = on.worktree else { continue };
         let removable_here = c.linked
             && !facts.registry_worktrees.contains(&c.path)
             && c.submodules == Some(false)

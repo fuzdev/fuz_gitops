@@ -1,13 +1,13 @@
-use std::collections::HashSet;
 use std::path::PathBuf;
 
 use super::*;
-use crate::porcelain::{ConfigFacts, OriginUrl, RefFacts, StatusFacts};
+use crate::porcelain::{ConfigFacts, OriginUrl, RefFacts};
+use crate::probe::test_facts;
 use crate::registry::EntryKind;
 use crate::sessions::{Session, SessionSource};
 use crate::state::{
-    BranchHold, Checkout, CloneHold, GitDirHolds, Head, Layout, RefreshHold, Uncommitted,
-    UnprobedWhy, UnprobedWorktree,
+    BranchHold, Checkout, CloneHold, GitDirHolds, Head, RefreshHold, Uncommitted, UnprobedWhy,
+    UnprobedWorktree,
 };
 
 const NOW: u64 = 1_800_000_000;
@@ -109,54 +109,26 @@ fn facts(head: Head, branches: &[B<'_>]) -> RepoFacts {
             );
         }
     }
-    RepoFacts {
-        path: "/ws/app".into(),
-        common_dir: PathBuf::from("/ws/app/.git"),
-        repo_key: PathBuf::from("/ws/app/.git"),
-        config,
-        status: StatusFacts {
-            head,
-            uncommitted: Uncommitted::default(),
-            stashes: 0,
-        },
-        in_progress: None,
-        primary_linked: false,
-        primary_locked: false,
-        worktrees: Vec::new(),
-        registry_worktrees: HashSet::new(),
-        unprobed: Vec::new(),
-        relative_gitdir: None,
-        unreadable: Vec::new(),
-        checkout_keys: Vec::new(),
-        bare_main: None,
-        branches: branches
-            .iter()
-            .map(|b| BranchFacts {
-                branch: RefFacts {
-                    name: b.name.into(),
-                    oid: format!("c-{}", b.name),
-                    symref: None,
-                    upstream_ref: b.resolved.then(|| {
-                        format!("refs/remotes/{}/{}", b.remote.unwrap_or("origin"), b.name)
-                    }),
-                    merge_ref: b.resolved.then(|| format!("refs/heads/{}", b.name)),
-                    track: b.track,
-                    worktree: None,
-                    committer_time: NOW - 3600,
-                },
-                unique_commits: b.unique,
-                on_fetched_tip: b.on_tip,
-            })
-            .collect(),
-        layout: Layout {
-            shallow: false,
-            sparse: false,
-            partial_filter: None,
-        },
-        fetched_at: None,
-        fetch_failed: false,
-        push_urls: Some(vec!["git@github.com:me/app".into()]),
-    }
+    let branches = branches
+        .iter()
+        .map(|b| BranchFacts {
+            branch: RefFacts {
+                name: b.name.into(),
+                oid: format!("c-{}", b.name),
+                symref: None,
+                upstream_ref: b
+                    .resolved
+                    .then(|| format!("refs/remotes/{}/{}", b.remote.unwrap_or("origin"), b.name)),
+                merge_ref: b.resolved.then(|| format!("refs/heads/{}", b.name)),
+                track: b.track,
+                worktree: None,
+                committer_time: NOW - 3600,
+            },
+            unique_commits: b.unique,
+            on_fetched_tip: b.on_tip,
+        })
+        .collect();
+    test_facts(head, config, branches)
 }
 
 fn on(name: &str) -> Head {

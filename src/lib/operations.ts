@@ -36,8 +36,8 @@
  * See `operations_defaults.ts` for real implementations, and the test-side mock
  * factories: `create_mock_gitops_ops` in `src/test/test_helpers.ts` (plain
  * objects with per-group overrides) and `create_fixture_gitops_ops` in
- * `src/test/fixtures/mock_operations.ts` (a fixture's changesets and
- * `package.json`s over `create_mock_gitops_ops`).
+ * `src/test/fixtures/mock_operations.ts` (a fixture's changesets over
+ * `create_mock_gitops_ops`, its fs empty).
  *
  * @module
  */

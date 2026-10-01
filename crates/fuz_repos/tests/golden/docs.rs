@@ -1243,18 +1243,10 @@ fn path(dir: &str) -> String {
     format!("{WORKSPACE}/{dir}")
 }
 
-const fn plain_layout() -> Layout {
-    Layout {
-        shallow: false,
-        sparse: false,
-        partial_filter: None,
-    }
-}
-
 fn shallow_layout() -> Layout {
     Layout {
         shallow: true,
-        ..plain_layout()
+        ..Layout::default()
     }
 }
 
@@ -1304,7 +1296,7 @@ pub fn entry(key: &str, followed: Option<&str>) -> EntryStatus {
         refresh: None,
         presence: Presence::Present,
         clone: None,
-        layout: Some(plain_layout()),
+        layout: Some(Layout::default()),
         checkouts: vec![primary(key, on("main"))],
         branches: vec![checked_out(
             branch(
@@ -1910,7 +1902,7 @@ fn test262() -> EntryStatus {
     e.layout = Some(Layout {
         shallow: true,
         sparse: true,
-        partial_filter: None,
+        ..Layout::default()
     });
     e.checkouts[0].head = Head::Detached {
         commit: "fedcba9876543210fedcba9876543210fedcba98".into(),
@@ -2244,7 +2236,7 @@ fn partial() -> EntryStatus {
     EntryStatus {
         layout: Some(Layout {
             partial_filter: Some("tree:0".into()),
-            ..plain_layout()
+            ..Layout::default()
         }),
         checkouts: vec![],
         branches: vec![],
@@ -2312,19 +2304,19 @@ fn probe_failures() -> Vec<EntryStatus> {
             "kiln",
             ProbeErrorKind::GitNotRun,
             "failed to run git: Resource temporarily unavailable (os error 11)".into(),
-            Some(plain_layout()),
+            Some(Layout::default()),
         ),
         failed(
             "monorepo",
             ProbeErrorKind::GitTimedOut,
             format!("git {status_args} timed out after 60s"),
-            Some(plain_layout()),
+            Some(Layout::default()),
         ),
         failed(
             "relay",
             ProbeErrorKind::PushUrlsUnreadable,
             "push URLs: git remote get-url --push --all origin timed out after 60s".into(),
-            Some(plain_layout()),
+            Some(Layout::default()),
         ),
     ]
 }
@@ -2582,9 +2574,9 @@ fn fetchy() -> EntryStatus {
 fn sparse_fork() -> EntryStatus {
     EntryStatus {
         layout: Some(Layout {
-            shallow: false,
             sparse: true,
             partial_filter: Some("blob:none".into()),
+            ..Layout::default()
         }),
         needs_human: vec![NeedsHuman::FetchUrlMismatch {
             fetch_url: "http://github.com/me/sparse_fork".into(),

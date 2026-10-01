@@ -31,7 +31,7 @@ use crate::regular_file::{open_regular, read_regular};
 use crate::remote::{RefspecContext, RemoteFailure};
 use crate::state::{
     Checkout, GitDirHolds, Head, InProgressOp, Layout, ProbeError, ProbeErrorKind, RefreshVerdict,
-    UnprobedWhy, UnprobedWorktree,
+    Uncommitted, UnprobedWhy, UnprobedWorktree,
 };
 
 /// What the probe needs from its caller.
@@ -203,6 +203,74 @@ impl RepoFacts {
     /// order: the primary's, each probed worktree's, each unprobed one's.
     pub fn checkout_paths(&self) -> impl Iterator<Item = &str> {
         self.checkout_operations().map(|(path, _)| path)
+    }
+
+    /// The probed checkouts with `branch` on HEAD, matched by name: the
+    /// primary first, then each probed worktree in `worktrees` order. The
+    /// unprobed ones aren't among them — whether one is on the branch may be
+    /// unknown, which is the caller's to weigh.
+    pub fn checkouts_on<'a>(&'a self, branch: &str) -> impl Iterator<Item = CheckoutOn<'a>> {
+        let on = move |head: &Head| matches!(head, Head::Branch { name } if name == branch);
+        let primary = on(&self.status.head).then_some(CheckoutOn {
+            path: &self.path,
+            uncommitted: &self.status.uncommitted,
+            worktree: None,
+        });
+        primary
+            .into_iter()
+            .chain(
+                self.worktrees
+                    .iter()
+                    .filter(move |c| on(&c.head))
+                    .map(|c| CheckoutOn {
+                        path: &c.path,
+                        uncommitted: &c.uncommitted,
+                        worktree: Some(c),
+                    }),
+            )
+    }
+}
+
+/// One probed checkout with a branch on HEAD (`RepoFacts::checkouts_on`).
+#[derive(Debug, Clone, Copy)]
+pub struct CheckoutOn<'a> {
+    /// Its path as the facts spell it (`RepoFacts::checkout_paths`).
+    pub path: &'a str,
+    pub uncommitted: &'a Uncommitted,
+    /// The worktree's facts; `None` for the primary.
+    pub worktree: Option<&'a Checkout>,
+}
+
+/// An owned repo's facts for unit tests: the primary at `/ws/app` with
+/// `head`, clean, no other worktree, a plain layout, never fetched, and
+/// pushed to `git@github.com:me/app`.
+#[cfg(test)]
+pub fn test_facts(head: Head, config: ConfigFacts, branches: Vec<BranchFacts>) -> RepoFacts {
+    RepoFacts {
+        path: "/ws/app".into(),
+        common_dir: PathBuf::from("/ws/app/.git"),
+        repo_key: PathBuf::from("/ws/app/.git"),
+        config,
+        status: StatusFacts {
+            head,
+            uncommitted: Uncommitted::default(),
+            stashes: 0,
+        },
+        in_progress: None,
+        primary_linked: false,
+        primary_locked: false,
+        worktrees: Vec::new(),
+        registry_worktrees: HashSet::new(),
+        unprobed: Vec::new(),
+        unreadable: Vec::new(),
+        relative_gitdir: None,
+        checkout_keys: Vec::new(),
+        bare_main: None,
+        branches,
+        layout: Layout::default(),
+        fetched_at: None,
+        fetch_failed: false,
+        push_urls: Some(vec!["git@github.com:me/app".into()]),
     }
 }
 

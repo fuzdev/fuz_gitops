@@ -569,8 +569,9 @@ pub enum Relation {
     Untracked,
 }
 
-/// How a checkout is laid out on disk.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+/// How a checkout is laid out on disk; the default is a plain one: not
+/// shallow, sparse, or partial.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
 pub struct Layout {
     pub shallow: bool,
     pub sparse: bool,

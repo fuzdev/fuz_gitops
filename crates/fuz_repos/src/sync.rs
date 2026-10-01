@@ -204,7 +204,7 @@ use crate::report::{
 };
 use crate::sessions::{LiveSessions, SessionsSource, read_live_sessions};
 use crate::state::{
-    BranchNeedsHuman, BranchStatus, CloneRecipe, CloneVerdict, Head, SyncAction, Verdict,
+    BranchNeedsHuman, BranchStatus, CloneRecipe, CloneVerdict, SyncAction, Verdict,
 };
 use crate::status::{
     EntryTiming, Reported, RunTimings, Survey, assemble_report, probe_and_assess, refresh_asked,
@@ -689,7 +689,7 @@ impl Actor<'_> {
         // the probed checkouts on it, from the facts classify read: it held
         // a fast-forward or move on several, or on an unprobed one; a push
         // on several goes on, since it moves no files
-        let on = checkouts_on(facts, &b.name);
+        let on: Vec<&str> = facts.checkouts_on(&b.name).map(|c| c.path).collect();
         if let Some(by) = self.busy_now(i, &b.name, &on) {
             return Ok(Err(by));
         }
@@ -724,7 +724,8 @@ impl Actor<'_> {
         let Some(branch) = facts.branches.iter().find(|f| f.branch.name == b.name) else {
             return failed(format!("{} isn't among the branches probed", b.name));
         };
-        if let Some(by) = self.busy_now(i, &b.name, &checkouts_on(facts, &b.name)) {
+        let on: Vec<&str> = facts.checkouts_on(&b.name).map(|c| c.path).collect();
+        if let Some(by) = self.busy_now(i, &b.name, &on) {
             return PushOutcome::Held { by };
         }
         let step = Step::new(self.git, self.root, &b.name, &facts.common_dir, None);
@@ -786,26 +787,8 @@ struct Ready<'f> {
     /// Its resolved upstream ref, a remote-tracking ref under
     /// `refs/remotes/origin/` (its name there may differ from the branch's).
     upstream: &'f str,
-    /// The probed checkouts on it (`checkouts_on`).
+    /// The probed checkouts on it (`RepoFacts::checkouts_on`).
     on: Vec<&'f str>,
-}
-
-/// The probed checkouts with `branch` on HEAD, from the facts classify
-/// read.
-fn checkouts_on<'f>(facts: &'f RepoFacts, branch: &str) -> Vec<&'f str> {
-    let on_branch = |head: &Head| matches!(head, Head::Branch { name } if name == branch);
-    let mut on: Vec<&str> = Vec::new();
-    if on_branch(&facts.status.head) {
-        on.push(&facts.path);
-    }
-    on.extend(
-        facts
-            .worktrees
-            .iter()
-            .filter(|c| on_branch(&c.head))
-            .map(|c| c.path.as_str()),
-    );
-    on
 }
 
 /// A verdict that doesn't act, as an outcome. An `act` is `act_on_repo`'s
