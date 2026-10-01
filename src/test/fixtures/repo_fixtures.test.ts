@@ -11,7 +11,7 @@ import { circular_prod_deps_error } from './repo_fixtures/circular_prod_deps_err
 import { isolated_packages } from './repo_fixtures/isolated_packages.ts';
 import { multiple_dep_types } from './repo_fixtures/multiple_dep_types.ts';
 import { fixture_to_local_repos } from './load_repo_fixtures.ts';
-import { create_mock_changeset_ops } from './mock_changeset_operations.ts';
+import { create_fixture_changeset_ops } from './mock_changeset_operations.ts';
 import type { RepoFixtureSet, RepoFixtureExpectedVersionChange } from './repo_fixture_types.ts';
 
 // All fixtures to test
@@ -174,7 +174,7 @@ const validate_errors = (
  */
 const test_fixture = async (fixture: RepoFixtureSet): Promise<void> => {
 	const repos = fixture_to_local_repos(fixture);
-	const ops = create_mock_changeset_ops(fixture);
+	const ops = create_fixture_changeset_ops(fixture);
 
 	const plan = await generate_publishing_plan(repos, { ops });
 

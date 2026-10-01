@@ -3,11 +3,11 @@ import { assert_rejects } from '@fuzdev/fuz_util/testing.ts';
 
 import { gate_publish_readiness } from '$lib/gitops_task_helpers.ts';
 import {
+	create_gate_repos,
 	create_mock_repo,
 	create_mock_repos_entry,
 	create_mock_repos_ops,
-	create_mock_repos_report,
-	create_repos
+	create_mock_repos_report
 } from './test_helpers.ts';
 
 describe('gate_publish_readiness', () => {
@@ -18,7 +18,11 @@ describe('gate_publish_readiness', () => {
 				{ fetched: true }
 			)
 		);
-		await gate_publish_readiness({ local_repos: create_repos(), registry: '../r.toml', repos_ops });
+		await gate_publish_readiness({
+			local_repos: create_gate_repos(),
+			registry: '../r.toml',
+			repos_ops
+		});
 		assert.deepEqual(repos_ops.calls, [{ keys: ['a', 'b'], registry: '../r.toml', fetch: true }]);
 	});
 
@@ -42,7 +46,11 @@ describe('gate_publish_readiness', () => {
 		);
 		await assert_rejects(
 			() =>
-				gate_publish_readiness({ local_repos: create_repos(), registry: '../r.toml', repos_ops }),
+				gate_publish_readiness({
+					local_repos: create_gate_repos(),
+					registry: '../r.toml',
+					repos_ops
+				}),
 			/`repos --registry \.\.\/r\.toml sync b` fast-forwards it/
 		);
 	});
@@ -59,7 +67,7 @@ describe('gate_publish_readiness', () => {
 	test('a failed `repos status` refuses', async () => {
 		const repos_ops = create_mock_repos_ops('not json');
 		await assert_rejects(
-			() => gate_publish_readiness({ local_repos: create_repos(), repos_ops }),
+			() => gate_publish_readiness({ local_repos: create_gate_repos(), repos_ops }),
 			/the readiness check failed/
 		);
 	});

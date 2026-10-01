@@ -1,7 +1,5 @@
 import { assert, describe, test } from 'vitest';
-import { readdirSync, readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { readdirSync } from 'node:fs';
 
 import {
 	REPOS_INSTALL_COMMAND,
@@ -10,12 +8,7 @@ import {
 	to_repos_command
 } from '$lib/repos_status_load.ts';
 import { REPOS_STATUS_FORMAT_VERSION, ReposStatusErrorReport } from '$lib/repos_status.ts';
-import { create_mock_repos_ops } from './test_helpers.ts';
-
-// written by the Rust side (`crates/fuz_repos/tests/golden.rs`), never by hand
-const GOLDEN_DIR = join(dirname(fileURLToPath(import.meta.url)), 'fixtures/repos_status');
-
-const read_golden = (name: string): string => readFileSync(join(GOLDEN_DIR, name), 'utf8');
+import { GOLDEN_DIR, create_mock_repos_ops, load_golden, read_golden } from './test_helpers.ts';
 
 const ERROR_GOLDENS = readdirSync(GOLDEN_DIR)
 	.filter((f) => /^error_report_[a-z_]+\.json$/.test(f))
@@ -80,7 +73,7 @@ describe('parse_repos_status_output', () => {
 
 	describe('error documents', () => {
 		test.each(ERROR_GOLDENS)('%s maps to a message', (name) => {
-			const { error } = ReposStatusErrorReport.parse(JSON.parse(read_golden(name)));
+			const { error } = ReposStatusErrorReport.parse(load_golden(name));
 			const message = failure_of(read_golden(name));
 			switch (error.kind) {
 				case 'unknown_entry':

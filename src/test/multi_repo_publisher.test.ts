@@ -1,5 +1,4 @@
 import { assert, test, describe } from 'vitest';
-import { Logger } from '@fuzdev/fuz_util/log.ts';
 
 import type { LocalRepo } from '$lib/local_repo.ts';
 import {
@@ -20,7 +19,8 @@ import {
 	create_mock_git_ops,
 	create_populated_fs_ops,
 	create_mock_repos_entry,
-	create_ready_repos_ops
+	create_ready_repos_ops,
+	create_stream_log
 } from './test_helpers.ts';
 
 test('wetrun=false predicts versions without publishing', async () => {
@@ -1300,16 +1300,7 @@ describe('execute_publishing_plan', () => {
 			version_changes: [make_version_change({ package_name: 'pkg' })]
 		});
 		const events = capture_handler();
-		const logged: Array<string> = [];
-		const log = new Logger('test', {
-			level: 'info',
-			colors: false,
-			console: {
-				log: (...args) => logged.push(args.join(' ')),
-				warn: (...args) => logged.push(args.join(' ')),
-				error: (...args) => logged.push(args.join(' '))
-			}
-		});
+		const log = create_stream_log();
 		const result = await execute_publishing_plan(repos, plan, {
 			wetrun: true,
 			events,
@@ -1337,12 +1328,12 @@ describe('execute_publishing_plan', () => {
 		assert.strictEqual(failed.error, message);
 		assert.strictEqual(failed.code, 'publish');
 		// the log names the failure once, without the stderr that just streamed live
-		const failure_logs = logged.filter((l) => l.includes('Failed to publish pkg'));
+		const failure_logs = log.lines.filter((l) => l.includes('Failed to publish pkg'));
 		assert.deepEqual(
 			failure_logs.map((l) => l.slice(l.indexOf('❌'))),
 			['❌ Failed to publish pkg: `gro publish` failed (code 1)']
 		);
-		assert.notInclude(logged.join('\n'), 'E401');
+		assert.notInclude(log.lines.join('\n'), 'E401');
 	});
 
 	test('a failed `gro deploy` carries the end of its stderr into `deploy_failed`', async () => {

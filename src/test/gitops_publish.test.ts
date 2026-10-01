@@ -1,6 +1,5 @@
 import { assert, describe, test } from 'vitest';
 import { assert_rejects } from '@fuzdev/fuz_util/testing.ts';
-import { Logger } from '@fuzdev/fuz_util/log.ts';
 import { TaskError } from '@fuzdev/gro';
 
 import {
@@ -13,41 +12,23 @@ import {
 import type { LocalRepo } from '$lib/local_repo.ts';
 import type { ReposEntryStatus } from '$lib/repos_status.ts';
 import {
-	create_repos,
+	AT_REST,
+	create_gate_repos,
 	create_mock_gitops_ops,
 	create_mock_repo,
 	create_mock_repos_entry,
 	create_mock_repos_ops,
 	create_mock_repos_report,
 	create_populated_fs_ops,
-	create_stream_log
+	create_stream_log,
+	entry_with
 } from './test_helpers.ts';
 
-/** A logger that keeps what it logs, by stream. */
-const create_capturing_log = (): Logger & { warned: Array<string>; logged: Array<string> } => {
-	const warned: Array<string> = [];
-	const logged: Array<string> = [];
-	const log = new Logger('test', {
-		level: 'info',
-		colors: false,
-		console: {
-			log: (...args) => logged.push(args.join(' ')),
-			warn: (...args) => warned.push(args.join(' ')),
-			error: (...args) => logged.push(args.join(' '))
-		}
-	});
-	return Object.assign(log, { warned, logged });
-};
-
-const OFF_BRANCH: Partial<ReposEntryStatus> = {
-	checkouts: [
-		{
-			...create_mock_repos_entry({ key: 'b' }).checkouts[0]!,
-			head: { kind: 'branch', name: 'feature' }
-		}
-	],
-	at_rest: { on_branch: false, clean: true, idle: true, followed: { kind: 'in_sync' } }
-};
+// `b` on a feature branch
+const OFF_BRANCH = entry_with('b', {
+	checkout: { head: { kind: 'branch', name: 'feature' } },
+	at_rest: { ...AT_REST, on_branch: false }
+});
 
 /**
  * Deps recording each step in `steps`, in order: the load, each `repos status`
@@ -117,16 +98,13 @@ const create_recording_deps = (options: {
 
 describe('run_gitops_publish --wetrun', () => {
 	test('the readiness gate refuses before the prompt and any side effect', async () => {
-		const repos = create_repos();
+		const repos = create_gate_repos();
 		const { deps, steps } = create_recording_deps({
 			repos,
-			fetched_entries: [
-				create_mock_repos_entry({ key: 'a' }),
-				create_mock_repos_entry({ key: 'b', ...OFF_BRANCH })
-			]
+			fetched_entries: [create_mock_repos_entry({ key: 'a' }), OFF_BRANCH]
 		});
 		const err = await assert_rejects(() =>
-			run_gitops_publish(Args.parse({ wetrun: true }), create_capturing_log(), deps)
+			run_gitops_publish(Args.parse({ wetrun: true }), create_stream_log(), deps)
 		);
 		assert.ok(err instanceof TaskError);
 		assert.include(err.message, 'b: on `feature`, not `main`');
@@ -136,7 +114,7 @@ describe('run_gitops_publish --wetrun', () => {
 	});
 
 	test('a ready set passes the gate, then prompts, then publishes', async () => {
-		const repos = create_repos();
+		const repos = create_gate_repos();
 		const { deps, steps } = create_recording_deps({
 			repos,
 			fetched_entries: [
@@ -146,7 +124,7 @@ describe('run_gitops_publish --wetrun', () => {
 		});
 		const outcome = await run_gitops_publish(
 			Args.parse({ wetrun: true }),
-			create_capturing_log(),
+			create_stream_log(),
 			deps
 		);
 		assert.strictEqual(outcome, 'done');
@@ -161,7 +139,7 @@ describe('run_gitops_publish --wetrun', () => {
 	});
 
 	test('the gate passes a repo ahead of origin and says its release push carries it', async () => {
-		const repos = create_repos();
+		const repos = create_gate_repos();
 		const { deps } = create_recording_deps({
 			repos,
 			fetched_entries: [
@@ -178,11 +156,11 @@ describe('run_gitops_publish --wetrun', () => {
 			],
 			confirm: false
 		});
-		const log = create_capturing_log();
+		const log = create_stream_log();
 		const outcome = await run_gitops_publish(Args.parse({ wetrun: true }), log, deps);
 		assert.strictEqual(outcome, 'cancelled');
 		assert.ok(
-			log.logged.some((l) =>
+			log.stdout.some((l) =>
 				l.includes(
 					'b: `main` is 2 commits ahead of origin — publishing pushes them with the release'
 				)
@@ -196,14 +174,14 @@ describe('run_gitops_publish --wetrun', () => {
 		const b = create_mock_repo({ name: 'b', deps: { a: '^1.0.0' } });
 		const shown = create_recording_deps({ repos: [a, b], fetched_entries: [] });
 		await assert_rejects(() =>
-			run_gitops_publish(Args.parse({ wetrun: true }), create_capturing_log(), shown.deps)
+			run_gitops_publish(Args.parse({ wetrun: true }), create_stream_log(), shown.deps)
 		);
 		assert.deepEqual(shown.steps, ['load']);
 
 		const unshown = create_recording_deps({ repos: [a, b], fetched_entries: [] });
 		const outcome = await run_gitops_publish(
 			Args.parse({ wetrun: true, plan: false }),
-			create_capturing_log(),
+			create_stream_log(),
 			unshown.deps
 		);
 		assert.strictEqual(outcome, 'failed');
@@ -211,7 +189,7 @@ describe('run_gitops_publish --wetrun', () => {
 	});
 
 	test('declining the prompt changes nothing', async () => {
-		const repos = create_repos();
+		const repos = create_gate_repos();
 		const { deps, steps } = create_recording_deps({
 			repos,
 			fetched_entries: [
@@ -222,7 +200,7 @@ describe('run_gitops_publish --wetrun', () => {
 		});
 		const outcome = await run_gitops_publish(
 			Args.parse({ wetrun: true }),
-			create_capturing_log(),
+			create_stream_log(),
 			deps
 		);
 		assert.strictEqual(outcome, 'cancelled');
@@ -230,7 +208,7 @@ describe('run_gitops_publish --wetrun', () => {
 	});
 
 	test('--no-plan skips the prompt but not the gate', async () => {
-		const repos = create_repos();
+		const repos = create_gate_repos();
 		const { deps, steps } = create_recording_deps({
 			repos,
 			fetched_entries: [
@@ -240,7 +218,7 @@ describe('run_gitops_publish --wetrun', () => {
 		});
 		await assert_rejects(
 			() =>
-				run_gitops_publish(Args.parse({ wetrun: true, plan: false }), create_capturing_log(), deps),
+				run_gitops_publish(Args.parse({ wetrun: true, plan: false }), create_stream_log(), deps),
 			/a: fetching origin failed \(timed out after 60s\)/
 		);
 		assert.deepEqual(steps, ['load', 'repos status a b --fetch']);
@@ -249,23 +227,23 @@ describe('run_gitops_publish --wetrun', () => {
 
 describe('run_gitops_publish dry run', () => {
 	test('runs no gate and prints the readiness block', async () => {
-		const repos = create_repos(OFF_BRANCH);
+		const repos = create_gate_repos(OFF_BRANCH);
 		const { deps, steps } = create_recording_deps({ repos, fetched_entries: [] });
-		const log = create_capturing_log();
+		const log = create_stream_log();
 		const outcome = await run_gitops_publish(Args.parse({}), log, deps);
 		assert.strictEqual(outcome, 'done');
 		assert.deepEqual(steps, ['load']);
-		const block = log.warned.join('\n');
+		const block = log.stderr.join('\n');
 		assert.include(block, 'not at rest, so read as they sit');
 		assert.include(block, 'b: on `feature`, not `main`');
 	});
 
 	test('prints no block when every repo is at rest', async () => {
-		const repos = create_repos();
+		const repos = create_gate_repos();
 		const { deps } = create_recording_deps({ repos, fetched_entries: [] });
-		const log = create_capturing_log();
+		const log = create_stream_log();
 		await run_gitops_publish(Args.parse({}), log, deps);
-		assert.notInclude(log.warned.join('\n'), 'not at rest');
+		assert.notInclude(log.stderr.join('\n'), 'not at rest');
 	});
 });
 
@@ -277,7 +255,7 @@ describe('run_gitops_publish machine output', () => {
 
 	test('--format json dry run: stdout carries the report alone', async () => {
 		const { deps } = create_recording_deps({
-			repos: create_repos(OFF_BRANCH),
+			repos: create_gate_repos(OFF_BRANCH),
 			fetched_entries: []
 		});
 		const log = create_stream_log();
@@ -292,7 +270,7 @@ describe('run_gitops_publish machine output', () => {
 
 	test('--format markdown --wetrun: the plan, the gate, and the progress go to stderr', async () => {
 		const { deps, steps } = create_recording_deps({
-			repos: create_repos(),
+			repos: create_gate_repos(),
 			fetched_entries: ready_entries()
 		});
 		const log = create_stream_log();
@@ -313,7 +291,7 @@ describe('run_gitops_publish machine output', () => {
 
 	test('--emit_json --wetrun: stdout carries JSON-lines events alone', async () => {
 		const { deps } = create_recording_deps({
-			repos: create_repos(),
+			repos: create_gate_repos(),
 			fetched_entries: ready_entries()
 		});
 		const log = create_stream_log();
@@ -332,7 +310,7 @@ describe('run_gitops_publish machine output', () => {
 	});
 
 	test('the human format logs on stdout', async () => {
-		const { deps } = create_recording_deps({ repos: create_repos(), fetched_entries: [] });
+		const { deps } = create_recording_deps({ repos: create_gate_repos(), fetched_entries: [] });
 		const log = create_stream_log();
 		await run_gitops_publish(Args.parse({}), log, deps);
 		assert.ok(log.stdout.length > 0);
@@ -345,7 +323,7 @@ describe('run_gitops_publish report masking', () => {
 
 	const run_failing = async (format: 'json' | 'markdown'): Promise<string> => {
 		const { deps } = create_recording_deps({
-			repos: create_repos(),
+			repos: create_gate_repos(),
 			fetched_entries: [
 				create_mock_repos_entry({ key: 'a' }),
 				create_mock_repos_entry({ key: 'b' })

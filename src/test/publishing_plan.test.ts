@@ -1,5 +1,4 @@
 import { assert, test } from 'vitest';
-import { Logger } from '@fuzdev/fuz_util/log.ts';
 
 import type { LocalRepo } from '$lib/local_repo.ts';
 import { generate_publishing_plan, version_change_kind } from '$lib/publishing_plan.ts';
@@ -8,22 +7,7 @@ import { derive_publish_steps } from '$lib/publish_steps.ts';
 import type { ChangesetOperations } from '$lib/operations.ts';
 import { parse_changeset_content } from '$lib/changeset_reader.ts';
 import { GITOPS_MAX_ITERATIONS_DEFAULT } from '$lib/gitops_constants.ts';
-import { create_mock_repo } from './test_helpers.ts';
-
-/** A logger that keeps the lines it logs at info level and above. */
-const create_capturing_log = (): Logger & { lines: Array<string> } => {
-	const lines: Array<string> = [];
-	const log = new Logger('test', {
-		level: 'info',
-		colors: false,
-		console: {
-			log: (...args) => lines.push(args.join(' ')),
-			warn: (...args) => lines.push(args.join(' ')),
-			error: (...args) => lines.push(args.join(' '))
-		}
-	});
-	return Object.assign(log, { lines });
-};
+import { create_mock_repo, create_stream_log } from './test_helpers.ts';
 
 test('detects breaking change cascades', async () => {
 	const repos: Array<LocalRepo> = [
@@ -360,7 +344,7 @@ test('the logged plan lists each change once', async () => {
 	const { repos, ops } = create_config_order_case();
 	const plan = await generate_publishing_plan(repos, { ops });
 
-	const log = create_capturing_log();
+	const log = create_stream_log();
 	log_publishing_plan(plan, log);
 
 	const positions = log.lines.filter((line) => /\[\d+\/\d+\]/.test(line));

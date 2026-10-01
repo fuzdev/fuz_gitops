@@ -1,7 +1,5 @@
 import { assert, describe, test } from 'vitest';
-import { readdirSync, readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { readdirSync } from 'node:fs';
 
 import {
 	REPOS_STATUS_FORMAT_VERSION,
@@ -11,11 +9,7 @@ import {
 	ReposStatusErrorReport,
 	ReposStatusReport
 } from '$lib/repos_status.ts';
-
-// written by the Rust side (`crates/fuz_repos/tests/golden.rs`), never by hand
-const GOLDEN_DIR = join(dirname(fileURLToPath(import.meta.url)), 'fixtures/repos_status');
-
-const load = (name: string): unknown => JSON.parse(readFileSync(join(GOLDEN_DIR, name), 'utf8'));
+import { GOLDEN_DIR, load_golden } from './test_helpers.ts';
 
 type GoldenKind = 'report' | 'error' | 'sessions' | 'not_mirrored';
 
@@ -62,25 +56,25 @@ describe('golden discovery', () => {
 
 describe('golden documents parse strictly', () => {
 	test.each(goldens_of('report'))('%s', (name) => {
-		const result = ReposStatusReport.safeParse(load(name));
+		const result = ReposStatusReport.safeParse(load_golden(name));
 		assert.ok(result.success, result.error?.message);
 	});
 
 	test.each(goldens_of('error'))('%s', (name) => {
-		const result = ReposStatusErrorReport.safeParse(load(name));
+		const result = ReposStatusErrorReport.safeParse(load_golden(name));
 		assert.ok(result.success, result.error?.message);
 		// named for its kind
 		assert.strictEqual(name, `error_report_${result.data.error.kind}.json`);
 	});
 
 	test('sessions.json', () => {
-		const result = ReposSessions.array().safeParse(load('sessions.json'));
+		const result = ReposSessions.array().safeParse(load_golden('sessions.json'));
 		assert.ok(result.success, result.error?.message);
 	});
 
 	test('either document parses as a status document', () => {
 		for (const name of [...goldens_of('report'), ...goldens_of('error')]) {
-			const result = ReposStatusDocument.safeParse(load(name));
+			const result = ReposStatusDocument.safeParse(load_golden(name));
 			assert.ok(result.success, `${name}: ${result.error?.message}`);
 			assert.strictEqual('error' in result.data, golden_kind(name) === 'error', name);
 		}
@@ -91,7 +85,7 @@ describe('golden documents parse strictly', () => {
 const report_with = (
 	mutate: (doc: ReposStatusReport, entry: ReposStatusReport['entries'][number]) => void
 ): unknown => {
-	const doc = ReposStatusReport.parse(load('status_report.json'));
+	const doc = ReposStatusReport.parse(load_golden('status_report.json'));
 	const entry = doc.entries[0];
 	assert.ok(entry);
 	mutate(doc, entry);
@@ -100,7 +94,7 @@ const report_with = (
 
 /** An error golden, parsed, then changed by `mutate`. */
 const error_with = (mutate: (doc: ReposStatusErrorReport) => void): unknown => {
-	const doc = ReposStatusErrorReport.parse(load('error_report_io.json'));
+	const doc = ReposStatusErrorReport.parse(load_golden('error_report_io.json'));
 	mutate(doc);
 	return doc;
 };
@@ -204,7 +198,7 @@ describe('the mirror refuses drift', () => {
 				error_with((doc) => Reflect.deleteProperty(doc.error, 'hint'))
 			)
 		);
-		const session = ReposSessions.array().parse(load('sessions.json'))[0];
+		const session = ReposSessions.array().parse(load_golden('sessions.json'))[0];
 		assert.ok(session?.kind === 'available');
 		const unscoped = session.unscoped[0];
 		assert.ok(unscoped);

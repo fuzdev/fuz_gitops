@@ -3,10 +3,10 @@ import { assert, describe, test } from 'vitest';
 import { run_preflight_checks } from '$lib/preflight_checks.ts';
 import type { VersionChange } from '$lib/publishing_plan.ts';
 import {
-	create_mock_repo,
-	create_mock_repos_entry,
+	create_mock_build_ops,
 	create_mock_npm_ops,
-	create_mock_build_ops
+	create_mock_repo,
+	entry_with
 } from './test_helpers.ts';
 import type { LocalRepo } from '$lib/local_repo.ts';
 import type { BuildOperations } from '$lib/operations.ts';
@@ -40,19 +40,13 @@ const create_recording_build_ops = (
 describe('preflight_checks', () => {
 	describe('repo git state', () => {
 		test("isn't preflight's: a repo off its branch and dirty passes (the readiness gate refuses it)", async () => {
-			const repo = create_mock_repo({ name: 'package-a' });
-			const primary = repo.entry.checkouts[0]!;
 			const not_at_rest: LocalRepo = {
-				...repo,
-				entry: create_mock_repos_entry({
-					key: 'package-a',
-					checkouts: [
-						{
-							...primary,
-							head: { kind: 'branch', name: 'feature' },
-							uncommitted: { staged: 0, unstaged: 0, untracked: 1, conflicted: 0 }
-						}
-					],
+				...create_mock_repo({ name: 'package-a' }),
+				entry: entry_with('package-a', {
+					checkout: {
+						head: { kind: 'branch', name: 'feature' },
+						uncommitted: { staged: 0, unstaged: 0, untracked: 1, conflicted: 0 }
+					},
 					at_rest: {
 						on_branch: false,
 						clean: false,

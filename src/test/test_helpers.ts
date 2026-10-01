@@ -9,7 +9,6 @@ import { Logger } from '@fuzdev/fuz_util/log.ts';
 import type { LocalRepo } from '$lib/local_repo.ts';
 import type {
 	GitopsOperations,
-	ChangesetOperations,
 	GitOperations,
 	FsOperations,
 	NpmOperations,
@@ -19,7 +18,6 @@ import type {
 	ReposOperations
 } from '$lib/operations.ts';
 import type { RepoReadinessProblem } from '$lib/repo_readiness.ts';
-import type { BumpType } from '$lib/version_utils.ts';
 import {
 	REPOS_STATUS_FORMAT_VERSION,
 	type ReposCheckout,
@@ -28,27 +26,36 @@ import {
 } from '$lib/repos_status.ts';
 
 /** A logger that records what reaches each stream, as Node's console routes it. */
-export type StreamLog = Logger & { stdout: Array<string>; stderr: Array<string> };
+export type StreamLog = Logger & {
+	stdout: Array<string>;
+	stderr: Array<string>;
+	/** Every line on either stream, in the order logged. */
+	lines: Array<string>;
+};
 
 /**
  * Creates a logger at `debug` whose console records by stream the way Node's
- * does: `log` on `stdout`, `warn` and `error` on `stderr`. A task that routes
- * its human output to stderr (`route_human_output`) leaves `stdout` holding
- * only its document.
+ * does: `log` on `stdout`, `warn` and `error` on `stderr`, and every line in
+ * order on `lines`. A task that routes its human output to stderr
+ * (`route_human_output`) leaves `stdout` holding only its document.
  */
 export const create_stream_log = (): StreamLog => {
 	const stdout: Array<string> = [];
 	const stderr: Array<string> = [];
+	const lines: Array<string> = [];
+	const record =
+		(stream: Array<string>) =>
+		(...args: Array<unknown>): void => {
+			const line = args.join(' ');
+			stream.push(line);
+			lines.push(line);
+		};
 	const log = new Logger('test', {
 		level: 'debug',
 		colors: false,
-		console: {
-			log: (...args) => stdout.push(args.join(' ')),
-			warn: (...args) => stderr.push(args.join(' ')),
-			error: (...args) => stderr.push(args.join(' '))
-		}
+		console: { log: record(stdout), warn: record(stderr), error: record(stderr) }
 	});
-	return Object.assign(log, { stdout, stderr });
+	return Object.assign(log, { stdout, stderr, lines });
 };
 
 export interface MockRepoOptions {
@@ -192,25 +199,6 @@ export const create_mock_package_json_files = (
 
 	return fs;
 };
-
-/**
- * Creates mock ChangesetOperations with custom version predictions
- */
-export const create_mock_changeset_ops = (
-	versionPredictions: Map<string, { version: string; bump_type: BumpType }>,
-	reposWithChangesets: Set<string> = new Set()
-): ChangesetOperations => ({
-	has_changesets: async (options) => ({
-		ok: true,
-		value: reposWithChangesets.has(options.repo.library.name)
-	}),
-	read_changesets: async () => ({ ok: true, value: [] }),
-	predict_next_version: async (options) => {
-		const prediction = versionPredictions.get(options.repo.library.name);
-		if (!prediction) return null;
-		return { ok: true, ...prediction };
-	}
-});
 
 /**
  * Creates mock GitOperations for testing
@@ -435,10 +423,12 @@ export const create_mock_repos_ops = (
 /**
  * Creates mock ReposOperations whose `status` reports every requested key as a
  * ready entry (`create_mock_repos_entry`), fetched when asked to fetch, and
- * records each call. `entries` replaces the entry for a key.
+ * records each call. `entries` replaces the entry for a key; `fetched`, when
+ * given, replaces it instead in a run with `--fetch`.
  */
 export const create_ready_repos_ops = (
-	entries: Record<string, ReposEntryStatus> = {}
+	entries: Record<string, ReposEntryStatus> = {},
+	fetched: Record<string, ReposEntryStatus> = entries
 ): ReposOperations & {
 	calls: Array<{ keys: Array<string>; registry?: string; fetch?: boolean }>;
 } => {
@@ -447,8 +437,9 @@ export const create_ready_repos_ops = (
 		calls,
 		status: async (options) => {
 			calls.push(options);
+			const by_key = options.fetch ? fetched : entries;
 			const report = create_mock_repos_report(
-				options.keys.map((key) => entries[key] ?? create_mock_repos_entry({ key })),
+				options.keys.map((key) => by_key[key] ?? create_mock_repos_entry({ key })),
 				{ fetched: options.fetch === true }
 			);
 			return { ok: true, output: { stdout: JSON.stringify(report), stderr: '', exit_code: 0 } };
@@ -456,19 +447,29 @@ export const create_ready_repos_ops = (
 	};
 };
 
-/** Two npm repos and a cargo one; `b`'s entry as the local, unfetched status read it. */
-export const create_repos = (b_entry: Partial<ReposEntryStatus> = {}): Array<LocalRepo> => {
+/**
+ * Two npm repos, `b` depending on `a`, and a cargo one `c`, for the readiness
+ * gate's tests; `b_entry` is `b`'s entry as the local, unfetched status read it.
+ */
+export const create_gate_repos = (b_entry?: ReposEntryStatus): Array<LocalRepo> => {
 	const a = create_mock_repo({ name: 'a' });
 	const b = create_mock_repo({ name: 'b', deps: { a: '^1.0.0' } });
-	b.entry = create_mock_repos_entry({ key: 'b', ...b_entry });
+	if (b_entry) b.entry = b_entry;
 	const c = create_mock_repo({ name: 'c', kind: 'cargo' });
 	return [a, b, c];
 };
 
-// written by the Rust side (`crates/fuz_repos/tests/golden.rs`), never by hand
-const GOLDEN_DIR = join(dirname(fileURLToPath(import.meta.url)), 'fixtures/repos_status');
-export const load_golden = (name: string): unknown =>
-	JSON.parse(readFileSync(join(GOLDEN_DIR, name), 'utf8'));
+/**
+ * The `repos --json` golden documents, written by the Rust side
+ * (`crates/fuz_repos/tests/golden.rs`), never by hand.
+ */
+export const GOLDEN_DIR = join(dirname(fileURLToPath(import.meta.url)), 'fixtures/repos_status');
+
+/** Reads the golden `name` as the text `repos` printed. */
+export const read_golden = (name: string): string => readFileSync(join(GOLDEN_DIR, name), 'utf8');
+
+/** Reads the golden `name` as parsed JSON. */
+export const load_golden = (name: string): unknown => JSON.parse(read_golden(name));
 
 /** An entry `key` whose primary checkout overrides `checkout`, with `at_rest` set whole. */
 export const entry_with = (

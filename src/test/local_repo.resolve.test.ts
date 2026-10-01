@@ -1,17 +1,10 @@
 import { assert, describe, test } from 'vitest';
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 
 import { local_repos_resolve } from '$lib/local_repo.ts';
 import { ReposStatusReport } from '$lib/repos_status.ts';
-import { create_mock_repos_entry, create_mock_repos_report } from './test_helpers.ts';
+import { create_mock_repos_entry, create_mock_repos_report, load_golden } from './test_helpers.ts';
 
-// written by the Rust side (`crates/fuz_repos/tests/golden.rs`), never by hand
-const GOLDEN_DIR = join(dirname(fileURLToPath(import.meta.url)), 'fixtures/repos_status');
-
-const load_report = (name: string): ReposStatusReport =>
-	ReposStatusReport.parse(JSON.parse(readFileSync(join(GOLDEN_DIR, name), 'utf8')));
+const load_report = (name: string): ReposStatusReport => ReposStatusReport.parse(load_golden(name));
 
 // the full report: present repos, a reference, a missing entry, one not a repo, a failed probe
 const report = load_report('status_report.json');

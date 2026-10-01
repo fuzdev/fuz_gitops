@@ -7,13 +7,7 @@ import { validate_dependency_graph } from '$lib/graph_validation.ts';
 import { generate_publishing_plan } from '$lib/publishing_plan.ts';
 import { load_gitops_config } from '$lib/gitops_config.ts';
 import { publish_repos } from '$lib/multi_repo_publisher.ts';
-import {
-	create_mock_gitops_ops,
-	create_unauthenticated_npm_ops,
-	create_unavailable_registry_npm_ops,
-	create_failing_build_ops,
-	create_configurable_gitops_ops
-} from './mock_operations.ts';
+import { create_fixture_gitops_ops } from './mock_operations.ts';
 import { fixture_to_local_repos } from './load_repo_fixtures.ts';
 import type { LocalRepo } from '$lib/local_repo.ts';
 import { basic_publishing } from './repo_fixtures/basic_publishing.ts';
@@ -72,7 +66,7 @@ const get_fixture_repos = (fixture: RepoFixtureSet): Array<LocalRepo> => {
  * Creates mock operations, loads repos, and generates publishing plan.
  */
 const setup_plan_test = async (fixture: RepoFixtureSet) => {
-	const mock_ops = create_mock_gitops_ops(fixture);
+	const mock_ops = create_fixture_gitops_ops(fixture);
 	const local_repos = get_fixture_repos(fixture);
 	const plan = await generate_publishing_plan(local_repos, { ops: mock_ops.changeset });
 	return { mock_ops, local_repos, plan };
@@ -83,7 +77,7 @@ const setup_plan_test = async (fixture: RepoFixtureSet) => {
  * Creates mock operations, loads repos, and runs dry run publish.
  */
 const setup_dry_run_test = async (fixture: RepoFixtureSet) => {
-	const mock_ops = create_mock_gitops_ops(fixture);
+	const mock_ops = create_fixture_gitops_ops(fixture);
 	const local_repos = get_fixture_repos(fixture);
 	const result = await publish_repos(local_repos, {
 		wetrun: false,
@@ -273,14 +267,9 @@ describe('Error scenario fixtures', () => {
 
 			describe('plan', () => {
 				test('reports errors', async () => {
-					try {
-						const { plan } = await setup_plan_test(fixture);
-						// If plan succeeded, errors should be in result
-						assert_messages(plan.errors, fixture.expected_outcomes.errors!, 'errors');
-					} catch (_error) {
-						// Command failed - this is expected for some error fixtures
-						assert.ok(true, 'Plan generation failed as expected for error fixture');
-					}
+					// the plan reports its errors rather than throwing them
+					const { plan } = await setup_plan_test(fixture);
+					assert_messages(plan.errors, fixture.expected_outcomes.errors!, 'errors');
 				});
 			});
 		});
@@ -310,31 +299,6 @@ describe('Config loading validation', () => {
 			);
 		});
 	}
-});
-
-/**
- * Test error conditions and failure scenarios.
- * These tests validate that our mock operations correctly simulate various error states.
- */
-describe('Error condition tests', () => {
-	test('npm auth failure mock returns expected values', async () => {
-		const npm_ops = create_unauthenticated_npm_ops();
-		const result = await npm_ops.check_auth();
-		assert.equal(result.ok, false, 'Should fail auth check');
-	});
-
-	test('npm registry unavailable mock returns expected values', async () => {
-		const npm_ops = create_unavailable_registry_npm_ops();
-		const result = await npm_ops.check_registry();
-		assert.equal(result.ok, false, 'Should fail registry check');
-	});
-
-	test('build failure mock returns expected values', async () => {
-		const build_ops = create_failing_build_ops();
-		const mock_repo = fixture_to_local_repos(basic_publishing)[0]!;
-		const result = await build_ops.build_package({ repo: mock_repo });
-		assert.equal(result.ok, false, 'Should fail build');
-	});
 });
 
 /**
@@ -388,29 +352,5 @@ describe('JSON output format tests', () => {
 				assert.ok('dependents' in node, 'Node should have dependents');
 			}
 		}
-	});
-});
-
-/**
- * Test preflight operation mocks.
- */
-describe('Preflight mock tests', () => {
-	const fixture = basic_publishing;
-
-	test('basic preflight mock passes', async () => {
-		const mock_ops = create_mock_gitops_ops(fixture);
-		const result = await mock_ops.preflight.run_preflight_checks({} as any);
-		assert.equal(result.ok, true);
-		assert.deepEqual(result.errors, []);
-	});
-
-	test('configurable preflight can simulate failures', async () => {
-		const mock_ops = create_configurable_gitops_ops(fixture, {
-			preflight: { fails: true, errors: ['Test error'] }
-		});
-
-		const result = await mock_ops.preflight.run_preflight_checks({} as any);
-		assert.equal(result.ok, false, 'Should fail when configured to fail');
-		assert.ok(result.errors.includes('Test error'), 'Should include configured error');
 	});
 });

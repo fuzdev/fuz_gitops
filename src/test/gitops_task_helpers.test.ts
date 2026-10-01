@@ -1,7 +1,7 @@
 import { assert, describe, test } from 'vitest';
 import { assert_rejects } from '@fuzdev/fuz_util/testing.ts';
 import { TaskError } from '@fuzdev/gro';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -11,7 +11,8 @@ import { basic_publishing } from './fixtures/repo_fixtures/basic_publishing.ts';
 import {
 	create_mock_repos_entry,
 	create_mock_repos_ops,
-	create_mock_repos_report
+	create_mock_repos_report,
+	read_golden
 } from './test_helpers.ts';
 
 const TEST_DIR = dirname(fileURLToPath(import.meta.url));
@@ -49,9 +50,7 @@ describe('resolve_gitops_repos', () => {
 	});
 
 	test('an error document fails with its message', async () => {
-		const error_doc = JSON.parse(
-			readFileSync(join(TEST_DIR, 'fixtures/repos_status/error_report_unknown_entry.json'), 'utf8')
-		);
+		const error_doc = JSON.parse(read_golden('error_report_unknown_entry.json'));
 		await assert_rejects(
 			() => resolve_gitops_repos({ config: CONFIG, repos_ops: create_mock_repos_ops(error_doc) }),
 			/basic_publishing\.config\.ts: the gitops config lists `mta`, which the registry \(repos\.toml\) doesn't name — did you mean `meta`\?/

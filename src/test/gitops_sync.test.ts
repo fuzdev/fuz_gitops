@@ -1,6 +1,5 @@
 import { assert, describe, test } from 'vitest';
 import { assert_rejects } from '@fuzdev/fuz_util/testing.ts';
-import { Logger } from '@fuzdev/fuz_util/log.ts';
 import { TaskError } from '@fuzdev/gro';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -9,9 +8,12 @@ import { prepare_gitops_sync, type GitopsSyncDeps } from '$lib/gitops_sync.task.
 import type { ReposEntryStatus } from '$lib/repos_status.ts';
 import { basic_publishing } from './fixtures/repo_fixtures/basic_publishing.ts';
 import {
+	AT_REST,
 	create_mock_repo,
 	create_mock_repos_entry,
-	create_mock_repos_report
+	create_ready_repos_ops,
+	create_stream_log,
+	entry_with
 } from './test_helpers.ts';
 
 // lists the `basic_publishing` fixture's repos by key
@@ -21,45 +23,22 @@ const CONFIG = join(
 );
 const KEYS = basic_publishing.repos.map((r) => r.repo_name);
 
-/** A logger that keeps what it logs, by stream. */
-const create_capturing_log = (): Logger & { warned: Array<string>; logged: Array<string> } => {
-	const warned: Array<string> = [];
-	const logged: Array<string> = [];
-	const log = new Logger('test', {
-		level: 'info',
-		colors: false,
-		console: {
-			log: (...args) => logged.push(args.join(' ')),
-			warn: (...args) => warned.push(args.join(' ')),
-			error: (...args) => logged.push(args.join(' '))
-		}
-	});
-	return Object.assign(log, { warned, logged });
-};
-
-const primary = (key: string) => create_mock_repos_entry({ key }).checkouts[0]!;
-
 const OFF_BRANCH = (key: string): ReposEntryStatus =>
-	create_mock_repos_entry({
-		key,
-		checkouts: [{ ...primary(key), head: { kind: 'branch', name: 'feature' } }],
-		at_rest: { on_branch: false, clean: true, idle: true, followed: { kind: 'in_sync' } }
+	entry_with(key, {
+		checkout: { head: { kind: 'branch', name: 'feature' } },
+		at_rest: { ...AT_REST, on_branch: false }
 	});
 
 const DIRTY = (key: string): ReposEntryStatus =>
-	create_mock_repos_entry({
-		key,
-		checkouts: [
-			{ ...primary(key), uncommitted: { staged: 0, unstaged: 2, untracked: 0, conflicted: 0 } }
-		],
-		at_rest: { on_branch: true, clean: false, idle: true, followed: { kind: 'in_sync' } }
+	entry_with(key, {
+		checkout: { uncommitted: { staged: 0, unstaged: 2, untracked: 0, conflicted: 0 } },
+		at_rest: { ...AT_REST, clean: false }
 	});
 
 const REBASING = (key: string): ReposEntryStatus =>
-	create_mock_repos_entry({
-		key,
-		checkouts: [{ ...primary(key), in_progress: 'rebase' }],
-		at_rest: { on_branch: true, clean: true, idle: false, followed: { kind: 'in_sync' } }
+	entry_with(key, {
+		checkout: { in_progress: 'rebase' },
+		at_rest: { ...AT_REST, idle: false }
 	});
 
 /**
@@ -80,21 +59,14 @@ const create_recording_deps = (
 ): { deps: GitopsSyncDeps; steps: Array<string> } => {
 	const { local = {}, fetched = local, token = 'token', missing = [], files = {} } = options;
 	const steps: Array<string> = [];
+	const inner = create_ready_repos_ops(local, fetched);
 	return {
 		steps,
 		deps: {
 			repos_ops: {
-				status: async ({ keys, fetch }) => {
-					steps.push(`repos status${fetch ? ' --fetch' : ''}`);
-					const by_key = fetch ? fetched : local;
-					const report = create_mock_repos_report(
-						keys.map((key) => by_key[key] ?? create_mock_repos_entry({ key })),
-						{ fetched: fetch === true }
-					);
-					return {
-						ok: true,
-						output: { stdout: JSON.stringify(report), stderr: '', exit_code: 0 }
-					};
+				status: async (status_options) => {
+					steps.push(`repos status${status_options.fetch ? ' --fetch' : ''}`);
+					return inner.status(status_options);
 				}
 			},
 			load_repos: async ({ local_repo_paths }) => {
@@ -124,7 +96,7 @@ describe('prepare_gitops_sync', () => {
 			KEYS.map((key) => [key, create_mock_repos_entry({ key, fetched_at: 1234 })])
 		);
 		const { deps, steps } = create_recording_deps({ fetched });
-		const log = create_capturing_log();
+		const log = create_stream_log();
 		const prepared = await prepare_gitops_sync({ config: CONFIG, log }, deps);
 		assert.ok(prepared);
 		assert.strictEqual(prepared.token, 'token');
@@ -135,7 +107,7 @@ describe('prepare_gitops_sync', () => {
 		// the loaded repos carry the fetched report's entries
 		assert.ok(prepared.local_repos.every((r) => r.entry.fetched_at === 1234));
 		assert.deepEqual(steps, ['repos status', 'token', 'repos status --fetch', 'load']);
-		assert.deepEqual(log.warned, []);
+		assert.deepEqual(log.stderr, []);
 	});
 
 	test('refuses a repo off its branch, dirty, or mid-operation before any network, naming each', async () => {
@@ -143,7 +115,7 @@ describe('prepare_gitops_sync', () => {
 			local: { repo_a: OFF_BRANCH('repo_a'), repo_b: DIRTY('repo_b'), repo_c: REBASING('repo_c') }
 		});
 		const err = await assert_rejects(() =>
-			prepare_gitops_sync({ config: CONFIG, log: create_capturing_log() }, deps)
+			prepare_gitops_sync({ config: CONFIG, log: create_stream_log() }, deps)
 		);
 		assert.ok(err instanceof TaskError);
 		assert.include(err.message, 'repo_a: on `feature`, not `main` — switch to `main`');
@@ -158,7 +130,7 @@ describe('prepare_gitops_sync', () => {
 	test('refuses what the fetched report finds not ready', async () => {
 		const { deps, steps } = create_recording_deps({ fetched: { repo_d: DIRTY('repo_d') } });
 		await assert_rejects(
-			() => prepare_gitops_sync({ config: CONFIG, log: create_capturing_log() }, deps),
+			() => prepare_gitops_sync({ config: CONFIG, log: create_stream_log() }, deps),
 			/repo_d: uncommitted changes/
 		);
 		assert.deepEqual(steps, ['repos status', 'token', 'repos status --fetch']);
@@ -171,11 +143,11 @@ describe('prepare_gitops_sync', () => {
 			repo_c: REBASING('repo_c')
 		};
 		const { deps, steps } = create_recording_deps({ local });
-		const log = create_capturing_log();
+		const log = create_stream_log();
 		const prepared = await prepare_gitops_sync({ config: CONFIG, allow_dirty: true, log }, deps);
 		assert.ok(prepared);
 		assert.deepEqual(steps, ['repos status', 'token', 'repos status --fetch', 'load']);
-		const warned = log.warned.join('\n');
+		const warned = log.stderr.join('\n');
 		assert.include(warned, 'repo_a: on `feature`, not `main`');
 		assert.include(warned, 'repo_b: uncommitted changes (2 unstaged)');
 		assert.include(warned, 'repo_c: a rebase is in progress');
@@ -192,10 +164,10 @@ describe('prepare_gitops_sync', () => {
 			}
 		});
 		const { deps } = create_recording_deps({ fetched: { repo_e: behind } });
-		const log = create_capturing_log();
+		const log = create_stream_log();
 		assert.ok(await prepare_gitops_sync({ config: CONFIG, log }, deps));
 		assert.include(
-			log.warned.join('\n'),
+			log.stderr.join('\n'),
 			'repo_e: `main` is 3 commits behind origin (never fetched) — `repos sync repo_e` fast-forwards it'
 		);
 	});
@@ -206,15 +178,15 @@ describe('prepare_gitops_sync', () => {
 			fetch_error: { kind: 'timed_out', after_secs: 60 }
 		});
 		const { deps } = create_recording_deps({ fetched: { repo_b: failed } });
-		const log = create_capturing_log();
+		const log = create_stream_log();
 		assert.ok(await prepare_gitops_sync({ config: CONFIG, log }, deps));
-		assert.include(log.warned.join('\n'), 'repo_b: fetching origin failed (timed out after 60s)');
+		assert.include(log.stderr.join('\n'), 'repo_b: fetching origin failed (timed out after 60s)');
 	});
 
 	test('a missing token fails before fetching', async () => {
 		const { deps, steps } = create_recording_deps({ token: '' });
 		await assert_rejects(
-			() => prepare_gitops_sync({ config: CONFIG, log: create_capturing_log() }, deps),
+			() => prepare_gitops_sync({ config: CONFIG, log: create_stream_log() }, deps),
 			/SECRET_GITHUB_API_TOKEN/
 		);
 		assert.deepEqual(steps, ['repos status', 'token']);
@@ -230,9 +202,9 @@ describe('prepare_gitops_sync', () => {
 				'/test/repo_d/tsconfig.json': '{"compilerOptions": {}}'
 			}
 		});
-		const log = create_capturing_log();
+		const log = create_stream_log();
 		assert.ok(await prepare_gitops_sync({ config: CONFIG, log }, deps));
-		const gaps = log.warned
+		const gaps = log.stderr
 			.filter((w) => w.includes(': no '))
 			.map((w) => w.replace(/^.*\[test\] /, ''));
 		assert.deepEqual(gaps, [
@@ -245,9 +217,9 @@ describe('prepare_gitops_sync', () => {
 		const { deps } = create_recording_deps({
 			missing: ['/test/repo_a/package.json', '/test/repo_a/node_modules']
 		});
-		const log = create_capturing_log();
+		const log = create_stream_log();
 		assert.ok(await prepare_gitops_sync({ config: CONFIG, log }, deps));
-		assert.deepEqual(log.warned, []);
+		assert.deepEqual(log.stderr, []);
 	});
 });
 
@@ -263,12 +235,12 @@ describe('prepare_gitops_sync --check', () => {
 			}
 		});
 		const { deps, steps } = create_recording_deps({ local: { repo_e: behind }, token: '' });
-		const log = create_capturing_log();
+		const log = create_stream_log();
 		const prepared = await prepare_gitops_sync({ config: CONFIG, check: true, log }, deps);
 		assert.strictEqual(prepared, null);
 		assert.deepEqual(steps, ['repos status']);
-		assert.include(log.warned.join('\n'), 'repo_e: `main` is 1 commit behind origin');
-		assert.include(log.logged.join('\n'), 'ready to generate');
+		assert.include(log.stderr.join('\n'), 'repo_e: `main` is 1 commit behind origin');
+		assert.include(log.stdout.join('\n'), 'ready to generate');
 	});
 
 	test('fails naming what a real run would refuse', async () => {
@@ -277,7 +249,7 @@ describe('prepare_gitops_sync --check', () => {
 			token: ''
 		});
 		const err = await assert_rejects(() =>
-			prepare_gitops_sync({ config: CONFIG, check: true, log: create_capturing_log() }, deps)
+			prepare_gitops_sync({ config: CONFIG, check: true, log: create_stream_log() }, deps)
 		);
 		assert.ok(err instanceof TaskError);
 		assert.include(err.message, 'repo_a: on `feature`');
@@ -290,14 +262,14 @@ describe('prepare_gitops_sync --check', () => {
 			local: { repo_a: OFF_BRANCH('repo_a') },
 			token: ''
 		});
-		const log = create_capturing_log();
+		const log = create_stream_log();
 		const prepared = await prepare_gitops_sync(
 			{ config: CONFIG, check: true, allow_dirty: true, log },
 			deps
 		);
 		assert.strictEqual(prepared, null);
 		assert.deepEqual(steps, ['repos status']);
-		assert.include(log.warned.join('\n'), 'repo_a: on `feature`, not `main`');
+		assert.include(log.stderr.join('\n'), 'repo_a: on `feature`, not `main`');
 	});
 
 	test('keeps the public-host guard', async () => {
@@ -311,7 +283,7 @@ describe('prepare_gitops_sync --check', () => {
 						config: CONFIG,
 						check: true,
 						host: { name: '@test/host', private: false },
-						log: create_capturing_log()
+						log: create_stream_log()
 					},
 					deps
 				),
