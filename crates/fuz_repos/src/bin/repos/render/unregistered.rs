@@ -110,25 +110,40 @@ fn repair_block_summary(block: &RepairBlock, view: View<'_>) -> String {
 /// `--verbose`'s block for one unregistered dir: what it is, its origin,
 /// and the fix when there's a mechanical one.
 pub fn render_unregistered(u: &UnregisteredClone, report: &StatusReport, view: View<'_>) -> String {
-    let workspace = Path::new(&report.workspace);
-    let path = workspace.join(&u.dir);
+    let path = Path::new(&report.workspace).join(&u.dir);
     let path = path.to_string_lossy();
-    let at = view.show(&path);
-    // an entry's dir as a word in a command
-    let entry_dir = |key: &str| {
-        let dir = report
-            .entries
-            .iter()
-            .find(|e| e.key == key)
-            .map_or(key, |e| e.dir.as_str());
-        view.show_arg(&workspace.join(dir).to_string_lossy())
-    };
     let owner = match (u.owned, &u.origin) {
         (true, _) => "owned",
         (false, Some(_)) => "third-party",
         (false, None) => "no origin",
     };
-    let (kind, detail) = match &u.kind {
+    let (kind, detail) = unregistered_kind_detail(u, &path, report, view);
+    let mut out = format!("{}  unregistered · {owner} · {kind}\n", u.dir);
+    let _ = writeln!(out, "  {:<10}{}", "dir", view.show(&path));
+    let _ = writeln!(
+        out,
+        "  {:<10}{}",
+        "origin",
+        u.origin.as_deref().unwrap_or("none")
+    );
+    for (label, detail) in detail {
+        let _ = writeln!(out, "  {label:<10}{detail}");
+    }
+    out
+}
+
+/// A block line after the origin: its label, and what it says.
+type DetailLine = (&'static str, String);
+
+/// What an unregistered dir is, for its block's header, and the lines that
+/// follow its origin; `path` is the dir's full path.
+fn unregistered_kind_detail(
+    u: &UnregisteredClone,
+    path: &str,
+    report: &StatusReport,
+    view: View<'_>,
+) -> (String, Vec<DetailLine>) {
+    match &u.kind {
         UnregisteredKind::Clone => ("clone".to_owned(), vec![]),
         UnregisteredKind::Worktree => (
             "worktree".to_owned(),
@@ -144,148 +159,17 @@ pub fn render_unregistered(u: &UnregisteredClone, report: &StatusReport, view: V
             entry,
             blocked_by: None,
             exit_noise,
-        } => {
-            let mut detail = vec![(
-                "fix",
-                format!(
-                    "git -C {} worktree repair {}",
-                    entry_dir(entry),
-                    view.show_arg(&path)
-                ),
-            )];
-            if let Some(path) = exit_noise {
-                detail.push((
-                    "note",
-                    format!(
-                        "git will complain about {} and exit 1, leaving it be; this one is \
-                         repaired all the same",
-                        view.show(path)
-                    ),
-                ));
-            }
-            (format!("moved worktree of {entry}"), detail)
-        }
-        UnregisteredKind::MovedWorktree {
-            entry,
-            blocked_by: Some(RepairBlock::Rewrites { path, git_dir }),
-            ..
         } => (
             format!("moved worktree of {entry}"),
-            vec![(
-                "note",
-                format!(
-                    "git worktree repair would also rewrite {}/.git — {entry}'s worktree git \
-                     dir {} names it, and its .git is missing or names another — fix that first",
-                    view.show(path),
-                    git_dir_id(git_dir)
-                ),
-            )],
+            repair_detail(entry, exit_noise.as_deref(), path, report, view),
         ),
         UnregisteredKind::MovedWorktree {
             entry,
-            blocked_by: Some(RepairBlock::Swapped { git_dir, with }),
+            blocked_by: Some(block),
             ..
         } => (
             format!("moved worktree of {entry}"),
-            vec![(
-                "note",
-                format!(
-                    "swapped by hand with {with}: {entry}'s worktree git dir {} names this dir \
-                     while {with}'s .git names it — move the two dirs back; a repair of either \
-                     would hijack the other",
-                    git_dir_id(git_dir)
-                ),
-            )],
-        ),
-        UnregisteredKind::MovedWorktree {
-            entry,
-            blocked_by: Some(RepairBlock::ClaimedDir { git_dir }),
-            ..
-        } => (
-            format!("moved worktree of {entry}"),
-            vec![(
-                "note",
-                format!(
-                    "{entry}'s worktree git dir {} names this dir, so a repair would point this \
-                     .git there — repair the moved worktree whose .git names it first, once its \
-                     repair is offered, then rerun repos status",
-                    git_dir_id(git_dir)
-                ),
-            )],
-        ),
-        UnregisteredKind::MovedWorktree {
-            entry,
-            blocked_by: Some(RepairBlock::RelativeGitdir { git_dir }),
-            ..
-        } => (
-            format!("moved worktree of {entry}"),
-            vec![(
-                "note",
-                format!(
-                    "{entry}'s worktree git dir {} names its worktree by a relative path, which \
-                     git 2.48+ resolves against the git dir and older gits against the cwd — \
-                     what a repair would touch is uncertain, so none is offered; make that gitdir \
-                     absolute by hand, then rerun repos status",
-                    git_dir_id(git_dir)
-                ),
-            )],
-        ),
-        UnregisteredKind::MovedWorktree {
-            entry,
-            blocked_by: Some(RepairBlock::UnreadableGitdir { git_dir }),
-            ..
-        } => (
-            format!("moved worktree of {entry}"),
-            vec![(
-                "note",
-                format!(
-                    "{entry}'s worktree git dir {} has a gitdir that can't be read by this \
-                     tool (unreadable, or past its size limit, which git may read fine) — what a \
-                     repair would touch is unknown, so none is offered; trim or fix it by hand, \
-                     then rerun repos status",
-                    git_dir_id(git_dir)
-                ),
-            )],
-        ),
-        UnregisteredKind::MovedWorktree {
-            entry,
-            blocked_by: Some(RepairBlock::NulInGitdir { git_dir }),
-            ..
-        } => (
-            format!("moved worktree of {entry}"),
-            vec![
-                (
-                    "note",
-                    format!(
-                        "{entry}'s worktree git dir {} holds a NUL in its gitdir — git lists \
-                         this worktree by what's before the NUL, while a repair here compares \
-                         that with this .git and may change nothing; the fix writes this .git \
-                         into that gitdir",
-                        git_dir_id(git_dir)
-                    ),
-                ),
-                (
-                    "fix",
-                    format!(
-                        "printf '%s\\n' {} > {}",
-                        view.show_arg(&Path::new(&*path).join(".git").to_string_lossy()),
-                        view.show_arg(&Path::new(git_dir).join("gitdir").to_string_lossy())
-                    ),
-                ),
-            ],
-        ),
-        UnregisteredKind::MovedWorktree {
-            entry,
-            blocked_by: Some(RepairBlock::NonUtf8Path),
-            ..
-        } => (
-            format!("moved worktree of {entry}"),
-            vec![(
-                "note",
-                "its path isn't UTF-8, so no repair command here can name it exactly — rename \
-                 it to a UTF-8 name, then rerun repos status"
-                    .to_owned(),
-            )],
+            repair_block_detail(entry, block, path, view),
         ),
         UnregisteredKind::OrphanedWorktree { entry } => (
             format!("orphaned worktree of {entry}"),
@@ -316,17 +200,112 @@ pub fn render_unregistered(u: &UnregisteredClone, report: &StatusReport, view: V
                     .to_owned(),
             )],
         ),
-    };
-    let mut out = format!("{}  unregistered · {owner} · {kind}\n", u.dir);
-    let _ = writeln!(out, "  {:<10}{at}", "dir");
-    let _ = writeln!(
-        out,
-        "  {:<10}{}",
-        "origin",
-        u.origin.as_deref().unwrap_or("none")
-    );
-    for (label, detail) in detail {
-        let _ = writeln!(out, "  {label:<10}{detail}");
     }
-    out
+}
+
+/// A repairable moved worktree's fix, run from its entry's dir, and the
+/// note when git will exit 1 over another worktree (`exit_noise`).
+fn repair_detail(
+    entry: &str,
+    exit_noise: Option<&str>,
+    path: &str,
+    report: &StatusReport,
+    view: View<'_>,
+) -> Vec<DetailLine> {
+    // the entry's dir as a word in the command
+    let dir = report
+        .entries
+        .iter()
+        .find(|e| e.key == entry)
+        .map_or(entry, |e| e.dir.as_str());
+    let entry_dir = view.show_arg(&Path::new(&report.workspace).join(dir).to_string_lossy());
+    let mut detail = vec![(
+        "fix",
+        format!("git -C {entry_dir} worktree repair {}", view.show_arg(path)),
+    )];
+    if let Some(noise) = exit_noise {
+        detail.push((
+            "note",
+            format!(
+                "git will complain about {} and exit 1, leaving it be; this one is repaired all \
+                 the same",
+                view.show(noise)
+            ),
+        ));
+    }
+    detail
+}
+
+/// Why a moved worktree of `entry` gets no repair, and the fix when
+/// there's a mechanical one.
+fn repair_block_detail(
+    entry: &str,
+    block: &RepairBlock,
+    path: &str,
+    view: View<'_>,
+) -> Vec<DetailLine> {
+    let note = match block {
+        RepairBlock::Rewrites {
+            path: other,
+            git_dir,
+        } => format!(
+            "git worktree repair would also rewrite {}/.git — {entry}'s worktree git dir {} \
+             names it, and its .git is missing or names another — fix that first",
+            view.show(other),
+            git_dir_id(git_dir)
+        ),
+        RepairBlock::Swapped { git_dir, with } => format!(
+            "swapped by hand with {with}: {entry}'s worktree git dir {} names this dir while \
+             {with}'s .git names it — move the two dirs back; a repair of either would hijack \
+             the other",
+            git_dir_id(git_dir)
+        ),
+        RepairBlock::ClaimedDir { git_dir } => format!(
+            "{entry}'s worktree git dir {} names this dir, so a repair would point this .git \
+             there — repair the moved worktree whose .git names it first, once its repair is \
+             offered, then rerun repos status",
+            git_dir_id(git_dir)
+        ),
+        RepairBlock::RelativeGitdir { git_dir } => format!(
+            "{entry}'s worktree git dir {} names its worktree by a relative path, which git \
+             2.48+ resolves against the git dir and older gits against the cwd — what a repair \
+             would touch is uncertain, so none is offered; make that gitdir absolute by hand, \
+             then rerun repos status",
+            git_dir_id(git_dir)
+        ),
+        RepairBlock::UnreadableGitdir { git_dir } => format!(
+            "{entry}'s worktree git dir {} has a gitdir that can't be read by this tool \
+             (unreadable, or past its size limit, which git may read fine) — what a repair \
+             would touch is unknown, so none is offered; trim or fix it by hand, then rerun \
+             repos status",
+            git_dir_id(git_dir)
+        ),
+        RepairBlock::NulInGitdir { git_dir } => {
+            return vec![
+                (
+                    "note",
+                    format!(
+                        "{entry}'s worktree git dir {} holds a NUL in its gitdir — git lists \
+                         this worktree by what's before the NUL, while a repair here compares \
+                         that with this .git and may change nothing; the fix writes this .git \
+                         into that gitdir",
+                        git_dir_id(git_dir)
+                    ),
+                ),
+                (
+                    "fix",
+                    format!(
+                        "printf '%s\\n' {} > {}",
+                        view.show_arg(&Path::new(path).join(".git").to_string_lossy()),
+                        view.show_arg(&Path::new(git_dir).join("gitdir").to_string_lossy())
+                    ),
+                ),
+            ];
+        }
+        RepairBlock::NonUtf8Path => "its path isn't UTF-8, so no repair command here can name \
+                                     it exactly — rename it to a UTF-8 name, then rerun repos \
+                                     status"
+            .to_owned(),
+    };
+    vec![("note", note)]
 }

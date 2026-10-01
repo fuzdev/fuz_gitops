@@ -13,15 +13,15 @@ use fuz_repos::classify::{NeedsHuman, OriginByHand, OriginFix, OriginRemote};
 use fuz_repos::registry::{EntryKind, Visibility};
 use fuz_repos::remote::{RefGoneFix, RemoteFailure, UnreachableCause, VisibilityCheck};
 use fuz_repos::report::{
-    BranchOutcome, BranchSyncHold, CloneOutcome, CloneSyncHold, EntryStatus, EntrySync,
-    FetchOutcome, PushOutcome, PushReport, RepairBlock, Sessions, StatusReport, SyncReport,
-    UnregisteredClone, UnregisteredKind,
+    BranchOutcome, BranchSyncHold, CheckoutPush, CloneOutcome, CloneSyncHold, EntryStatus,
+    EntrySync, FetchOutcome, PushOutcome, PushReport, RepairBlock, Sessions, StatusReport,
+    SyncReport, UnregisteredClone, UnregisteredKind,
 };
 use fuz_repos::sessions::{Session, SessionSource, Unavailable};
 use fuz_repos::state::{
     BranchHold, BranchNeedsHuman, BranchStatus, Checkout, CleanupReason, CloneHold, CloneVerdict,
     Head, Presence, Prune, PruneLoss, RefreshHold, RefreshVerdict, Relation, SyncAction,
-    Uncommitted, UnprobedWhy, Verdict,
+    Uncommitted, UnprobedWhy, UnprobedWorktreeStatus, Verdict,
 };
 
 /// The label column's width.

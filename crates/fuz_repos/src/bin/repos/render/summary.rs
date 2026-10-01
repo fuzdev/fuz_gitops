@@ -22,64 +22,66 @@ pub fn render_sync_summary(report: &SyncReport, view: View<'_>, verbose: bool) -
 /// registry line. Worded as `sync`'s, a branch labeled by its entry's key
 /// alone when it's the registry's branch.
 pub fn render_push_summary(report: &PushReport, view: View<'_>) -> String {
-    let mut visibility = Vec::new();
-    let mut failed = Vec::new();
-    let mut needs_human = Vec::new();
-    let mut origin_drift = Vec::new();
-    let mut pushed = Vec::new();
-    let mut in_sync = Vec::new();
-    let mut held = Vec::new();
-    let mut not_pushed = Vec::new();
+    let mut g = PushGroups::default();
     // the guard itself failed: said once, first among the failures
     if let Sessions::Unavailable { reason } = &report.status.sessions {
-        failed.push(format!(
+        g.problems.failed.push(format!(
             "busy detection ({}; every push held)",
             unavailable_label(reason, view)
         ));
     }
     for e in &report.status.entries {
-        let key = &e.key;
-        if let Some(error) = &e.probe_error {
-            failed.push(format!("{key} (probe: {})", first_line(&error.message)));
-        }
-        if let Some(failure) = &e.fetch_error {
-            failed.push(format!("{key} (fetch: {})", failure.words(false)));
-        }
-        match &e.visibility_check {
-            Some(VisibilityCheck::Leak) => {
-                visibility.push(format!("{key} (declared private, anonymously readable)"));
-            }
-            Some(VisibilityCheck::Unknown { failure }) => failed.push(format!(
-                "{key} (visibility check: {})",
-                failure.words(false)
-            )),
-            Some(VisibilityCheck::Private) | None => {}
-        }
-        for reason in &e.needs_human {
-            match reason {
-                NeedsHuman::OriginMismatch { origin, .. } => {
-                    let was = match origin {
-                        OriginRemote::Url { url } => compact_remote(url, &e.url),
-                        OriginRemote::NoUrl => "origin has no URL".to_owned(),
-                        OriginRemote::Missing => "no origin".to_owned(),
-                    };
-                    origin_drift.push(format!("{key} ({was})"));
-                }
-                reason => {
-                    needs_human.push(format!("{key} ({})", needs_human_label(reason, e, view)));
-                }
-            }
+        g.problems.add_entry(e, view);
+    }
+    for p in &report.pushes {
+        g.add(p, report, view);
+    }
+    g.render(report, view)
+}
+
+/// The hints a push's branches call for after the `needs human` group, in
+/// the order they print.
+const PUSH_NEEDS_HUMAN_HINTS: [&str; 3] = [DIVERGED_HINT, UNMAPPED_HINT, EXISTS_HINT];
+
+/// The hints a push's branches call for after the `not pushed` group, in
+/// the order they print.
+const PUSH_NOT_PUSHED_HINTS: [&str; 5] = [
+    BEHIND_HINT,
+    NEW_BRANCH_HINT,
+    MERGED_HINT,
+    DEFAULT_GONE_HINT,
+    OTHER_UPSTREAM_HINT,
+];
+
+/// `repos push`'s groups, gathered before any prints.
+#[derive(Debug, Default)]
+struct PushGroups {
+    problems: Problems,
+    pushed: Vec<String>,
+    in_sync: Vec<String>,
+    held: Vec<String>,
+    not_pushed: Vec<String>,
+    /// The branch hints called for, each once (`PUSH_NEEDS_HUMAN_HINTS`,
+    /// `PUSH_NOT_PUSHED_HINTS`).
+    hints: Vec<&'static str>,
+}
+
+impl PushGroups {
+    /// Calls for `hint`, once however many branches do.
+    fn hint(&mut self, hint: &'static str) {
+        if !self.hints.contains(&hint) {
+            self.hints.push(hint);
         }
     }
-    let (mut behind, mut diverged, mut unmapped, mut exists) = (false, false, false, false);
-    // branches with no upstream on origin: ones --new-branch creates, merged
-    // ones, and the rest
-    let (mut new_branch, mut merged, mut own_gone, mut other_upstream) =
-        (false, false, false, false);
-    for p in &report.pushes {
+
+    /// Adds one target's push, labeled by its entry's key and, when it isn't
+    /// the registry's branch, the branch.
+    fn add(&mut self, p: &CheckoutPush, report: &PushReport, view: View<'_>) {
         let Some(e) = report.status.entries.iter().find(|e| e.key == p.key) else {
-            failed.push(format!("{} (push: no status)", p.key));
-            continue;
+            self.problems
+                .failed
+                .push(format!("{} (push: no status)", p.key));
+            return;
         };
         let b = p
             .branch
@@ -101,81 +103,127 @@ pub fn render_push_summary(report: &PushReport, view: View<'_>) -> String {
             _ => String::new(),
         };
         match &p.outcome {
-            PushOutcome::Pushed { .. } => pushed.push(format!("{label}{ahead}")),
-            PushOutcome::Created { .. } => pushed.push(format!("{label} (new branch)")),
+            PushOutcome::Pushed { .. } => self.pushed.push(format!("{label}{ahead}")),
+            PushOutcome::Created { .. } => self.pushed.push(format!("{label} (new branch)")),
             PushOutcome::RemoteBranchExists { at } => {
-                exists = true;
-                needs_human.push(format!(
+                self.hint(EXISTS_HINT);
+                self.problems.needs_human.push(format!(
                     "{label} (on origin already, at {})",
                     at.get(..7).unwrap_or(at)
                 ));
             }
-            PushOutcome::InSync => in_sync.push(label),
-            PushOutcome::Held { by } => held.push(format!("{label}{ahead}{}", hold_note(*by))),
+            PushOutcome::InSync => self.in_sync.push(label),
+            PushOutcome::Held { by } => {
+                self.held.push(format!("{label}{ahead}{}", hold_note(*by)));
+            }
             PushOutcome::PushFailed { failure } => {
-                failed.push(format!("{label} (push: {})", failure.words(false)));
+                self.problems
+                    .failed
+                    .push(format!("{label} (push: {})", failure.words(false)));
             }
             PushOutcome::Failed { message } => {
-                failed.push(format!("{label} (push: {})", first_line(message)));
+                self.problems
+                    .failed
+                    .push(format!("{label} (push: {})", first_line(message)));
             }
             PushOutcome::NotAhead => {
-                behind = true;
+                self.hint(BEHIND_HINT);
                 let relation =
                     b.map_or_else(|| "not ahead".to_owned(), |b| relation_label(b.relation));
-                not_pushed.push(format!("{label} ({relation})"));
+                self.not_pushed.push(format!("{label} ({relation})"));
             }
             PushOutcome::NeedsHuman { reason } => {
-                diverged |= *reason == BranchNeedsHuman::Diverged;
-                unmapped |= *reason == BranchNeedsHuman::Unmapped;
+                match reason {
+                    BranchNeedsHuman::Diverged => self.hint(DIVERGED_HINT),
+                    BranchNeedsHuman::Unmapped => self.hint(UNMAPPED_HINT),
+                    _ => {}
+                }
                 let why = b.map_or_else(
                     || format!("{reason:?}"),
                     |b| branch_needs_human_label(*reason, b),
                 );
-                needs_human.push(format!("{label} ({why})"));
+                self.problems.needs_human.push(format!("{label} ({why})"));
             }
-            PushOutcome::NoUpstream => {
-                let default_gone = b.is_some_and(|b| e.default_branch_gone(&b.name));
-                let creatable = b.is_some_and(|b| new_branch_creates(e, b));
-                let gone_merged = !default_gone
-                    && b.is_some_and(|b| b.relation == Relation::Gone && b.unique_commits == 0);
-                new_branch |= creatable;
-                merged |= gone_merged;
-                own_gone |= default_gone;
-                other_upstream |= !creatable && !gone_merged && !default_gone;
-                let why = match b.map(|b| (b.relation, b.upstream.as_deref())) {
-                    Some((Relation::Gone, _)) if default_gone => {
-                        "the entry's branch, upstream gone from origin".to_owned()
-                    }
-                    Some((Relation::Gone, _)) if gone_merged => {
-                        "nothing unique, upstream gone from origin".to_owned()
-                    }
-                    Some((Relation::Gone, _)) => "upstream gone from origin".to_owned(),
-                    Some((Relation::Untracked, Some(upstream))) => format!("tracks {upstream}"),
-                    _ => "no upstream on origin".to_owned(),
-                };
-                not_pushed.push(format!("{label} ({why})"));
-            }
-            PushOutcome::Detached => not_pushed.push(format!("{label} (detached HEAD{at})")),
+            PushOutcome::NoUpstream => self.add_no_upstream(e, b, &label),
+            PushOutcome::Detached => self.not_pushed.push(format!("{label} (detached HEAD{at})")),
             PushOutcome::Unread => {
-                let why = match e.presence {
-                    Presence::Missing => "missing",
-                    Presence::NotARepo => "not a repo",
-                    Presence::Present if e.probe_error.is_some() => "probe failed",
-                    Presence::Present => "checkout not read",
-                };
-                not_pushed.push(format!("{label} ({why}{at})"));
+                self.not_pushed
+                    .push(format!("{label} ({}{at})", unread_why(e)));
             }
         }
     }
 
-    let mut out = String::new();
-    let mut line = |label: &str, tone: Tone, items: Vec<String>| {
-        out.push_str(&render_group(label, tone, &Items::Singles(items), view));
-    };
-    let hint = |s: &str| vec![format!("hint: {s}")];
-    line("visibility", Tone::Red, visibility);
-    line("failed", Tone::Red, failed);
-    // a fetch's failure, or a push's
+    /// A branch with no upstream on origin, not pushed, and the hint for
+    /// what it is: one `--new-branch` creates, a merged one, the entry's own
+    /// branch gone, or one tracking elsewhere.
+    fn add_no_upstream(&mut self, e: &EntryStatus, b: Option<&BranchStatus>, label: &str) {
+        let default_gone = b.is_some_and(|b| e.default_branch_gone(&b.name));
+        let creatable = b.is_some_and(|b| new_branch_creates(e, b));
+        let gone_merged = !default_gone
+            && b.is_some_and(|b| b.relation == Relation::Gone && b.unique_commits == 0);
+        if creatable {
+            self.hint(NEW_BRANCH_HINT);
+        }
+        if gone_merged {
+            self.hint(MERGED_HINT);
+        }
+        if default_gone {
+            self.hint(DEFAULT_GONE_HINT);
+        }
+        if !creatable && !gone_merged && !default_gone {
+            self.hint(OTHER_UPSTREAM_HINT);
+        }
+        let why = match b.map(|b| (b.relation, b.upstream.as_deref())) {
+            Some((Relation::Gone, _)) if default_gone => {
+                "the entry's branch, upstream gone from origin".to_owned()
+            }
+            Some((Relation::Gone, _)) if gone_merged => {
+                "nothing unique, upstream gone from origin".to_owned()
+            }
+            Some((Relation::Gone, _)) => "upstream gone from origin".to_owned(),
+            Some((Relation::Untracked, Some(upstream))) => format!("tracks {upstream}"),
+            _ => "no upstream on origin".to_owned(),
+        };
+        self.not_pushed.push(format!("{label} ({why})"));
+    }
+
+    /// The groups in order, each followed by the hints it calls for, then
+    /// the registry line.
+    fn render(self, report: &PushReport, view: View<'_>) -> String {
+        let mut out = String::new();
+        let mut line = |label: &str, tone: Tone, items: Vec<String>| {
+            out.push_str(&render_group(label, tone, &Items::Singles(items), view));
+        };
+        let hint = |s: &str| vec![format!("hint: {s}")];
+        line("visibility", Tone::Red, self.problems.visibility);
+        line("failed", Tone::Red, self.problems.failed);
+        for remote_hint in push_remote_hints(report) {
+            line("", Tone::Plain, hint(remote_hint));
+        }
+        line("needs human", Tone::Red, self.problems.needs_human);
+        for branch_hint in PUSH_NEEDS_HUMAN_HINTS {
+            if self.hints.contains(&branch_hint) {
+                line("", Tone::Plain, hint(branch_hint));
+            }
+        }
+        line("origin drift", Tone::Yellow, self.problems.origin_drift);
+        line("pushed", Tone::Green, self.pushed);
+        line("in sync", Tone::Plain, self.in_sync);
+        line("held", Tone::Yellow, self.held);
+        line("not pushed", Tone::Yellow, self.not_pushed);
+        for branch_hint in PUSH_NOT_PUSHED_HINTS {
+            if self.hints.contains(&branch_hint) {
+                line("", Tone::Plain, hint(branch_hint));
+            }
+        }
+        let _ = writeln!(out, "{}", footer(&report.status, view));
+        out
+    }
+}
+
+/// The hints a fetch's failure or a push's calls for — a gone ref, an
+/// untrusted host, refused credentials — each once, in that order.
+fn push_remote_hints(report: &PushReport) -> Vec<&'static str> {
     let remote_failed = |pick: fn(&RemoteFailure) -> bool| {
         report
             .status
@@ -187,47 +235,27 @@ pub fn render_push_summary(report: &PushReport, view: View<'_>) -> String {
                 _ => false,
             })
     };
+    let mut hints = Vec::new();
     if remote_failed(|f| matches!(f, RemoteFailure::RefGone { .. })) {
-        line("", Tone::Plain, hint(PUSH_REF_GONE_HINT));
+        hints.push(PUSH_REF_GONE_HINT);
     }
     if remote_failed(|f| unreachable_cause(f) == Some(UnreachableCause::HostKey)) {
-        line("", Tone::Plain, hint(HOST_KEY_HINT));
+        hints.push(HOST_KEY_HINT);
     }
     if remote_failed(|f| unreachable_cause(f) == Some(UnreachableCause::Auth)) {
-        line("", Tone::Plain, hint(AUTH_HINT));
+        hints.push(AUTH_HINT);
     }
-    line("needs human", Tone::Red, needs_human);
-    if diverged {
-        line("", Tone::Plain, hint(DIVERGED_HINT));
+    hints
+}
+
+/// Why a push target's checkout wasn't read.
+const fn unread_why(e: &EntryStatus) -> &'static str {
+    match e.presence {
+        Presence::Missing => "missing",
+        Presence::NotARepo => "not a repo",
+        Presence::Present if e.probe_error.is_some() => "probe failed",
+        Presence::Present => "checkout not read",
     }
-    if unmapped {
-        line("", Tone::Plain, hint(UNMAPPED_HINT));
-    }
-    if exists {
-        line("", Tone::Plain, hint(EXISTS_HINT));
-    }
-    line("origin drift", Tone::Yellow, origin_drift);
-    line("pushed", Tone::Green, pushed);
-    line("in sync", Tone::Plain, in_sync);
-    line("held", Tone::Yellow, held);
-    line("not pushed", Tone::Yellow, not_pushed);
-    if behind {
-        line("", Tone::Plain, hint(BEHIND_HINT));
-    }
-    if new_branch {
-        line("", Tone::Plain, hint(NEW_BRANCH_HINT));
-    }
-    if merged {
-        line("", Tone::Plain, hint(MERGED_HINT));
-    }
-    if own_gone {
-        line("", Tone::Plain, hint(DEFAULT_GONE_HINT));
-    }
-    if other_upstream {
-        line("", Tone::Plain, hint(OTHER_UPSTREAM_HINT));
-    }
-    let _ = writeln!(out, "{}", footer(&report.status, view));
-    out
 }
 
 /// Whether `repos push --new-branch` would create `b` on origin, as its
@@ -276,7 +304,7 @@ fn summary(
 
     // the guard itself failed: said once, first among the failures
     if let Sessions::Unavailable { reason } = &report.sessions {
-        g.failed.insert(
+        g.problems.failed.insert(
             0,
             format!(
                 "busy detection ({}; every push, ff, and move held)",
@@ -293,8 +321,12 @@ fn summary(
     let mut line = |label: &str, tone: Tone, items: Items| {
         out.push_str(&render_group(label, tone, &items, view));
     };
-    line("visibility", Tone::Red, Items::Singles(g.visibility));
-    line("failed", Tone::Red, Items::Singles(g.failed));
+    line(
+        "visibility",
+        Tone::Red,
+        Items::Singles(g.problems.visibility),
+    );
+    line("failed", Tone::Red, Items::Singles(g.problems.failed));
     let mut hints = Vec::new();
     if report.entries.iter().any(EntryStatus::probe_failed_partial) {
         hints.push(format!("{} (each under --verbose)", partial_hint("<dir>")));
@@ -336,8 +368,16 @@ fn summary(
             Items::Singles(vec![format!("hint: {hint}")]),
         );
     }
-    line("needs human", Tone::Red, Items::Singles(g.needs_human));
-    line("origin drift", Tone::Yellow, Items::Singles(g.origin_drift));
+    line(
+        "needs human",
+        Tone::Red,
+        Items::Singles(g.problems.needs_human),
+    );
+    line(
+        "origin drift",
+        Tone::Yellow,
+        Items::Singles(g.problems.origin_drift),
+    );
     // the fixes the drifts call for, each worded once
     let mut fixes: Vec<&str> = Vec::new();
     for fix in report
@@ -538,45 +578,22 @@ impl Actions {
     }
 }
 
+/// The groups an entry's own failures and reasons land in, the status
+/// summary's and push's alike.
 #[derive(Debug, Default)]
-struct Groups {
-    /// A sync report's: `act` is what sync did.
-    synced: bool,
+struct Problems {
     visibility: Vec<String>,
     failed: Vec<String>,
     needs_human: Vec<String>,
     origin_drift: Vec<String>,
-    act: Actions,
-    held: Actions,
-    local_only: Vec<String>,
-    uncommitted: Vec<String>,
-    cleanup: Vec<String>,
-    stashes: Vec<String>,
 }
 
-impl Groups {
-    /// Adds an entry's lines; returns whether it had anything to say. In a
-    /// sync report, `sync` holds the entry's outcomes, and a branch's action
-    /// reads as what sync did — `act` what it did, `held` and `failed` what
-    /// it didn't.
-    fn add(
-        &mut self,
-        e: &EntryStatus,
-        sync: Option<&EntrySync>,
-        workspace: &Path,
-        view: View<'_>,
-        verbose: bool,
-    ) -> bool {
-        let before = self.len();
+impl Problems {
+    /// Adds `e`'s failed probe and fetch, its visibility check's finding,
+    /// and its needs-human reasons — an origin mismatch as drift, with what
+    /// origin was.
+    fn add_entry(&mut self, e: &EntryStatus, view: View<'_>) {
         let key = &e.key;
-        let label = |b: &BranchStatus| {
-            if Some(&b.name) == e.branch.as_ref() {
-                key.clone()
-            } else {
-                format!("{key}:{}", b.name)
-            }
-        };
-
         if let Some(error) = &e.probe_error {
             self.failed
                 .push(format!("{key} (probe: {})", first_line(&error.message)));
@@ -610,18 +627,71 @@ impl Groups {
                     .push(format!("{key} ({})", needs_human_label(reason, e, view))),
             }
         }
-        // a reference asked for by name or `--references`: under sync, a
-        // refresh is its fetch (a failed one is said above, as failed)
+    }
+
+    const fn len(&self) -> usize {
+        self.visibility.len() + self.failed.len() + self.needs_human.len() + self.origin_drift.len()
+    }
+}
+
+#[derive(Debug, Default)]
+struct Groups {
+    /// A sync report's: `act` is what sync did.
+    synced: bool,
+    problems: Problems,
+    act: Actions,
+    held: Actions,
+    local_only: Vec<String>,
+    uncommitted: Vec<String>,
+    cleanup: Vec<String>,
+    stashes: Vec<String>,
+}
+
+impl Groups {
+    /// Adds an entry's lines; returns whether it had anything to say. In a
+    /// sync report, `sync` holds the entry's outcomes, and a branch's action
+    /// reads as what sync did — `act` what it did, `held` and `failed` what
+    /// it didn't.
+    fn add(
+        &mut self,
+        e: &EntryStatus,
+        sync: Option<&EntrySync>,
+        workspace: &Path,
+        view: View<'_>,
+        verbose: bool,
+    ) -> bool {
+        let before = self.len();
+        self.problems.add_entry(e, view);
+        self.add_refresh_item(e, sync);
+        self.add_clone_item(e, sync);
+        self.add_branch_items(e, sync, view);
+        self.add_unprobed_items(e, workspace, view);
+        self.add_uncommitted_items(e, view, verbose);
+        let said = self.len() > before;
+        if verbose && e.stashes > 0 {
+            self.stashes.push(format!("{} ({})", e.key, e.stashes));
+        }
+        said
+    }
+
+    /// A reference asked for by name or `--references`: under sync, a
+    /// refresh is its fetch (a failed one is said by `Problems`, as failed).
+    fn add_refresh_item(&mut self, e: &EntryStatus, sync: Option<&EntrySync>) {
         match (&e.refresh, sync.map(|s| &s.fetch)) {
             (Some(RefreshVerdict::Act), None | Some(FetchOutcome::Fetched)) => {
-                self.act.add_refresh(key, "");
+                self.act.add_refresh(&e.key, "");
             }
             (Some(RefreshVerdict::Held { by }), _) => {
                 self.held
-                    .add_refresh(key, refresh_held_note(*by, &e.needs_human));
+                    .add_refresh(&e.key, refresh_held_note(*by, &e.needs_human));
             }
             (Some(RefreshVerdict::Act), Some(_)) | (None, _) => {}
         }
+    }
+
+    /// A missing entry's clone: its verdict, or under sync what sync did.
+    fn add_clone_item(&mut self, e: &EntryStatus, sync: Option<&EntrySync>) {
+        let key = &e.key;
         match (&e.clone, self.synced) {
             (Some(_), true) => {
                 self.add_clone_outcome(key, sync.and_then(|s| s.clone.as_ref()));
@@ -632,6 +702,11 @@ impl Groups {
             }
             (None, _) => {}
         }
+    }
+
+    /// Each branch's verdict, or under sync, for one sync would act on,
+    /// what it did.
+    fn add_branch_items(&mut self, e: &EntryStatus, sync: Option<&EntrySync>, view: View<'_>) {
         for (bi, b) in e.branches.iter().enumerate() {
             if self.synced && matches!(b.verdict, Verdict::Act { .. } | Verdict::Held { .. }) {
                 let synced = sync.and_then(|s| s.branches.get(bi));
@@ -639,56 +714,56 @@ impl Groups {
                 if synced.is_some_and(|s| s.repeats.is_some()) {
                     continue;
                 }
-                self.add_outcome(b, synced.map(|s| &s.outcome), &label(b));
+                self.add_outcome(b, synced.map(|s| &s.outcome), &branch_label(e, b));
                 continue;
             }
-            match &b.verdict {
-                // a pin is the consumer's standing choice, not a hold to
-                // clear: the entry counts as pinned, and `--verbose` shows
-                // what it holds
-                Verdict::Quiet
-                | Verdict::Held {
-                    by: BranchHold::Pinned,
-                    ..
-                } => {}
-                Verdict::Act { action } => self.act.add(*action, &label(b), ""),
-                Verdict::Held { action, by } => {
-                    self.held.add(*action, &label(b), held_note(*by));
-                }
-                Verdict::NeedsHuman { reason } => {
-                    self.needs_human.push(format!(
-                        "{} ({})",
-                        label(b),
-                        branch_needs_human_label(*reason, b)
-                    ));
-                }
-                Verdict::LocalOnly => {
-                    let read_only = if e.writable { "" } else { ", read-only" };
-                    self.local_only.push(format!(
-                        "{} (+{}, {}{read_only})",
-                        label(b),
-                        b.unique_commits,
-                        view.age(b.newest_commit_at)
-                    ));
-                }
-                Verdict::Cleanup {
-                    reason,
-                    removable_worktree,
-                } => {
-                    let mut why = match reason {
-                        CleanupReason::UpstreamGone if b.unique_commits > 0 => {
-                            format!("upstream gone, +{}", b.unique_commits)
-                        }
-                        CleanupReason::UpstreamGone => "upstream gone".to_owned(),
-                        CleanupReason::Merged => "merged".to_owned(),
-                    };
-                    if let Some(path) = removable_worktree {
-                        let _ = write!(why, ", worktree {} removable", view.show(path));
-                    }
-                    self.cleanup.push(format!("{} ({why})", label(b)));
-                }
+            self.add_verdict(e, b, view);
+        }
+    }
+
+    /// A branch's verdict, in the group it puts the branch in.
+    fn add_verdict(&mut self, e: &EntryStatus, b: &BranchStatus, view: View<'_>) {
+        match &b.verdict {
+            // a pin is the consumer's standing choice, not a hold to clear:
+            // the entry counts as pinned, and `--verbose` shows what it holds
+            Verdict::Quiet
+            | Verdict::Held {
+                by: BranchHold::Pinned,
+                ..
+            } => {}
+            Verdict::Act { action } => self.act.add(*action, &branch_label(e, b), ""),
+            Verdict::Held { action, by } => {
+                self.held.add(*action, &branch_label(e, b), held_note(*by));
+            }
+            Verdict::NeedsHuman { reason } => {
+                self.problems.needs_human.push(format!(
+                    "{} ({})",
+                    branch_label(e, b),
+                    branch_needs_human_label(*reason, b)
+                ));
+            }
+            Verdict::LocalOnly => {
+                let read_only = if e.writable { "" } else { ", read-only" };
+                self.local_only.push(format!(
+                    "{} (+{}, {}{read_only})",
+                    branch_label(e, b),
+                    b.unique_commits,
+                    view.age(b.newest_commit_at)
+                ));
+            }
+            Verdict::Cleanup {
+                reason,
+                removable_worktree,
+            } => {
+                let why = cleanup_why(*reason, removable_worktree.as_deref(), b, view);
+                self.cleanup.push(format!("{} ({why})", branch_label(e, b)));
             }
         }
+    }
+
+    /// The entry's unprobed worktrees: a failed probe as failed, a gone one
+    /// as cleanup.
+    fn add_unprobed_items(&mut self, e: &EntryStatus, workspace: &Path, view: View<'_>) {
         // a git dir that can't be read is said once, as the needs-human
         // reason that holds the entry — present whether or not a worktree
         // in it was listed — never again as that worktree's failed probe
@@ -699,58 +774,32 @@ impl Groups {
             })
         };
         for u in &e.unprobed_worktrees {
-            let at = view.show(&u.worktree.path);
-            match (&u.worktree.why, &u.prune) {
-                (UnprobedWhy::Failed { .. }, _) if unreadable(&u.worktree.path) => {}
-                (UnprobedWhy::Failed { error }, _) => self
-                    .failed
-                    .push(format!("{key} (worktree {at}: {})", first_line(error))),
-                // never `git worktree repair <new path>` or `git worktree
-                // prune`: both are repo-wide, the one may hijack another
-                // checkout and the other drops every gone worktree, so the
-                // command is `remove`, this one's alone, and only the scan
-                // offers a repair, vetted, for a moved worktree at the root
-                (UnprobedWhy::Prunable, Some(Prune::Safe)) => self.cleanup.push(format!(
-                    "{key} (worktree {at} gone — {IF_MOVED}, else git -C {} worktree remove {})",
-                    view.show_arg(&workspace.join(&e.dir).to_string_lossy()),
-                    view.show_arg(&u.worktree.path)
+            match &u.worktree.why {
+                UnprobedWhy::Failed { .. } if unreadable(&u.worktree.path) => {}
+                UnprobedWhy::Failed { error } => self.problems.failed.push(format!(
+                    "{} (worktree {}: {})",
+                    e.key,
+                    view.show(&u.worktree.path),
+                    first_line(error)
                 )),
-                // the scan found it moved: those strays' lines say what to
-                // do, whatever they are, and removing it would orphan them
-                (UnprobedWhy::Prunable, Some(Prune::Moved { to })) => {
-                    let see = if to.len() == 1 {
-                        "its line"
-                    } else {
-                        "their lines"
-                    };
-                    self.cleanup.push(format!(
-                        "{key} (worktree {at} gone — moved to {}; see {see})",
-                        to.join(", ")
-                    ));
-                }
-                // classify found removing it would lose something: word it
-                (UnprobedWhy::Prunable, loses) => {
-                    let losses = match loses {
-                        Some(Prune::Loses { losses }) => {
-                            losses.iter().map(prune_loss_label).collect::<Vec<_>>()
-                        }
-                        _ => vec!["its state".to_owned()],
-                    };
-                    self.cleanup.push(format!(
-                        "{key} (worktree {at} gone — {IF_MOVED}; removing discards {})",
-                        losses.join(" and ")
-                    ));
+                UnprobedWhy::Prunable => {
+                    self.cleanup.push(prunable_item(e, u, workspace, view));
                 }
                 // intentional, as on unmounted media: `--verbose` shows it,
                 // and it still holds its branch's fast-forward and move (its
                 // push too, when a session works in its files wherever
                 // they're mounted)
-                (UnprobedWhy::Missing, _) => {}
+                UnprobedWhy::Missing => {}
             }
         }
+    }
+
+    /// The entry's dirty checkouts: under `--verbose` each its own item,
+    /// another worktree by its shown path beside the primary's key; else one
+    /// summary item.
+    fn add_uncommitted_items(&mut self, e: &EntryStatus, view: View<'_>, verbose: bool) {
+        let key = &e.key;
         if verbose {
-            // each dirty checkout its own item, another worktree by its
-            // shown path beside the primary's key
             for c in e.checkouts.iter().filter(|c| !c.uncommitted.is_clean()) {
                 let detail = uncommitted_detail(&c.uncommitted);
                 self.uncommitted.push(if c.primary {
@@ -762,11 +811,6 @@ impl Groups {
         } else if let Some(item) = uncommitted_summary(key, &e.checkouts, view) {
             self.uncommitted.push(item);
         }
-        let said = self.len() > before;
-        if verbose && e.stashes > 0 {
-            self.stashes.push(format!("{key} ({})", e.stashes));
-        }
-        said
     }
 
     /// A missing entry's clone, as what sync did: `outcome` is `None` when
@@ -776,12 +820,17 @@ impl Groups {
             Some(CloneOutcome::Cloned { .. }) => self.act.add_clone(key, ""),
             Some(CloneOutcome::Held { by }) => self.held.add_clone(key, clone_hold_note(*by)),
             Some(CloneOutcome::CloneFailed { failure }) => self
+                .problems
                 .failed
                 .push(format!("{key} (clone: {})", failure.words(false))),
             Some(CloneOutcome::Failed { message }) => self
+                .problems
                 .failed
                 .push(format!("{key} (clone: {})", first_line(message))),
-            None => self.failed.push(format!("{key} (clone: no outcome)")),
+            None => self
+                .problems
+                .failed
+                .push(format!("{key} (clone: no outcome)")),
         }
     }
 
@@ -812,35 +861,116 @@ impl Groups {
                 self.held.add(*action, label, hold_note(*by));
             }
             Some(BranchOutcome::PushFailed { failure }) => {
-                self.failed
+                self.problems
+                    .failed
                     .push(format!("{label} (push: {})", failure.words(false)));
             }
             Some(BranchOutcome::Failed { action, message }) => {
-                self.failed
+                self.problems
+                    .failed
                     .push(format!("{label} ({}: {message})", action_verb(*action)));
             }
             Some(BranchOutcome::NeedsHuman { reason }) => {
-                self.needs_human.push(format!(
+                self.problems.needs_human.push(format!(
                     "{label} ({})",
                     branch_needs_human_label(*reason, b)
                 ));
             }
             None => self
+                .problems
                 .failed
                 .push(format!("{label} ({}: no outcome)", action_verb(action))),
         }
     }
 
     const fn len(&self) -> usize {
-        self.visibility.len()
-            + self.failed.len()
-            + self.needs_human.len()
-            + self.origin_drift.len()
+        self.problems.len()
             + self.act.len()
             + self.held.len()
             + self.local_only.len()
             + self.uncommitted.len()
             + self.cleanup.len()
+    }
+}
+
+/// A branch of `e` as the summary names it: the entry's key alone for the
+/// branch it follows, else `key:branch`.
+fn branch_label(e: &EntryStatus, b: &BranchStatus) -> String {
+    if Some(&b.name) == e.branch.as_ref() {
+        e.key.clone()
+    } else {
+        format!("{}:{}", e.key, b.name)
+    }
+}
+
+/// Why a branch is cleanup, and the worktree that goes with it when
+/// classify found it removable.
+fn cleanup_why(
+    reason: CleanupReason,
+    removable_worktree: Option<&str>,
+    b: &BranchStatus,
+    view: View<'_>,
+) -> String {
+    let mut why = match reason {
+        CleanupReason::UpstreamGone if b.unique_commits > 0 => {
+            format!("upstream gone, +{}", b.unique_commits)
+        }
+        CleanupReason::UpstreamGone => "upstream gone".to_owned(),
+        CleanupReason::Merged => "merged".to_owned(),
+    };
+    if let Some(path) = removable_worktree {
+        let _ = write!(why, ", worktree {} removable", view.show(path));
+    }
+    why
+}
+
+/// A prunable worktree's cleanup item, worded by what classify decided
+/// about removing it (`Prune`).
+fn prunable_item(
+    e: &EntryStatus,
+    u: &UnprobedWorktreeStatus,
+    workspace: &Path,
+    view: View<'_>,
+) -> String {
+    let key = &e.key;
+    let at = view.show(&u.worktree.path);
+    match &u.prune {
+        // never `git worktree repair <new path>` or `git worktree prune`:
+        // both are repo-wide, the one may hijack another checkout and the
+        // other drops every gone worktree, so the command is `remove`, this
+        // one's alone, and only the scan offers a repair, vetted, for a
+        // moved worktree at the root
+        Some(Prune::Safe) => format!(
+            "{key} (worktree {at} gone — {IF_MOVED}, else git -C {} worktree remove {})",
+            view.show_arg(&workspace.join(&e.dir).to_string_lossy()),
+            view.show_arg(&u.worktree.path)
+        ),
+        // the scan found it moved: those strays' lines say what to do,
+        // whatever they are, and removing it would orphan them
+        Some(Prune::Moved { to }) => {
+            let see = if to.len() == 1 {
+                "its line"
+            } else {
+                "their lines"
+            };
+            format!(
+                "{key} (worktree {at} gone — moved to {}; see {see})",
+                to.join(", ")
+            )
+        }
+        // classify found removing it would lose something: word it
+        loses => {
+            let losses = match loses {
+                Some(Prune::Loses { losses }) => {
+                    losses.iter().map(prune_loss_label).collect::<Vec<_>>()
+                }
+                _ => vec!["its state".to_owned()],
+            };
+            format!(
+                "{key} (worktree {at} gone — {IF_MOVED}; removing discards {})",
+                losses.join(" and ")
+            )
+        }
     }
 }
 
