@@ -40,8 +40,10 @@
 //! stays `NoUpstream`. A branch origin already has at another commit is
 //! never overwritten or adopted (`RemoteBranchExists`), and one the fetch
 //! refspec leaves out can't be tracked (`NeedsHuman`, `unmapped`). Every
-//! hold on a push holds a creation, the failed fetch included. An agent is
-//! refused it before anything runs (`check_new_branch`).
+//! hold on a push holds a creation, the failed fetch included. In an
+//! archived repo such a branch is `NeedsHuman` (`archived_ahead`), with or
+//! without the flag. An agent is refused it before anything runs
+//! (`check_new_branch`).
 //!
 //! **An agent may run it** without `--new-branch`: its push is classified
 //! and made as a person's. It's the path agents push by: the user's Claude
@@ -58,7 +60,8 @@ use crate::git::Git;
 use crate::probe::RepoFacts;
 use crate::registry::{Entry, RegistryDirs};
 use crate::report::{
-    BranchSyncHold, CheckoutPush, EntryStatus, FetchOutcome, PushOutcome, PushReport, Sessions,
+    BranchSyncHold, CheckoutPush, EntryStatus, FetchOutcome, NoUpstreamWhy, PushOutcome,
+    PushReport, Sessions,
 };
 use crate::sessions::{Caller, LiveSessions, SessionsSource, read_live_sessions};
 use crate::state::{BranchNeedsHuman, BranchStatus, Head, Relation, SyncAction, Verdict};
@@ -390,7 +393,7 @@ fn target_outcome(
     // fetch's: said whether or not the fetch landed (a gone upstream is
     // the fetch's to say). Unless the run creates it, which pushes
     if b.relation == Relation::Untracked && create.is_none() {
-        return (branch, PushOutcome::NoUpstream);
+        return (branch, no_upstream(facts, t.status, b));
     }
     if *t.fetch != FetchOutcome::Fetched {
         let by = BranchSyncHold::FetchFailed;
@@ -427,7 +430,9 @@ fn target_outcome(
         // commits on no remote, merged, its upstream gone, tracking another
         // remote, or none with nothing committed: no upstream on origin a
         // push may name
-        Verdict::LocalOnly | Verdict::Cleanup { .. } | Verdict::Quiet => PushOutcome::NoUpstream,
+        Verdict::LocalOnly | Verdict::Cleanup { .. } | Verdict::Quiet => {
+            no_upstream(facts, t.status, b)
+        }
     };
     (branch, outcome)
 }
@@ -468,6 +473,33 @@ fn creatable<'f>(
         }
         _ => None,
     }
+}
+
+/// A branch with no upstream on origin a push may name, not pushed, and why
+/// (`NoUpstreamWhy`), read as `creatable` reads it: one `--new-branch`
+/// would create (only on a run without the flag, which creates it), the
+/// entry's own branch gone from origin, one gone with nothing on no remote
+/// (merged), or one tracking elsewhere. One the flag would create in an
+/// archived repo is `needs_human` (`archived_ahead`), as the flag reads it.
+fn no_upstream(facts: &RepoFacts, status: &EntryStatus, b: &BranchStatus) -> PushOutcome {
+    if creatable(facts, status, b).is_some() {
+        return if status.archived {
+            // as a push to an archived repo: a person's
+            PushOutcome::NeedsHuman {
+                reason: BranchNeedsHuman::ArchivedAhead,
+            }
+        } else {
+            PushOutcome::NoUpstream {
+                why: NoUpstreamWhy::Creatable,
+            }
+        };
+    }
+    let why = match b.relation {
+        Relation::Gone if status.default_branch_gone(&b.name) => NoUpstreamWhy::DefaultGone,
+        Relation::Gone if b.unique_commits == 0 => NoUpstreamWhy::Merged,
+        _ => NoUpstreamWhy::OtherUpstream,
+    };
+    PushOutcome::NoUpstream { why }
 }
 
 /// A push's outcome (`Actor::push`) as `repos push` reports it.

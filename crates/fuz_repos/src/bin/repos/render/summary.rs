@@ -39,18 +39,59 @@ pub fn render_push_summary(report: &PushReport, view: View<'_>) -> String {
     g.render(report, view)
 }
 
+/// A hint a push's branches call for, said once however many do.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PushHint {
+    Diverged,
+    Unmapped,
+    Exists,
+    Behind,
+    NewBranch,
+    Merged,
+    DefaultGone,
+    OtherUpstream,
+}
+
+impl PushHint {
+    /// The hint, as printed after `hint: `.
+    const fn text(self) -> &'static str {
+        match self {
+            Self::Diverged => DIVERGED_HINT,
+            Self::Unmapped => UNMAPPED_HINT,
+            Self::Exists => EXISTS_HINT,
+            Self::Behind => BEHIND_HINT,
+            Self::NewBranch => NEW_BRANCH_HINT,
+            Self::Merged => MERGED_HINT,
+            Self::DefaultGone => DEFAULT_GONE_HINT,
+            Self::OtherUpstream => OTHER_UPSTREAM_HINT,
+        }
+    }
+
+    /// The hint for a branch with no upstream on origin, by what
+    /// `--new-branch` would do with it.
+    const fn no_upstream(why: NoUpstreamWhy) -> Self {
+        match why {
+            NoUpstreamWhy::Creatable => Self::NewBranch,
+            NoUpstreamWhy::Merged => Self::Merged,
+            NoUpstreamWhy::DefaultGone => Self::DefaultGone,
+            NoUpstreamWhy::OtherUpstream => Self::OtherUpstream,
+        }
+    }
+}
+
 /// The hints a push's branches call for after the `needs human` group, in
 /// the order they print.
-const PUSH_NEEDS_HUMAN_HINTS: [&str; 3] = [DIVERGED_HINT, UNMAPPED_HINT, EXISTS_HINT];
+const PUSH_NEEDS_HUMAN_HINTS: [PushHint; 3] =
+    [PushHint::Diverged, PushHint::Unmapped, PushHint::Exists];
 
 /// The hints a push's branches call for after the `not pushed` group, in
 /// the order they print.
-const PUSH_NOT_PUSHED_HINTS: [&str; 5] = [
-    BEHIND_HINT,
-    NEW_BRANCH_HINT,
-    MERGED_HINT,
-    DEFAULT_GONE_HINT,
-    OTHER_UPSTREAM_HINT,
+const PUSH_NOT_PUSHED_HINTS: [PushHint; 5] = [
+    PushHint::Behind,
+    PushHint::NewBranch,
+    PushHint::Merged,
+    PushHint::DefaultGone,
+    PushHint::OtherUpstream,
 ];
 
 /// `repos push`'s groups, gathered before any prints.
@@ -61,19 +102,13 @@ struct PushGroups {
     in_sync: Vec<String>,
     held: Vec<String>,
     not_pushed: Vec<String>,
-    /// The branch hints called for, each once (`PUSH_NEEDS_HUMAN_HINTS`,
-    /// `PUSH_NOT_PUSHED_HINTS`).
-    hints: Vec<&'static str>,
+    /// The branch hints called for, as many times as branches call for
+    /// them: each prints once, in its group's order
+    /// (`PUSH_NEEDS_HUMAN_HINTS`, `PUSH_NOT_PUSHED_HINTS`).
+    hints: Vec<PushHint>,
 }
 
 impl PushGroups {
-    /// Calls for `hint`, once however many branches do.
-    fn hint(&mut self, hint: &'static str) {
-        if !self.hints.contains(&hint) {
-            self.hints.push(hint);
-        }
-    }
-
     /// Adds one target's push, labeled by its entry's key and, when it isn't
     /// the registry's branch, the branch.
     fn add(&mut self, p: &CheckoutPush, report: &PushReport, view: View<'_>) {
@@ -106,7 +141,7 @@ impl PushGroups {
             PushOutcome::Pushed { .. } => self.pushed.push(format!("{label}{ahead}")),
             PushOutcome::Created { .. } => self.pushed.push(format!("{label} (new branch)")),
             PushOutcome::RemoteBranchExists { at } => {
-                self.hint(EXISTS_HINT);
+                self.hints.push(PushHint::Exists);
                 self.problems.needs_human.push(format!(
                     "{label} (on origin already, at {})",
                     at.get(..7).unwrap_or(at)
@@ -127,15 +162,15 @@ impl PushGroups {
                     .push(format!("{label} (push: {})", first_line(message)));
             }
             PushOutcome::NotAhead => {
-                self.hint(BEHIND_HINT);
+                self.hints.push(PushHint::Behind);
                 let relation =
                     b.map_or_else(|| "not ahead".to_owned(), |b| relation_label(b.relation));
                 self.not_pushed.push(format!("{label} ({relation})"));
             }
             PushOutcome::NeedsHuman { reason } => {
                 match reason {
-                    BranchNeedsHuman::Diverged => self.hint(DIVERGED_HINT),
-                    BranchNeedsHuman::Unmapped => self.hint(UNMAPPED_HINT),
+                    BranchNeedsHuman::Diverged => self.hints.push(PushHint::Diverged),
+                    BranchNeedsHuman::Unmapped => self.hints.push(PushHint::Unmapped),
                     _ => {}
                 }
                 let why = b.map_or_else(
@@ -144,47 +179,17 @@ impl PushGroups {
                 );
                 self.problems.needs_human.push(format!("{label} ({why})"));
             }
-            PushOutcome::NoUpstream => self.add_no_upstream(e, b, &label),
+            PushOutcome::NoUpstream { why } => {
+                self.hints.push(PushHint::no_upstream(*why));
+                self.not_pushed
+                    .push(format!("{label} ({})", no_upstream_label(*why, b)));
+            }
             PushOutcome::Detached => self.not_pushed.push(format!("{label} (detached HEAD{at})")),
             PushOutcome::Unread => {
                 self.not_pushed
                     .push(format!("{label} ({}{at})", unread_why(e)));
             }
         }
-    }
-
-    /// A branch with no upstream on origin, not pushed, and the hint for
-    /// what it is: one `--new-branch` creates, a merged one, the entry's own
-    /// branch gone, or one tracking elsewhere.
-    fn add_no_upstream(&mut self, e: &EntryStatus, b: Option<&BranchStatus>, label: &str) {
-        let default_gone = b.is_some_and(|b| e.default_branch_gone(&b.name));
-        let creatable = b.is_some_and(|b| new_branch_creates(e, b));
-        let gone_merged = !default_gone
-            && b.is_some_and(|b| b.relation == Relation::Gone && b.unique_commits == 0);
-        if creatable {
-            self.hint(NEW_BRANCH_HINT);
-        }
-        if gone_merged {
-            self.hint(MERGED_HINT);
-        }
-        if default_gone {
-            self.hint(DEFAULT_GONE_HINT);
-        }
-        if !creatable && !gone_merged && !default_gone {
-            self.hint(OTHER_UPSTREAM_HINT);
-        }
-        let why = match b.map(|b| (b.relation, b.upstream.as_deref())) {
-            Some((Relation::Gone, _)) if default_gone => {
-                "the entry's branch, upstream gone from origin".to_owned()
-            }
-            Some((Relation::Gone, _)) if gone_merged => {
-                "nothing unique, upstream gone from origin".to_owned()
-            }
-            Some((Relation::Gone, _)) => "upstream gone from origin".to_owned(),
-            Some((Relation::Untracked, Some(upstream))) => format!("tracks {upstream}"),
-            _ => "no upstream on origin".to_owned(),
-        };
-        self.not_pushed.push(format!("{label} ({why})"));
     }
 
     /// The groups in order, each followed by the hints it calls for, then
@@ -203,7 +208,7 @@ impl PushGroups {
         line("needs human", Tone::Red, self.problems.needs_human);
         for branch_hint in PUSH_NEEDS_HUMAN_HINTS {
             if self.hints.contains(&branch_hint) {
-                line("", Tone::Plain, hint(branch_hint));
+                line("", Tone::Plain, hint(branch_hint.text()));
             }
         }
         line("origin drift", Tone::Yellow, self.problems.origin_drift);
@@ -213,7 +218,7 @@ impl PushGroups {
         line("not pushed", Tone::Yellow, self.not_pushed);
         for branch_hint in PUSH_NOT_PUSHED_HINTS {
             if self.hints.contains(&branch_hint) {
-                line("", Tone::Plain, hint(branch_hint));
+                line("", Tone::Plain, hint(branch_hint.text()));
             }
         }
         let _ = writeln!(out, "{}", footer(&report.status, view));
@@ -258,19 +263,18 @@ const fn unread_why(e: &EntryStatus) -> &'static str {
     }
 }
 
-/// Whether `repos push --new-branch` would create `b` on origin, as its
-/// status reads: no upstream configured, or origin's same-named branch as
-/// its upstream, gone, with commits on no remote (with none, it was
-/// merged) — never the branch the entry follows (`default_branch_gone`).
-/// (The run itself reads the merge ref as git resolves it.)
-fn new_branch_creates(e: &EntryStatus, b: &BranchStatus) -> bool {
-    match (b.relation, b.upstream.as_deref()) {
-        (Relation::Untracked, upstream) => upstream.is_none(),
-        (Relation::Gone, _) if e.default_branch_gone(&b.name) => false,
-        (Relation::Gone, Some(upstream)) => {
-            b.unique_commits > 0 && upstream == format!("origin/{}", b.name)
+/// Why a branch with no upstream on origin wasn't pushed, worded from why
+/// (the push's reading) and, where that leaves it open, the branch's
+/// relation and upstream.
+fn no_upstream_label(why: NoUpstreamWhy, b: Option<&BranchStatus>) -> String {
+    match (why, b.map(|b| (b.relation, b.upstream.as_deref()))) {
+        (NoUpstreamWhy::DefaultGone, _) => {
+            "the entry's branch, upstream gone from origin".to_owned()
         }
-        _ => false,
+        (NoUpstreamWhy::Merged, _) => "nothing unique, upstream gone from origin".to_owned(),
+        (_, Some((Relation::Gone, _))) => "upstream gone from origin".to_owned(),
+        (_, Some((Relation::Untracked, Some(upstream)))) => format!("tracks {upstream}"),
+        _ => "no upstream on origin".to_owned(),
     }
 }
 
@@ -290,15 +294,8 @@ fn summary(
     let workspace = Path::new(&report.workspace);
     for (i, e) in report.entries.iter().enumerate() {
         let sync = synced.and_then(|s| s.get(i));
-        if g.add(e, sync, workspace, view, verbose) {
-            continue;
-        }
-        // a quiet entry off its followed branch is on another one: detached
-        // off it is an `unexpected_detached` reason, or its operation's
-        match (e.pinned, e.at_rest.and_then(|r| r.on_branch)) {
-            (true, _) => quiet.pinned += 1,
-            (false, Some(false)) => quiet.on_branches += 1,
-            (false, Some(true) | None) => quiet.clean += 1,
+        if !g.add(e, sync, workspace, view, verbose) {
+            quiet.add(e);
         }
     }
 
@@ -321,12 +318,56 @@ fn summary(
     let mut line = |label: &str, tone: Tone, items: Items| {
         out.push_str(&render_group(label, tone, &items, view));
     };
+    let hint = |hint: String| Items::Singles(vec![format!("hint: {hint}")]);
     line(
         "visibility",
         Tone::Red,
         Items::Singles(g.problems.visibility),
     );
     line("failed", Tone::Red, Items::Singles(g.problems.failed));
+    for failure_hint in failure_hints(report, synced) {
+        line("", Tone::Plain, hint(failure_hint));
+    }
+    line(
+        "needs human",
+        Tone::Red,
+        Items::Singles(g.problems.needs_human),
+    );
+    line(
+        "origin drift",
+        Tone::Yellow,
+        Items::Singles(g.problems.origin_drift),
+    );
+    if let Some(fix) = origin_fix_hint(report) {
+        line("", Tone::Plain, hint(fix));
+    }
+    let act_label = if synced.is_some() {
+        "synced"
+    } else {
+        "sync would"
+    };
+    line(act_label, Tone::Green, Items::Runs(g.act.verbs(), " · "));
+    line("held", Tone::Yellow, Items::Runs(g.held.verbs(), " · "));
+    line("local-only", Tone::Plain, Items::Singles(g.local_only));
+    line("uncommitted", Tone::Plain, Items::Singles(g.uncommitted));
+    line("cleanup", Tone::Plain, Items::Singles(g.cleanup));
+    line(
+        "unregistered",
+        Tone::Plain,
+        Items::Runs(unregistered_groups(report, view), "  "),
+    );
+    line("stashes", Tone::Plain, Items::Singles(g.stashes));
+    line("unscoped", Tone::Plain, Items::Singles(unscoped));
+
+    let _ = writeln!(out, "{}      {}", quiet.line(), footer(report, view));
+    out
+}
+
+/// The hints the failures call for, in the order they print: a partial
+/// clone's failed probe, then a gone ref, an untrusted host, and refused
+/// credentials — on a fetch, or under sync a push or a clone — then a
+/// certificate the visibility check couldn't verify.
+fn failure_hints(report: &StatusReport, synced: Option<&[EntrySync]>) -> Vec<String> {
     let mut hints = Vec::new();
     if report.entries.iter().any(EntryStatus::probe_failed_partial) {
         hints.push(format!("{} (each under --verbose)", partial_hint("<dir>")));
@@ -361,24 +402,12 @@ fn summary(
     {
         hints.push(CERTIFICATE_HINT.to_owned());
     }
-    for hint in hints {
-        line(
-            "",
-            Tone::Plain,
-            Items::Singles(vec![format!("hint: {hint}")]),
-        );
-    }
-    line(
-        "needs human",
-        Tone::Red,
-        Items::Singles(g.problems.needs_human),
-    );
-    line(
-        "origin drift",
-        Tone::Yellow,
-        Items::Singles(g.problems.origin_drift),
-    );
-    // the fixes the drifts call for, each worded once
+    hints
+}
+
+/// The hint for the fixes the origin drifts call for, each worded once;
+/// `None` when there's no drift.
+fn origin_fix_hint(report: &StatusReport) -> Option<String> {
     let mut fixes: Vec<&str> = Vec::new();
     for fix in report
         .entries
@@ -398,41 +427,37 @@ fn summary(
             fixes.push(words);
         }
     }
-    if !fixes.is_empty() {
-        let hint = format!("hint: {} (each under --verbose)", fixes.join(", or "));
-        line("", Tone::Plain, Items::Singles(vec![hint]));
-    }
-    let act_label = if synced.is_some() {
-        "synced"
-    } else {
-        "sync would"
-    };
-    line(act_label, Tone::Green, Items::Runs(g.act.verbs(), " · "));
-    line("held", Tone::Yellow, Items::Runs(g.held.verbs(), " · "));
-    line("local-only", Tone::Plain, Items::Singles(g.local_only));
-    line("uncommitted", Tone::Plain, Items::Singles(g.uncommitted));
-    line("cleanup", Tone::Plain, Items::Singles(g.cleanup));
-    line(
-        "unregistered",
-        Tone::Plain,
-        Items::Runs(unregistered_groups(report, view), "  "),
-    );
-    line("stashes", Tone::Plain, Items::Singles(g.stashes));
-    line("unscoped", Tone::Plain, Items::Singles(unscoped));
-
-    let counts = format!(
-        "clean {} · on branches {} · pinned {}",
-        quiet.clean, quiet.on_branches, quiet.pinned
-    );
-    let _ = writeln!(out, "{counts}      {}", footer(report, view));
-    out
+    (!fixes.is_empty()).then(|| format!("{} (each under --verbose)", fixes.join(", or ")))
 }
 
+/// The quiet entries, counted.
 #[derive(Debug, Default)]
 struct Counts {
     clean: u32,
     on_branches: u32,
     pinned: u32,
+}
+
+impl Counts {
+    /// Counts a quiet entry: pinned, on another branch than the one it
+    /// follows, or clean.
+    fn add(&mut self, e: &EntryStatus) {
+        // a quiet entry off its followed branch is on another one: detached
+        // off it is an `unexpected_detached` reason, or its operation's
+        match (e.pinned, e.at_rest.and_then(|r| r.on_branch)) {
+            (true, _) => self.pinned += 1,
+            (false, Some(false)) => self.on_branches += 1,
+            (false, Some(true) | None) => self.clean += 1,
+        }
+    }
+
+    /// The counts, as the footer's line leads with them.
+    fn line(&self) -> String {
+        format!(
+            "clean {} · on branches {} · pinned {}",
+            self.clean, self.on_branches, self.pinned
+        )
+    }
 }
 
 /// A summary group's items.
@@ -761,35 +786,25 @@ impl Groups {
         }
     }
 
-    /// The entry's unprobed worktrees: a failed probe as failed, a gone one
-    /// as cleanup.
+    /// The entry's unprobed worktrees: a failed probe as failed (but one
+    /// a needs-human reason already says, `EntryStatus::unprobed_failures`),
+    /// a gone one as cleanup.
     fn add_unprobed_items(&mut self, e: &EntryStatus, workspace: &Path, view: View<'_>) {
-        // a git dir that can't be read is said once, as the needs-human
-        // reason that holds the entry — present whether or not a worktree
-        // in it was listed — never again as that worktree's failed probe
-        let unreadable = |path: &str| {
-            e.needs_human.iter().any(|r| {
-                matches!(r, NeedsHuman::WorktreeUnreadable { path: p }
-                    if Path::new(path).starts_with(p))
-            })
-        };
+        for (u, error) in e.unprobed_failures() {
+            self.problems.failed.push(format!(
+                "{} (worktree {}: {})",
+                e.key,
+                view.show(&u.worktree.path),
+                first_line(error)
+            ));
+        }
+        // a missing one is intentional, as on unmounted media: `--verbose`
+        // shows it, and it still holds its branch's fast-forward and move
+        // (its push too, when a session works in its files wherever they're
+        // mounted)
         for u in &e.unprobed_worktrees {
-            match &u.worktree.why {
-                UnprobedWhy::Failed { .. } if unreadable(&u.worktree.path) => {}
-                UnprobedWhy::Failed { error } => self.problems.failed.push(format!(
-                    "{} (worktree {}: {})",
-                    e.key,
-                    view.show(&u.worktree.path),
-                    first_line(error)
-                )),
-                UnprobedWhy::Prunable => {
-                    self.cleanup.push(prunable_item(e, u, workspace, view));
-                }
-                // intentional, as on unmounted media: `--verbose` shows it,
-                // and it still holds its branch's fast-forward and move (its
-                // push too, when a session works in its files wherever
-                // they're mounted)
-                UnprobedWhy::Missing => {}
+            if u.worktree.why == UnprobedWhy::Prunable {
+                self.cleanup.push(prunable_item(e, u, workspace, view));
             }
         }
     }
@@ -985,7 +1000,10 @@ fn branch_needs_human_label(reason: BranchNeedsHuman, b: &BranchStatus) -> Strin
         (BranchNeedsHuman::ArchivedAhead, Relation::Ahead { commits }) => {
             format!("archived, +{commits}")
         }
-        (BranchNeedsHuman::ArchivedAhead, _) => "archived, ahead".into(),
+        (BranchNeedsHuman::ArchivedAhead, Relation::Gone) => {
+            "archived, upstream gone from origin".into()
+        }
+        (BranchNeedsHuman::ArchivedAhead, _) => "archived, no upstream on origin".into(),
         (BranchNeedsHuman::ShallowLocalWork, _) => {
             format!("shallow, tips differ, +{} local", b.unique_commits)
         }

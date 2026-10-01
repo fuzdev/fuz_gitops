@@ -17,7 +17,8 @@ use fuz_repos::registry::{CheckoutList, EntryKind, RegistryIssue, Visibility};
 use fuz_repos::remote::{RefGoneFix, RemoteFailure, UnreachableCause, VisibilityCheck};
 use fuz_repos::report::{
     BranchOutcome, BranchSyncHold, CloneOutcome, CloneSyncHold, ErrorReport, FetchOutcome,
-    PushOutcome, PushReport, RepairBlock, Sessions, StatusReport, SyncReport, UnregisteredKind,
+    NoUpstreamWhy, PushOutcome, PushReport, RepairBlock, Sessions, StatusReport, SyncReport,
+    UnregisteredKind,
 };
 use fuz_repos::sessions::{Session, SessionSource, Unavailable};
 use fuz_repos::state::{
@@ -821,11 +822,23 @@ floor_index!(
         PushOutcome::Failed { .. },
         PushOutcome::NotAhead,
         PushOutcome::NeedsHuman { .. },
-        PushOutcome::NoUpstream,
+        PushOutcome::NoUpstream { .. },
         PushOutcome::Detached,
         PushOutcome::Unread,
         PushOutcome::Created { .. },
         PushOutcome::RemoteBranchExists { .. },
+    ]
+);
+
+floor_index!(
+    no_upstream_why,
+    NO_UPSTREAM_WHY,
+    NoUpstreamWhy,
+    [
+        NoUpstreamWhy::Creatable,
+        NoUpstreamWhy::Merged,
+        NoUpstreamWhy::DefaultGone,
+        NoUpstreamWhy::OtherUpstream,
     ]
 );
 
@@ -855,14 +868,18 @@ pub fn assert_sync_coverage(doc: &SyncReport) {
     seen.floor("clone_sync_hold", CLONE_SYNC_HOLD, &[]);
 }
 
-/// The push document's every-variant floor: each outcome and fetch
-/// outcome appears at least once.
+/// The push document's every-variant floor: each outcome, fetch outcome,
+/// and reason a branch has no upstream appears at least once.
 pub fn assert_push_coverage(doc: &PushReport) {
     let mut seen = Seen::default();
     for p in &doc.pushes {
         seen.mark("push_outcome", push_outcome(&p.outcome));
         seen.mark("fetch_outcome", fetch_outcome(&p.fetch));
+        if let PushOutcome::NoUpstream { why } = &p.outcome {
+            seen.mark("no_upstream_why", no_upstream_why(why));
+        }
     }
     seen.floor("push_outcome", PUSH_OUTCOME, &[]);
     seen.floor("fetch_outcome", FETCH_OUTCOME, &[]);
+    seen.floor("no_upstream_why", NO_UPSTREAM_WHY, &[]);
 }

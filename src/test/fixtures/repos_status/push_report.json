@@ -1,5 +1,5 @@
 {
-	"version": 8,
+	"version": 9,
 	"status": {
 		"version": 18,
 		"workspace": "/home/me/dev",
@@ -975,6 +975,231 @@
 				"unprobed_worktrees": [],
 				"fetch_error": null,
 				"visibility_check": null
+			},
+			{
+				"key": "fuz_code",
+				"kind": "repo",
+				"dir": "fuz_code",
+				"url": "https://github.com/me/fuz_code",
+				"writable": true,
+				"archived": false,
+				"visibility": "public",
+				"ci": true,
+				"branch": "main",
+				"pinned": false,
+				"refresh": null,
+				"presence": {
+					"kind": "present"
+				},
+				"clone": null,
+				"layout": {
+					"shallow": false,
+					"sparse": false,
+					"partial_filter": null
+				},
+				"checkouts": [
+					{
+						"path": "/home/me/dev/fuz_code",
+						"primary": true,
+						"head": {
+							"kind": "branch",
+							"name": "done"
+						},
+						"uncommitted": {
+							"staged": 0,
+							"unstaged": 0,
+							"untracked": 0,
+							"conflicted": 0
+						},
+						"in_progress": null,
+						"locked": false,
+						"linked": false,
+						"submodules": null,
+						"busy": []
+					}
+				],
+				"branches": [
+					{
+						"name": "done",
+						"upstream": "origin/done",
+						"worktree": "/home/me/dev/fuz_code",
+						"symref": null,
+						"unique_commits": 0,
+						"newest_commit_at": 1799827200,
+						"relation": {
+							"kind": "gone"
+						},
+						"verdict": {
+							"kind": "cleanup",
+							"reason": "upstream_gone",
+							"removable_worktree": null
+						}
+					}
+				],
+				"at_rest": {
+					"on_branch": false,
+					"clean": true,
+					"idle": true,
+					"followed": null
+				},
+				"stashes": 0,
+				"fetched_at": 1799913600,
+				"needs_human": [],
+				"probe_error": null,
+				"unprobed_worktrees": [],
+				"fetch_error": null,
+				"visibility_check": null
+			},
+			{
+				"key": "fuz_docs",
+				"kind": "repo",
+				"dir": "fuz_docs",
+				"url": "https://github.com/me/fuz_docs",
+				"writable": true,
+				"archived": false,
+				"visibility": "public",
+				"ci": true,
+				"branch": "main",
+				"pinned": false,
+				"refresh": null,
+				"presence": {
+					"kind": "present"
+				},
+				"clone": null,
+				"layout": {
+					"shallow": false,
+					"sparse": false,
+					"partial_filter": null
+				},
+				"checkouts": [
+					{
+						"path": "/home/me/dev/fuz_docs",
+						"primary": true,
+						"head": {
+							"kind": "branch",
+							"name": "main"
+						},
+						"uncommitted": {
+							"staged": 0,
+							"unstaged": 0,
+							"untracked": 0,
+							"conflicted": 0
+						},
+						"in_progress": null,
+						"locked": false,
+						"linked": false,
+						"submodules": null,
+						"busy": []
+					}
+				],
+				"branches": [
+					{
+						"name": "main",
+						"upstream": "origin/main",
+						"worktree": "/home/me/dev/fuz_docs",
+						"symref": null,
+						"unique_commits": 1,
+						"newest_commit_at": 1799827200,
+						"relation": {
+							"kind": "gone"
+						},
+						"verdict": {
+							"kind": "local_only"
+						}
+					}
+				],
+				"at_rest": {
+					"on_branch": true,
+					"clean": true,
+					"idle": true,
+					"followed": {
+						"kind": "gone"
+					}
+				},
+				"stashes": 0,
+				"fetched_at": 1799913600,
+				"needs_human": [
+					{
+						"kind": "default_branch_gone",
+						"branch": "main"
+					}
+				],
+				"probe_error": null,
+				"unprobed_worktrees": [],
+				"fetch_error": null,
+				"visibility_check": null
+			},
+			{
+				"key": "fuz_blog",
+				"kind": "repo",
+				"dir": "fuz_blog",
+				"url": "https://github.com/me/fuz_blog",
+				"writable": true,
+				"archived": false,
+				"visibility": "public",
+				"ci": true,
+				"branch": "main",
+				"pinned": false,
+				"refresh": null,
+				"presence": {
+					"kind": "present"
+				},
+				"clone": null,
+				"layout": {
+					"shallow": false,
+					"sparse": false,
+					"partial_filter": null
+				},
+				"checkouts": [
+					{
+						"path": "/home/me/dev/fuz_blog",
+						"primary": true,
+						"head": {
+							"kind": "branch",
+							"name": "fork"
+						},
+						"uncommitted": {
+							"staged": 0,
+							"unstaged": 0,
+							"untracked": 0,
+							"conflicted": 0
+						},
+						"in_progress": null,
+						"locked": false,
+						"linked": false,
+						"submodules": null,
+						"busy": []
+					}
+				],
+				"branches": [
+					{
+						"name": "fork",
+						"upstream": "upstream/fork",
+						"worktree": "/home/me/dev/fuz_blog",
+						"symref": null,
+						"unique_commits": 1,
+						"newest_commit_at": 1799827200,
+						"relation": {
+							"kind": "untracked"
+						},
+						"verdict": {
+							"kind": "local_only"
+						}
+					}
+				],
+				"at_rest": {
+					"on_branch": false,
+					"clean": true,
+					"idle": true,
+					"followed": null
+				},
+				"stashes": 0,
+				"fetched_at": 1799913600,
+				"needs_human": [],
+				"probe_error": null,
+				"unprobed_worktrees": [],
+				"fetch_error": null,
+				"visibility_check": null
 			}
 		],
 		"unregistered": null
@@ -1036,7 +1261,8 @@
 			"fetch": {
 				"kind": "fetched"
 			},
-			"kind": "no_upstream"
+			"kind": "no_upstream",
+			"why": "creatable"
 		},
 		{
 			"key": "mdz",
@@ -1114,6 +1340,36 @@
 			},
 			"kind": "remote_branch_exists",
 			"at": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+		},
+		{
+			"key": "fuz_code",
+			"checkout": "/home/me/dev/fuz_code",
+			"branch": "done",
+			"fetch": {
+				"kind": "fetched"
+			},
+			"kind": "no_upstream",
+			"why": "merged"
+		},
+		{
+			"key": "fuz_docs",
+			"checkout": "/home/me/dev/fuz_docs",
+			"branch": "main",
+			"fetch": {
+				"kind": "fetched"
+			},
+			"kind": "no_upstream",
+			"why": "default_gone"
+		},
+		{
+			"key": "fuz_blog",
+			"checkout": "/home/me/dev/fuz_blog",
+			"branch": "fork",
+			"fetch": {
+				"kind": "fetched"
+			},
+			"kind": "no_upstream",
+			"why": "other_upstream"
 		}
 	]
 }

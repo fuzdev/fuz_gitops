@@ -15,7 +15,7 @@ mod support;
 use std::ffi::OsString;
 use std::path::Path;
 
-use fuz_repos::report::{BranchSyncHold, PushOutcome};
+use fuz_repos::report::{BranchSyncHold, NoUpstreamWhy, PushOutcome};
 use fuz_repos::state::Relation;
 use support::push::{ahead, feat_ahead, only, pushed, pushes_served, remote_refs, topic, with};
 use support::{FixtureWorkspace, branch, find_entry, git_env, reader_then, write_executable};
@@ -89,7 +89,15 @@ fn a_remote_branch_deleted_after_the_fetch_is_never_recreated() {
     assert_eq!(pushes_served(&ws).len(), 1);
     // the rerun reads it gone: nothing to push to
     let run = ws.push(&["app"]);
-    assert_eq!(only(&run), (Some("feat"), &PushOutcome::NoUpstream));
+    assert_eq!(
+        only(&run),
+        (
+            Some("feat"),
+            &PushOutcome::NoUpstream {
+                why: NoUpstreamWhy::Creatable
+            }
+        )
+    );
     assert!(!remote_refs(&ws, "app").contains_key("refs/heads/feat"));
     assert_eq!(ws.git(&app, &["rev-parse", "feat"]), tip);
     assert_eq!(pushes_served(&ws).len(), 1);

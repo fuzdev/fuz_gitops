@@ -13,7 +13,8 @@ use crate::remote::{RemoteFailure, VisibilityCheck};
 use crate::sessions::{Session, Unavailable};
 use crate::state::{
     AtRest, BranchHold, BranchNeedsHuman, BranchStatus, Checkout, CloneHold, CloneVerdict, Layout,
-    Presence, ProbeError, ProbeErrorKind, RefreshVerdict, SyncAction, UnprobedWorktreeStatus,
+    Presence, ProbeError, ProbeErrorKind, RefreshVerdict, SyncAction, UnprobedWhy,
+    UnprobedWorktreeStatus,
 };
 use crate::{PUSH_FORMAT_VERSION, STATUS_FORMAT_VERSION, SYNC_FORMAT_VERSION};
 
@@ -300,6 +301,30 @@ impl EntryStatus {
         self.checkouts
             .iter()
             .find(|c| same_path(Path::new(&c.path), path))
+    }
+
+    /// The unprobed worktrees whose probe failed, each with its error —
+    /// but one whose path is a git dir a `worktree_unreadable` reason
+    /// names, or one under it: that git dir is said once, as the reason
+    /// that holds the entry (present whether or not a worktree in it was
+    /// listed), never again as the worktree's failed probe.
+    pub fn unprobed_failures(&self) -> impl Iterator<Item = (&UnprobedWorktreeStatus, &str)> {
+        self.unprobed_worktrees
+            .iter()
+            .filter_map(|u| match &u.worktree.why {
+                UnprobedWhy::Failed { error } if !self.unreadable_names(&u.worktree.path) => {
+                    Some((u, error.as_str()))
+                }
+                _ => None,
+            })
+    }
+
+    /// Whether `path` is a git dir a `worktree_unreadable` reason names, or
+    /// one under it.
+    fn unreadable_names(&self, path: &str) -> bool {
+        self.needs_human.iter().any(|r| {
+            matches!(r, NeedsHuman::WorktreeUnreadable { path: p } if Path::new(path).starts_with(p))
+        })
     }
 
     /// Whether a git call failed in the probe of a partial clone (its
@@ -702,9 +727,9 @@ pub enum PushOutcome {
     NeedsHuman { reason: BranchNeedsHuman },
     /// No upstream on origin to push to — none set, another remote's, or
     /// one deleted on origin (`gone`) — and a push creates a remote branch
-    /// only under `--new-branch`, the user's: none set, or a same-named one
-    /// gone.
-    NoUpstream,
+    /// only under `--new-branch`, the user's: `why` is what that flag would
+    /// do with it, decided where the push decides it.
+    NoUpstream { why: NoUpstreamWhy },
     /// Under `--new-branch`, a branch with no upstream whose name the fetch
     /// found on origin, at `at`: `--new-branch` creates a branch, never
     /// overwrites or adopts one — its upstream is a person's to set.
@@ -715,6 +740,32 @@ pub enum PushOutcome {
     /// probe failed (the status entry's `probe_error`), or the checkout is
     /// a worktree the probe couldn't read.
     Unread,
+}
+
+/// Why a branch with no upstream on origin wasn't pushed, as
+/// `repos push --new-branch` reads it — the same reading that decides what
+/// the flag creates, from the merge ref as git resolves it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum NoUpstreamWhy {
+    /// `--new-branch` would create it, its creation's own re-checks
+    /// permitting (origin already has the name, the refspec leaves it out,
+    /// a session in its checkout): no upstream configured, or origin's
+    /// same-named branch as its upstream, gone, with commits on no remote.
+    /// Only ever read on a run without the flag, which creates it, and never
+    /// in an archived repo, whose branch reads `needs_human`
+    /// (`archived_ahead`) instead.
+    Creatable,
+    /// Its upstream gone from origin with nothing of it on no remote —
+    /// merged, and deleted there, most often: recreating it is by hand.
+    Merged,
+    /// The branch the entry follows, its upstream gone from origin
+    /// (`default_branch_gone`): the remote's default renamed or deleted, a
+    /// person's to repoint, never put back.
+    DefaultGone,
+    /// Anything else: it tracks another remote, or origin's branch under
+    /// another name, gone — a person's to set up.
+    OtherUpstream,
 }
 
 impl PushOutcome {

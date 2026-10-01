@@ -400,7 +400,12 @@ failed fetch or push), as `git push` exits on a rejected ref, and `2` for
 usage (an unknown target, the cwd in no entry's checkout, a third-party or
 pinned target, `--new-branch` in an agent's shell). `--json` prints its own
 versioned outcome report: the targets' entries after the fetch, and one
-outcome per target checkout.
+outcome per target checkout. A `no_upstream` outcome carries `why`, what
+`--new-branch` would do with the branch, read as that flag reads it:
+`creatable` (only without the flag, which creates it), `merged`,
+`default_gone`, or `other_upstream`. The hint the text prints after it words
+that reading. A branch the flag would create in an archived repo reads
+`needs_human` (`archived_ahead`) with or without it.
 
 The rustdoc of `push.rs` has the details.
 

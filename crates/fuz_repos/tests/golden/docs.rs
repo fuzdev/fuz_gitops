@@ -8,8 +8,8 @@ use fuz_repos::registry::{CheckoutList, EntryKind, EntryName, RegistryIssue, Vis
 use fuz_repos::remote::{RefGoneFix, RemoteFailure, UnreachableCause, VisibilityCheck};
 use fuz_repos::report::{
     BranchOutcome, BranchSync, BranchSyncHold, CheckoutPush, CloneOutcome, CloneSyncHold,
-    EntryStatus, EntrySync, FetchOutcome, PushOutcome, PushReport, RepairBlock, Sessions,
-    StatusReport, SyncReport, UnregisteredClone, UnregisteredKind,
+    EntryStatus, EntrySync, FetchOutcome, NoUpstreamWhy, PushOutcome, PushReport, RepairBlock,
+    Sessions, StatusReport, SyncReport, UnregisteredClone, UnregisteredKind,
 };
 use fuz_repos::sessions::{Session, SessionSource, Unavailable};
 use fuz_repos::state::{
@@ -366,6 +366,55 @@ pub fn push_report_doc() -> PushReport {
     // no upstream: created on origin, and found there at another commit
     let created = topic("fuz_ui");
     let exists = topic("fuz_css");
+    // no upstream on origin, and none `--new-branch` creates: merged and
+    // deleted on origin, the entry's own branch gone, tracking another
+    // remote
+    let on_branch = |key: &str, b: BranchStatus| EntryStatus {
+        checkouts: vec![primary(key, on(&b.name))],
+        branches: vec![checked_out(b, key)],
+        ..entry(key, Some("main"))
+    };
+    let merged = on_branch(
+        "fuz_code",
+        branch(
+            "done",
+            Some("origin/done"),
+            Relation::Gone,
+            Verdict::Cleanup {
+                reason: CleanupReason::UpstreamGone,
+                removable_worktree: None,
+            },
+        ),
+    );
+    let default_gone = EntryStatus {
+        needs_human: vec![NeedsHuman::DefaultBranchGone {
+            branch: "main".into(),
+        }],
+        ..on_branch(
+            "fuz_docs",
+            BranchStatus {
+                unique_commits: 1,
+                ..branch(
+                    "main",
+                    Some("origin/main"),
+                    Relation::Gone,
+                    Verdict::LocalOnly,
+                )
+            },
+        )
+    };
+    let elsewhere = on_branch(
+        "fuz_blog",
+        BranchStatus {
+            unique_commits: 1,
+            ..branch(
+                "fork",
+                Some("upstream/fork"),
+                Relation::Untracked,
+                Verdict::LocalOnly,
+            )
+        },
+    );
     let status = report(
         true,
         Sessions::Available { unscoped: vec![] },
@@ -382,6 +431,9 @@ pub fn push_report_doc() -> PushReport {
             unborn,
             created,
             exists,
+            merged,
+            default_gone,
+            elsewhere,
         ],
         None,
     );
@@ -435,7 +487,9 @@ pub fn push_report_doc() -> PushReport {
                 path("gro"),
                 Some("topic"),
                 fetched.clone(),
-                PushOutcome::NoUpstream,
+                PushOutcome::NoUpstream {
+                    why: NoUpstreamWhy::Creatable,
+                },
             ),
             target(
                 "mdz",
@@ -494,8 +548,35 @@ pub fn push_report_doc() -> PushReport {
                 "fuz_css",
                 path("fuz_css"),
                 Some("topic"),
-                fetched,
+                fetched.clone(),
                 PushOutcome::RemoteBranchExists { at: oid('e') },
+            ),
+            target(
+                "fuz_code",
+                path("fuz_code"),
+                Some("done"),
+                fetched.clone(),
+                PushOutcome::NoUpstream {
+                    why: NoUpstreamWhy::Merged,
+                },
+            ),
+            target(
+                "fuz_docs",
+                path("fuz_docs"),
+                Some("main"),
+                fetched.clone(),
+                PushOutcome::NoUpstream {
+                    why: NoUpstreamWhy::DefaultGone,
+                },
+            ),
+            target(
+                "fuz_blog",
+                path("fuz_blog"),
+                Some("fork"),
+                fetched,
+                PushOutcome::NoUpstream {
+                    why: NoUpstreamWhy::OtherUpstream,
+                },
             ),
         ],
     )

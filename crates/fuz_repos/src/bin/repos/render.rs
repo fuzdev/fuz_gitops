@@ -14,8 +14,8 @@ use fuz_repos::registry::{EntryKind, Visibility};
 use fuz_repos::remote::{RefGoneFix, RemoteFailure, UnreachableCause, VisibilityCheck};
 use fuz_repos::report::{
     BranchOutcome, BranchSyncHold, CheckoutPush, CloneOutcome, CloneSyncHold, EntryStatus,
-    EntrySync, FetchOutcome, PushOutcome, PushReport, RepairBlock, Sessions, StatusReport,
-    SyncReport, UnregisteredClone, UnregisteredKind,
+    EntrySync, FetchOutcome, NoUpstreamWhy, PushOutcome, PushReport, RepairBlock, Sessions,
+    StatusReport, SyncReport, UnregisteredClone, UnregisteredKind,
 };
 use fuz_repos::sessions::{Session, SessionSource, Unavailable};
 use fuz_repos::state::{

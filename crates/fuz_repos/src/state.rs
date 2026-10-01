@@ -518,7 +518,8 @@ pub enum BranchNeedsHuman {
     Diverged,
     /// Its origin upstream lies outside the fetch refspec.
     Unmapped,
-    /// Ahead on an archived repo, whose host refuses writes.
+    /// Ahead on an archived repo, whose host refuses writes — or, in a push,
+    /// a branch with no upstream that `--new-branch` would create there.
     ArchivedAhead,
     /// A shallow branch with local commits off the fetched tip.
     ShallowLocalWork,

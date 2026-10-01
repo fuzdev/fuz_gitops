@@ -91,6 +91,8 @@ fn push_exits_one_when_a_branch_isnt_pushed() {
         .map(|p| p["kind"].as_str().unwrap())
         .collect();
     assert_eq!(kinds, ["not_ahead", "no_upstream"]);
+    // the reading the hint words, the push's own
+    assert_eq!(doc["pushes"][1]["why"], "creatable");
 }
 
 #[test]

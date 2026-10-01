@@ -203,7 +203,8 @@ const VIEW: View<'static> = View {
 /// with the hints for what isn't the push's to do.
 #[test]
 fn pushes_read_as_what_the_push_did() {
-    use fuz_repos::report::{CheckoutPush, PushOutcome};
+    use fuz_repos::report::{CheckoutPush, NoUpstreamWhy, PushOutcome};
+    let no_upstream = |why| PushOutcome::NoUpstream { why };
     let push = |commits| SyncAction::Push { commits };
     let with = |key: &str, head: &str, b: BranchStatus| {
         let mut e = entry(key, main(), head);
@@ -329,7 +330,7 @@ fn pushes_read_as_what_the_push_did() {
                     reason: BranchNeedsHuman::Diverged,
                 },
             ),
-            target("gro", Some("topic"), PushOutcome::NoUpstream),
+            target("gro", Some("topic"), no_upstream(NoUpstreamWhy::Creatable)),
             target("uz", Some("main"), PushOutcome::InSync),
             target("mdz", None, PushOutcome::Detached),
             target("gone", None, PushOutcome::Unread),
@@ -372,7 +373,8 @@ fn pushes_read_as_what_the_push_did() {
 /// `--new-branch` creates — each hint said once.
 #[test]
 fn new_branches_read_as_what_the_push_did() {
-    use fuz_repos::report::{CheckoutPush, PushOutcome};
+    use fuz_repos::report::{CheckoutPush, NoUpstreamWhy, PushOutcome};
+    let no_upstream = |why| PushOutcome::NoUpstream { why };
     let with = |key: &str, b: BranchStatus| {
         let mut e = entry(key, main(), &b.name);
         e.branches = vec![b];
@@ -430,11 +432,11 @@ fn new_branches_read_as_what_the_push_did() {
                     reason: BranchNeedsHuman::Unmapped,
                 },
             ),
-            target("zap", "topic", PushOutcome::NoUpstream),
-            target("gro", "feat", PushOutcome::NoUpstream),
-            target("mdz", "fork", PushOutcome::NoUpstream),
-            target("uz", "feat", PushOutcome::NoUpstream),
-            target("tsv", "done", PushOutcome::NoUpstream),
+            target("zap", "topic", no_upstream(NoUpstreamWhy::Creatable)),
+            target("gro", "feat", no_upstream(NoUpstreamWhy::Creatable)),
+            target("mdz", "fork", no_upstream(NoUpstreamWhy::OtherUpstream)),
+            target("uz", "feat", no_upstream(NoUpstreamWhy::OtherUpstream)),
+            target("tsv", "done", no_upstream(NoUpstreamWhy::Merged)),
         ],
     );
     assert!(!report.in_sync());
@@ -475,6 +477,67 @@ fn new_branches_read_as_what_the_push_did() {
         [
             "not pushed    tsv:done (nothing unique, upstream gone from origin)",
             format!("              hint: {MERGED_HINT}").as_str(),
+            "~/dev/repos.toml · fetched 3h ago",
+        ]
+    );
+    // the push's reading is the hint's, whatever the status's facts suggest:
+    // `gro:feat` reads as one `--new-branch` creates, but the push, reading
+    // the merge ref as git resolves it, found it tracking elsewhere
+    let elsewhere = PushReport::new(
+        report.status.clone(),
+        vec![CheckoutPush {
+            outcome: no_upstream(NoUpstreamWhy::OtherUpstream),
+            ..report.pushes[4].clone()
+        }],
+    );
+    assert_eq!(
+        render_push_summary(&elsewhere, VIEW)
+            .lines()
+            .collect::<Vec<_>>(),
+        [
+            "not pushed    gro:feat (upstream gone from origin)",
+            format!("              hint: {OTHER_UPSTREAM_HINT}").as_str(),
+            "~/dev/repos.toml · fetched 3h ago",
+        ]
+    );
+}
+
+/// The entry's own branch gone from origin: a person repoints it, and
+/// `--new-branch` never puts it back.
+#[test]
+fn the_entrys_own_branch_gone_reads_as_a_persons_to_repoint() {
+    use fuz_repos::report::{CheckoutPush, NoUpstreamWhy, PushOutcome};
+    let mut app = entry("app", main(), "main");
+    app.branches = vec![branch(
+        "main",
+        Some("origin/main"),
+        Relation::Gone,
+        1,
+        Verdict::LocalOnly,
+    )];
+    app.needs_human = vec![NeedsHuman::DefaultBranchGone {
+        branch: "main".into(),
+    }];
+    let pushed = PushReport::new(
+        report(vec![app]),
+        vec![CheckoutPush {
+            key: "app".into(),
+            checkout: "/home/me/dev/app".into(),
+            branch: Some("main".into()),
+            fetch: FetchOutcome::Fetched,
+            outcome: PushOutcome::NoUpstream {
+                why: NoUpstreamWhy::DefaultGone,
+            },
+        }],
+    );
+    assert_eq!(
+        render_push_summary(&pushed, VIEW)
+            .lines()
+            .collect::<Vec<_>>(),
+        [
+            "needs human   app (main's upstream is gone from origin)",
+            "not pushed    app (the entry's branch, upstream gone from origin)",
+            format!("              hint: {DEFAULT_GONE_HINT}").as_str(),
             "~/dev/repos.toml · fetched 3h ago",
         ]
     );

@@ -82,4 +82,4 @@ pub const SYNC_FORMAT_VERSION: u32 = 12;
 /// The version of the `repos push --json` document. Bumped on any change to
 /// its shape, the embedded status report's included (so with every
 /// `STATUS_FORMAT_VERSION` bump).
-pub const PUSH_FORMAT_VERSION: u32 = 8;
+pub const PUSH_FORMAT_VERSION: u32 = 9;

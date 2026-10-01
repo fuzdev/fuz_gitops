@@ -10,7 +10,7 @@ mod support;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use fuz_repos::classify::NeedsHuman;
-use fuz_repos::report::{BranchSyncHold, PushOutcome};
+use fuz_repos::report::{BranchSyncHold, NoUpstreamWhy, PushOutcome};
 use fuz_repos::sessions::{LiveSessions, Session, SessionSource};
 use fuz_repos::state::{BranchNeedsHuman, Relation};
 use support::cli::{repos, stderr, stdout};
@@ -101,7 +101,15 @@ fn new_branch_never_recreates_a_merged_branch_origin_deleted() {
 
     let run = ws.push_new_branch(&["app"]);
 
-    assert_eq!(only(&run), (Some("feat"), &PushOutcome::NoUpstream));
+    assert_eq!(
+        only(&run),
+        (
+            Some("feat"),
+            &PushOutcome::NoUpstream {
+                why: NoUpstreamWhy::Merged
+            }
+        )
+    );
     let e = find_entry(&run.entries, "app");
     assert_eq!(branch(e, "feat").relation, Relation::Gone);
     assert_eq!(branch(e, "feat").unique_commits, 0);
@@ -152,7 +160,15 @@ fn new_branch_never_recreates_the_entrys_own_branch_gone_from_origin() {
     let config_before = ws.git(&app, &["config", "--get-regexp", "^branch\\."]);
 
     for run in [ws.push(&["app"]), ws.push_new_branch(&["app"])] {
-        assert_eq!(only(&run), (Some("master"), &PushOutcome::NoUpstream));
+        assert_eq!(
+            only(&run),
+            (
+                Some("master"),
+                &PushOutcome::NoUpstream {
+                    why: NoUpstreamWhy::DefaultGone
+                }
+            )
+        );
         let e = find_entry(&run.entries, "app");
         assert_eq!(
             e.needs_human,
@@ -230,7 +246,16 @@ fn new_branch_creates_only_a_same_named_branch_on_origin() {
     for name in ["renamed", "fork"] {
         ws.git(&app, &["switch", "-q", name]);
         let run = ws.push_new_branch(&["app"]);
-        assert_eq!(only(&run), (Some(name), &PushOutcome::NoUpstream), "{name}");
+        assert_eq!(
+            only(&run),
+            (
+                Some(name),
+                &PushOutcome::NoUpstream {
+                    why: NoUpstreamWhy::OtherUpstream
+                }
+            ),
+            "{name}"
+        );
     }
     assert_eq!(remote_refs(&ws, "app"), remote_before);
     assert_eq!(
@@ -320,7 +345,15 @@ PATH='{real_path}' exec git \"$@\"
     // no upstream, so the push says so
     ws.set_env("PATH", real_path);
     let run = ws.push(&["app"]);
-    assert_eq!(only(&run), (Some("topic"), &PushOutcome::NoUpstream));
+    assert_eq!(
+        only(&run),
+        (
+            Some("topic"),
+            &PushOutcome::NoUpstream {
+                why: NoUpstreamWhy::Creatable
+            }
+        )
+    );
 
     // the rerun: up to date at origin, the upstream set
     let run = ws.push_new_branch(&["app"]);
@@ -382,7 +415,8 @@ fn new_branch_never_creates_a_branch_outside_the_refspec() {
     assert_eq!(pushes_served(&ws), Vec::<String>::new());
 }
 
-/// Never created in an archived repo: a person's, as a push there is.
+/// Never created in an archived repo: a person's, as a push there is — and
+/// a run without the flag reads it the same, never hinting at the flag.
 #[test]
 fn new_branch_leaves_an_archived_repo_alone() {
     let mut ws = FixtureWorkspace::new();
@@ -392,17 +426,31 @@ fn new_branch_leaves_an_archived_repo_alone() {
     ws.write_registry();
     ws.git(&app, &["switch", "-q", "-c", "topic"]);
     ws.commit(&app, "topic");
+    let remote_before = remote_refs(&ws, "app");
 
-    let run = ws.push_new_branch(&["app"]);
+    for run in [ws.push_new_branch(&["app"]), ws.push(&["app"])] {
+        assert_eq!(
+            only(&run),
+            (
+                Some("topic"),
+                &PushOutcome::NeedsHuman {
+                    reason: BranchNeedsHuman::ArchivedAhead
+                }
+            )
+        );
+    }
+    let out = repos(&ws, &app, &["push"]);
+    assert_eq!(out.status.code(), Some(1), "stderr: {}", stderr(&out));
+    let text = stdout(&out);
+    assert!(!text.contains("--new-branch"), "{text}");
+    let lines: Vec<&str> = text.lines().collect();
     assert_eq!(
-        only(&run),
-        (
-            Some("topic"),
-            &PushOutcome::NeedsHuman {
-                reason: BranchNeedsHuman::ArchivedAhead
-            }
-        )
+        lines[..lines.len() - 1],
+        ["needs human   app:topic (archived, no upstream on origin)"],
+        "{text}"
     );
+    assert_eq!(remote_refs(&ws, "app"), remote_before);
+    ws.assert_upstream(&app, "topic", "");
     assert_eq!(pushes_served(&ws), Vec::<String>::new());
 }
 

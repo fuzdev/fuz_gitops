@@ -11,7 +11,7 @@ mod support;
 use std::path::Path;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use fuz_repos::report::{BranchSyncHold, FetchOutcome, PushOutcome};
+use fuz_repos::report::{BranchSyncHold, FetchOutcome, NoUpstreamWhy, PushOutcome};
 use fuz_repos::sessions::{LiveSessions, Session, SessionSource};
 use fuz_repos::state::{BranchNeedsHuman, Relation, SyncAction, Verdict};
 use support::cli::{repos, stderr, stdout};
@@ -235,7 +235,15 @@ fn a_remote_branch_is_never_created_without_new_branch() {
     let remote_before = remote_refs(&ws, "app");
 
     let run = ws.push(&["app"]);
-    assert_eq!(only(&run), (Some("topic"), &PushOutcome::NoUpstream));
+    assert_eq!(
+        only(&run),
+        (
+            Some("topic"),
+            &PushOutcome::NoUpstream {
+                why: NoUpstreamWhy::Creatable
+            }
+        )
+    );
     assert_eq!(remote_refs(&ws, "app"), remote_before);
 
     // an upstream deleted on origin: the fetch prunes it, and it stays gone
@@ -244,7 +252,15 @@ fn a_remote_branch_is_never_created_without_new_branch() {
     let remote_before = remote_refs(&ws, "app");
     assert!(!remote_before.contains_key("refs/heads/feat"));
     let run = ws.push(&["app"]);
-    assert_eq!(only(&run), (Some("feat"), &PushOutcome::NoUpstream));
+    assert_eq!(
+        only(&run),
+        (
+            Some("feat"),
+            &PushOutcome::NoUpstream {
+                why: NoUpstreamWhy::Creatable
+            }
+        )
+    );
     let e = find_entry(&run.entries, "app");
     assert_eq!(branch(e, "feat").relation, Relation::Gone);
     assert_eq!(remote_refs(&ws, "app"), remote_before);
@@ -371,7 +387,15 @@ fn no_upstream_reads_so_when_the_fetch_fails() {
 
     let run = ws.push(&["app"]);
     assert!(matches!(run.pushes[0].fetch, FetchOutcome::Failed { .. }));
-    assert_eq!(only(&run), (Some("topic"), &PushOutcome::NoUpstream));
+    assert_eq!(
+        only(&run),
+        (
+            Some("topic"),
+            &PushOutcome::NoUpstream {
+                why: NoUpstreamWhy::Creatable
+            }
+        )
+    );
 
     let run = ws.push_new_branch(&["app"]);
     assert_eq!(
