@@ -794,8 +794,11 @@ Core modules tested:
 - `dependency_graph.test.ts` - Topological sorting and cycle detection
 - `changeset_generator.test.ts` - Auto-changeset content generation
 - `preflight_checks.test.ts` - Builds of the plan's packages, and npm validation
-- `repo_readiness.test.ts` - Readiness predicates, the gate's refusal,
-  `gitops_sync`'s policy, the diagnostics' block
+- `repo_readiness.publish.test.ts`, `repo_readiness.for_gen.test.ts`,
+  `repo_readiness.format.test.ts` - Readiness predicates and the gate's
+  refusal, `gitops_sync`'s policy, the diagnostics' block
+- `gitops_task_helpers.gate.test.ts` - `gate_publish_readiness`: what it
+  fetches, `--registry` in its fixes, a failed `repos status`
 - `gitops_publish.test.ts` - The gate's order in a real publish: before the
   prompt and every side effect; stdout carrying the report or events alone,
   and the report's secrets masked

@@ -10,10 +10,10 @@ import {
 	to_child_stdout,
 	type GitopsPublishDeps
 } from '$lib/gitops_publish.task.ts';
-import { gate_publish_readiness } from '$lib/gitops_task_helpers.ts';
 import type { LocalRepo } from '$lib/local_repo.ts';
 import type { ReposEntryStatus } from '$lib/repos_status.ts';
 import {
+	create_repos,
 	create_mock_gitops_ops,
 	create_mock_repo,
 	create_mock_repos_entry,
@@ -47,15 +47,6 @@ const OFF_BRANCH: Partial<ReposEntryStatus> = {
 		}
 	],
 	at_rest: { on_branch: false, clean: true, idle: true, followed: { kind: 'in_sync' } }
-};
-
-/** Two npm repos and a cargo one; `b`'s entry as the local, unfetched status read it. */
-const create_repos = (b_entry: Partial<ReposEntryStatus> = {}): Array<LocalRepo> => {
-	const a = create_mock_repo({ name: 'a' });
-	const b = create_mock_repo({ name: 'b', deps: { a: '^1.0.0' } });
-	b.entry = create_mock_repos_entry({ key: 'b', ...b_entry });
-	const c = create_mock_repo({ name: 'c', kind: 'cargo' });
-	return [a, b, c];
 };
 
 /**
@@ -429,60 +420,5 @@ describe('format_failure_markdown', () => {
 		const lines = format_failure_markdown('pkg', 'failed\n```\nquoted\n```');
 		assert.strictEqual(lines[2], '  ````');
 		assert.strictEqual(lines.at(-1), '  ````');
-	});
-});
-
-describe('gate_publish_readiness', () => {
-	test('fetches the npm repos alone, passing `--registry`', async () => {
-		const repos_ops = create_mock_repos_ops(
-			create_mock_repos_report(
-				[create_mock_repos_entry({ key: 'a' }), create_mock_repos_entry({ key: 'b' })],
-				{ fetched: true }
-			)
-		);
-		await gate_publish_readiness({ local_repos: create_repos(), registry: '../r.toml', repos_ops });
-		assert.deepEqual(repos_ops.calls, [{ keys: ['a', 'b'], registry: '../r.toml', fetch: true }]);
-	});
-
-	test('fixes in a refusal name `--registry`', async () => {
-		const repos_ops = create_mock_repos_ops(
-			create_mock_repos_report(
-				[
-					create_mock_repos_entry({ key: 'a' }),
-					create_mock_repos_entry({
-						key: 'b',
-						at_rest: {
-							on_branch: true,
-							clean: true,
-							idle: true,
-							followed: { kind: 'behind', commits: 1 }
-						}
-					})
-				],
-				{ fetched: true }
-			)
-		);
-		await assert_rejects(
-			() =>
-				gate_publish_readiness({ local_repos: create_repos(), registry: '../r.toml', repos_ops }),
-			/`repos --registry \.\.\/r\.toml sync b` fast-forwards it/
-		);
-	});
-
-	test('runs nothing with no npm repos', async () => {
-		const repos_ops = create_mock_repos_ops('unused');
-		await gate_publish_readiness({
-			local_repos: [create_mock_repo({ name: 'c', kind: 'cargo' })],
-			repos_ops
-		});
-		assert.deepEqual(repos_ops.calls, []);
-	});
-
-	test('a failed `repos status` refuses', async () => {
-		const repos_ops = create_mock_repos_ops('not json');
-		await assert_rejects(
-			() => gate_publish_readiness({ local_repos: create_repos(), repos_ops }),
-			/the readiness check failed/
-		);
 	});
 });

@@ -1,3 +1,6 @@
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import type { LibraryJson } from '@fuzdev/fuz_util/library_json.ts';
 import type { PackageJson } from '@fuzdev/fuz_util/package_json.ts';
 import { Library } from '@fuzdev/fuz_ui/library.svelte.ts';
@@ -15,9 +18,11 @@ import type {
 	ReposCommandOutput,
 	ReposOperations
 } from '$lib/operations.ts';
+import type { RepoReadinessProblem } from '$lib/repo_readiness.ts';
 import type { BumpType } from '$lib/version_utils.ts';
 import {
 	REPOS_STATUS_FORMAT_VERSION,
+	type ReposCheckout,
 	type ReposEntryStatus,
 	type ReposStatusReport
 } from '$lib/repos_status.ts';
@@ -450,3 +455,46 @@ export const create_ready_repos_ops = (
 		}
 	};
 };
+
+/** Two npm repos and a cargo one; `b`'s entry as the local, unfetched status read it. */
+export const create_repos = (b_entry: Partial<ReposEntryStatus> = {}): Array<LocalRepo> => {
+	const a = create_mock_repo({ name: 'a' });
+	const b = create_mock_repo({ name: 'b', deps: { a: '^1.0.0' } });
+	b.entry = create_mock_repos_entry({ key: 'b', ...b_entry });
+	const c = create_mock_repo({ name: 'c', kind: 'cargo' });
+	return [a, b, c];
+};
+
+// written by the Rust side (`crates/fuz_repos/tests/golden.rs`), never by hand
+const GOLDEN_DIR = join(dirname(fileURLToPath(import.meta.url)), 'fixtures/repos_status');
+export const load_golden = (name: string): unknown =>
+	JSON.parse(readFileSync(join(GOLDEN_DIR, name), 'utf8'));
+
+/** An entry `key` whose primary checkout overrides `checkout`, with `at_rest` set whole. */
+export const entry_with = (
+	key: string,
+	options: {
+		checkout?: Partial<ReposCheckout>;
+		at_rest?: ReposEntryStatus['at_rest'];
+	} & Partial<Omit<ReposEntryStatus, 'at_rest' | 'checkouts'>>
+): ReposEntryStatus => {
+	const { checkout, at_rest, ...rest } = options;
+	const base = create_mock_repos_entry({ key });
+	const primary = { ...base.checkouts[0]!, path: `/test/${key}`, ...checkout };
+	return {
+		...base,
+		...rest,
+		checkouts: [primary],
+		at_rest: at_rest === undefined ? base.at_rest : at_rest
+	};
+};
+
+export const AT_REST = {
+	on_branch: true,
+	clean: true,
+	idle: true,
+	followed: { kind: 'in_sync' }
+} as const;
+
+export const kinds = (problems: Array<RepoReadinessProblem>): Array<string> =>
+	problems.map((p) => p.kind);
