@@ -260,11 +260,9 @@ pub struct EntryStatus {
     /// empty remote.
     pub fetched_at: Option<u64>,
     pub needs_human: Vec<NeedsHuman>,
-    /// A git call that failed after the repo was found; the facts above are
-    /// then incomplete. On a partial clone the call may have needed an
-    /// object the clone lacks (`probe_failed_partial`).
-    // TODO: settle at the pass 1 checkpoint — a plain message for now, not
-    // yet in the spec's types
+    /// A git call that failed after the repo was found, as a plain message;
+    /// the facts above are then incomplete. On a partial clone the call may
+    /// have needed an object the clone lacks (`probe_failed_partial`).
     pub probe_error: Option<String>,
     /// The repo's worktrees that couldn't be probed — gone, or failing; the
     /// rest of the entry's facts stand.

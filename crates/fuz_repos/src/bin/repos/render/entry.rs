@@ -323,12 +323,7 @@ pub fn render_entry(e: &EntryStatus, workspace: &Path, view: View<'_>) -> String
         }
     }
     if let Some(failure) = &e.fetch_error {
-        let _ = writeln!(
-            out,
-            "  {:<10}fetch: {}",
-            "error",
-            remote_failure_label(failure, true)
-        );
+        let _ = writeln!(out, "  {:<10}fetch: {}", "error", failure.words(true));
         let hint = match failure {
             RemoteFailure::RefGone { fix, .. } => Some(ref_gone_hint(fix, &dir)),
             f => match unreachable_cause(f) {
@@ -361,7 +356,7 @@ pub fn render_entry(e: &EntryStatus, workspace: &Path, view: View<'_>) -> String
                 out,
                 "  {:<10}visibility check: {}",
                 "error",
-                remote_failure_label(failure, true)
+                failure.words(true)
             );
             if unreachable_cause(failure) == Some(UnreachableCause::HostKey) {
                 let _ = writeln!(out, "  {:<10}{CERTIFICATE_HINT}", "hint");

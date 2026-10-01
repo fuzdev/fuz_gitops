@@ -319,8 +319,8 @@ impl From<Unresolved> for Unavailable {
     }
 }
 
-/// The live sessions with a place at or under `path`, a missing entry's
-/// dir, where its clone would land.
+/// Whether a live session has a place at or under `path`, a missing
+/// entry's dir, where its clone would land.
 ///
 /// A session whose dir was deleted from under it keeps its recorded cwd
 /// there. Compared by path
@@ -328,27 +328,23 @@ impl From<Unresolved> for Unavailable {
 /// components as written), and as written besides, so a place that can't
 /// be resolved still counts when its text is under `path`.
 ///
-/// None when detection is unavailable: a missing dir holds no work to
+/// False when detection is unavailable: a missing dir holds no work to
 /// lose, so a clone doesn't wait on sessions no one can vouch for (the
 /// `classify_missing` doc says what holds a clone).
-pub fn sessions_under(live: &LiveSessions, path: &Path) -> Vec<Session> {
+pub fn any_session_under(live: &LiveSessions, path: &Path) -> bool {
     let LiveSessions::Known(sessions) = live else {
-        return Vec::new();
+        return false;
     };
     let real = resolve(path).ok();
-    sessions
-        .iter()
-        .filter(|s| {
-            s.places().any(|place| {
-                let place = Path::new(place);
-                place.starts_with(path)
-                    || real
-                        .as_ref()
-                        .is_some_and(|real| resolve(place).is_ok_and(|p| p.starts_with(real)))
-            })
+    sessions.iter().any(|s| {
+        s.places().any(|place| {
+            let place = Path::new(place);
+            place.starts_with(path)
+                || real
+                    .as_ref()
+                    .is_some_and(|real| resolve(place).is_ok_and(|p| p.starts_with(real)))
         })
-        .cloned()
-        .collect()
+    })
 }
 
 /// One entry's checkouts, as busy detection scopes sessions to them.

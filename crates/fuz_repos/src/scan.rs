@@ -45,6 +45,7 @@ use crate::gitdir::{
     GitdirTarget, dot_git_target, read_commondir, read_gitdir_target, read_worktree_git_dirs,
 };
 use crate::paths::canonical;
+use crate::porcelain::after_last_reset;
 use crate::registry::{Entry, is_owner};
 use crate::report::{RepairBlock, UnregisteredClone, UnregisteredKind};
 use crate::url::without_userinfo;
@@ -757,7 +758,8 @@ fn uses_git_dir(path: &Path, git_dir: &Path) -> bool {
 }
 
 /// `remote.origin.url` as git reads it in `dir` — the first value after the
-/// last empty one (which resets the list), the one a fetch uses, as git
+/// last empty one (which resets the list: `after_last_reset`, the rule
+/// `ConfigFacts::origin_url` reads), the one a fetch uses, as git
 /// holds it — a credential in its userinfo included; `None` when unset, reset,
 /// or git fails. Discovery stops at `dir`'s parent, so a `.git` git can't
 /// use never resolves to an enclosing repo.
@@ -776,11 +778,9 @@ fn read_origin(git: &Git, dir: &Path) -> Option<String> {
         )
         .ok()?;
     let out = std::str::from_utf8(&out).ok()?;
+    // a valueless `url` prints empty too: it ends the list as porcelain's
+    // `OriginUrl::resets` has it
     let values: Vec<&str> = out.strip_suffix('\0').unwrap_or(out).split('\0').collect();
-    let start = values
-        .iter()
-        .rposition(|v| v.is_empty())
-        .map_or(0, |i| i + 1);
-    let origin = values.get(start)?;
+    let origin = after_last_reset(&values, |v| v.is_empty()).first()?;
     Some((*origin).to_owned())
 }

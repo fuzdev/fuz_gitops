@@ -1114,27 +1114,6 @@ clean 1 · on branches 0 · pinned 0      ~/dev/repos.toml · fetched 3h ago
         "{tls}"
     );
     assert!(!block("unsure").contains("hint"));
-    assert_eq!(
-        remote_failure_label(
-            &RemoteFailure::OriginRefsShared {
-                remote: "origin/fork".into(),
-                refspec: "+refs/heads/*:refs/remotes/origin/fork/*".into(),
-            },
-            false
-        ),
-        "not run — remote origin/fork's refspec +refs/heads/*:refs/remotes/origin/fork/* \
-         can write under refs/remotes/origin/, which pruning origin may empty"
-    );
-    assert_eq!(
-        remote_failure_label(
-            &RemoteFailure::LegacyRemotesUnreadable {
-                path: "/home/me/dev/app/.git/remotes/old".into(),
-            },
-            false
-        ),
-        "not run — the legacy remote /home/me/dev/app/.git/remotes/old couldn't be read, \
-         and may share origin's refs"
-    );
     let dns = block("dns");
     assert!(
         dns.contains(

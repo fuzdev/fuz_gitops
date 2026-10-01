@@ -269,9 +269,8 @@ pub use unregistered::render_unregistered;
 use labels::{
     action_verb, clone_label, compact_remote, fetch_fix, first_line, format_age, git_dir_id,
     held_note, hold_note, needs_human_label, prefixed, prune_loss_label, refresh_held_note,
-    relation_label, remote_failure_label, session_label, sessions_label, unavailable_label,
-    uncommitted_detail, uncommitted_summary, unprobed_head_label, unreachable_cause, verdict_label,
-    visibility_cause,
+    relation_label, session_label, sessions_label, unavailable_label, uncommitted_detail,
+    uncommitted_summary, unprobed_head_label, unreachable_cause, verdict_label, visibility_cause,
 };
 use unregistered::unregistered_groups;
 

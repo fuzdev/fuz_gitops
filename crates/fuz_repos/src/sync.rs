@@ -6,10 +6,12 @@
 //! hardened fetch writing remote-tracking refs alone, the same visibility
 //! checks) and then acts:
 //!
-//! 1. Probe every entry, fetching the ones `status --fetch` fetches (owned,
-//!    not pinned, or a third-party reference the run refreshes whose origin
-//!    is the registry's repo — over HTTPS alone — with an `origin` URL)
-//!    first.
+//! 1. Probe every entry, fetching the ones `status --fetch` fetches first:
+//!    owned and not pinned, with an `origin` URL whose fetch, as git
+//!    resolves it (`insteadOf` applied), reaches the registry's repo — one
+//!    a rewrite sends elsewhere is held unfetched (`fetch_url_mismatch`) —
+//!    or a third-party reference the run refreshes whose origin is the
+//!    registry's repo, fetched over HTTPS alone.
 //! 2. Read the live sessions — after the fetches, which can take minutes,
 //!    so a session started meanwhile still holds — scope them to the
 //!    checkouts probed, and classify.
@@ -183,7 +185,7 @@ use std::collections::HashMap;
 use std::path::Path;
 use std::time::{Duration, Instant};
 
-use crate::busy::{Detection, EntryCheckouts, scope_sessions, sessions_under};
+use crate::busy::{Detection, EntryCheckouts, any_session_under, scope_sessions};
 use crate::classify::{Refresh, push_target};
 use crate::clone::{CLONE_TIMEOUT, Cloner};
 use crate::discover::{Locate, Workspace, resolve_targets};
@@ -390,7 +392,7 @@ pub fn sync(
     let groups = repo_groups(&assessed.facts);
     let acted = run_pool(clones.len() + groups.len(), opts.jobs, |task| {
         if let Some(&(i, recipe)) = clones.get(task) {
-            let busy = |path: &Path| !sessions_under(&(opts.read_live)(), path).is_empty();
+            let busy = |path: &Path| any_session_under(&(opts.read_live)(), path);
             return Acted::Clone(i, cloner.clone_entry(&entries[i], recipe, busy));
         }
         let group = &groups[task - clones.len()];

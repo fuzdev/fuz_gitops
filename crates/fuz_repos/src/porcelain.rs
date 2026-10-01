@@ -657,12 +657,7 @@ impl ConfigFacts {
     /// config is broken either way — it names no usable remote on newer
     /// gits — so this doesn't gate on the version.
     fn origin_url_list(&self) -> &[OriginUrl] {
-        let start = self
-            .origin_urls
-            .iter()
-            .rposition(OriginUrl::resets)
-            .map_or(0, |i| i + 1);
-        &self.origin_urls[start..]
+        after_last_reset(&self.origin_urls, OriginUrl::resets)
     }
 
     /// The URL git fetches `origin` from: the first of `origin_url_list`;
@@ -672,6 +667,14 @@ impl ConfigFacts {
             .first()
             .and_then(|v| v.value.as_deref())
     }
+}
+
+/// The values of a multi-valued key that git uses: those after the last
+/// one `resets` says ends the list (an empty value, from git 2.46), all of
+/// them when none does.
+pub fn after_last_reset<T>(values: &[T], resets: impl Fn(&T) -> bool) -> &[T] {
+    let start = values.iter().rposition(resets).map_or(0, |i| i + 1);
+    &values[start..]
 }
 
 fn git_bool(v: &str) -> bool {

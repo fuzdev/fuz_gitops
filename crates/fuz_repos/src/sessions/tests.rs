@@ -504,4 +504,14 @@ fn a_lock_names_a_session_by_pid_and_start_time_to_the_digit() {
     assert!(!names("claude agent a (pid 42 start 0123)"));
     assert!(!names("claude agent a (pid 42 start 123 )"));
     assert!(!names("claude agent a (pid 4294967338)"));
+    // the start compares as `to_string` spells it, without making one
+    for n in [0, 7, 10, 123, 1_000_000, u64::MAX] {
+        assert!(is_decimal_of(&n.to_string(), n), "{n}");
+        assert!(!is_decimal_of(&format!("0{n}"), n), "{n}");
+        assert!(!is_decimal_of(&format!("+{n}"), n), "{n}");
+        assert!(!is_decimal_of(&format!("{n}0"), n), "{n}");
+        assert!(!is_decimal_of(&format!("1{n}"), n), "{n}");
+    }
+    assert!(!is_decimal_of("", 0));
+    assert!(!is_decimal_of("18446744073709551616", u64::MAX));
 }

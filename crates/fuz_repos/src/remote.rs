@@ -4,11 +4,16 @@
 //!
 //! Classification is pure over the text git and its transports (ssh, curl)
 //! print under `LC_ALL=C`, which the runner sets, plus the fetch refspecs a
-//! missing ref is repaired against. `unreachable`, `repo_not_found`, and
-//! `failed` carry the line that decided them, verbatim; `ref_gone` carries
+//! missing ref is repaired against. `unreachable` and `repo_not_found`
+//! carry the line that decided them, trimmed, and `failed` one trimmed line
+//! — git's, or what the runner or a push's report said; `ref_gone` carries
 //! the ref git named and the repair decided for it, `timed_out` the
-//! runner's timeout. A renderer words each kind and may add a hint, but the
-//! kind and any repair are decided here.
+//! runner's timeout, and `rejected` — a push's alone — the reason git gave
+//! and the remote's own line, when it sent one. The three not-run kinds are no remote's
+//! answer: the probe refused to fetch (`refspec_outside_origin`,
+//! `origin_refs_shared`, `legacy_remotes_unreadable`). Each kind is worded
+//! once, here (`RemoteFailure::words`); a renderer may add a hint, but the
+//! kind, its words, and any repair are decided here.
 
 use std::path::Path;
 
@@ -46,7 +51,8 @@ pub enum RemoteFailure {
     /// The runner's timeout fired, and git was stopped. Distinct from a
     /// connect timeout, which is `Unreachable` with cause `connection`.
     TimedOut { after_secs: u64 },
-    /// Anything else, with git's first line.
+    /// Anything else, with one trimmed line: git's (`from_stderr` says
+    /// which), or what the runner or a push's report said.
     Failed { message: String },
     /// A push only: the remote refused the update — `[remote rejected]`
     /// with git's `reason` (`pre-receive hook declined`, `protected branch
@@ -75,6 +81,52 @@ pub enum RemoteFailure {
     /// dir, or a file in it, at `path` couldn't be read, and a remote there
     /// may have written under `refs/remotes/origin/`.
     LegacyRemotesUnreadable { path: String },
+}
+
+impl RemoteFailure {
+    /// The failure in words, for the text output and any message that
+    /// carries one: its kind, and under `detail` the line git printed that
+    /// decided it (a `Failed` has only that line, a push's rejection its
+    /// reason besides).
+    pub fn words(&self, detail: bool) -> String {
+        let with = |words: &str, message: &str| {
+            if detail {
+                format!("{words} — {message}")
+            } else {
+                words.to_owned()
+            }
+        };
+        match self {
+            Self::RefGone { refname, .. } => format!("origin has no {refname}"),
+            Self::Unreachable { cause, message } => with(
+                match cause {
+                    UnreachableCause::Dns => "host not found",
+                    UnreachableCause::Connection => "no connection",
+                    UnreachableCause::HostKey => "host not trusted",
+                    UnreachableCause::Auth => "access denied",
+                },
+                message,
+            ),
+            Self::RepoNotFound { message } => with("repo not found", message),
+            Self::TimedOut { after_secs } => format!("timed out after {after_secs}s"),
+            Self::Failed { message } => message.clone(),
+            Self::Rejected { reason, message } => match message {
+                Some(message) if detail => format!("rejected ({reason}) — {message}"),
+                Some(message) => format!("rejected: {message}"),
+                None => format!("rejected ({reason})"),
+            },
+            Self::RefspecOutsideOrigin { refspec } => {
+                format!("not run — refspec {refspec} writes outside refs/remotes/origin/")
+            }
+            Self::LegacyRemotesUnreadable { path } => format!(
+                "not run — the legacy remote {path} couldn't be read, and may share origin's refs"
+            ),
+            Self::OriginRefsShared { remote, refspec } => format!(
+                "not run — remote {remote}'s refspec {refspec} can write under \
+                 refs/remotes/origin/, which pruning origin may empty"
+            ),
+        }
+    }
 }
 
 /// How to stop a fetch refspec that names a ref the remote no longer has

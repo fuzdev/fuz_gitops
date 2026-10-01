@@ -15,7 +15,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use crate::busy::{EntryCheckouts, EntrySessions, scope_sessions, sessions_under};
+use crate::busy::{EntryCheckouts, EntrySessions, any_session_under, scope_sessions};
 use crate::classify::{
     ClassifiedMissing, NeedsHuman, Refresh, classify, classify_missing, refresh_intent,
     refresh_verdict,
@@ -560,14 +560,10 @@ fn assess(entries: &[Entry], probes: Probes, cx: &Assess<'_>) -> Assessed {
         checkouts,
     };
     for ((entry, (run, timing)), busy) in entries.iter().zip(probes.runs).zip(&per_entry) {
-        assessed.facts.push(match &run.probed {
-            Probed::Present(facts) => Some((**facts).clone()),
-            _ => None,
-        });
         assessed.fetches.push(run.fetch.clone());
-        assessed
-            .entries
-            .push(entry_status(entry, run, busy, cx.refresh));
+        let (status, facts) = entry_status(entry, run, busy, cx.refresh);
+        assessed.entries.push(status);
+        assessed.facts.push(facts);
         assessed.timings.push(timing);
     }
     for (i, check, time) in probes.checks {
@@ -599,7 +595,7 @@ fn classify_missing_at(entry: &Entry, cx: &Assess<'_>, recorded: &[&str]) -> Cla
     let path = cx.root.join(&entry.dir);
     classify_missing(
         entry,
-        !sessions_under(cx.live, &path).is_empty(),
+        any_session_under(cx.live, &path),
         recorded.iter().any(|r| same_path(Path::new(r), &path)),
         cx.unregistered,
     )
@@ -625,13 +621,14 @@ pub(crate) fn entry_checkouts(probed: &Probed) -> EntryCheckouts {
 }
 
 /// Assembles an entry's report from its probe and the live sessions in its
-/// checkouts, classified for `refresh`.
+/// checkouts, classified for `refresh`, handing back the facts of a repo
+/// probed whole: the report copies only its checkouts from them.
 fn entry_status(
     entry: &Entry,
     run: ProbeRun,
     sessions: &EntrySessions,
     refresh: Refresh,
-) -> EntryStatus {
+) -> (EntryStatus, Option<RepoFacts>) {
     let mut status = EntryStatus {
         key: entry.key.clone(),
         kind: entry.kind,
@@ -658,11 +655,15 @@ fn entry_status(
         fetch_error: run.fetch.and_then(Result::err),
         visibility_check: None,
     };
-    match run.probed {
-        Probed::Missing => status.presence = Presence::Missing,
+    let facts = match run.probed {
+        Probed::Missing => {
+            status.presence = Presence::Missing;
+            None
+        }
         Probed::NotARepo { detail } => {
             status.presence = Presence::NotARepo;
             status.needs_human.push(NeedsHuman::NotARepo { detail });
+            None
         }
         Probed::Failed {
             error,
@@ -679,6 +680,7 @@ fn entry_status(
             );
             status.probe_error = Some(error);
             status.layout = layout;
+            None
         }
         Probed::Present(facts) => {
             status.refresh = refresh_verdict(entry, refresh, &facts.config);
@@ -691,9 +693,9 @@ fn entry_status(
             let primary_busy = sessions.at(&facts.path).to_vec();
             let primary_working = sessions.working_at(&facts.path).to_vec();
             status.checkouts.push(Checkout {
-                path: facts.path,
+                path: facts.path.clone(),
                 primary: true,
-                head: facts.status.head,
+                head: facts.status.head.clone(),
                 uncommitted: facts.status.uncommitted,
                 in_progress: facts.in_progress,
                 locked: facts.primary_locked,
@@ -705,16 +707,17 @@ fn entry_status(
             });
             status
                 .checkouts
-                .extend(facts.worktrees.into_iter().map(|mut c| {
-                    c.busy = sessions.at(&c.path).to_vec();
-                    c.working = sessions.working_at(&c.path).to_vec();
-                    c
+                .extend(facts.worktrees.iter().map(|c| Checkout {
+                    busy: sessions.at(&c.path).to_vec(),
+                    working: sessions.working_at(&c.path).to_vec(),
+                    ..c.clone()
                 }));
             status.unprobed_worktrees = classified.unprobed;
-            status.layout = Some(facts.layout);
+            status.layout = Some(facts.layout.clone());
+            Some(*facts)
         }
-    }
-    status
+    };
+    (status, facts)
 }
 
 /// Marks each gone worktree that the scan found moved into the workspace

@@ -43,10 +43,7 @@ pub fn render_push_summary(report: &PushReport, view: View<'_>) -> String {
             failed.push(format!("{key} (probe: {})", first_line(error)));
         }
         if let Some(failure) = &e.fetch_error {
-            failed.push(format!(
-                "{key} (fetch: {})",
-                remote_failure_label(failure, false)
-            ));
+            failed.push(format!("{key} (fetch: {})", failure.words(false)));
         }
         match &e.visibility_check {
             Some(VisibilityCheck::Leak) => {
@@ -54,7 +51,7 @@ pub fn render_push_summary(report: &PushReport, view: View<'_>) -> String {
             }
             Some(VisibilityCheck::Unknown { failure }) => failed.push(format!(
                 "{key} (visibility check: {})",
-                remote_failure_label(failure, false)
+                failure.words(false)
             )),
             Some(VisibilityCheck::Private) | None => {}
         }
@@ -115,10 +112,9 @@ pub fn render_push_summary(report: &PushReport, view: View<'_>) -> String {
             }
             PushOutcome::InSync => in_sync.push(label),
             PushOutcome::Held { by } => held.push(format!("{label}{ahead}{}", hold_note(*by))),
-            PushOutcome::PushFailed { failure } => failed.push(format!(
-                "{label} (push: {})",
-                remote_failure_label(failure, false)
-            )),
+            PushOutcome::PushFailed { failure } => {
+                failed.push(format!("{label} (push: {})", failure.words(false)));
+            }
             PushOutcome::Failed { message } => {
                 failed.push(format!("{label} (push: {})", first_line(message)));
             }
@@ -586,10 +582,8 @@ impl Groups {
                 .push(format!("{key} (probe: {})", first_line(error)));
         }
         if let Some(failure) = &e.fetch_error {
-            self.failed.push(format!(
-                "{key} (fetch: {})",
-                remote_failure_label(failure, false)
-            ));
+            self.failed
+                .push(format!("{key} (fetch: {})", failure.words(false)));
         }
         match &e.visibility_check {
             Some(VisibilityCheck::Leak) => self
@@ -597,7 +591,7 @@ impl Groups {
                 .push(format!("{key} (declared private, anonymously readable)")),
             Some(VisibilityCheck::Unknown { failure }) => self.failed.push(format!(
                 "{key} (visibility check: {})",
-                remote_failure_label(failure, false)
+                failure.words(false)
             )),
             Some(VisibilityCheck::Private) | None => {}
         }
@@ -780,10 +774,9 @@ impl Groups {
         match outcome {
             Some(CloneOutcome::Cloned { .. }) => self.act.add_clone(key, ""),
             Some(CloneOutcome::Held { by }) => self.held.add_clone(key, hold_note(*by)),
-            Some(CloneOutcome::CloneFailed { failure }) => self.failed.push(format!(
-                "{key} (clone: {})",
-                remote_failure_label(failure, false)
-            )),
+            Some(CloneOutcome::CloneFailed { failure }) => self
+                .failed
+                .push(format!("{key} (clone: {})", failure.words(false))),
             Some(CloneOutcome::Failed { message }) => self
                 .failed
                 .push(format!("{key} (clone: {})", first_line(message))),
@@ -818,10 +811,8 @@ impl Groups {
                 self.held.add(*action, label, hold_note(*by));
             }
             Some(BranchOutcome::PushFailed { failure }) => {
-                self.failed.push(format!(
-                    "{label} (push: {})",
-                    remote_failure_label(failure, false)
-                ));
+                self.failed
+                    .push(format!("{label} (push: {})", failure.words(false)));
             }
             Some(BranchOutcome::Failed { action, message }) => {
                 self.failed

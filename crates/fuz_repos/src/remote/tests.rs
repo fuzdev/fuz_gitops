@@ -506,3 +506,89 @@ fn a_refused_anonymous_read_is_private_only_when_the_host_refused() {
         }
     ));
 }
+
+/// Every failure reads as words, never as a debug dump: with `detail`, and
+/// without.
+#[test]
+fn every_failure_has_its_own_words() {
+    let words = [
+        (
+            RemoteFailure::RefGone {
+                refname: "refs/heads/x".into(),
+                fix: RefGoneFix::ByHand,
+            },
+            "origin has no refs/heads/x",
+            "origin has no refs/heads/x",
+        ),
+        (
+            unreachable(UnreachableCause::Auth, "git@github.com: Permission denied"),
+            "access denied — git@github.com: Permission denied",
+            "access denied",
+        ),
+        (
+            RemoteFailure::RepoNotFound {
+                message: "remote: Repository not found.".into(),
+            },
+            "repo not found — remote: Repository not found.",
+            "repo not found",
+        ),
+        (
+            RemoteFailure::TimedOut { after_secs: 3 },
+            "timed out after 3s",
+            "timed out after 3s",
+        ),
+        (
+            RemoteFailure::Failed {
+                message: "fatal: unable to access".into(),
+            },
+            "fatal: unable to access",
+            "fatal: unable to access",
+        ),
+        (
+            RemoteFailure::Rejected {
+                reason: "pre-receive hook declined".into(),
+                message: None,
+            },
+            "rejected (pre-receive hook declined)",
+            "rejected (pre-receive hook declined)",
+        ),
+        (
+            RemoteFailure::Rejected {
+                reason: "protected branch hook declined".into(),
+                message: Some("GH006: Protected branch update failed".into()),
+            },
+            "rejected (protected branch hook declined) — GH006: Protected branch update failed",
+            "rejected: GH006: Protected branch update failed",
+        ),
+        (
+            RemoteFailure::RefspecOutsideOrigin {
+                refspec: "+refs/heads/*:refs/heads/*".into(),
+            },
+            "not run — refspec +refs/heads/*:refs/heads/* writes outside refs/remotes/origin/",
+            "not run — refspec +refs/heads/*:refs/heads/* writes outside refs/remotes/origin/",
+        ),
+        (
+            RemoteFailure::OriginRefsShared {
+                remote: "up".into(),
+                refspec: "+refs/heads/*:refs/remotes/origin/*".into(),
+            },
+            "not run — remote up's refspec +refs/heads/*:refs/remotes/origin/* can write \
+             under refs/remotes/origin/, which pruning origin may empty",
+            "not run — remote up's refspec +refs/heads/*:refs/remotes/origin/* can write \
+             under refs/remotes/origin/, which pruning origin may empty",
+        ),
+        (
+            RemoteFailure::LegacyRemotesUnreadable {
+                path: ".git/remotes".into(),
+            },
+            "not run — the legacy remote .git/remotes couldn't be read, and may share \
+             origin's refs",
+            "not run — the legacy remote .git/remotes couldn't be read, and may share \
+             origin's refs",
+        ),
+    ];
+    for (f, detailed, brief) in words {
+        assert_eq!(f.words(true), detailed);
+        assert_eq!(f.words(false), brief);
+    }
+}

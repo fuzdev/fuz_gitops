@@ -1480,9 +1480,9 @@ fn kept_without_worktree(git_dir: &Path) -> Vec<String> {
 /// `FETCH_HEAD`, so the clone's time never stands in for it.
 fn newest_fetch(git_dir: &Path, common_dir: &Path, worktree_git_dirs: &[PathBuf]) -> Option<u64> {
     let mut any = false;
-    let newest = [git_dir.to_owned(), common_dir.to_owned()]
+    let newest = [git_dir, common_dir]
         .into_iter()
-        .chain(worktree_git_dirs.iter().cloned())
+        .chain(worktree_git_dirs.iter().map(PathBuf::as_path))
         .filter_map(|d| {
             let fetch_head = d.join("FETCH_HEAD");
             // anything there, even one that can't be read, is a fetch's

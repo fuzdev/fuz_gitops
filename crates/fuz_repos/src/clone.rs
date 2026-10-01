@@ -400,35 +400,11 @@ fn discard(temp: &Path, outcome: CloneOutcome) -> CloneOutcome {
             message: format!("{message}; {left}"),
         },
         CloneOutcome::CloneFailed { failure } => CloneOutcome::Failed {
-            message: format!("{}; {left}", failure_message(&failure)),
+            message: format!("{}; {left}", failure.words(true)),
         },
         CloneOutcome::Held { .. } | CloneOutcome::Cloned { .. } => CloneOutcome::Failed {
             message: format!("not cloned; {left}"),
         },
-    }
-}
-
-/// A classified failure in words, for a message that adds to it.
-fn failure_message(f: &RemoteFailure) -> String {
-    match f {
-        RemoteFailure::RefGone { refname, .. } => format!("origin has no {refname}"),
-        RemoteFailure::Unreachable { message, .. }
-        | RemoteFailure::RepoNotFound { message }
-        | RemoteFailure::Failed { message } => message.clone(),
-        RemoteFailure::TimedOut { after_secs } => format!("timed out after {after_secs}s"),
-        RemoteFailure::Rejected { reason, message } => message.as_ref().map_or_else(
-            || format!("rejected ({reason})"),
-            |message| format!("rejected ({reason}): {message}"),
-        ),
-        RemoteFailure::RefspecOutsideOrigin { refspec } => {
-            format!("not run: refspec {refspec} writes outside refs/remotes/origin/")
-        }
-        RemoteFailure::OriginRefsShared { remote, refspec } => format!(
-            "not run: remote {remote}'s refspec {refspec} can write under refs/remotes/origin/"
-        ),
-        RemoteFailure::LegacyRemotesUnreadable { path } => {
-            format!("not run: the legacy remote {path} couldn't be read")
-        }
     }
 }
 
@@ -535,60 +511,6 @@ mod tests {
             "",
         ] {
             assert!(!is_temp_dir_name(no), "{no}");
-        }
-    }
-
-    /// Every failure reads as words, never as a debug dump.
-    #[test]
-    fn every_failure_has_its_own_words() {
-        let words = [
-            (
-                RemoteFailure::RefGone {
-                    refname: "refs/heads/x".into(),
-                    fix: crate::remote::RefGoneFix::ByHand,
-                },
-                "origin has no refs/heads/x",
-            ),
-            (
-                RemoteFailure::RepoNotFound {
-                    message: "remote: Repository not found.".into(),
-                },
-                "remote: Repository not found.",
-            ),
-            (
-                RemoteFailure::TimedOut { after_secs: 3 },
-                "timed out after 3s",
-            ),
-            (
-                RemoteFailure::Rejected {
-                    reason: "pre-receive hook declined".into(),
-                    message: None,
-                },
-                "rejected (pre-receive hook declined)",
-            ),
-            (
-                RemoteFailure::RefspecOutsideOrigin {
-                    refspec: "+refs/heads/*:refs/heads/*".into(),
-                },
-                "not run: refspec +refs/heads/*:refs/heads/* writes outside refs/remotes/origin/",
-            ),
-            (
-                RemoteFailure::OriginRefsShared {
-                    remote: "up".into(),
-                    refspec: "+refs/heads/*:refs/remotes/origin/*".into(),
-                },
-                "not run: remote up's refspec +refs/heads/*:refs/remotes/origin/* can write \
-                 under refs/remotes/origin/",
-            ),
-            (
-                RemoteFailure::LegacyRemotesUnreadable {
-                    path: ".git/remotes".into(),
-                },
-                "not run: the legacy remote .git/remotes couldn't be read",
-            ),
-        ];
-        for (f, want) in words {
-            assert_eq!(failure_message(&f), want);
         }
     }
 

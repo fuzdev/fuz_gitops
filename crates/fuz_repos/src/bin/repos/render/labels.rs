@@ -275,48 +275,6 @@ pub(super) fn uncommitted_detail(u: &Uncommitted) -> String {
     .join(", ")
 }
 
-/// A remote failure in words: the kind, and under `detail` the line git
-/// printed that decided it.
-pub(super) fn remote_failure_label(f: &RemoteFailure, detail: bool) -> String {
-    let with = |words: &str, message: &str| {
-        if detail {
-            format!("{words} — {message}")
-        } else {
-            words.to_owned()
-        }
-    };
-    match f {
-        RemoteFailure::RefGone { refname, .. } => format!("origin has no {refname}"),
-        RemoteFailure::Unreachable { cause, message } => with(
-            match cause {
-                UnreachableCause::Dns => "host not found",
-                UnreachableCause::Connection => "no connection",
-                UnreachableCause::HostKey => "host not trusted",
-                UnreachableCause::Auth => "access denied",
-            },
-            message,
-        ),
-        RemoteFailure::RepoNotFound { message } => with("repo not found", message),
-        RemoteFailure::TimedOut { after_secs } => format!("timed out after {after_secs}s"),
-        RemoteFailure::Failed { message } => first_line(message).to_owned(),
-        RemoteFailure::Rejected { reason, message } => match message {
-            Some(message) if detail => format!("rejected ({reason}) — {message}"),
-            Some(message) => format!("rejected: {message}"),
-            None => format!("rejected ({reason})"),
-        },
-        RemoteFailure::RefspecOutsideOrigin { refspec } => {
-            format!("not run — refspec {refspec} writes outside refs/remotes/origin/")
-        }
-        RemoteFailure::LegacyRemotesUnreadable { path } => format!(
-            "not run — the legacy remote {path} couldn't be read, and may share origin's refs"
-        ),
-        RemoteFailure::OriginRefsShared { remote, refspec } => format!(
-            "not run — remote {remote}'s refspec {refspec} can write under \
-             refs/remotes/origin/, which pruning origin may empty"
-        ),
-    }
-}
-
 /// Why an entry's visibility check couldn't reach its host; `None` when it
 /// did, or didn't run.
 pub(super) const fn visibility_cause(e: &EntryStatus) -> Option<UnreachableCause> {

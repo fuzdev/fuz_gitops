@@ -774,7 +774,23 @@ impl ClaudeLock<'_> {
         self.pid == u64::from(session.pid)
             && self
                 .start
-                .is_none_or(|start| start == session.proc_start.to_string())
+                .is_none_or(|start| is_decimal_of(start, session.proc_start))
+    }
+}
+
+/// Whether `s` spells `n` as `n.to_string()` does: its decimal digits, no
+/// sign and no leading zero.
+fn is_decimal_of(s: &str, mut n: u64) -> bool {
+    let mut digits = s.bytes().rev();
+    loop {
+        match digits.next() {
+            Some(b @ b'0'..=b'9') if u64::from(b - b'0') == n % 10 => {}
+            _ => return false,
+        }
+        n /= 10;
+        if n == 0 {
+            return digits.next().is_none();
+        }
     }
 }
 
