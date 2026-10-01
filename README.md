@@ -4,7 +4,7 @@
 
 > a tool for managing many repos 🪄 [repos.fuz.dev](https://repos.fuz.dev/)
 
-fuz_repos is alternative to the monorepo pattern that more loosely couples repos:
+fuz_repos is an alternative to the monorepo pattern that more loosely couples repos:
 
 - enables automations across repos without requiring them to be in the same monorepo
 - allows each repo to be managed from multiple fuz_repos projects
@@ -14,8 +14,7 @@ fuz_repos is alternative to the monorepo pattern that more loosely couples repos
 With fuz_repos you can:
 
 - dynamically compose repos
-- fetch metadata about collections of repos and import it as typesafe JSON (using fuz_ui's
-  [vite_plugin_pkg_json](https://ui.fuz.dev/docs/vite_plugin_pkg_json))
+- fetch metadata about collections of repos and import it as typesafe JSON (`repos.ts`, written by `gro gitops_sync`)
 - publish a generated docs website for your collections of repos
 - import its components to view and interact with repo collection metadata
 - publish metadata about your collections of repos to the web for other users and tools
@@ -66,8 +65,7 @@ npm i -D @fuzdev/fuz_repos
   or a [fine-grained GitHub token (beta)](https://github.com/settings/tokens?type=beta)
   (with `"Public Repositories (read-only)"` selected)
   in either `process.env`, a project-local `.env`, or the parent directory at `../.env`
-  (currently optional to read public repos, but it's recommended regardless,
-  and you'll need to select options to support private repos)
+  (`gro gitops_sync` requires it, and you'll need to select options to support private repos)
 - re-export the gitops tasks by creating files in `$lib/`:
 
   ```ts
@@ -98,7 +96,7 @@ npm i -D @fuzdev/fuz_repos
 gitops.config.ts (registry keys) → repos status --json → local repos → GitHub API → repos.ts → UI components
 ```
 
-- **Operations pattern**: Dependency injection for all side effects (git, npm, fs, `repos`)
+- **Operations pattern**: Dependency injection for side effects (git, npm, fs, `repos`)
 - **Fixture testing**: In-memory fixture repos with expected publishing outcomes
 - **Changeset-driven**: Automatic version bumps and dependency updates
 

@@ -208,6 +208,9 @@ gitops.config.ts (registry keys) -> repos status --json -> local repos -> GitHub
 
 ### Key files
 
+Every `src/lib` module is listed here or under
+[Key Publishing Modules](#key-publishing-modules):
+
 - `gitops.config.ts` - user config listing the repos by registry key
 - `src/lib/gitops_config.ts` - config schema, loading, and the public-host
   leak guard
@@ -225,11 +228,24 @@ gitops.config.ts (registry keys) -> repos status --json -> local repos -> GitHub
 - `src/lib/gitops_plan.task.ts` - generates publishing plan
 - `src/lib/gitops_publish.task.ts` - publishes repos in dependency order
 - `src/lib/gitops_validate.task.ts` - runs all validation checks
+- `src/lib/gitops_run.task.ts` - runs a shell command in every configured repo
+- `src/lib/ci_reconcile.ts` - compares each repo's registry `ci` flag with the
+  workflow files in its checkout (`missing_ci`, `stray_ci`), skipping archived
+  repos; `gitops_validate`'s last step
 - `src/lib/local_repo.ts` - resolves config keys against the report
   (`local_repos_resolve`) and loads each repo's library as it sits
 - `src/lib/github.ts` - GitHub API client for PRs, CI status
-- `src/lib/fetch_repo_data.ts` - fetches remote repo metadata
+- `src/lib/github_helpers.ts` - flattens repos' pull requests for the
+  dashboard, with an optional filter, and builds PR URLs
+- `src/lib/fetch_repo_data.ts` - fetches each repo's CI status and PRs
+- `src/lib/fs_fetch_value_cache.ts` - the GitHub fetch cache on disk
+- `src/lib/repo.svelte.ts` - the `Repo` class and its serialized shape
+- `src/lib/cargo_toml.ts` - the identity fields read from a Rust repo's
+  `Cargo.toml`
 - `src/routes/repos.ts` - generated data file with all repo info
+- `src/lib/gitops_constants.ts` - the tasks' defaults
+- `src/lib/output_helpers.ts`, `src/lib/log_helpers.ts` - report formats,
+  stdout routing, and log formatting
 - `src/lib/repos_status.ts` - zod mirror of the `repos status --json`
   document (report and error document), guarded by the goldens
 - `crates/fuz_repos/` - the Rust `repos` tool: a library — registry, git
@@ -356,14 +372,14 @@ a branch, pulls, or installs:
    `node_modules`, or no `.svelte-kit/tsconfig.json` its tsconfig extends
    (external types then read as `any`); it installs nothing
 6. Loads each repo's library, fetches GitHub data (CI, PRs), and writes
-   `repos.json` + `repos.ts`, then updates the fetch cache
+   `repos.json` + `repos.ts` (running `gro gen` when `repos.json` changed),
+   then updates the fetch cache
 
 ### Data fetching
 
 - Pull requests via GitHub API
 - CI check runs and status, for repos whose registry entry declares `ci`
   (a branch with no check runs is `null`, not a failure)
-- Package metadata from .well-known endpoints
 - Caches responses to minimize API calls
 
 ### Multi-repo publishing
@@ -378,8 +394,8 @@ a branch, pulls, or installs:
   - Fails loud and aborts if a publish drifts from the plan's prediction
 - `gro gitops_plan` - generates a publishing plan (read-only prediction)
 - `gro gitops_analyze` - analyzes dependencies and changesets
-- `gro gitops_publish` - previews publishing (dry run) without preflight checks
-  or state persistence; reports the same full cascade as `gro gitops_plan`
+- `gro gitops_publish` - previews publishing (dry run) without the readiness gate
+  or preflight checks; reports the same full cascade as `gro gitops_plan`
 - Handles circular dev dependencies by excluding from topological sort
 - Waits for NPM propagation with exponential backoff (10 minute default
   timeout):
@@ -389,7 +405,7 @@ a branch, pulls, or installs:
     publishing dependents
 - Updates cross-repo dependencies automatically
 - Preflight builds every package the plan publishes and checks npm auth
-  (skipped for dry runs); repo git state is the readiness gate's
+  and the registry (skipped for dry runs); repo git state is the readiness gate's
 
 **Readiness Gate (Read-Only)**
 
@@ -493,7 +509,7 @@ naming each npm repo not at rest. Detail:
 
 #### Changeset Semantics
 
-Four publishing scenarios (see ./docs/publishing.md for
+The publishing scenarios (see ./docs/publishing.md for
 details):
 
 1. **Explicit changesets** - Normal publishing with version bump from changesets
@@ -543,9 +559,10 @@ published.
 - `repo_readiness.ts` - The readiness predicates the gate and the diagnostics'
   block read
 - `preflight_checks.ts` - Pre-publish validation: builds what the plan publishes,
-  npm auth
+  npm auth, the registry
 - `operations.ts` - Dependency injection interfaces for testability (including
-  build operations)
+  build operations); `operations_defaults.ts` holds the real implementations
+  and `git_operations.ts` the throwing git helpers under them
 
 #### Publishing Algorithms
 
@@ -647,6 +664,9 @@ gro gitops_publish --wetrun --no-plan # skip interactive plan confirmation
 gro gitops_publish --verbose     # show additional details in plan
 gro gitops_publish --preview     # print the ordered side-effects a --wetrun would perform
 gro gitops_publish --emit_json   # stream structured publishing events as JSON-lines to stdout
+gro gitops_publish --wetrun --deploy # also deploy each repo the run changed (published, or any dependency updated)
+gro gitops_publish --wetrun --max_wait 1200000 # npm propagation timeout in ms (default 600000, 10 minutes)
+gro gitops_publish --peer_strategy gte # prefix for a rewritten range that has none: exact, caret (default), tilde, gte; an existing prefix is kept
 
 # Output formats (analyze, plan, publish)
 gro gitops_analyze --format json --outfile analysis.json
@@ -702,7 +722,7 @@ deny rule on the latter is guidance, not a boundary
 - Uses Gro's well-known package.json patterns for metadata
 - Generates static JSON for fast client-side rendering
 - Caches API responses to minimize API calls
-- Atomic file updates with format checking
+- Generated files are formatted, and written only when their content changed
 - Repo dirs come from the registry, never the config
 - Functional programming patterns (arrow functions, pure functions)
 - Changeset-driven versioning with auto-generation
@@ -745,8 +765,13 @@ When fuz_repos updates dependencies, it preserves existing prefixes:
 
 ## Testability & Operations Pattern
 
-This project uses **dependency injection** for all side effects, making it
-testable without mocking libraries:
+This project uses **dependency injection** for the side effects of the publish
+cascade, making it testable without mocking libraries. Outside that, several
+modules touch the fs directly: the readers of a repo's own files
+(`changeset_reader.ts`, `cargo_toml.ts`, `local_repo.ts`, `gitops_config.ts`,
+`ci_reconcile.ts`), the fetch cache (`fs_fetch_value_cache.ts`), and the
+writers of task output (`gitops_sync.task.ts`, `gitops_run.task.ts`,
+`output_helpers.ts`):
 
 **Why:** Functions that call git, npm, or file system are hard to test. The
 operations pattern abstracts these into interfaces.
@@ -798,30 +823,12 @@ gro test version_utils           # run specific test file
 gro test src/test/fixtures/check # validate the analysis, plan, and dry run against fixture expectations
 ```
 
-Core modules tested:
-
-- `version_utils.test.ts` - Version comparison and semver logic
-- `changeset_reader.test.ts` - Changeset parsing and version prediction
-- `dependency_graph.test.ts` - Topological sorting and cycle detection
-- `changeset_generator.test.ts` - Auto-changeset content generation
-- `preflight_checks.test.ts` - Builds of the plan's packages, and npm validation
-- `repo_readiness.publish.test.ts`, `repo_readiness.for_gen.test.ts`,
-  `repo_readiness.format.test.ts` - Readiness predicates and the gate's
-  refusal, `gitops_sync`'s policy, the diagnostics' block
-- `gitops_task_helpers.gate.test.ts` - `gate_publish_readiness`: what it
-  fetches, `--registry` in its fixes, a failed `repos status`
-- `gitops_publish.test.ts` - The gate's order in a real publish: before the
-  prompt and every side effect; stdout carrying the report or events alone,
-  and the report's secrets masked
-- `gitops_plan.test.ts`, `gitops_analyze.test.ts` - stdout carrying the
-  JSON or markdown document alone
-- `gitops_run.test.ts` - Commands across repos through an injected runner:
-  exit codes, signals, spawn errors, a missing repo, the JSON document
-- `fetch_repo_data.test.ts` - CI status: repos without CI skipped, no check
-  runs apart from a failed fetch
-- `gitops_sync.test.ts` - `gitops_sync`'s refusals and warnings, `--check`,
-  and the order of its reads before anything is fetched or written
-- `dependency_updater.test.ts` - Package.json updates and git commits
+Each module's tests are `src/test/<module>.test.ts`, split by aspect where one
+file would sprawl (`repo_readiness.publish.test.ts`,
+`local_repo.resolve.test.ts`). The task tests (`gitops_publish.test.ts`,
+`gitops_sync.test.ts`, `gitops_run.test.ts`, …) drive each task's `run_*`
+function (`prepare_gitops_sync` for sync) through its injected `Gitops*Deps`, which is where the order of
+reads, gates, and writes is pinned.
 
 ### Fixture Testing
 
@@ -831,16 +838,19 @@ operations standing in for git, npm, and the fs:
 **Fixture Data:**
 
 - `src/test/fixtures/repo_fixtures/*.ts` - Source of truth for test repo definitions
+- `src/test/fixtures/repo_fixture_types.ts` - The fixture shape
 - `src/test/fixtures/load_repo_fixtures.ts` - Converts a fixture to `LocalRepo`s
+- `src/test/fixtures/mock_operations.ts`, `mock_changeset_operations.ts` - The
+  operations a fixture runs under
 - `src/test/fixtures/configs/*.config.ts` - Each fixture's repos as a key-list
   config, load-validated against the fixture (there's no fixture registry, so
   the tasks don't run on them)
 
 **Fixture Scenarios:**
 
-- `basic_publishing` - All 4 publishing scenarios (explicit, auto-generated,
+- `basic_publishing` - Every publishing scenario (explicit, auto-generated,
   bump escalation, no changes)
-- `deep_cascade` - 4-level dependency chains with cascading breaking changes
+- `deep_cascade` - Multi-level dependency chains with cascading breaking changes
 - `circular_dev_deps` - Dev dependency cycles (allowed, non-blocking)
 - `circular_prod_deps_error` - Production circular dependencies (error
   detection)
@@ -855,6 +865,7 @@ operations standing in for git, npm, and the fs:
 
 - `src/test/fixtures/check.test.ts` - Checks the analysis, plan, and dry run against each fixture's `expected_outcomes`
 - `src/test/fixtures/helpers.ts` - Assertion helpers
+- `src/test/fixtures/repo_fixtures.test.ts` - Per-fixture assertions on the generated plan
 
 **Workflow:**
 

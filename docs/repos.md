@@ -53,6 +53,8 @@ repos status --jobs 4 --timings # parallelism (default 16), and per-phase timing
 repos status --brief [<path>] # one line on the checkout holding the path (default: the cwd), or nothing — a SessionStart hook's nudge
 repos sync                   # fetch as status --fetch does, then fast-forward, move, push, and clone what's safe; report outcomes
 repos sync gro --json        # narrowed to targets; --json prints the versioned outcome report
+repos sync --verbose         # plus a block per entry: the state sync acted on
+repos sync --jobs 4 --timings # as under status; push takes both too
 repos sync typescript prettier # a named third-party reference is refreshed: fetched over HTTPS, then ff'd or moved where clean
 repos sync --references      # refresh every third-party reference too (never a pin); alone — with targets it's a usage error
 repos push                   # the gateway: fetch, then push the branch checked out here as a fast-forward of what was fetched; exit 1 unless it ends in sync
@@ -192,8 +194,8 @@ exit `2`.
 
 ## Fetching
 
-`status --fetch` fetches owned entries (and the references a run refreshes)
-from origin before probing; `sync` and `push` run the same fetch first.
+`status --fetch` fetches owned entries that aren't pinned (and the references a
+run refreshes) from origin before probing; `sync` and `push` run the same fetch first.
 
 **Failures.** Each failed fetch gets a kind (`ref_gone`, `unreachable`,
 `repo_not_found`, `timed_out`, …, else `failed` with git's line).
@@ -510,7 +512,9 @@ The rustdoc of `clone.rs` has the recipe.
   (`root_in_entry`), and `push`'s usage cases
 
 A fatal error prints `error: …` and `hint: …` on stderr; under `--json` it
-also prints one error document on stdout, in place of the report.
+also prints one error document on stdout, in place of the report — except a usage
+error caught before the command runs (an argument the parser rejects, one that
+isn't UTF-8, a flag `--brief` can't take), which prints text alone.
 
 ## Versions
 

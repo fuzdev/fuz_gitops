@@ -1,4 +1,4 @@
-# @fuzdev/fuz_gitops
+# @fuzdev/fuz_repos
 
 ## 0.80.0
 

@@ -117,7 +117,7 @@ describe('resolve_gitops_repos', () => {
 			const config = join(dir, 'gitops.config.js');
 			writeFileSync(
 				config,
-				"export default () => ({repos: ['https://github.com/fuzdev/gro', {repo_url: 'https://github.com/fuzdev/fuz_repos', repo_dir: '../fuz_gitops'}]});\n"
+				"export default () => ({repos: ['https://github.com/fuzdev/gro', {repo_url: 'https://github.com/fuzdev/fuz_repos', repo_dir: '../fuz_repos'}]});\n"
 			);
 			const repos_ops = create_mock_repos_ops(create_report());
 			const err = await assert_rejects(() => resolve_gitops_repos({ config, repos_ops }));

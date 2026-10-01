@@ -132,7 +132,7 @@ describe('default_process_operations.run_interactive', () => {
 
 	test('a command that does not exist fails with its reason', async () => {
 		const result = await default_process_operations.run_interactive({
-			cmd: 'fuz_gitops_no_such_command',
+			cmd: 'fuz_repos_no_such_command',
 			args: []
 		});
 		assert.ok(!result.ok);

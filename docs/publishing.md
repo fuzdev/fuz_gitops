@@ -94,7 +94,7 @@ production/peer takes priority for dependency graph calculations.
 - **Read-only prediction** - Generates a publishing plan showing what would be
   published
 - Uses fixed-point iteration to resolve transitive cascades (max 10 iterations)
-- Shows all 4 publishing scenarios: explicit changesets, bump escalation,
+- Shows every publishing scenario: explicit changesets, bump escalation,
   auto-generated changesets, and no changes — each package in exactly one
 - `--format json` carries `no_changes` (package names) apart from `info`
   (informational sentences: excluded non-npm repos, dev dependency cycles)
@@ -240,7 +240,7 @@ without the terminal scrollback.
 
 Dev-dep-only dependents never run `gro publish`, so the executor bumps + commits their
 `package.json` without installing them; gro refreshes (and heals) their `node_modules`
-the next time they build, deploy, or sync.
+the next time they build or deploy.
 
 Deploys (`--deploy`) build fresh rather than reuse the preflight build, because a
 deployed site bundles its dependencies and must reflect the versions just published.
