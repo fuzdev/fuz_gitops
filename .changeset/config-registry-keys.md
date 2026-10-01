@@ -7,7 +7,7 @@ feat: the gitops tasks read repo state from the `repos` binary and never move a 
 **Config and the `repos` binary**
 
 - `gitops.config.ts` exports `{repos: Array<string>}` of registry keys, each listed once (or a no-argument `CreateGitopsConfig` returning it); each repo's dir, URL, branch, visibility, `ci`, and `archived` come from the registry — URL and object entries and `repos_dir` are gone
-- the tasks need the `repos` binary on `PATH` (`cargo install --path crates/fuz_repos --locked` from a fuz_gitops checkout) and a registry it finds from the cwd, or `--registry <path>`; `--dir` and `gitops_sync --download` are removed (`repos sync <key>` clones a missing repo)
+- the tasks need the `repos` binary on `PATH` (`cargo install --path crates/fuz_repos --locked` from a fuz_repos checkout) and a registry it finds from the cwd, or `--registry <path>`; `--dir` and `gitops_sync --download` are removed (`repos sync <key>` clones a missing repo)
 - every task fails, naming each problem, on an empty config or a key that's unknown, a third-party reference, missing, not a repo, or unprobed; `gitops_run` no longer skips missing repos
 - `gitops_sync` refuses to run when a public host package's config lists repos the registry declares private (`gitops_config_leaked_private_repos`)
 

@@ -5,4 +5,4 @@ about: bugs
 ---
 
 tip: use discussions for everything except bugs:
-https://github.com/fuzdev/fuz_gitops/discussions/new/choose
+https://github.com/fuzdev/fuz_repos/discussions/new/choose

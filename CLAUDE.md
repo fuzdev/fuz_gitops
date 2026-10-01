@@ -319,7 +319,7 @@ The config lists owned repos by their `repos.toml` key and nothing else: each
 repo's dir, URL, branch, visibility, `ci`, and `archived` come from the
 registry through `repos status <keys…> --json`, so the tasks need the `repos`
 binary on `PATH` (`cargo install --path crates/fuz_repos --locked`, from a
-fuz_gitops checkout — the npm package doesn't carry it) and a registry
+fuz_repos checkout — the npm package doesn't carry it) and a registry
 `repos` can find from the cwd, or `--registry <path>`. The default export
 may also be a function returning the config. Every task resolves the keys
 the same way and refuses to run, naming each problem, when a key is

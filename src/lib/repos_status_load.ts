@@ -24,7 +24,7 @@ import {
 import type { ReposCommandOutput, ReposOperations } from './operations.ts';
 
 /**
- * How to install the `repos` binary, run in a `fuz_gitops` checkout. The npm
+ * How to install the `repos` binary, run in a `fuz_repos` checkout. The npm
  * package doesn't carry the binary, so the two are installed separately.
  */
 export const REPOS_INSTALL_COMMAND = 'cargo install --path crates/fuz_repos --locked';
@@ -83,8 +83,8 @@ export const parse_repos_status_output = (
 	if (version !== REPOS_STATUS_FORMAT_VERSION) {
 		const fix =
 			typeof version === 'number' && version > REPOS_STATUS_FORMAT_VERSION
-				? "upgrade @fuzdev/fuz_gitops to match the binary, or install the binary from a fuz_gitops checkout at this package's version"
-				: "install the binary from a fuz_gitops checkout at this package's version";
+				? "upgrade @fuzdev/fuz_gitops to match the binary, or install the binary from a fuz_repos checkout at this package's version"
+				: "install the binary from a fuz_repos checkout at this package's version";
 		return {
 			ok: false,
 			message:
@@ -165,7 +165,7 @@ export const load_repos_status = async (options: {
 			ok: false,
 			message:
 				ran.kind === 'not_found'
-					? `the \`repos\` binary was not found on PATH: install it from a fuz_gitops checkout with \`${REPOS_INSTALL_COMMAND}\` — the npm package doesn't carry it`
+					? `the \`repos\` binary was not found on PATH: install it from a fuz_repos checkout with \`${REPOS_INSTALL_COMMAND}\` — the npm package doesn't carry it`
 					: `\`repos status\` didn't run: ${ran.message}`
 		};
 	}

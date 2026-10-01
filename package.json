@@ -7,13 +7,13 @@
   "logo_alt": "a friendly blue spider facing you",
   "license": "MIT",
   "homepage": "https://gitops.fuz.dev/",
-  "repository": "https://github.com/fuzdev/fuz_gitops",
+  "repository": "https://github.com/fuzdev/fuz_repos",
   "author": {
     "name": "Ryan Atkinson",
     "email": "mail@ryanatkn.com",
     "url": "https://www.ryanatkn.com/"
   },
-  "bugs": "https://github.com/fuzdev/fuz_gitops/issues",
+  "bugs": "https://github.com/fuzdev/fuz_repos/issues",
   "funding": "https://www.ryanatkn.com/funding",
   "scripts": {
     "start": "gro dev",
