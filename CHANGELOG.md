@@ -1,5 +1,14 @@
 # @fuzdev/fuz_gitops
 
+## 0.80.0
+
+### Minor Changes
+
+- rename the package to `@fuzdev/fuz_repos` from `@fuzdev/fuz_gitops`, and move ([1683309](https://github.com/fuzdev/fuz_repos/commit/1683309))
+  the site to repos.fuz.dev from gitops.fuz.dev. Consumers change the dependency
+  name and every `@fuzdev/fuz_gitops/*` import; the `gitops_*` task names, the
+  `Gitops*` identifiers and the `gitops.config.ts` filename are unchanged.
+
 ## 0.79.0
 
 ### Minor Changes
