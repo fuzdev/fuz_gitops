@@ -73,18 +73,8 @@ export const create_mock_npm_ops = (): NpmOperations => ({
  * Avoids spawning real processes.
  */
 export const create_mock_process_ops = (): ProcessOperations => ({
-	spawn: async (options) => {
-		// Simulate success for common commands
-		if (options.cmd === 'gro') {
-			if (options.args[0] === 'build') {
-				return { ok: true, stdout: 'Build successful' };
-			}
-			if (options.args[0] === 'publish') {
-				return { ok: true, stdout: 'Published' };
-			}
-		}
-		return { ok: true };
-	}
+	// every command succeeds
+	run_interactive: async () => ({ ok: true })
 });
 
 /**
@@ -197,7 +187,7 @@ export const create_configurable_npm_ops = (
 	// Wait for package
 	wait_for_package: async () => {
 		if (config.wait_timeout) {
-			return { ok: false, message: 'Timeout waiting for package', timeout: true };
+			return { ok: false, message: 'Timeout waiting for package' };
 		}
 		return { ok: true };
 	}

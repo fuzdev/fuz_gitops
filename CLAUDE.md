@@ -433,6 +433,11 @@ broken state:
      any dep updates). Deploys build fresh (the deploy step does not pass
      `--no-build`) so a deployed site reflects the versions just published — the
      preflight build ran against the old versions, before the cascade.
+   - Both run in the foreground (`ProcessOperations.run_interactive`): output
+     live, stdin the terminal's for npm's one-time-password prompt, and the
+     child's stdout on stderr when the task's stdout carries `--emit_json` or a
+     JSON/markdown report. A failure's message carries the end of the child's
+     stderr, secrets redacted.
 
 This prevents the known issue in `gro publish` where build failures leave repos
 in broken state (version bumped but not published).

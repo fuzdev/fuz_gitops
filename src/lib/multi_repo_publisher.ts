@@ -26,7 +26,8 @@ import {
 import {
 	type PublishingEventHandler,
 	capture_handler,
-	multi_handler
+	multi_handler,
+	redact_secrets
 } from './publishing_event_handler.ts';
 
 export interface PublishingOptions {
@@ -40,6 +41,14 @@ export interface PublishingOptions {
 	registry?: string;
 	/** Structured event sink; defaults to capture-only (events surface on the result). */
 	events?: PublishingEventHandler;
+	/**
+	 * Where `gro publish` and `gro deploy` show their stdout: ours, or our stderr
+	 * when our stdout carries a machine-readable stream (`--emit_json`, or a JSON
+	 * or markdown report written to stdout).
+	 *
+	 * @default 'stdout'
+	 */
+	child_stdout?: 'stdout' | 'stderr';
 }
 
 export interface PublishedVersion {
@@ -94,6 +103,7 @@ export const execute_publishing_plan = async (
 ): Promise<PublishingResult> => {
 	const start_time = Date.now();
 	const { wetrun, log, ops = default_gitops_operations } = options;
+	const version_strategy = options.version_strategy ?? 'caret';
 
 	// Only npm repos publish; drop any non-npm repos (e.g. cargo) so preflight and the
 	// executor's name lookup never touch them. The plan already excludes them too.
@@ -260,12 +270,9 @@ export const execute_publishing_plan = async (
 				});
 
 				if (!wait_result.ok) {
-					// Handle inline (don't throw into the generic catch): the npm-wait failure
-					// carries a typed `timeout` signal, so we know this is a network failure
-					// without sniffing the message.
-					const err = new Error(
-						`Failed to wait for package: ${wait_result.message}${wait_result.timeout ? ' (timeout)' : ''}`
-					);
+					// Handle inline (don't throw into the generic catch): a failed npm wait is a
+					// network failure, known by where it happened rather than by sniffing the message.
+					const err = new Error(`Failed to wait for package: ${wait_result.message}`);
 					failed.set(pkg_name, err);
 					emit({ event: 'package_failed', name: pkg_name, error: err.message, code: 'network' });
 					log?.error(st('red', `  ❌ Failed to publish ${pkg_name}: ${err.message}`));
@@ -275,8 +282,8 @@ export const execute_publishing_plan = async (
 
 				// 3. Update every dependent the plan says has a prod/peer dep on this package.
 				// This rewrites their package.json ranges and creates their auto-changeset,
-				// which a later step of this same pass publishes. The dependent is queued for
-				// a single install just before it publishes (see the top of the loop).
+				// which a later step of this same pass publishes; its `gro publish` installs the
+				// rewritten deps then (see the top of the loop).
 				const dependent_updates = group_dependency_updates(
 					plan.dependency_updates,
 					published,
@@ -305,23 +312,15 @@ export const execute_publishing_plan = async (
 						});
 					}
 					changed_repos.add(dependent_name); // Mark as changed for deployment
-					if (republishes) {
-						await update_package_json(dependent_repo, updates, {
-							strategy: options.version_strategy || 'caret',
-							published_versions: published, // creates the auto-changeset
-							log,
-							git_ops: ops.git,
-							fs_ops: ops.fs
-						});
-					} else {
-						// update-only leaf: rewrite ranges + commit, no changeset (it won't republish)
-						await update_package_json(dependent_repo, updates, {
-							strategy: options.version_strategy || 'caret',
-							log,
-							git_ops: ops.git,
-							fs_ops: ops.fs
-						});
-					}
+					await update_package_json(dependent_repo, updates, {
+						strategy: version_strategy,
+						// `published_versions` creates the auto-changeset; an update-only leaf gets
+						// its ranges rewritten and committed with no changeset (it won't republish)
+						published_versions: republishes ? published : undefined,
+						log,
+						git_ops: ops.git,
+						fs_ops: ops.fs
+					});
 				}
 			}
 		} catch (error) {
@@ -336,7 +335,8 @@ export const execute_publishing_plan = async (
 				// coarse bucket rather than guessing 'auth'/'network'/'build' from the message.
 				code: 'publish'
 			});
-			log?.error(st('red', `  ❌ Failed to publish ${pkg_name}: ${err.message}`));
+			// the first line alone: the stderr tail the rest repeats just streamed live
+			log?.error(st('red', `  ❌ Failed to publish ${pkg_name}: ${err.message.split('\n')[0]}`));
 			break; // Always fail fast on error
 		}
 	}
@@ -378,7 +378,7 @@ export const execute_publishing_plan = async (
 			// package.json but must NOT generate a changeset — dev-only changes redeploy
 			// (rebuild) without republishing, so they shouldn't bump the next release.
 			await update_package_json(repo, dev_updates, {
-				strategy: options.version_strategy || 'caret',
+				strategy: version_strategy,
 				log,
 				git_ops: ops.git,
 				fs_ops: ops.fs
@@ -405,18 +405,26 @@ export const execute_publishing_plan = async (
 				// Build fresh (no --no-build): a deployed site bundles its dependencies, so it
 				// must be rebuilt against the versions this run just published — the preflight
 				// build ran against the old versions, before the cascade rewrote package.json.
-				const deploy_result = await ops.process.spawn({
+				const deploy_result = await ops.process.run_interactive({
 					cmd: 'gro',
 					args: ['deploy'],
-					cwd: repo.repo_dir
+					cwd: repo.repo_dir,
+					stdout: options.child_stdout
 				});
 
 				if (deploy_result.ok) {
 					emit({ event: 'deploy_completed', name: repo.library.name });
 					log?.info(st('green', `  ✅ Deployed ${repo.library.name}`));
 				} else {
-					emit({ event: 'deploy_failed', name: repo.library.name, error: deploy_result.message });
-					log?.warn(st('yellow', `  ⚠️  Failed to deploy ${repo.library.name}`));
+					emit({
+						event: 'deploy_failed',
+						name: repo.library.name,
+						error: format_run_failure(deploy_result)
+					});
+					// the stderr tail just streamed live, so the log names the failure alone
+					log?.warn(
+						st('yellow', `  ⚠️  Failed to deploy ${repo.library.name}: ${deploy_result.message}`)
+					);
 				}
 			} catch (error) {
 				const err = error instanceof Error ? error : new Error(String(error));
@@ -496,7 +504,8 @@ export const execute_publishing_plan = async (
  * Real mode: runs `gro publish --no-build --no-pull --branch <entry branch>` (builds
  * already validated in preflight; the readiness re-check just found the branch in sync
  * with origin or ahead of it, so gro's own `git pull` is skipped, and gro checks out the branch the
- * registry entry follows rather than its `main` default), reads the new version from
+ * registry entry follows rather than its `main` default) in the foreground — its output
+ * live and stdin the terminal's, for npm's one-time-password prompt — reads the new version from
  * `package.json`, and returns it alongside the plan's predicted bump metadata. The
  * caller compares the read-back version to the plan to detect drift.
  *
@@ -524,14 +533,16 @@ const publish_single_repo = async (
 		};
 	}
 
-	const publish_result = await ops.process.spawn({
+	const publish_result = await ops.process.run_interactive({
 		cmd: 'gro',
 		args: gro_publish_args(repo),
-		cwd: repo.repo_dir
+		cwd: repo.repo_dir,
+		stdout: options.child_stdout
 	});
 
 	if (!publish_result.ok) {
-		throw new Error(`Failed to publish ${repo.library.name}: ${publish_result.message}`);
+		// no "Failed to publish" prefix: the caller's log and report name the package
+		throw new Error(format_run_failure(publish_result));
 	}
 
 	// Read the new version from package.json after gro publish
@@ -608,6 +619,17 @@ const gro_publish_args = (repo: Pick<LocalRepo, 'entry'>): Array<string> => {
 	if (repo.entry.branch !== null) args.push('--branch', repo.entry.branch);
 	return args;
 };
+
+/**
+ * The failure message for a command the executor ran: why it failed on the first
+ * line, then the end of its stderr with known secret shapes redacted, since the
+ * message lands in the result, the event stream, and the JSON or markdown report.
+ * The live log shows the first line alone, the stderr having just streamed.
+ */
+const format_run_failure = (failure: { message: string; stderr_tail?: string }): string =>
+	failure.stderr_tail
+		? `${failure.message}\nthe end of its stderr:\n${redact_secrets(failure.stderr_tail)}`
+		: failure.message;
 
 /**
  * Groups dependency updates by dependent package — `dependent → (dependency → new

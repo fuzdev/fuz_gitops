@@ -211,6 +211,15 @@ breaks a dependent is caught by that `gro check` and aborts the run. The executo
 never runs a bare `npm install`: gro owns installing (and healing), so a dependent's deps
 are installed when its own `gro publish` reaches it.
 
+The executor runs each `gro publish` and `gro deploy` in the foreground: its output
+shows live, and stdin is the terminal's, so npm can prompt for a 2FA one-time password
+mid-cascade. When the task's own stdout carries a machine-readable stream — the
+`--emit_json` events, or a `--format json` or `markdown` report not sent to `--outfile`
+— the child's stdout goes to stderr instead, so it can't corrupt that stream. A failed
+step's message carries the end of the child's stderr (its last lines, with known secret
+shapes like npm tokens redacted), so the result, the events, and the report say why
+without the terminal scrollback.
+
 Dev-dep-only dependents never run `gro publish`, so the executor bumps + commits their
 `package.json` without installing them; gro refreshes (and heals) their `node_modules`
 the next time they build, deploy, or sync.

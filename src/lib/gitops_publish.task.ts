@@ -18,7 +18,7 @@ import {
 	type PublishingOptions,
 	type PublishingResult
 } from './multi_repo_publisher.ts';
-import { stdout_handler } from './publishing_event_handler.ts';
+import { masking_handler, stdout_handler } from './publishing_event_handler.ts';
 import { generate_publishing_plan, log_publishing_plan } from './publishing_plan.ts';
 import { derive_publish_steps, format_publish_steps, type PublishStep } from './publish_steps.ts';
 import { decide_publish_gate, publish_run_failed } from './publish_gate.ts';
@@ -209,8 +209,10 @@ export const run_gitops_publish = async (
 		log,
 		ops,
 		registry,
-		// Live JSON-lines stream when requested; events also surface on the result.
-		events: emit_json ? stdout_handler() : undefined
+		// Live JSON-lines stream when requested, secrets masked since failure messages carry
+		// npm's stderr; events also surface on the result.
+		events: emit_json ? masking_handler(stdout_handler()) : undefined,
+		child_stdout: to_child_stdout(args)
 	};
 
 	// Execute publishing (may throw on fatal errors like circular dependencies)
@@ -246,6 +248,38 @@ export const run_gitops_publish = async (
 	}
 
 	return publish_run_failed(result, fatal_error) ? 'failed' : 'done';
+};
+
+/**
+ * Where `gro publish` and `gro deploy`, streaming live, show their stdout: on
+ * our stderr when our stdout carries a machine-readable stream — the
+ * `--emit_json` events, or a JSON or markdown report not sent to `--outfile` —
+ * so their output can't corrupt it, else on our stdout.
+ *
+ * @nodocs
+ */
+export const to_child_stdout = (
+	args: Pick<Args, 'emit_json' | 'format' | 'outfile'>
+): 'stdout' | 'stderr' =>
+	args.emit_json || (args.format !== 'stdout' && !args.outfile) ? 'stderr' : 'stdout';
+
+/**
+ * A failed package's markdown: the message's first line on the bullet, and the
+ * rest — the end of a command's stderr — in an indented fenced block, its fence
+ * longer than any backtick run inside so stderr can't close it.
+ *
+ * @param name - the package name
+ * @param message - the failure message
+ * @nodocs
+ */
+export const format_failure_markdown = (name: string, message: string): Array<string> => {
+	const [head, ...rest] = message.split('\n');
+	const lines = [`- \`${name}\`: ${head}`];
+	if (rest.length === 0) return lines;
+	const longest_run = Math.max(0, ...(rest.join('\n').match(/`+/g) ?? []).map((r) => r.length));
+	const fence = '`'.repeat(Math.max(3, longest_run + 1));
+	lines.push('', `  ${fence}`, ...rest.map((l) => `  ${l}`), `  ${fence}`);
+	return lines;
 };
 
 interface PublishResultData {
@@ -320,7 +354,7 @@ const format_result_markdown = (
 		lines.push('## Failed Packages');
 		lines.push('');
 		for (const { name, error } of result.failed) {
-			lines.push(`- \`${name}\`: ${error.message}`);
+			lines.push(...format_failure_markdown(name, error.message));
 		}
 	}
 

@@ -182,7 +182,26 @@ You must:
 
 Note: Dev dependency cycles are normal and allowed, reported as info.
 
-### "Failed to wait for package: Error: Timeout waiting for pkg@1.2.3 after 600000ms (timeout)"
+### "Failed to publish pkg: `gro publish …` failed (code 1)"
+
+`gro publish` ran and exited non-zero. Its output streamed live above the
+failure, and the failure in the result, the `--emit_json` events, and the JSON
+or markdown report repeats the end of its stderr — npm's `E401`/`ENEEDAUTH`
+(log in with `npm login`), `EOTP` (the one-time password was missing or
+expired), a failing `gro check`, and so on. Known secret shapes, like npm
+tokens, are redacted from the message. The failure's code is `publish`;
+packages published before it stay published. Fix it, then re-run `gro
+gitops_publish --wetrun` to resume.
+
+npm prompts for a 2FA one-time password on the terminal: the executor gives
+`gro publish` the terminal's stdin, so answer the prompt when it appears.
+Declining the prompt (Ctrl-C) fails that package like any publish error;
+packages already published still get their dev-dependency commits and, under
+`--deploy`, their deploys. npm prompts only when both stdin and the child's
+stdout are a terminal; piping `gro gitops_publish`'s stdout without
+`--emit_json` or a report format disables the prompt.
+
+### "Failed to wait for package: Error: Timeout waiting for pkg@1.2.3 after 600000ms"
 
 After each publish the executor waits for the new version to be visible on npm
 before rewriting its dependents; this failure aborts the run. NPM propagation
@@ -292,9 +311,12 @@ gro gitops_publish --wetrun --format json --outfile result.json
 `result.json`'s `events` list each package's outcome in order. A failure is a
 `package_failed` event whose `code` says why: `drift` (the version `changeset
 version` wrote isn't the plan's; its `error` names both), `not_ready`,
-`network` (the npm wait), and so on. `failed[]` names the packages, but its
-`error` values serialize empty, so read the events. `--emit_json` streams the
-same events live.
+`network` (the npm wait), `publish` (its `error` ends with the end of `gro
+publish`'s stderr), and so on. `failed[]` names the packages, but its `error`
+values serialize empty, so read the events. `--emit_json` streams the same
+events live, secrets masked. Under `--emit_json`, or a report written to
+stdout rather than `--outfile`, the stdout of `gro publish` and `gro deploy`
+goes to stderr, out of the JSON's way.
 
 ### Check what changed since last publish
 

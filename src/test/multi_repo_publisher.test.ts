@@ -1,4 +1,5 @@
 import { assert, test, describe } from 'vitest';
+import { Logger } from '@fuzdev/fuz_util/log.ts';
 
 import type { LocalRepo } from '$lib/local_repo.ts';
 import {
@@ -70,7 +71,7 @@ test('always fails fast on publish errors', async () => {
 	let publish_attempt = 0;
 	const mock_ops = create_mock_gitops_ops({
 		process: {
-			spawn: async (options) => {
+			run_interactive: async (options) => {
 				if (options.cmd === 'gro' && options.args[0] === 'publish') {
 					publish_attempt++;
 					// Make pkg-a fail
@@ -757,12 +758,12 @@ test('handles deploy failures without stopping', async () => {
 	const mock_fs = create_mock_package_json_files(repos);
 	const { ops: process_ops, get_commands_by_type } = create_tracking_process_ops();
 
-	// Override spawn to make pkg-a deploy fail
-	const original_spawn = process_ops.spawn;
-	process_ops.spawn = async (spawn_args) => {
-		const result = await original_spawn(spawn_args);
-		if (spawn_args.cmd === 'gro' && spawn_args.args[0] === 'deploy') {
-			const cwd = spawn_args.cwd ?? '';
+	// Override run_interactive to make pkg-a deploy fail
+	const original_run = process_ops.run_interactive;
+	process_ops.run_interactive = async (run_args) => {
+		const result = await original_run(run_args);
+		if (run_args.cmd === 'gro' && run_args.args[0] === 'deploy') {
+			const cwd = run_args.cwd ?? '';
 			// Make first deploy fail
 			if (cwd.includes('pkg-a')) {
 				return { ok: false, message: 'Deploy failed' };
@@ -1259,6 +1260,117 @@ describe('execute_publishing_plan', () => {
 		const deploy_commands = get_commands_by_type('deploy');
 		assert.strictEqual(deploy_commands.length, 1);
 		assert.deepEqual(deploy_commands[0]!.args, ['deploy']);
+	});
+
+	test('routes `gro publish` and `gro deploy` stdout as `child_stdout` says', async () => {
+		const repos = [create_mock_repo({ name: 'pkg', version: '1.0.0' })];
+		const plan = make_plan({
+			publishing_order: ['pkg'],
+			version_changes: [make_version_change({ package_name: 'pkg' })]
+		});
+		for (const child_stdout of [undefined, 'stdout', 'stderr'] as const) {
+			const { ops: process_ops, get_spawned_commands } = create_tracking_process_ops();
+			await execute_publishing_plan(repos, plan, {
+				wetrun: true,
+				deploy: true,
+				child_stdout,
+				ops: create_mock_gitops_ops({
+					preflight: create_preflight_mock(['pkg']),
+					fs: create_populated_fs_ops(repos),
+					process: process_ops
+				})
+			});
+			assert.deepEqual(
+				get_spawned_commands().map((c) => [c.args[0], c.stdout]),
+				[
+					['publish', child_stdout],
+					['deploy', child_stdout]
+				]
+			);
+		}
+	});
+
+	test('a failed `gro publish` carries the end of its stderr, secrets redacted', async () => {
+		const repos = [create_mock_repo({ name: 'pkg', version: '1.0.0' })];
+		const plan = make_plan({
+			publishing_order: ['pkg'],
+			version_changes: [make_version_change({ package_name: 'pkg' })]
+		});
+		const events = capture_handler();
+		const logged: Array<string> = [];
+		const log = new Logger('test', {
+			level: 'info',
+			colors: false,
+			console: {
+				log: (...args) => logged.push(args.join(' ')),
+				warn: (...args) => logged.push(args.join(' ')),
+				error: (...args) => logged.push(args.join(' '))
+			}
+		});
+		const result = await execute_publishing_plan(repos, plan, {
+			wetrun: true,
+			events,
+			log,
+			ops: create_mock_gitops_ops({
+				preflight: create_preflight_mock(['pkg']),
+				fs: create_populated_fs_ops(repos),
+				process: {
+					run_interactive: async () => ({
+						ok: false,
+						message: '`gro publish` failed (code 1)',
+						stderr_tail:
+							'npm error code E401\n//registry.npmjs.org/:_authToken=npm_abcdefghijklmnopqrstuvwxyz'
+					})
+				}
+			})
+		});
+		assert.strictEqual(result.ok, false);
+		const message = result.failed[0]!.error.message;
+		assert.strictEqual(message.split('\n')[0], '`gro publish` failed (code 1)');
+		assert.include(message, 'npm error code E401');
+		assert.include(message, '_authToken=[redacted]');
+		assert.notInclude(message, 'abcdefghijklmnopqrstuvwxyz');
+		const failed = events.events.find((e) => e.event === 'package_failed');
+		assert.ok(failed?.event === 'package_failed');
+		assert.strictEqual(failed.error, message);
+		assert.strictEqual(failed.code, 'publish');
+		// the log names the failure once, without the stderr that just streamed live
+		const failure_logs = logged.filter((l) => l.includes('Failed to publish pkg'));
+		assert.deepEqual(
+			failure_logs.map((l) => l.slice(l.indexOf('❌'))),
+			['❌ Failed to publish pkg: `gro publish` failed (code 1)']
+		);
+		assert.notInclude(logged.join('\n'), 'E401');
+	});
+
+	test('a failed `gro deploy` carries the end of its stderr into `deploy_failed`', async () => {
+		const repos = [create_mock_repo({ name: 'pkg', version: '1.0.0' })];
+		const plan = make_plan({
+			publishing_order: ['pkg'],
+			version_changes: [make_version_change({ package_name: 'pkg' })]
+		});
+		const events = capture_handler();
+		const result = await execute_publishing_plan(repos, plan, {
+			wetrun: true,
+			deploy: true,
+			events,
+			ops: create_mock_gitops_ops({
+				preflight: create_preflight_mock(['pkg']),
+				fs: create_populated_fs_ops(repos),
+				process: {
+					run_interactive: async ({ args }) =>
+						args[0] === 'deploy'
+							? { ok: false, message: '`gro deploy` failed (code 1)', stderr_tail: 'build failed' }
+							: { ok: true }
+				}
+			})
+		});
+		// a failed deploy doesn't fail the run
+		assert.strictEqual(result.ok, true);
+		const failed = events.events.find((e) => e.event === 'deploy_failed');
+		assert.ok(failed?.event === 'deploy_failed');
+		assert.include(failed.error, '`gro deploy` failed (code 1)');
+		assert.include(failed.error, 'build failed');
 	});
 
 	// --- Anti-drift: the executor's event stream must match the derived preview, step for step.

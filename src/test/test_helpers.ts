@@ -111,7 +111,7 @@ export const create_mock_gitops_ops = (
 	},
 	git: create_mock_git_ops(overrides.git),
 	process: {
-		spawn: async () => ({ ok: true }),
+		run_interactive: async () => ({ ok: true }),
 		...overrides.process
 	},
 	npm: create_mock_npm_ops(overrides.npm),
@@ -303,10 +303,12 @@ export interface TrackedCommand {
 	cmd: string;
 	args: Array<string>;
 	cwd: string;
+	/** Where the command's stdout was routed, as the executor asked. */
+	stdout?: 'stdout' | 'stderr';
 }
 
 /**
- * Creates process operations that track which commands were spawned
+ * Creates process operations that track which commands were run
  */
 export const create_tracking_process_ops = (): {
 	ops: ProcessOperations;
@@ -318,11 +320,12 @@ export const create_tracking_process_ops = (): {
 
 	return {
 		ops: {
-			spawn: async (options) => {
+			run_interactive: async (options) => {
 				spawned_commands.push({
 					cmd: options.cmd,
 					args: options.args,
-					cwd: options.cwd ?? ''
+					cwd: options.cwd ?? '',
+					stdout: options.stdout
 				});
 				return { ok: true };
 			}

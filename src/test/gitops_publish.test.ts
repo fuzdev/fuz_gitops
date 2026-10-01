@@ -3,7 +3,13 @@ import { assert_rejects } from '@fuzdev/fuz_util/testing.ts';
 import { Logger } from '@fuzdev/fuz_util/log.ts';
 import { TaskError } from '@fuzdev/gro';
 
-import { Args, run_gitops_publish, type GitopsPublishDeps } from '$lib/gitops_publish.task.ts';
+import {
+	Args,
+	format_failure_markdown,
+	run_gitops_publish,
+	to_child_stdout,
+	type GitopsPublishDeps
+} from '$lib/gitops_publish.task.ts';
 import { gate_publish_readiness } from '$lib/gitops_task_helpers.ts';
 import type { LocalRepo } from '$lib/local_repo.ts';
 import type { ReposEntryStatus } from '$lib/repos_status.ts';
@@ -54,7 +60,7 @@ const create_repos = (b_entry: Partial<ReposEntryStatus> = {}): Array<LocalRepo>
 /**
  * Deps recording each step in `steps`, in order: the load, each `repos status`
  * run (with `--fetch` or not), the prompt, preflight, each executor re-check,
- * and every spawn and commit.
+ * and every command run and commit.
  */
 const create_recording_deps = (options: {
 	repos: Array<LocalRepo>;
@@ -90,8 +96,8 @@ const create_recording_deps = (options: {
 					}
 				},
 				process: {
-					spawn: async ({ cmd, args }) => {
-						steps.push(`spawn ${cmd} ${args.join(' ')}`);
+					run_interactive: async ({ cmd, args }) => {
+						steps.push(`run ${cmd} ${args.join(' ')}`);
 						return { ok: true };
 					}
 				},
@@ -133,7 +139,7 @@ describe('run_gitops_publish --wetrun', () => {
 		assert.ok(err instanceof TaskError);
 		assert.include(err.message, 'b: on `feature`, not `main`');
 		assert.include(err.message, 'nothing was changed');
-		// fetched the npm repos alone, then stopped: no prompt, preflight, spawn, or commit
+		// fetched the npm repos alone, then stopped: no prompt, preflight, command, or commit
 		assert.deepEqual(steps, ['load', 'repos status a b --fetch']);
 	});
 
@@ -158,7 +164,7 @@ describe('run_gitops_publish --wetrun', () => {
 			'confirm',
 			'preflight',
 			'recheck a',
-			'spawn gro publish --no-build --no-pull --branch main'
+			'run gro publish --no-build --no-pull --branch main'
 		]);
 	});
 
@@ -268,6 +274,50 @@ describe('run_gitops_publish dry run', () => {
 		const log = create_capturing_log();
 		await run_gitops_publish(Args.parse({}), log, deps);
 		assert.notInclude(log.warned.join('\n'), 'not at rest');
+	});
+});
+
+describe('to_child_stdout', () => {
+	test('routes the child stdout to stderr when our stdout carries a machine stream', () => {
+		const route = (args: Partial<Args>): 'stdout' | 'stderr' => to_child_stdout(Args.parse(args));
+		assert.strictEqual(route({}), 'stdout');
+		assert.strictEqual(route({ emit_json: true }), 'stderr');
+		assert.strictEqual(route({ format: 'json' }), 'stderr');
+		assert.strictEqual(route({ format: 'markdown' }), 'stderr');
+		// a report sent to a file leaves stdout to the humans
+		assert.strictEqual(route({ format: 'json', outfile: 'out.json' }), 'stdout');
+		assert.strictEqual(route({ format: 'json', outfile: 'out.json', emit_json: true }), 'stderr');
+	});
+});
+
+describe('format_failure_markdown', () => {
+	test('a one-line message is the bullet alone', () => {
+		assert.deepEqual(format_failure_markdown('pkg', 'Failed to read package.json: ENOENT'), [
+			'- `pkg`: Failed to read package.json: ENOENT'
+		]);
+	});
+
+	test('the rest of the message goes in an indented fenced block', () => {
+		assert.deepEqual(
+			format_failure_markdown(
+				'pkg',
+				'`gro publish` failed (code 1)\nthe end of its stderr:\nnpm error code E401'
+			),
+			[
+				'- `pkg`: `gro publish` failed (code 1)',
+				'',
+				'  ```',
+				'  the end of its stderr:',
+				'  npm error code E401',
+				'  ```'
+			]
+		);
+	});
+
+	test('the fence outruns any backtick run in the stderr', () => {
+		const lines = format_failure_markdown('pkg', 'failed\n```\nquoted\n```');
+		assert.strictEqual(lines[2], '  ````');
+		assert.strictEqual(lines.at(-1), '  ````');
 	});
 });
 

@@ -109,17 +109,30 @@ export interface GitOperations {
 }
 
 /**
- * Process spawning operations for running shell commands.
+ * Process operations for the commands the publishing executor runs in a repo
+ * (`gro publish`, `gro deploy`).
  */
 export interface ProcessOperations {
 	/**
-	 * Spawns a child process and waits for completion.
+	 * Runs a command in the foreground and waits for it to exit: stdin is the
+	 * terminal's, so a prompt (npm's 2FA one-time password) can be answered, and
+	 * the child's output shows live — its stdout on ours, or on our stderr when
+	 * `stdout` says so, and its stderr on ours. A failure carries the end of
+	 * what the child wrote to stderr, bounded in lines and characters.
 	 */
-	spawn: (options: {
+	run_interactive: (options: {
 		cmd: string;
 		args: Array<string>;
 		cwd?: string;
-	}) => Promise<Result<{ stdout?: string; stderr?: string }, { message: string; stderr?: string }>>;
+		/**
+		 * Where the child's stdout goes: our stdout, or our stderr when our stdout
+		 * carries a machine-readable stream (JSON-lines events, a JSON or markdown
+		 * report) the child's output would corrupt.
+		 *
+		 * @default 'stdout'
+		 */
+		stdout?: 'stdout' | 'stderr';
+	}) => Promise<Result<object, { message: string; stderr_tail?: string }>>;
 }
 
 /**
@@ -180,7 +193,7 @@ export interface NpmOperations {
 		version: string;
 		wait_options?: WaitOptions;
 		log?: Logger;
-	}) => Promise<Result<object, { message: string; timeout?: boolean }>>;
+	}) => Promise<Result<object, { message: string }>>;
 
 	/**
 	 * Checks npm authentication status.
