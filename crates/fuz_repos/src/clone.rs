@@ -79,7 +79,7 @@ use crate::git::{CallOptions, Git, GitError, NetworkOptions};
 use crate::probe::{ProbeContext, Probed, RepoFetches, probe};
 use crate::registry::{Entry, RegistryDirs};
 use crate::remote::{RefspecContext, RemoteFailure};
-use crate::report::{CloneOutcome, SyncHold};
+use crate::report::{CloneOutcome, CloneSyncHold};
 use crate::state::{CloneRecipe, Head};
 
 /// The timeout for a clone and its sparse checkout, in place of
@@ -122,14 +122,16 @@ impl Cloner<'_> {
     ) -> CloneOutcome {
         let target = self.root.join(&entry.dir);
         if busy_now(&target) {
-            return CloneOutcome::Held { by: SyncHold::Busy };
+            return CloneOutcome::Held {
+                by: CloneSyncHold::Busy,
+            };
         }
         match std::fs::symlink_metadata(&target) {
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
             // made since the probe read it missing
             Ok(_) => {
                 return CloneOutcome::Held {
-                    by: SyncHold::Changed,
+                    by: CloneSyncHold::Changed,
                 };
             }
             Err(e) => {
@@ -262,7 +264,9 @@ impl Cloner<'_> {
             Probed::Present(facts) => facts,
             Probed::Missing => return failed("nothing is there now".into()),
             Probed::NotARepo { detail } => return failed(format!("it's no repo: {detail}")),
-            Probed::Failed { error, .. } => return failed(format!("reading it failed: {error}")),
+            Probed::Failed { error, .. } => {
+                return failed(format!("reading it failed: {}", error.message));
+            }
         };
         let Head::Branch { name } = &facts.status.head else {
             return failed("its HEAD is detached".into());
@@ -368,7 +372,7 @@ fn place(temp: &Path, target: &Path) -> Result<(), CloneOutcome> {
         Ok(()) => {}
         Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
             return Err(CloneOutcome::Held {
-                by: SyncHold::Changed,
+                by: CloneSyncHold::Changed,
             });
         }
         Err(e) => {
@@ -460,7 +464,7 @@ mod tests {
             assert_eq!(
                 place(&temp, &target),
                 Err(CloneOutcome::Held {
-                    by: SyncHold::Changed
+                    by: CloneSyncHold::Changed
                 }),
                 "{what}"
             );

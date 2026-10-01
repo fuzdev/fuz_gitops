@@ -9,8 +9,8 @@ use fuz_repos::classify::{NeedsHuman, Refresh};
 use fuz_repos::registry::RegistryDirs;
 use fuz_repos::sessions::LiveSessions;
 use fuz_repos::state::{
-    Checkout, CleanupReason, Head, HeldBy, InProgressOp, Prune, SyncAction, Uncommitted,
-    UnprobedHead, UnprobedWhy, UnprobedWorktree, Verdict,
+    BranchHold, Checkout, CleanupReason, Head, InProgressOp, Prune, SyncAction, Uncommitted,
+    UnprobedWhy, UnprobedWorktree, Verdict,
 };
 use fuz_repos::status::{StatusOptions, status};
 use support::worktrees::{NOTHING_HELD, app, behind_branch, pushed_branch};
@@ -95,7 +95,7 @@ fn a_dirty_linked_worktree_holds_a_fast_forward_but_not_a_push() {
         branch(&e, "feat").verdict,
         Verdict::Held {
             action: ff(1),
-            by: HeldBy::DirtyCheckout
+            by: BranchHold::DirtyCheckout
         }
     );
     // a push only moves refs, so the dirty worktree it's in doesn't hold it
@@ -151,7 +151,7 @@ fn a_rebase_in_a_linked_worktree_holds_the_entry_but_not_the_primarys_detach() {
         branch(&e, "main").verdict,
         Verdict::Held {
             action: SyncAction::Push { commits: 1 },
-            by: HeldBy::Entry
+            by: BranchHold::Entry
         }
     );
 }
@@ -238,9 +238,9 @@ fn a_worktree_whose_dir_is_gone_holds_its_branch_as_unprobed() {
             UnprobedWorktree {
                 path: path.to_str().unwrap().to_owned(),
                 git_dir: Some(git_dir.to_str().unwrap().to_owned()),
-                head: UnprobedHead::Branch {
+                head: Some(Head::Branch {
                     name: branch.to_owned(),
-                },
+                }),
                 locked,
                 in_progress: None,
                 // a gone one's git dir is read: it holds nothing of its own
@@ -285,7 +285,7 @@ fn a_worktree_whose_dir_is_gone_holds_its_branch_as_unprobed() {
             branch(&e, b).verdict,
             Verdict::Held {
                 action: ff(1),
-                by: HeldBy::UnprobedWorktree
+                by: BranchHold::UnprobedWorktree
             },
             "{b}"
         );
@@ -314,7 +314,7 @@ fn a_locked_worktree_is_probed() {
         branch(&e, "feat").verdict,
         Verdict::Held {
             action: ff(1),
-            by: HeldBy::DirtyCheckout
+            by: BranchHold::DirtyCheckout
         }
     );
 }
@@ -492,7 +492,7 @@ fn a_symlinked_root_reports_git_paths_for_worktrees() {
         branch(e, "dirty").verdict,
         Verdict::Held {
             action: ff(1),
-            by: HeldBy::DirtyCheckout
+            by: BranchHold::DirtyCheckout
         }
     );
 }
@@ -574,7 +574,7 @@ fn a_linked_worktree_whose_probe_fails_is_reported_and_the_entry_stands() {
         .iter()
         .map(|u| &u.worktree)
         .map(|u| match (&u.why, &u.head) {
-            (UnprobedWhy::Failed { error }, UnprobedHead::Branch { name }) => {
+            (UnprobedWhy::Failed { error }, Some(Head::Branch { name })) => {
                 (u.path.as_str(), Some(name.as_str()), error.as_str())
             }
             (why, head) => panic!("{}: {why:?} {head:?}", u.path),
@@ -607,7 +607,7 @@ fn a_linked_worktree_whose_probe_fails_is_reported_and_the_entry_stands() {
         branch(&e, "broken").verdict,
         Verdict::Held {
             action: ff(1),
-            by: HeldBy::UnprobedWorktree
+            by: BranchHold::UnprobedWorktree
         }
     );
 }
@@ -710,7 +710,7 @@ fn a_branch_on_head_in_two_checkouts_is_held_by_either() {
         main.verdict,
         Verdict::Held {
             action: ff(1),
-            by: HeldBy::DirtyCheckout
+            by: BranchHold::DirtyCheckout
         }
     );
     // neither worktree is the one to remove with the branch
@@ -755,9 +755,9 @@ fn an_operation_in_a_worktree_that_is_gone_is_still_a_reason() {
         [UnprobedWorktree {
             path: path(&wt),
             git_dir: Some(path(&git_dir)),
-            head: UnprobedHead::Detached {
+            head: Some(Head::Detached {
                 commit: detached_at
-            },
+            }),
             locked: true,
             in_progress: Some(InProgressOp::Rebase),
             why: UnprobedWhy::Missing,
@@ -775,7 +775,7 @@ fn an_operation_in_a_worktree_that_is_gone_is_still_a_reason() {
         branch(&e, "main").verdict,
         Verdict::Held {
             action: SyncAction::Push { commits: 1 },
-            by: HeldBy::Entry
+            by: BranchHold::Entry
         }
     );
 }

@@ -191,7 +191,7 @@ pub fn render_entry(e: &EntryStatus, workspace: &Path, view: View<'_>) -> String
             UnprobedWhy::Failed { .. } => "probe failed",
         };
         let locked = if u.locked { ", locked" } else { "" };
-        let head = unprobed_head_label(&u.head);
+        let head = unprobed_head_label(u.head.as_ref());
         let op = u
             .in_progress
             .map(|op| format!(" · {} in progress", op.label()))
@@ -317,7 +317,7 @@ pub fn render_entry(e: &EntryStatus, workspace: &Path, view: View<'_>) -> String
         let _ = writeln!(out, "  {:<10}{detail}", "needs");
     }
     if let Some(error) = &e.probe_error {
-        let _ = writeln!(out, "  {:<10}probe: {error}", "error");
+        let _ = writeln!(out, "  {:<10}probe: {}", "error", error.message);
         if e.probe_failed_partial() {
             let _ = writeln!(out, "  {:<10}{}", "hint", partial_hint(&dir));
         }

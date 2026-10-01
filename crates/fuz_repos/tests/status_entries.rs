@@ -7,7 +7,7 @@ mod support;
 
 use fuz_repos::classify::{NeedsHuman, OriginFix, OriginRemote};
 use fuz_repos::state::{
-    Head, HeldBy, InProgressOp, Presence, Relation, SyncAction, Uncommitted, Verdict,
+    BranchHold, Head, InProgressOp, Presence, Relation, SyncAction, Uncommitted, Verdict,
 };
 use support::{FixtureWorkspace, branch, branch_names, find_entry, owned_origin};
 
@@ -258,7 +258,7 @@ fn a_rebase_stopped_midway_holds_the_entry() {
         branch(&e, "feat").verdict,
         Verdict::Held {
             action: SyncAction::Push { commits: 1 },
-            by: HeldBy::Entry
+            by: BranchHold::Entry
         }
     );
 }
@@ -292,7 +292,7 @@ fn a_merge_in_progress_holds_the_entry() {
         branch(&e, "main").verdict,
         Verdict::Held {
             action: SyncAction::Push { commits: 1 },
-            by: HeldBy::Entry
+            by: BranchHold::Entry
         }
     );
 }
@@ -323,7 +323,7 @@ fn a_bisect_in_progress_owns_its_detached_head() {
         branch(&e, "main").verdict,
         Verdict::Held {
             action: SyncAction::Push { commits: 3 },
-            by: HeldBy::Entry
+            by: BranchHold::Entry
         }
     );
 }
@@ -381,7 +381,7 @@ fn an_am_stopped_on_a_conflict_is_am_not_a_rebase() {
         branch(e, "main").verdict,
         Verdict::Held {
             action: SyncAction::Push { commits: 1 },
-            by: HeldBy::Entry
+            by: BranchHold::Entry
         }
     );
     // am never detaches HEAD, so it doesn't explain a detached one
@@ -470,7 +470,7 @@ fn origin_mismatch_holds_the_entry_and_names_the_url_to_set() {
         branch(moved, "main").verdict,
         Verdict::Held {
             action: SyncAction::Push { commits: 1 },
-            by: HeldBy::Entry
+            by: BranchHold::Entry
         }
     );
     let no_origin = find_entry(&entries, "no_origin");
@@ -596,7 +596,7 @@ fn pinned_detached_holds_a_stale_main() {
         main.verdict,
         Verdict::Held {
             action: SyncAction::FastForward { commits: 1 },
-            by: HeldBy::Pinned,
+            by: BranchHold::Pinned,
         }
     );
 }
@@ -635,7 +635,7 @@ fn pinned_on_its_branch_reads_clean() {
     assert_eq!(pin.relation, Relation::Behind { commits: 1 });
     let held = Verdict::Held {
         action: SyncAction::FastForward { commits: 1 },
-        by: HeldBy::Pinned,
+        by: BranchHold::Pinned,
     };
     assert_eq!(pin.verdict, held);
 

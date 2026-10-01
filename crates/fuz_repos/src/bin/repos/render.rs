@@ -13,14 +13,15 @@ use fuz_repos::classify::{NeedsHuman, OriginByHand, OriginFix, OriginRemote};
 use fuz_repos::registry::{EntryKind, Visibility};
 use fuz_repos::remote::{RefGoneFix, RemoteFailure, UnreachableCause, VisibilityCheck};
 use fuz_repos::report::{
-    BranchOutcome, CloneOutcome, EntryStatus, EntrySync, FetchOutcome, PushOutcome, PushReport,
-    RepairBlock, Sessions, StatusReport, SyncHold, SyncReport, UnregisteredClone, UnregisteredKind,
+    BranchOutcome, BranchSyncHold, CloneOutcome, CloneSyncHold, EntryStatus, EntrySync,
+    FetchOutcome, PushOutcome, PushReport, RepairBlock, Sessions, StatusReport, SyncReport,
+    UnregisteredClone, UnregisteredKind,
 };
 use fuz_repos::sessions::{Session, SessionSource, Unavailable};
 use fuz_repos::state::{
-    BranchNeedsHuman, BranchStatus, Checkout, CleanupReason, CloneVerdict, Head, HeldBy, Presence,
-    Prune, PruneLoss, RefreshVerdict, Relation, SyncAction, Uncommitted, UnprobedHead, UnprobedWhy,
-    Verdict,
+    BranchHold, BranchNeedsHuman, BranchStatus, Checkout, CleanupReason, CloneHold, CloneVerdict,
+    Head, Presence, Prune, PruneLoss, RefreshHold, RefreshVerdict, Relation, SyncAction,
+    Uncommitted, UnprobedWhy, Verdict,
 };
 
 /// The label column's width.
@@ -267,10 +268,11 @@ pub use summary::{render_push_summary, render_summary, render_sync_summary};
 pub use unregistered::render_unregistered;
 
 use labels::{
-    action_verb, clone_label, compact_remote, fetch_fix, first_line, format_age, git_dir_id,
-    held_note, hold_note, needs_human_label, prefixed, prune_loss_label, refresh_held_note,
-    relation_label, session_label, sessions_label, unavailable_label, uncommitted_detail,
-    uncommitted_summary, unprobed_head_label, unreachable_cause, verdict_label, visibility_cause,
+    action_verb, clone_held_note, clone_hold_note, clone_label, compact_remote, fetch_fix,
+    first_line, format_age, git_dir_id, held_note, hold_note, needs_human_label, prefixed,
+    prune_loss_label, refresh_held_note, relation_label, session_label, sessions_label,
+    unavailable_label, uncommitted_detail, uncommitted_summary, unprobed_head_label,
+    unreachable_cause, verdict_label, visibility_cause,
 };
 use unregistered::unregistered_groups;
 

@@ -10,8 +10,8 @@ use std::path::Path;
 use std::process::Output;
 
 use fuz_repos::PUSH_FORMAT_VERSION;
-use fuz_repos::report::{FetchOutcome, PushOutcome, SyncHold};
-use fuz_repos::state::{HeldBy, Relation, SyncAction, Verdict};
+use fuz_repos::report::{BranchSyncHold, FetchOutcome, PushOutcome};
+use fuz_repos::state::{BranchHold, Relation, SyncAction, Verdict};
 use serde_json::Value;
 use support::cli::{REPOS, repos, stderr, stdout};
 use support::push::{ahead, assert_tracks_origin, only, pushes_served, remote_refs, topic};
@@ -169,7 +169,7 @@ fn a_held_push_keeps_syncs_label_whatever_else_holds_it() {
         branch(e, "main").verdict,
         Verdict::Held {
             action: SyncAction::Push { commits: 1 },
-            by: HeldBy::PushUrl,
+            by: BranchHold::PushUrl,
         }
     );
     assert_eq!(
@@ -177,7 +177,7 @@ fn a_held_push_keeps_syncs_label_whatever_else_holds_it() {
         (
             Some("main"),
             &PushOutcome::Held {
-                by: SyncHold::PushUrl
+                by: BranchSyncHold::PushUrl
             }
         )
     );

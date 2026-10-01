@@ -10,7 +10,7 @@ use std::path::Path;
 
 use fuz_repos::report::Sessions;
 use fuz_repos::sessions::{LiveSessions, Session, SessionSource};
-use fuz_repos::state::{HeldBy, Prune, UnprobedWhy, Verdict};
+use fuz_repos::state::{BranchHold, Prune, UnprobedWhy, Verdict};
 use support::busy::{
     MAX_GITFILE_BYTES, app, app_with_a_feat_worktree, held, move_by_hand, push, session,
 };
@@ -36,7 +36,10 @@ fn assert_feat_busy(ws: &FixtureWorkspace, cwd: &Path, checkout: &Path, commits:
         .filter(|(_, busy)| !busy.is_empty())
         .collect();
     assert_eq!(busy, [(path(checkout).as_str(), std::slice::from_ref(&s))]);
-    assert_eq!(branch(e, "feat").verdict, held(push(commits), HeldBy::Busy));
+    assert_eq!(
+        branch(e, "feat").verdict,
+        held(push(commits), BranchHold::Busy)
+    );
     assert_eq!(branch(e, "main").verdict, Verdict::Act { action: push(1) });
 }
 
@@ -92,11 +95,11 @@ fn a_worktree_moved_into_another_checkout_is_busy_with_it() {
     assert_eq!(e.unprobed_worktrees[0].worktree.path, path(&wt));
     assert_eq!(e.unprobed_worktrees[0].busy, std::slice::from_ref(&s));
     assert!(e.checkouts.iter().all(|c| c.busy.is_empty()));
-    assert_eq!(branch(e, "feat").verdict, held(push(2), HeldBy::Busy));
+    assert_eq!(branch(e, "feat").verdict, held(push(2), BranchHold::Busy));
     assert_eq!(branch(e, "main").verdict, Verdict::Act { action: push(1) });
     let lib = find_entry(&run.entries, "lib");
     assert_eq!(lib.checkouts[0].busy, [s]);
-    assert_eq!(branch(lib, "main").verdict, held(push(1), HeldBy::Busy));
+    assert_eq!(branch(lib, "main").verdict, held(push(1), BranchHold::Busy));
 }
 
 /// Copies `from` to `to` as `cp -a` does, symlinks and modes kept.
@@ -156,7 +159,7 @@ fn a_session_in_a_copy_of_a_separate_git_dir_primary_is_attributed_to_it() {
     assert_eq!(run.sessions, Sessions::Available { unscoped: vec![] });
     let e = find_entry(&run.entries, "app");
     assert_eq!(e.checkouts[0].busy, [s]);
-    assert_eq!(branch(e, "main").verdict, held(push(1), HeldBy::Busy));
+    assert_eq!(branch(e, "main").verdict, held(push(1), BranchHold::Busy));
 }
 
 #[test]
@@ -400,7 +403,7 @@ fn a_dot_git_symlinked_to_a_checkouts_git_dir_is_attributed_to_it() {
     assert_eq!(run.sessions, Sessions::Available { unscoped: vec![] });
     let e = find_entry(&run.entries, "app");
     assert_eq!(e.checkouts[0].busy, [s]);
-    assert_eq!(branch(e, "main").verdict, held(push(2), HeldBy::Busy));
+    assert_eq!(branch(e, "main").verdict, held(push(2), BranchHold::Busy));
 }
 
 #[test]
@@ -428,8 +431,8 @@ fn a_session_inside_a_git_dir_works_in_its_checkout() {
         .map(|c| (c.path.as_str(), c.busy.len()))
         .collect();
     assert_eq!(busy, [(path(&app).as_str(), 1), (path(&wt).as_str(), 1)]);
-    assert_eq!(branch(e, "feat").verdict, held(push(2), HeldBy::Busy));
-    assert_eq!(branch(e, "main").verdict, held(push(1), HeldBy::Busy));
+    assert_eq!(branch(e, "feat").verdict, held(push(2), BranchHold::Busy));
+    assert_eq!(branch(e, "main").verdict, held(push(1), BranchHold::Busy));
 }
 
 #[test]
@@ -457,5 +460,5 @@ fn a_session_inside_a_separate_git_dir_works_in_its_checkout() {
     assert_eq!(run.sessions, Sessions::Available { unscoped: vec![] });
     let e = find_entry(&run.entries, "app");
     assert_eq!(e.checkouts[0].busy, [s]);
-    assert_eq!(branch(e, "main").verdict, held(push(1), HeldBy::Busy));
+    assert_eq!(branch(e, "main").verdict, held(push(1), BranchHold::Busy));
 }

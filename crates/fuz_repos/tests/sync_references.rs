@@ -20,10 +20,13 @@ use std::process::Command;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use fuz_repos::classify::{NeedsHuman, OriginFix, Refresh};
-use fuz_repos::report::{BranchOutcome, CloneOutcome, EntrySync, FetchOutcome, SyncHold};
+use fuz_repos::report::{
+    BranchOutcome, BranchSyncHold, CloneOutcome, CloneSyncHold, EntrySync, FetchOutcome,
+};
 use fuz_repos::sessions::LiveSessions;
 use fuz_repos::state::{
-    BranchNeedsHuman, CloneVerdict, HeldBy, Presence, RefreshVerdict, Relation, SyncAction, Verdict,
+    BranchNeedsHuman, CloneHold, CloneVerdict, Presence, ProbeErrorKind, RefreshHold,
+    RefreshVerdict, Relation, SyncAction, Verdict,
 };
 use fuz_repos::sync::SyncRun;
 use support::{FixtureWorkspace, OWNER, THIRD_PARTY, branch, find_entry, write};
@@ -278,7 +281,9 @@ fn a_named_pin_is_refused_and_never_fetched() {
         let e = find_entry(&run.entries, key);
         assert_eq!(
             e.refresh,
-            Some(RefreshVerdict::Held { by: HeldBy::Pinned }),
+            Some(RefreshVerdict::Held {
+                by: RefreshHold::Pinned
+            }),
             "{key}"
         );
         assert_eq!(outcomes(&run, key).fetch, FetchOutcome::NotFetched, "{key}");
@@ -308,7 +313,7 @@ fn assert_held_not_https(
         assert_eq!(
             e.refresh,
             Some(RefreshVerdict::Held {
-                by: HeldBy::OriginNotHttps
+                by: RefreshHold::OriginNotHttps
             }),
             "{refresh:?}"
         );
@@ -334,7 +339,7 @@ fn assert_held_not_https(
         assert_eq!(
             e.refresh,
             Some(RefreshVerdict::Held {
-                by: HeldBy::OriginNotHttps
+                by: RefreshHold::OriginNotHttps
             })
         );
         assert_eq!(e.fetch_error, None);
@@ -420,7 +425,9 @@ fn a_refresh_with_origin_drift_is_held_and_never_fetched() {
         let e = find_entry(&run.entries, "kit");
         assert_eq!(
             e.refresh,
-            Some(RefreshVerdict::Held { by: HeldBy::Entry }),
+            Some(RefreshVerdict::Held {
+                by: RefreshHold::Entry
+            }),
             "{refresh:?}"
         );
         assert!(
@@ -444,7 +451,12 @@ fn a_refresh_with_origin_drift_is_held_and_never_fetched() {
     // `status kit` previews the same, and `--fetch` fetches nothing
     for fetch in [false, true] {
         let e = support::take_entry(ws.status_asked(fetch, Refresh::Named), "kit");
-        assert_eq!(e.refresh, Some(RefreshVerdict::Held { by: HeldBy::Entry }));
+        assert_eq!(
+            e.refresh,
+            Some(RefreshVerdict::Held {
+                by: RefreshHold::Entry
+            })
+        );
         assert_eq!(e.fetch_error, None);
     }
     assert!(ws.ssh_log().is_empty(), "{:?}", ws.ssh_log());
@@ -469,7 +481,12 @@ fn a_refresh_whose_origin_is_an_https_fork_writes_no_fork_refs() {
     let run = ws.sync_asked(Refresh::Named, 4);
 
     let e = find_entry(&run.entries, "lib");
-    assert_eq!(e.refresh, Some(RefreshVerdict::Held { by: HeldBy::Entry }));
+    assert_eq!(
+        e.refresh,
+        Some(RefreshVerdict::Held {
+            by: RefreshHold::Entry
+        })
+    );
     assert_eq!(outcomes(&run, "lib").fetch, FetchOutcome::NotFetched);
     assert!(ws.https_log().is_empty(), "{:?}", ws.https_log());
     assert_eq!(ws.refs(&lib), before);
@@ -535,7 +552,7 @@ fn a_dirty_reference_is_fetched_and_held() {
         outcome(&run, "lib", "main"),
         &BranchOutcome::Held {
             action: ff(1),
-            by: SyncHold::DirtyCheckout
+            by: BranchSyncHold::DirtyCheckout
         }
     );
     // the fetch alone: the branch where it was
@@ -820,7 +837,7 @@ fn origin_rewritten_before_a_partial_checkout_holds_it() {
         outcome(&run, "wpt", "fork"),
         &BranchOutcome::Held {
             action: SyncAction::Move,
-            by: SyncHold::Changed,
+            by: BranchSyncHold::Changed,
         }
     );
     assert_eq!(ws.git(&wpt, &["rev-parse", "fork"]), was);
@@ -971,7 +988,7 @@ fn a_promisor_remote_added_before_a_partial_checkout_holds_it() {
         outcome(&run, "wpt", "fork"),
         &BranchOutcome::Held {
             action: SyncAction::Move,
-            by: SyncHold::Changed,
+            by: BranchSyncHold::Changed,
         }
     );
     assert_eq!(ws.git(&wpt, &["rev-parse", "fork"]), was);
@@ -1054,7 +1071,7 @@ fn a_missing_entry_cloned_under_another_name_is_held() {
     assert!(matches!(
         e.clone,
         Some(CloneVerdict::Held {
-            by: HeldBy::Entry,
+            by: CloneHold::Entry,
             ..
         })
     ));
@@ -1068,7 +1085,7 @@ fn a_missing_entry_cloned_under_another_name_is_held() {
     assert_eq!(
         outcomes(&run, "app").clone,
         Some(CloneOutcome::Held {
-            by: SyncHold::Entry
+            by: CloneSyncHold::Entry
         })
     );
     assert!(matches!(
@@ -1131,7 +1148,7 @@ fn a_missing_entry_cloned_under_its_old_name_is_held() {
     assert!(matches!(
         e.clone,
         Some(CloneVerdict::Held {
-            by: HeldBy::Entry,
+            by: CloneHold::Entry,
             ..
         })
     ));
@@ -1144,7 +1161,7 @@ fn a_missing_entry_cloned_under_its_old_name_is_held() {
     assert_eq!(
         outcomes(&run, name).clone,
         Some(CloneOutcome::Held {
-            by: SyncHold::Entry
+            by: CloneSyncHold::Entry
         })
     );
     assert!(!ws.dir(name).exists());
@@ -1201,11 +1218,18 @@ fn a_refresh_whose_config_is_unread_is_not_previewed() {
     for fetch in [false, true] {
         let entries = ws.status_asked(fetch, Refresh::Named);
         let e = find_entry(&entries, "lib");
-        assert!(e.probe_error.is_some(), "{e:?}");
+        let kind = e.probe_error.as_ref().map(|p| p.kind);
+        assert_eq!(kind, Some(ProbeErrorKind::ConfigUnreadable), "{e:?}");
         assert_eq!(e.refresh, None, "{fetch}");
         let p = find_entry(&entries, "pin");
-        assert!(p.probe_error.is_some(), "{p:?}");
-        assert_eq!(p.refresh, Some(RefreshVerdict::Held { by: HeldBy::Pinned }));
+        let kind = p.probe_error.as_ref().map(|p| p.kind);
+        assert_eq!(kind, Some(ProbeErrorKind::ConfigUnreadable), "{p:?}");
+        assert_eq!(
+            p.refresh,
+            Some(RefreshVerdict::Held {
+                by: RefreshHold::Pinned
+            })
+        );
     }
     assert!(ws.https_log().is_empty(), "{:?}", ws.https_log());
 }
@@ -1262,7 +1286,7 @@ fn refresh_outcomes_are_the_same_whatever_the_jobs() {
                     "{:?}",
                     BranchOutcome::Held {
                         action: ff(1),
-                        by: SyncHold::DirtyCheckout
+                        by: BranchSyncHold::DirtyCheckout
                     }
                 )]
             ),

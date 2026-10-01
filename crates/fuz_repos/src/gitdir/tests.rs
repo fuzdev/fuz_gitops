@@ -117,10 +117,10 @@ fn a_dot_git_names_itself_or_what_its_gitfile_names() {
 fn a_symlinked_head_is_read_as_git_reads_it() {
     let tmp = tempfile::tempdir().unwrap();
     let git_dir = tmp.path();
-    let on = |name: &str| UnprobedHead::Branch { name: name.into() };
+    let on = |name: &str| Some(Head::Branch { name: name.into() });
     let id = "0123456789abcdef0123456789abcdef01234567";
-    let at = || UnprobedHead::Detached { commit: id.into() };
-    let unknown = || UnprobedHead::Unknown;
+    let at = || Some(Head::Detached { commit: id.into() });
+    let unknown = || None;
     std::fs::write(git_dir.join("loose"), format!("{id}\n")).unwrap();
     std::fs::write(git_dir.join("symref"), "ref: refs/heads/through\n").unwrap();
     std::fs::create_dir_all(git_dir.join("refs/heads")).unwrap();
@@ -128,7 +128,7 @@ fn a_symlinked_head_is_read_as_git_reads_it() {
     let abs_symref = git_dir.join("symref");
     // each row probed against git 2.47 (`git worktree list` in a repo
     // whose linked worktree's `HEAD` is a link with the text)
-    let rows: Vec<(&[u8], UnprobedHead)> = vec![
+    let rows: Vec<(&[u8], Option<Head>)> = vec![
         // git: a link text that starts `refs/` and is a valid ref name
         // names that ref, unfollowed (as `core.preferSymlinkRefs` writes)
         (b"refs/heads/w", on("w")),
@@ -346,13 +346,13 @@ fn a_commondir_is_read_as_git_reads_it() {
 fn a_head_is_read_as_git_reads_a_loose_ref() {
     let tmp = tempfile::tempdir().unwrap();
     let git_dir = tmp.path();
-    let on = |name: &str| UnprobedHead::Branch { name: name.into() };
+    let on = |name: &str| Some(Head::Branch { name: name.into() });
     let id = "0123456789abcdef0123456789abcdef01234567";
-    let at = || UnprobedHead::Detached { commit: id.into() };
-    let unknown = || UnprobedHead::Unknown;
+    let at = || Some(Head::Detached { commit: id.into() });
+    let unknown = || None;
     // each row probed against git 2.47 (`git worktree list` and a commit
     // in a linked worktree whose git dir's `HEAD` holds the bytes)
-    let rows: Vec<(Vec<u8>, UnprobedHead)> = vec![
+    let rows: Vec<(Vec<u8>, Option<Head>)> = vec![
         (b"ref: refs/heads/main\n".to_vec(), on("main")),
         (b"ref: refs/heads/a/b".to_vec(), on("a/b")),
         // git: any whitespace after `ref:`, none included

@@ -18,9 +18,9 @@ use crate::registry::{Entry, RepoUrl};
 use crate::report::{UnregisteredClone, UnregisteredKind};
 use crate::sessions::Session;
 use crate::state::{
-    AtRest, BranchNeedsHuman, BranchStatus, CleanupReason, CloneRecipe, CloneVerdict, Head, HeldBy,
-    InProgressOp, Prune, PruneLoss, RefreshVerdict, Relation, SyncAction, Uncommitted,
-    UnprobedHead, UnprobedWhy, UnprobedWorktree, UnprobedWorktreeStatus, Verdict,
+    AtRest, BranchHold, BranchNeedsHuman, BranchStatus, CleanupReason, CloneHold, CloneRecipe,
+    CloneVerdict, Head, InProgressOp, Prune, PruneLoss, RefreshHold, RefreshVerdict, Relation,
+    SyncAction, Uncommitted, UnprobedWhy, UnprobedWorktree, UnprobedWorktreeStatus, Verdict,
 };
 use crate::url::{RemoteParts, remote_parts, without_userinfo};
 
@@ -53,11 +53,12 @@ pub enum NeedsHuman {
     /// it would reach, as git resolves it (`insteadOf` applied; a
     /// credential in its userinfo redacted as `***`) — SSH, `http://`,
     /// `git://`, or another repo a rewrite names. `expected` is the
-    /// registry's HTTPS URL. The refresh is held (`HeldBy::OriginNotHttps`),
-    /// never fetched; the rest of the entry goes on. `fix` is how to point
-    /// `origin` at `expected`, as `origin_mismatch`'s says — `None` when a
-    /// `url.<base>.insteadOf` rewrite changes origin's URL, which setting
-    /// the URL may not undo: the rewrite is what to change.
+    /// registry's HTTPS URL. The refresh is held
+    /// (`RefreshHold::OriginNotHttps`), never fetched; the rest of the entry
+    /// goes on. `fix` is how to point `origin` at `expected`, as
+    /// `origin_mismatch`'s says — `None` when a `url.<base>.insteadOf`
+    /// rewrite changes origin's URL, which setting the URL may not undo: the
+    /// rewrite is what to change.
     OriginNotHttps {
         fetch_url: String,
         expected: String,
@@ -123,7 +124,8 @@ pub enum NeedsHuman {
     /// in it: git itself doesn't know it's there.
     UnlistedGitDir {
         git_dir: String,
-        head: UnprobedHead,
+        /// `None` when it can't be read.
+        head: Option<Head>,
         busy: Vec<Session>,
     },
     /// A push through `origin` would go somewhere other than the registry's
@@ -141,7 +143,7 @@ pub enum NeedsHuman {
     /// `with` (`Entry::same_repo_as`): its dir may have been a linked
     /// worktree of that repo (its record since pruned), and a clone would
     /// make a second, independent copy — the tool never guesses which is
-    /// meant. Its clone is held (`HeldBy::Entry`); a person clones it, or
+    /// meant. Its clone is held (`CloneHold::Entry`); a person clones it, or
     /// adds the worktree, by hand.
     CloneSharesRepo {
         with: String,
@@ -152,7 +154,7 @@ pub enum NeedsHuman {
     /// its name differing only in ASCII case and `-` against `_`
     /// (`names_repo_loosely`): likely the entry's own checkout under
     /// another name, and a clone would make a second, independent copy. Its
-    /// clone is held (`HeldBy::Entry`); a person renames the dir to the
+    /// clone is held (`CloneHold::Entry`); a person renames the dir to the
     /// entry's, or points the entry's `dir` at it. Found only when the scan
     /// ran — every run with a missing entry in it — and only through an
     /// origin the scan could read: a clone whose origin names the repo by
@@ -308,13 +310,13 @@ fn prune(u: &UnprobedWorktree, facts: &RepoFacts) -> Option<Prune> {
         losses.push(PruneLoss::Operation { op });
     }
     match &u.head {
-        UnprobedHead::Branch { name } => {
+        Some(Head::Branch { name }) => {
             if !facts.branches.iter().any(|b| b.branch.name == *name) {
                 losses.push(PruneLoss::MissingBranch { name: name.clone() });
             }
         }
-        UnprobedHead::Detached { .. } => losses.push(PruneLoss::DetachedHead),
-        UnprobedHead::Unknown => losses.push(PruneLoss::UnknownHead),
+        Some(Head::Detached { .. }) => losses.push(PruneLoss::DetachedHead),
+        None => losses.push(PruneLoss::UnknownHead),
     }
     if u.git_dir.is_none() {
         losses.push(PruneLoss::UnmatchedGitDir);
@@ -373,7 +375,9 @@ pub enum Refresh {
 /// probe reads where a refresh's fetch would reach when this acts.
 pub(crate) const fn refresh_intent(entry: &Entry, refresh: Refresh) -> Option<RefreshVerdict> {
     match refresh {
-        Refresh::Named if entry.pinned => Some(RefreshVerdict::Held { by: HeldBy::Pinned }),
+        Refresh::Named if entry.pinned => Some(RefreshVerdict::Held {
+            by: RefreshHold::Pinned,
+        }),
         Refresh::Named | Refresh::References if !entry.writable && !entry.pinned => {
             Some(RefreshVerdict::Act)
         }
@@ -386,13 +390,14 @@ pub(crate) const fn refresh_intent(entry: &Entry, refresh: Refresh) -> Option<Re
 ///
 /// `refresh_intent`, but a refresh of a repo whose origin isn't the
 /// registry's repo (`origin_drift`: another URL, or none) is held
-/// (`HeldBy::Entry`, the entry's `origin_mismatch` reason) — never fetched,
-/// since the fetch would bring in another repo's history, over whatever
-/// transport that URL names. So is one whose fetch wouldn't reach the
-/// registry's repo over HTTPS (`fetches_over_https`: an SSH-form origin, or
-/// an `insteadOf` rewrite), held by `HeldBy::OriginNotHttps` (the entry's
-/// `origin_not_https` reason): a reference is fetched over HTTPS alone,
-/// and that fetch would fail. The probe decides its fetch by this verdict.
+/// (`RefreshHold::Entry`, the entry's `origin_mismatch` reason) — never
+/// fetched, since the fetch would bring in another repo's history, over
+/// whatever transport that URL names. So is one whose fetch wouldn't reach
+/// the registry's repo over HTTPS (`fetches_over_https`: an SSH-form
+/// origin, or an `insteadOf` rewrite), held by
+/// `RefreshHold::OriginNotHttps` (the entry's `origin_not_https` reason): a
+/// reference is fetched over HTTPS alone, and that fetch would fail.
+/// The probe decides its fetch by this verdict.
 pub(crate) fn refresh_verdict(
     entry: &Entry,
     refresh: Refresh,
@@ -400,11 +405,13 @@ pub(crate) fn refresh_verdict(
 ) -> Option<RefreshVerdict> {
     match refresh_intent(entry, refresh) {
         Some(RefreshVerdict::Act) if origin_drift(entry, config).is_some() => {
-            Some(RefreshVerdict::Held { by: HeldBy::Entry })
+            Some(RefreshVerdict::Held {
+                by: RefreshHold::Entry,
+            })
         }
         Some(RefreshVerdict::Act) if !fetches_over_https(entry, config) => {
             Some(RefreshVerdict::Held {
-                by: HeldBy::OriginNotHttps,
+                by: RefreshHold::OriginNotHttps,
             })
         }
         verdict => verdict,
@@ -627,7 +634,7 @@ pub(crate) struct ClassifiedMissing {
 /// it.
 ///
 /// Another entry naming the same repo holds it for a person
-/// (`clone_shares_repo`, `HeldBy::Entry`): the missing dir may have been a
+/// (`clone_shares_repo`, `CloneHold::Entry`): the missing dir may have been a
 /// worktree of that repo, and a second clone would be a guess. So does each
 /// of `unregistered` — the unregistered scan's dirs, empty when it didn't
 /// run — whose origin names the entry's repo, or a rename of it
@@ -660,11 +667,11 @@ pub(crate) fn classify_missing(
         )
         .collect();
     let held = if !needs_human.is_empty() {
-        Some(HeldBy::Entry)
+        Some(CloneHold::Entry)
     } else if busy {
-        Some(HeldBy::Busy)
+        Some(CloneHold::Busy)
     } else if recorded_worktree {
-        Some(HeldBy::UnprobedWorktree)
+        Some(CloneHold::UnprobedWorktree)
     } else {
         None
     };
@@ -818,26 +825,26 @@ impl Holds<'_, '_> {
     /// action; and a push URL other than the registry's holds a push. A pin
     /// names the hold before anything else, since clearing the rest never
     /// releases it; otherwise the most specific reason names it.
-    fn of(&self, action: SyncAction) -> Option<HeldBy> {
+    fn of(&self, action: SyncAction) -> Option<BranchHold> {
         let push = matches!(action, SyncAction::Push { .. });
         if self.pinned {
-            Some(HeldBy::Pinned)
+            Some(BranchHold::Pinned)
         } else if self.entry {
-            Some(HeldBy::Entry)
+            Some(BranchHold::Entry)
         } else if push && self.push_url {
-            Some(HeldBy::PushUrl)
+            Some(BranchHold::PushUrl)
         } else if self.fetch_failed {
-            Some(HeldBy::FetchFailed)
+            Some(BranchHold::FetchFailed)
         } else if self.on.busy {
-            Some(HeldBy::Busy)
+            Some(BranchHold::Busy)
         } else if !push && self.on.dirty {
-            Some(HeldBy::DirtyCheckout)
+            Some(BranchHold::DirtyCheckout)
         } else if !push && self.on.unprobed {
-            Some(HeldBy::UnprobedWorktree)
+            Some(BranchHold::UnprobedWorktree)
         } else if !push && self.on.several {
-            Some(HeldBy::SeveralCheckouts)
+            Some(BranchHold::SeveralCheckouts)
         } else if self.on.maybe_busy || self.detection == Detection::Unavailable {
-            Some(HeldBy::BusyUnknown)
+            Some(BranchHold::BusyUnknown)
         } else {
             None
         }
@@ -903,16 +910,13 @@ fn checkouts_on<'a>(
         .unprobed
         .iter()
         .filter(|u| match &u.head {
-            UnprobedHead::Branch { name: n } => n == name,
-            UnprobedHead::Detached { .. } => false,
-            UnprobedHead::Unknown => true,
+            Some(Head::Branch { name: n }) => n == name,
+            Some(Head::Detached { .. }) => false,
+            None => true,
         })
         .map(|u| u.path.as_str())
         .collect();
-    folded.head_unknown = facts
-        .unprobed
-        .iter()
-        .any(|u| u.head == UnprobedHead::Unknown);
+    folded.head_unknown = facts.unprobed.iter().any(|u| u.head.is_none());
     if !unprobed.is_empty() {
         count += unprobed.len();
         folded.unprobed = true;
@@ -1087,7 +1091,7 @@ fn needs_human(
     // a refresh's fetch that wouldn't reach the repo over HTTPS
     if let (
         Some(RefreshVerdict::Held {
-            by: HeldBy::OriginNotHttps,
+            by: RefreshHold::OriginNotHttps,
         }),
         Some(fetch_url),
     ) = (

@@ -196,8 +196,8 @@ use crate::probe::RepoFacts;
 use crate::registry::{Entry, RegistryDirs};
 use crate::remote::RemoteFailure;
 use crate::report::{
-    BranchOutcome, BranchSync, CloneOutcome, EntryStatus, EntrySync, FetchOutcome, PushOutcome,
-    Sessions, SyncHold, SyncReport, UnregisteredClone,
+    BranchOutcome, BranchSync, BranchSyncHold, CloneOutcome, EntryStatus, EntrySync, FetchOutcome,
+    PushOutcome, Sessions, SyncReport, UnregisteredClone,
 };
 use crate::sessions::{LiveSessions, SessionsSource, read_live_sessions};
 use crate::state::{
@@ -676,7 +676,7 @@ impl Actor<'_> {
         i: usize,
         facts: &'f RepoFacts,
         b: &BranchStatus,
-    ) -> Result<Result<Ready<'f>, SyncHold>, String> {
+    ) -> Result<Result<Ready<'f>, BranchSyncHold>, String> {
         let Some(branch) = facts.branches.iter().find(|f| f.branch.name == b.name) else {
             return Err(format!("{} isn't among the branches probed", b.name));
         };
@@ -751,17 +751,17 @@ impl Actor<'_> {
     /// through a git dir no worktree list names, holds any action; one in a
     /// checkout it's on (`checkouts`), or a checkout whose path can't be
     /// resolved, holds that checkout's.
-    fn busy_now(&self, i: usize, branch: &str, checkouts: &[&str]) -> Option<SyncHold> {
+    fn busy_now(&self, i: usize, branch: &str, checkouts: &[&str]) -> Option<BranchSyncHold> {
         let live = (self.read_live)();
         let (_, per_entry) = scope_sessions(&live, self.checkouts);
         let sessions = &per_entry[i];
         if sessions.detection == Detection::Unavailable || sessions.unlisted_on(branch) > 0 {
-            return Some(SyncHold::BusyUnknown);
+            return Some(BranchSyncHold::BusyUnknown);
         }
         if checkouts.iter().any(|c| !sessions.at(c).is_empty()) {
-            Some(SyncHold::Busy)
+            Some(BranchSyncHold::Busy)
         } else if checkouts.iter().any(|c| sessions.unresolved_at(c)) {
-            Some(SyncHold::BusyUnknown)
+            Some(BranchSyncHold::BusyUnknown)
         } else {
             None
         }

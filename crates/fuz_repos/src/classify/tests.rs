@@ -5,7 +5,10 @@ use super::*;
 use crate::porcelain::{ConfigFacts, OriginUrl, RefFacts, StatusFacts};
 use crate::registry::EntryKind;
 use crate::sessions::{Session, SessionSource};
-use crate::state::{Checkout, GitDirHolds, Layout, Uncommitted, UnprobedWhy, UnprobedWorktree};
+use crate::state::{
+    BranchHold, Checkout, CloneHold, GitDirHolds, Head, Layout, RefreshHold, Uncommitted,
+    UnprobedWhy, UnprobedWorktree,
+};
 
 const NOW: u64 = 1_800_000_000;
 
@@ -311,14 +314,14 @@ fn entry_reasons_hold_every_action() {
             "main",
             Verdict::Held {
                 action: SyncAction::Push { commits: 1 },
-                by: HeldBy::Entry,
+                by: BranchHold::Entry,
             },
         ),
         (
             "feat",
             Verdict::Held {
                 action: SyncAction::FastForward { commits: 2 },
-                by: HeldBy::Entry,
+                by: BranchHold::Entry,
             },
         ),
         // not an action, so not held
@@ -372,11 +375,15 @@ fn unprobed(path: &str, branch: Option<&str>, why: UnprobedWhy) -> UnprobedWorkt
         path: path.into(),
         git_dir: Some("/ws/app/.git/worktrees/wt".into()),
         head: branch.map_or_else(
-            || UnprobedHead::Detached {
-                commit: "0123456789abcdef0123456789abcdef01234567".into(),
+            || {
+                Some(Head::Detached {
+                    commit: "0123456789abcdef0123456789abcdef01234567".into(),
+                })
             },
-            |name| UnprobedHead::Branch {
-                name: name.to_owned(),
+            |name| {
+                Some(Head::Branch {
+                    name: name.to_owned(),
+                })
             },
         ),
         locked: false,
@@ -427,7 +434,7 @@ fn a_dirty_checkout_holds_all_but_a_push() {
     assert_eq!(
         dirty[..3],
         named(&[
-            ("main", held(ff(2), HeldBy::DirtyCheckout)),
+            ("main", held(ff(2), BranchHold::DirtyCheckout)),
             // not checked out: moves in place
             ("other", act(ff(3))),
             // its own checkout is clean
@@ -443,7 +450,7 @@ fn a_dirty_checkout_holds_all_but_a_push() {
     assert_eq!(
         verdicts(&e, &f)[2..],
         named(&[
-            ("linked", held(ff(1), HeldBy::DirtyCheckout)),
+            ("linked", held(ff(1), BranchHold::DirtyCheckout)),
             ("linked-ahead", act(SyncAction::Push { commits: 1 })),
         ])
     );
@@ -458,7 +465,7 @@ fn a_dirty_checkout_holds_all_but_a_push() {
     f.in_progress = Some(InProgressOp::Merge);
     assert_eq!(
         verdicts(&e, &f)[0].1,
-        held(SyncAction::Push { commits: 2 }, HeldBy::Entry)
+        held(SyncAction::Push { commits: 2 }, BranchHold::Entry)
     );
 }
 
@@ -512,14 +519,17 @@ fn a_busy_checkout_holds_every_action_on_its_branches() {
     assert_eq!(
         verdicts_with(&e, &f, &both),
         [
-            held(push(1), HeldBy::Busy),
-            held(ff(2), HeldBy::Busy),
+            held(push(1), BranchHold::Busy),
+            held(ff(2), BranchHold::Busy),
             act(push(3)),
         ]
     );
     // a busy checkout outranks its dirt
     f.worktrees[0].uncommitted.unstaged = 1;
-    assert_eq!(verdicts_with(&e, &f, &both)[1], held(ff(2), HeldBy::Busy));
+    assert_eq!(
+        verdicts_with(&e, &f, &both)[1],
+        held(ff(2), BranchHold::Busy)
+    );
     // a session only in the linked worktree leaves the primary's branch
     assert_eq!(
         verdicts_with(&e, &f, &busy_at(&["/ws/app-linked"]))[0],
@@ -529,7 +539,7 @@ fn a_busy_checkout_holds_every_action_on_its_branches() {
     f.in_progress = Some(InProgressOp::Merge);
     assert_eq!(
         verdicts_with(&e, &f, &both)[0],
-        held(push(1), HeldBy::Entry)
+        held(push(1), BranchHold::Entry)
     );
     f.in_progress = None;
 
@@ -537,7 +547,7 @@ fn a_busy_checkout_holds_every_action_on_its_branches() {
     // a session there holds them all
     f.worktrees.clear();
     f.unprobed = vec![UnprobedWorktree {
-        head: UnprobedHead::Unknown,
+        head: None,
         ..unprobed("/ws/app-lost", None, UnprobedWhy::Missing)
     }];
     let c = classify(&e, &f, &busy_at(&["/ws/app-lost"]), Refresh::Unasked);
@@ -547,9 +557,9 @@ fn a_busy_checkout_holds_every_action_on_its_branches() {
             .map(|b| b.verdict.clone())
             .collect::<Vec<_>>(),
         [
-            held(push(1), HeldBy::Busy),
-            held(ff(2), HeldBy::Busy),
-            held(push(3), HeldBy::Busy),
+            held(push(1), BranchHold::Busy),
+            held(ff(2), BranchHold::Busy),
+            held(push(3), BranchHold::Busy),
         ]
     );
     assert_eq!(c.unprobed[0].busy.len(), 1);
@@ -586,10 +596,10 @@ fn unavailable_detection_holds_every_action() {
             // the checkout's own reason names the hold
             held(
                 SyncAction::FastForward { commits: 2 },
-                HeldBy::DirtyCheckout
+                BranchHold::DirtyCheckout
             ),
             // checked out nowhere, held all the same
-            held(push(3), HeldBy::BusyUnknown),
+            held(push(3), BranchHold::BusyUnknown),
             // a session there can't be ruled out
             gone(None),
         ]
@@ -657,7 +667,7 @@ fn an_unresolvable_checkout_holds_the_branches_checked_out_there() {
         [
             act(push(1)),
             // unprobed: its fast-forward held, not a push
-            held(ff(2), HeldBy::UnprobedWorktree),
+            held(ff(2), BranchHold::UnprobedWorktree),
             act(push(3)),
             act(push(4)),
             gone(Some("/ws/sealed/app-old")),
@@ -697,8 +707,8 @@ fn an_unresolvable_checkout_holds_the_branches_checked_out_there() {
             .collect::<Vec<_>>(),
         [
             act(push(1)),
-            held(ff(2), HeldBy::UnprobedWorktree),
-            held(push(3), HeldBy::BusyUnknown),
+            held(ff(2), BranchHold::UnprobedWorktree),
+            held(push(3), BranchHold::BusyUnknown),
             act(push(4)),
             // a session there can't be ruled out
             gone(None),
@@ -708,22 +718,22 @@ fn an_unresolvable_checkout_holds_the_branches_checked_out_there() {
     assert_eq!(
         verdicts_with(&e, &f, &unresolved(&["/ws/app"])),
         [
-            held(push(1), HeldBy::BusyUnknown),
-            held(ff(2), HeldBy::UnprobedWorktree),
+            held(push(1), BranchHold::BusyUnknown),
+            held(ff(2), BranchHold::UnprobedWorktree),
             act(push(3)),
             act(push(4)),
             gone(Some("/ws/sealed/app-old")),
         ]
     );
     // an unprobed worktree whose HEAD is unknown may be on any branch
-    f.unprobed[0].head = UnprobedHead::Unknown;
+    f.unprobed[0].head = None;
     assert_eq!(
         verdicts_with(&e, &f, &unresolved(&["/ws/sealed/app-locked"])),
         [
-            held(push(1), HeldBy::BusyUnknown),
-            held(ff(2), HeldBy::UnprobedWorktree),
-            held(push(3), HeldBy::BusyUnknown),
-            held(push(4), HeldBy::BusyUnknown),
+            held(push(1), BranchHold::BusyUnknown),
+            held(ff(2), BranchHold::UnprobedWorktree),
+            held(push(3), BranchHold::BusyUnknown),
+            held(push(4), BranchHold::BusyUnknown),
             // it may be on `old` too: deleting `old` could strand it
             Verdict::Quiet,
         ]
@@ -771,7 +781,7 @@ fn a_worktree_that_was_not_probed_holds_all_but_a_push() {
                 "gone-wt",
                 Verdict::Held {
                     action: SyncAction::FastForward { commits: 1 },
-                    by: HeldBy::UnprobedWorktree,
+                    by: BranchHold::UnprobedWorktree,
                 }
             ),
             // a push only moves refs: a session in the worktree's files,
@@ -830,7 +840,7 @@ fn an_unprobed_worktree_holds_its_push_only_when_busy() {
             ("moved", act(push(1))),
             ("usb", act(push(1))),
             ("nameless", act(push(1))),
-            ("busy", held(HeldBy::Busy)),
+            ("busy", held(BranchHold::Busy)),
             // cleanup isn't an action, and a gone worktree is never the
             // one to remove: its own cleanup is its prune, kept
             (
@@ -857,7 +867,7 @@ fn an_unprobed_worktree_holds_its_push_only_when_busy() {
     // its HEAD unknown too: a session attributed to it holds every
     // branch, the primary's included
     f.unprobed = vec![UnprobedWorktree {
-        head: UnprobedHead::Unknown,
+        head: None,
         ..unprobed(
             "/ws/app/.git/worktrees/n",
             None,
@@ -877,11 +887,11 @@ fn an_unprobed_worktree_holds_its_push_only_when_busy() {
     assert_eq!(
         verdicts_with(&e, &f, &busy_at(&["/ws/app/.git/worktrees/n"]))[..5],
         [
-            held(HeldBy::Busy),
-            held(HeldBy::Busy),
-            held(HeldBy::Busy),
-            held(HeldBy::Busy),
-            held(HeldBy::Busy),
+            held(BranchHold::Busy),
+            held(BranchHold::Busy),
+            held(BranchHold::Busy),
+            held(BranchHold::Busy),
+            held(BranchHold::Busy),
         ]
     );
 }
@@ -890,7 +900,7 @@ fn an_unprobed_worktree_holds_its_push_only_when_busy() {
 fn unprobed_worktrees_hold_by_name_and_git_is_trusted_for_the_rest() {
     let held = Verdict::Held {
         action: SyncAction::FastForward { commits: 1 },
-        by: HeldBy::UnprobedWorktree,
+        by: BranchHold::UnprobedWorktree,
     };
     let mut f = facts(
         on("main"),
@@ -922,7 +932,7 @@ fn unprobed_worktrees_hold_by_name_and_git_is_trusted_for_the_rest() {
                 "unlisted-ahead",
                 Verdict::Held {
                     action: SyncAction::Push { commits: 1 },
-                    by: HeldBy::BusyUnknown,
+                    by: BranchHold::BusyUnknown,
                 }
             ),
         ])
@@ -954,7 +964,7 @@ fn a_worktree_whose_head_is_unknown_holds_every_fast_forward() {
     f.branches[2].branch.worktree = Some("/ws/app-gone".into());
     f.worktrees = vec![linked("/ws/app-gone", on("gone"))];
     f.unprobed = vec![UnprobedWorktree {
-        head: UnprobedHead::Unknown,
+        head: None,
         ..unprobed(
             "/ws/app/.git/worktrees/x",
             None,
@@ -970,7 +980,7 @@ fn a_worktree_whose_head_is_unknown_holds_every_fast_forward() {
                 "main",
                 Verdict::Held {
                     action: SyncAction::FastForward { commits: 1 },
-                    by: HeldBy::UnprobedWorktree,
+                    by: BranchHold::UnprobedWorktree,
                 }
             ),
             // a push only moves refs
@@ -1013,14 +1023,14 @@ fn an_unreadable_git_dir_holds_the_entry_pushes_too() {
                 "main",
                 Verdict::Held {
                     action: SyncAction::FastForward { commits: 1 },
-                    by: HeldBy::Entry,
+                    by: BranchHold::Entry,
                 }
             ),
             (
                 "ahead",
                 Verdict::Held {
                     action: SyncAction::Push { commits: 1 },
-                    by: HeldBy::Entry,
+                    by: BranchHold::Entry,
                 }
             ),
         ])
@@ -1054,7 +1064,7 @@ fn what_a_prune_would_lose() {
     let detached = unprobed("/ws/app-gone", None, UnprobedWhy::Prunable);
     assert_eq!(prune(&detached, &f), loses(vec![PruneLoss::DetachedHead]));
     let unknown = UnprobedWorktree {
-        head: UnprobedHead::Unknown,
+        head: None,
         ..gone.clone()
     };
     assert_eq!(prune(&unknown, &f), loses(vec![PruneLoss::UnknownHead]));
@@ -1117,14 +1127,14 @@ fn what_a_prune_would_lose() {
     );
     // ...unless its HEAD is already lost, which says as much
     let lost_head = UnprobedWorktree {
-        head: UnprobedHead::Unknown,
+        head: None,
         ..holding(false, false, None)
     };
     assert_eq!(prune(&lost_head, &f), loses(vec![PruneLoss::UnknownHead]));
     let lost_branch = UnprobedWorktree {
-        head: UnprobedHead::Branch {
+        head: Some(Head::Branch {
             name: "deleted".into(),
-        },
+        }),
         ..holding(false, false, None)
     };
     assert_eq!(
@@ -1165,7 +1175,7 @@ fn every_checkout_on_a_branch_counts() {
     // its ff too: moving it in one would strand the others' HEAD
     let ff1 = Verdict::Held {
         action: SyncAction::FastForward { commits: 1 },
-        by: HeldBy::SeveralCheckouts,
+        by: BranchHold::SeveralCheckouts,
     };
     let mut f = facts(
         on("main"),
@@ -1199,7 +1209,7 @@ fn every_checkout_on_a_branch_counts() {
         verdicts(&e, &f)[0].1,
         Verdict::Held {
             action: SyncAction::FastForward { commits: 1 },
-            by: HeldBy::DirtyCheckout,
+            by: BranchHold::DirtyCheckout,
         }
     );
     // nor does a clean worktree hide an unprobed one
@@ -1213,7 +1223,7 @@ fn every_checkout_on_a_branch_counts() {
         verdicts(&e, &f)[0].1,
         Verdict::Held {
             action: SyncAction::FastForward { commits: 1 },
-            by: HeldBy::UnprobedWorktree,
+            by: BranchHold::UnprobedWorktree,
         }
     );
     // dirty outranks unknown
@@ -1222,7 +1232,7 @@ fn every_checkout_on_a_branch_counts() {
         verdicts(&e, &f)[0].1,
         Verdict::Held {
             action: SyncAction::FastForward { commits: 1 },
-            by: HeldBy::DirtyCheckout,
+            by: BranchHold::DirtyCheckout,
         }
     );
     // on one checkout, clean: the ff acts
@@ -1254,17 +1264,17 @@ fn a_failed_fetch_holds_every_action() {
     assert_eq!(
         verdicts(&e, &f),
         named(&[
-            ("main", held(ff(2), HeldBy::FetchFailed)),
+            ("main", held(ff(2), BranchHold::FetchFailed)),
             (
                 "ahead",
-                held(SyncAction::Push { commits: 1 }, HeldBy::FetchFailed)
+                held(SyncAction::Push { commits: 1 }, BranchHold::FetchFailed)
             ),
-            ("idle", held(ff(1), HeldBy::FetchFailed)),
+            ("idle", held(ff(1), BranchHold::FetchFailed)),
         ])
     );
     // an entry-level reason outranks it
     f.in_progress = Some(InProgressOp::Merge);
-    assert_eq!(verdicts(&e, &f)[0].1, held(ff(2), HeldBy::Entry));
+    assert_eq!(verdicts(&e, &f)[0].1, held(ff(2), BranchHold::Entry));
 }
 
 #[test]
@@ -1432,7 +1442,7 @@ fn a_push_url_other_than_the_registrys_holds_pushes_only() {
                     "main",
                     Verdict::Held {
                         action: push,
-                        by: HeldBy::PushUrl
+                        by: BranchHold::PushUrl
                     }
                 ),
                 ("feat", act(SyncAction::FastForward { commits: 1 })),
@@ -1451,7 +1461,7 @@ fn a_push_url_other_than_the_registrys_holds_pushes_only() {
             verdicts(&e, &f)[0].1,
             Verdict::Held {
                 action: push,
-                by: HeldBy::PushUrl
+                by: BranchHold::PushUrl
             },
             "{lookalike}"
         );
@@ -1526,7 +1536,9 @@ fn a_push_names_only_a_branch_on_origin() {
 #[test]
 fn a_refresh_is_asked_of_third_party_references_and_refused_by_pins() {
     use RefreshVerdict::{Act, Held};
-    let refused = Some(Held { by: HeldBy::Pinned });
+    let refused = Some(Held {
+        by: RefreshHold::Pinned,
+    });
     // (entry, unasked, named, --references)
     let table = [
         (owned(Mode::Follow("main")), None, None, None),
@@ -1564,7 +1576,9 @@ fn a_refresh_is_asked_of_third_party_references_and_refused_by_pins() {
 #[test]
 fn a_refresh_with_origin_drift_is_held() {
     use RefreshVerdict::{Act, Held};
-    let drifted = Some(Held { by: HeldBy::Entry });
+    let drifted = Some(Held {
+        by: RefreshHold::Entry,
+    });
     let with_origin = |url: Option<&str>| ConfigFacts {
         origin_urls: url.map(OriginUrl::repo).into_iter().collect(),
         origin_keys: if url.is_some() {
@@ -1585,7 +1599,7 @@ fn a_refresh_with_origin_drift_is_held() {
             (
                 Some("git@github.com:Them/lib.git"),
                 Some(Held {
-                    by: HeldBy::OriginNotHttps,
+                    by: RefreshHold::OriginNotHttps,
                 }),
             ),
             (Some("git@github.com:me/lib"), drifted),
@@ -1610,7 +1624,9 @@ fn a_refresh_with_origin_drift_is_held() {
     let fork = with_origin(Some("git@github.com:me/lib"));
     assert_eq!(
         refresh_verdict(&third_party(Mode::Pinned), Refresh::Named, &fork),
-        Some(Held { by: HeldBy::Pinned })
+        Some(Held {
+            by: RefreshHold::Pinned
+        })
     );
     assert_eq!(
         refresh_verdict(&owned(Mode::Follow("main")), Refresh::Named, &fork),
@@ -1626,7 +1642,7 @@ fn a_refresh_with_origin_drift_is_held() {
 #[test]
 fn a_refresh_not_over_https_is_held() {
     let held = Some(RefreshVerdict::Held {
-        by: HeldBy::OriginNotHttps,
+        by: RefreshHold::OriginNotHttps,
     });
     let lib = third_party(Mode::Head);
     let https = "https://github.com/them/lib";
@@ -1687,13 +1703,17 @@ fn a_refresh_not_over_https_is_held() {
     f.config.origin_fetch_url = Some("git@github.com:them/lib".into());
     assert_eq!(
         refresh_verdict(&third_party(Mode::Pinned), Refresh::Named, &f.config),
-        Some(RefreshVerdict::Held { by: HeldBy::Pinned })
+        Some(RefreshVerdict::Held {
+            by: RefreshHold::Pinned
+        })
     );
     f.config.origin_urls = vec![OriginUrl::repo("git@github.com:me/lib")];
     f.config.origin_fetch_url = Some("git@github.com:me/lib".into());
     assert_eq!(
         refresh_verdict(&lib, Refresh::Named, &f.config),
-        Some(RefreshVerdict::Held { by: HeldBy::Entry })
+        Some(RefreshVerdict::Held {
+            by: RefreshHold::Entry
+        })
     );
     let c = classify(&lib, &f, &EntrySessions::idle(), Refresh::Named);
     assert!(
@@ -1762,7 +1782,7 @@ fn an_owned_fetch_that_reaches_elsewhere_holds_the_entry() {
             c.branches[0].verdict,
             Verdict::Held {
                 action: SyncAction::Push { commits: 1 },
-                by: HeldBy::Entry
+                by: BranchHold::Entry
             },
             "{fetch_url}"
         );
@@ -1898,7 +1918,7 @@ fn a_refreshed_reference_is_compared_against_origin_and_never_pushed() {
         c.branches[0].verdict,
         Verdict::Held {
             action: SyncAction::FastForward { commits: 3 },
-            by: HeldBy::DirtyCheckout,
+            by: BranchHold::DirtyCheckout,
         }
     );
     assert_eq!(
@@ -1995,7 +2015,7 @@ fn a_missing_entry_cloned_under_another_name_is_held() {
     let held = |dirs: &[&str]| ClassifiedMissing {
         clone: CloneVerdict::Held {
             recipe: recipe.clone(),
-            by: HeldBy::Entry,
+            by: CloneHold::Entry,
         },
         needs_human: dirs
             .iter()
@@ -2080,7 +2100,7 @@ fn a_missing_entry_cloned_under_its_renamed_name_is_held() {
             matches!(
                 c.clone,
                 CloneVerdict::Held {
-                    by: HeldBy::Entry,
+                    by: CloneHold::Entry,
                     ..
                 }
             ),
@@ -2153,9 +2173,9 @@ fn a_missing_entry_is_cloned_by_its_recipe() {
     // a session at the path holds it, named before a recorded worktree
     let e = owned(Mode::Follow("main"));
     for (busy, recorded, by) in [
-        (true, false, HeldBy::Busy),
-        (true, true, HeldBy::Busy),
-        (false, true, HeldBy::UnprobedWorktree),
+        (true, false, CloneHold::Busy),
+        (true, true, CloneHold::Busy),
+        (false, true, CloneHold::UnprobedWorktree),
     ] {
         assert_eq!(
             classify_missing(&e, busy, recorded, &[]),
@@ -2180,7 +2200,7 @@ fn a_missing_entry_is_cloned_by_its_recipe() {
             ClassifiedMissing {
                 clone: CloneVerdict::Held {
                     recipe: owned_recipe.clone(),
-                    by: HeldBy::Entry
+                    by: CloneHold::Entry
                 },
                 needs_human: vec![NeedsHuman::CloneSharesRepo {
                     with: "app_wt".into()
@@ -2228,7 +2248,7 @@ fn archived_and_pinned_verdicts() {
                 "feat",
                 Verdict::Held {
                     action: SyncAction::FastForward { commits: 2 },
-                    by: HeldBy::Pinned,
+                    by: BranchHold::Pinned,
                 },
             ),
         ])
@@ -2548,7 +2568,7 @@ fn an_unreadable_worktrees_dir_withholds_cleanup() {
     // one worktree git dir unreadable: its worktree's HEAD is unknown
     f.unreadable = vec!["/ws/app/.git/worktrees/x".into()];
     f.unprobed = vec![UnprobedWorktree {
-        head: UnprobedHead::Unknown,
+        head: None,
         ..unprobed(
             "/ws/app/.git/worktrees/x",
             None,
@@ -2621,7 +2641,7 @@ fn a_pin_on_its_branch_expects_nothing_of_it() {
             "fork",
             Verdict::Held {
                 action: SyncAction::FastForward { commits: 3 },
-                by: HeldBy::Pinned,
+                by: BranchHold::Pinned,
             },
         )])
     );
@@ -2673,7 +2693,7 @@ fn a_pin_on_its_branch_expects_nothing_of_it() {
 fn a_stale_main_beside_a_pin_is_held_by_it() {
     let held = |commits| Verdict::Held {
         action: SyncAction::FastForward { commits },
-        by: HeldBy::Pinned,
+        by: BranchHold::Pinned,
     };
     // detached at the pin, and on the pin's branch: a local main far
     // behind a stale origin/main never moves, and local work stays
@@ -2758,7 +2778,7 @@ fn a_pin_gets_no_verdict_from_its_stale_refs() {
     );
     let held = |action| Verdict::Held {
         action,
-        by: HeldBy::Pinned,
+        by: BranchHold::Pinned,
     };
     // never fetched, so no ref's word is taken: local work where the
     // branch has commits on no remote, else nothing — not the gone
@@ -2845,7 +2865,7 @@ fn a_pin_names_the_hold_before_busy_dirt_and_the_entry() {
         [
             Verdict::Held {
                 action: ff,
-                by: HeldBy::Busy
+                by: BranchHold::Busy
             },
             act(SyncAction::Push { commits: 1 }),
         ]
@@ -2855,7 +2875,7 @@ fn a_pin_names_the_hold_before_busy_dirt_and_the_entry() {
     let pinned_verdicts = [
         Verdict::Held {
             action: ff,
-            by: HeldBy::Pinned,
+            by: BranchHold::Pinned,
         },
         Verdict::LocalOnly,
     ];
@@ -3216,7 +3236,7 @@ fn each_checkout_with_an_operation_is_a_reason() {
             "main",
             Verdict::Held {
                 action: SyncAction::Push { commits: 1 },
-                by: HeldBy::Entry
+                by: BranchHold::Entry
             }
         )])
     );

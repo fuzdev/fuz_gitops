@@ -68,7 +68,7 @@ pub(super) fn clone_label(verdict: &CloneVerdict) -> String {
         parts.push(format!("sparse {path}"));
     }
     if let CloneVerdict::Held { by, .. } = verdict {
-        parts.push(format!("held{}", held_note(*by)));
+        parts.push(format!("held{}", clone_held_note(*by)));
     }
     parts.join(" · ")
 }
@@ -84,7 +84,7 @@ pub(super) const fn action_verb(action: SyncAction) -> &'static str {
 
 /// What a held action's label carries after it; an entry-level hold has its
 /// reason printed on the entry instead.
-pub(super) fn held_note(by: HeldBy) -> &'static str {
+pub(super) fn held_note(by: BranchHold) -> &'static str {
     hold_note(by.into())
 }
 
@@ -94,16 +94,17 @@ pub(super) fn held_note(by: HeldBy) -> &'static str {
 /// reading the config). An origin not over HTTPS has a note of its own,
 /// worded from the entry's `origin_not_https` reason: a fetch that is over
 /// HTTPS after all reaches another repo.
-pub(super) fn refresh_held_note(by: HeldBy, reasons: &[NeedsHuman]) -> &'static str {
+pub(super) fn refresh_held_note(by: RefreshHold, reasons: &[NeedsHuman]) -> &'static str {
     let elsewhere = || {
         reasons.iter().any(|r| {
             matches!(r, NeedsHuman::OriginNotHttps { fetch_url, .. } if fetches_elsewhere(fetch_url))
         })
     };
     match by {
-        HeldBy::Entry => " (origin drift)",
-        HeldBy::OriginNotHttps if elsewhere() => " (origin elsewhere)",
-        by => held_note(by),
+        RefreshHold::Pinned => " (pinned)",
+        RefreshHold::Entry => " (origin drift)",
+        RefreshHold::OriginNotHttps if elsewhere() => " (origin elsewhere)",
+        RefreshHold::OriginNotHttps => " (origin not HTTPS)",
     }
 }
 
@@ -115,19 +116,33 @@ fn fetches_elsewhere(fetch_url: &str) -> bool {
 }
 
 /// `held_note` for a hold sync found, the verdict's or its own.
-pub(super) const fn hold_note(by: SyncHold) -> &'static str {
+pub(super) const fn hold_note(by: BranchSyncHold) -> &'static str {
     match by {
-        SyncHold::Pinned => " (pinned)",
-        SyncHold::Entry => "",
-        SyncHold::PushUrl => " (push URL)",
-        SyncHold::OriginNotHttps => " (origin not HTTPS)",
-        SyncHold::FetchFailed => " (fetch failed)",
-        SyncHold::DirtyCheckout => " (dirty)",
-        SyncHold::UnprobedWorktree => " (unprobed worktree)",
-        SyncHold::SeveralCheckouts => " (several checkouts)",
-        SyncHold::Busy => " (busy)",
-        SyncHold::BusyUnknown => " (busy unknown)",
-        SyncHold::Changed => " (changed since read, rerun)",
+        BranchSyncHold::Pinned => " (pinned)",
+        BranchSyncHold::Entry => "",
+        BranchSyncHold::PushUrl => " (push URL)",
+        BranchSyncHold::FetchFailed => " (fetch failed)",
+        BranchSyncHold::DirtyCheckout => " (dirty)",
+        BranchSyncHold::UnprobedWorktree => " (unprobed worktree)",
+        BranchSyncHold::SeveralCheckouts => " (several checkouts)",
+        BranchSyncHold::Busy => " (busy)",
+        BranchSyncHold::BusyUnknown => " (busy unknown)",
+        BranchSyncHold::Changed => " (changed since read, rerun)",
+    }
+}
+
+/// `held_note` for a held clone.
+pub(super) fn clone_held_note(by: CloneHold) -> &'static str {
+    clone_hold_note(by.into())
+}
+
+/// `clone_held_note` for a hold sync found, the verdict's or its own.
+pub(super) const fn clone_hold_note(by: CloneSyncHold) -> &'static str {
+    match by {
+        CloneSyncHold::Entry => "",
+        CloneSyncHold::Busy => " (busy)",
+        CloneSyncHold::UnprobedWorktree => " (unprobed worktree)",
+        CloneSyncHold::Changed => " (changed since read, rerun)",
     }
 }
 
@@ -320,13 +335,13 @@ pub(super) fn prefixed(prefix: &str, mut items: Vec<String>) -> Option<Vec<Strin
 }
 
 /// An unprobed checkout's HEAD, after its path.
-pub(super) fn unprobed_head_label(head: &UnprobedHead) -> String {
+pub(super) fn unprobed_head_label(head: Option<&Head>) -> String {
     match head {
-        UnprobedHead::Branch { name } => format!(" on {name}"),
-        UnprobedHead::Detached { commit } => {
+        Some(Head::Branch { name }) => format!(" on {name}"),
+        Some(Head::Detached { commit }) => {
             format!(" detached at {}", commit.get(..12).unwrap_or(commit))
         }
-        UnprobedHead::Unknown => " HEAD unreadable".to_owned(),
+        None => " HEAD unreadable".to_owned(),
     }
 }
 
@@ -388,7 +403,7 @@ pub(super) fn needs_human_label(reason: &NeedsHuman, e: &EntryStatus, view: View
         } => format!(
             "unlisted git dir {}{} shares its refs · busy: {}",
             view.show(git_dir),
-            unprobed_head_label(head),
+            unprobed_head_label(head.as_ref()),
             sessions_label(busy, view)
         ),
         NeedsHuman::CloneSharesRepo { with } => format!("same repo as {with}, not cloned"),

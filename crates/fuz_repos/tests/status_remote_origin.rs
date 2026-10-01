@@ -8,7 +8,7 @@ use std::path::Path;
 use fuz_repos::classify::{OriginByHand, OriginFix, OriginRemote};
 use fuz_repos::git::Git;
 use fuz_repos::remote::{RefGoneFix, RemoteFailure};
-use fuz_repos::state::Presence;
+use fuz_repos::state::{Presence, ProbeErrorKind};
 use support::remote::drift;
 use support::{FixtureWorkspace, find_entry};
 
@@ -117,9 +117,12 @@ fn origin_urls_are_read_as_git_reads_them() {
     // git's message (the advice for a repo that probes is `ValuelessUrl`,
     // pinned in classify's tests); no fetch was tried
     let e = find_entry(&entries, "valueless");
-    let error = e.probe_error.as_deref().unwrap_or_default();
+    let error = e.probe_error.as_ref().unwrap();
+    assert_eq!(error.kind, ProbeErrorKind::GitFailed, "{e:?}");
     assert!(
-        error.contains("missing value for 'remote.origin.url'"),
+        error
+            .message
+            .contains("missing value for 'remote.origin.url'"),
         "{e:?}"
     );
     assert!(!valueless.join(".git/FETCH_HEAD").exists());

@@ -7,7 +7,7 @@ use std::path::Path;
 
 use fuz_repos::report::{EntryStatus, Sessions};
 use fuz_repos::sessions::{LiveSessions, Session, SessionSource};
-use fuz_repos::state::{HeldBy, Verdict};
+use fuz_repos::state::{BranchHold, Verdict};
 use support::busy::{
     ahead_branch, app, app_with_a_feat_worktree, by_pid, claude_dir, held, live_session,
     move_by_hand, push, read, session,
@@ -84,9 +84,9 @@ fn a_session_marks_the_deepest_checkout_its_cwd_is_in() {
     assert_eq!(busy(&nested), [in_nested]);
     assert_eq!(busy(&side), [via_link]);
     // a busy checkout holds every action on its branch, pushes included
-    assert_eq!(branch(e, "main").verdict, held(push(1), HeldBy::Busy));
-    assert_eq!(branch(e, "feat").verdict, held(ff(1), HeldBy::Busy));
-    assert_eq!(branch(e, "side").verdict, held(push(1), HeldBy::Busy));
+    assert_eq!(branch(e, "main").verdict, held(push(1), BranchHold::Busy));
+    assert_eq!(branch(e, "feat").verdict, held(ff(1), BranchHold::Busy));
+    assert_eq!(branch(e, "side").verdict, held(push(1), BranchHold::Busy));
     // and nothing else
     assert_eq!(branch(e, "loose").verdict, Verdict::Act { action: push(1) });
     let lib = find_entry(&run.entries, "lib");
@@ -127,7 +127,7 @@ fn cwds_that_do_not_exist_resolve_where_they_do() {
     );
     let e = find_entry(&run.entries, "app");
     assert_eq!(e.checkouts[0].busy, [deleted, climbed]);
-    assert_eq!(branch(e, "main").verdict, held(push(1), HeldBy::Busy));
+    assert_eq!(branch(e, "main").verdict, held(push(1), BranchHold::Busy));
 }
 
 #[test]
@@ -147,7 +147,7 @@ fn checkouts_resolve_through_a_symlinked_workspace_root() {
     let e = find_entry(&run.entries, "app");
     assert_eq!(e.checkouts[0].path, path(&link.join("app")));
     assert_eq!(e.checkouts[0].busy, [s]);
-    assert_eq!(branch(e, "main").verdict, held(push(1), HeldBy::Busy));
+    assert_eq!(branch(e, "main").verdict, held(push(1), BranchHold::Busy));
 }
 
 #[test]
@@ -175,7 +175,7 @@ fn a_session_in_an_unprobed_worktree_holds_its_branch() {
     assert_eq!(busy.sessions, Sessions::Available { unscoped: vec![] });
     let e = find_entry(&busy.entries, "app");
     assert_eq!(e.unprobed_worktrees[0].busy, [s]);
-    assert_eq!(branch(e, "hollow").verdict, held(push(1), HeldBy::Busy));
+    assert_eq!(branch(e, "hollow").verdict, held(push(1), BranchHold::Busy));
 }
 
 #[test]
@@ -223,9 +223,9 @@ fn a_session_holds_the_worktrees_under_its_claude_worktrees_dir() {
         assert!(busy(&other).is_empty());
         assert_eq!(e.unprobed_worktrees.len(), 1, "{:?}", e.unprobed_worktrees);
         assert_eq!(e.unprobed_worktrees[0].busy, std::slice::from_ref(&s));
-        assert_eq!(branch(e, "main").verdict, held(push(1), HeldBy::Busy));
-        assert_eq!(branch(e, "feat").verdict, held(push(2), HeldBy::Busy));
-        assert_eq!(branch(e, "hollow").verdict, held(push(1), HeldBy::Busy));
+        assert_eq!(branch(e, "main").verdict, held(push(1), BranchHold::Busy));
+        assert_eq!(branch(e, "feat").verdict, held(push(2), BranchHold::Busy));
+        assert_eq!(branch(e, "hollow").verdict, held(push(1), BranchHold::Busy));
         assert_eq!(branch(e, "side").verdict, Verdict::Act { action: push(1) });
     }
 }
@@ -292,7 +292,7 @@ fn a_session_anywhere_in_a_repo_holds_the_worktrees_claude_code_roots_at_its_pri
         assert_eq!(busy_checkouts(e), paths(busy), "{}", cwd.display());
         for b in ["main", "feat", "side", "gamma"] {
             let expected = if held_branches.contains(&b) {
-                held(push(1), HeldBy::Busy)
+                held(push(1), BranchHold::Busy)
             } else {
                 Verdict::Act { action: push(1) }
             };
@@ -358,8 +358,8 @@ fn a_session_in_a_moved_worktree_holds_the_worktrees_under_it() {
     assert_eq!(run.sessions, Sessions::Available { unscoped: vec![] });
     let e = find_entry(&run.entries, "app");
     assert_eq!(busy_checkouts(e), paths(&[&wt, &q]));
-    assert_eq!(branch(e, "feat").verdict, held(push(2), HeldBy::Busy));
-    assert_eq!(branch(e, "gamma").verdict, held(push(1), HeldBy::Busy));
+    assert_eq!(branch(e, "feat").verdict, held(push(2), BranchHold::Busy));
+    assert_eq!(branch(e, "gamma").verdict, held(push(1), BranchHold::Busy));
     assert_eq!(branch(e, "main").verdict, Verdict::Act { action: push(1) });
 }
 
@@ -412,7 +412,7 @@ fn a_session_is_placed_where_its_process_is() {
             .busy,
         [entered_session]
     );
-    assert_eq!(branch(e, "feat").verdict, held(push(1), HeldBy::Busy));
+    assert_eq!(branch(e, "feat").verdict, held(push(1), BranchHold::Busy));
     assert_eq!(branch(e, "main").verdict, Verdict::Act { action: push(1) });
 }
 
@@ -435,7 +435,7 @@ fn a_roster_worker_is_placed_in_its_worktree() {
     assert_eq!(run.sessions, Sessions::Available { unscoped: vec![] });
     let e = find_entry(&run.entries, "app");
     assert_eq!(busy_checkouts(e), paths(&[&wt]));
-    assert_eq!(branch(e, "feat").verdict, held(push(1), HeldBy::Busy));
+    assert_eq!(branch(e, "feat").verdict, held(push(1), BranchHold::Busy));
     assert_eq!(branch(e, "main").verdict, Verdict::Act { action: push(1) });
 
     // its session file at the same cwd wins, and keeps the worktree

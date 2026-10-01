@@ -12,7 +12,7 @@ use crate::probe::{
 };
 use crate::registry::RepoUrl;
 use crate::remote::{RefspecContext, RemoteFailure};
-use crate::report::SyncHold;
+use crate::report::BranchSyncHold;
 use crate::state::Head;
 
 /// The timeout for an action that rewrites a working tree (`merge
@@ -32,7 +32,7 @@ pub(super) enum UpdateDone {
     /// The branch already held the tip.
     AlreadyThere,
     /// A re-check held it.
-    Held(SyncHold),
+    Held(BranchSyncHold),
 }
 
 /// How a push went, short of failing (`Actor::push`).
@@ -53,7 +53,7 @@ pub enum PushDone {
 pub enum Stop {
     /// A re-check held it, or git refused it for a remote that moved since
     /// the fetch (`rejected`).
-    Held(SyncHold),
+    Held(BranchSyncHold),
     /// The push failed at the remote, or reaching it.
     PushFailed(RemoteFailure),
 }
@@ -373,14 +373,14 @@ impl Step<'_> {
         let local = self.local.as_str();
         let Some(from) = self.resolve_local(dir)? else {
             // deleted since classifying
-            return Ok(UpdateDone::Held(SyncHold::Changed));
+            return Ok(UpdateDone::Held(BranchSyncHold::Changed));
         };
         if from == to {
             return Ok(UpdateDone::AlreadyThere);
         }
         // the fetch would write through it, unchecked
         if self.is_symref(dir)? {
-            return Ok(UpdateDone::Held(SyncHold::Changed));
+            return Ok(UpdateDone::Held(BranchSyncHold::Changed));
         }
         let refspec = format!("{to}:{local}");
         let mut args = LOCAL_FETCH_ARGS.to_vec();
@@ -407,7 +407,7 @@ impl Step<'_> {
         }
         // what git says it did, checked against the ref itself
         let Some(now) = self.resolve_local(dir)? else {
-            return Ok(UpdateDone::Held(SyncHold::Changed));
+            return Ok(UpdateDone::Held(BranchSyncHold::Changed));
         };
         match line {
             Some((" ", old, new)) if new == to && now == to => Ok(UpdateDone::Updated {
@@ -434,14 +434,14 @@ impl Step<'_> {
             return Ok(UpdateDone::Held(by));
         }
         let Some(from) = self.resolve_local(checkout)? else {
-            return Ok(UpdateDone::Held(SyncHold::Changed));
+            return Ok(UpdateDone::Held(BranchSyncHold::Changed));
         };
         let to = self.resolve(checkout, upstream)?;
         if from == to {
             return Ok(UpdateDone::AlreadyThere);
         }
         if self.lazy_origin_moved(checkout)? {
-            return Ok(UpdateDone::Held(SyncHold::Changed));
+            return Ok(UpdateDone::Held(BranchSyncHold::Changed));
         }
         self.merge_ff(checkout, from, to)
     }
@@ -474,7 +474,7 @@ impl Step<'_> {
         )?;
         let local = self.local.as_str();
         let Some(now) = self.resolve_local(checkout)? else {
-            return Ok(UpdateDone::Held(SyncHold::Changed));
+            return Ok(UpdateDone::Held(BranchSyncHold::Changed));
         };
         if now == to {
             return Ok(UpdateDone::Updated { from, to });
@@ -484,7 +484,7 @@ impl Step<'_> {
             .output_string(checkout, &["symbolic-ref", "-q", "HEAD"], self.opts)
             .map_or_else(|_| "a detached HEAD".to_owned(), |s| s.trim().to_owned());
         if head == local && self.is_ancestor(checkout, &to, &now)? {
-            return Ok(UpdateDone::Held(SyncHold::Changed));
+            return Ok(UpdateDone::Held(BranchSyncHold::Changed));
         }
         Err(format!(
             "HEAD was on {head} when the merge ran; {local} is at {now}, not {to}"
@@ -499,14 +499,14 @@ impl Step<'_> {
     pub(super) fn move_in_place(&self, dir: &Path, upstream: &str) -> Result<UpdateDone, String> {
         let local = self.local.as_str();
         let Some(from) = self.resolve_local(dir)? else {
-            return Ok(UpdateDone::Held(SyncHold::Changed));
+            return Ok(UpdateDone::Held(BranchSyncHold::Changed));
         };
         let to = self.resolve(dir, upstream)?;
         if from == to {
             return Ok(UpdateDone::AlreadyThere);
         }
         if self.has_local_work(dir, &from)? {
-            return Ok(UpdateDone::Held(SyncHold::Changed));
+            return Ok(UpdateDone::Held(BranchSyncHold::Changed));
         }
         // checked out nowhere, as git records it now
         let at = self.output_string(
@@ -515,7 +515,7 @@ impl Step<'_> {
             self.opts,
         )?;
         if !at.trim().is_empty() || self.is_symref(dir)? {
-            return Ok(UpdateDone::Held(SyncHold::Changed));
+            return Ok(UpdateDone::Held(BranchSyncHold::Changed));
         }
         self.run_ok(
             dir,
@@ -545,14 +545,14 @@ impl Step<'_> {
             return Ok(UpdateDone::Held(by));
         }
         let Some(from) = self.resolve_local(checkout)? else {
-            return Ok(UpdateDone::Held(SyncHold::Changed));
+            return Ok(UpdateDone::Held(BranchSyncHold::Changed));
         };
         let to = self.resolve(checkout, upstream)?;
         if from == to {
             return Ok(UpdateDone::AlreadyThere);
         }
         if self.has_local_work(checkout, &from)? || self.lazy_origin_moved(checkout)? {
-            return Ok(UpdateDone::Held(SyncHold::Changed));
+            return Ok(UpdateDone::Held(BranchSyncHold::Changed));
         }
         self.switch_reset(checkout, from, to)
     }
@@ -610,7 +610,7 @@ impl Step<'_> {
         )?;
         let local = self.local.as_str();
         let Some(now) = self.resolve_local(checkout)? else {
-            return Ok(UpdateDone::Held(SyncHold::Changed));
+            return Ok(UpdateDone::Held(BranchSyncHold::Changed));
         };
         if now != to {
             return Err(format!(
@@ -634,7 +634,7 @@ impl Step<'_> {
             self.opts,
         )?;
         if newest.trim() != format!("branch: Reset to {to}") {
-            return Ok(UpdateDone::Held(SyncHold::Changed));
+            return Ok(UpdateDone::Held(BranchSyncHold::Changed));
         }
         let before = self.resolve(checkout, &format!("{local}@{{1}}"))?;
         if before == from {
@@ -651,14 +651,14 @@ impl Step<'_> {
     /// (`Changed`), or it has uncommitted changes (`DirtyCheckout`) — read
     /// fresh, as `status` reads a checkout. A branch made a symbolic ref
     /// reads as its target, so as `Changed`.
-    fn checkout_changed(&self, checkout: &Path) -> Result<Option<SyncHold>, String> {
+    fn checkout_changed(&self, checkout: &Path) -> Result<Option<BranchSyncHold>, String> {
         let out = self.output(checkout, &STATUS_ARGS, self.opts)?;
         let status = porcelain::parse_status(&out)?;
         Ok(
             if !matches!(&status.head, Head::Branch { name } if name == self.branch) {
-                Some(SyncHold::Changed)
+                Some(BranchSyncHold::Changed)
             } else if !status.uncommitted.is_clean() {
-                Some(SyncHold::DirtyCheckout)
+                Some(BranchSyncHold::DirtyCheckout)
             } else {
                 None
             },
@@ -690,12 +690,12 @@ impl Step<'_> {
     pub(super) fn push(&self, dir: &Path, p: &Push<'_>) -> Result<PushDone, String> {
         let held = |by| Ok(PushDone::Stopped(Stop::Held(by)));
         if !self.reads_as_classified(dir, p)? {
-            return held(SyncHold::Changed);
+            return held(BranchSyncHold::Changed);
         }
         // origin's push going elsewhere is a person's to sort out; the push
         // itself never reads it
         if !push_urls_match(&read_push_urls(self.git, dir, self.opts)?, p.url) {
-            return held(SyncHold::PushUrl);
+            return held(BranchSyncHold::PushUrl);
         }
         let fetched = self.resolve(dir, p.upstream)?;
         if fetched == p.oid {
@@ -712,7 +712,7 @@ impl Step<'_> {
         };
         // the lease lifts git's fast-forward check: this is it
         if !self.is_ancestor(dir, &fetched, p.oid)? || ahead != p.commits as usize {
-            return held(SyncHold::Changed);
+            return held(BranchSyncHold::Changed);
         }
         let sent = self.send_pack(
             dir,
@@ -774,13 +774,13 @@ impl Step<'_> {
             NewBranchUpstream::Gone { tracking } => Some([tracking, "origin", target]),
         };
         if !self.reads_as(dir, n.oid, upstream)? {
-            return held(SyncHold::Changed);
+            return held(BranchSyncHold::Changed);
         }
         if unset && self.merge_configured(dir)? {
-            return held(SyncHold::Changed);
+            return held(BranchSyncHold::Changed);
         }
         if !push_urls_match(&read_push_urls(self.git, dir, self.opts)?, n.url) {
-            return held(SyncHold::PushUrl);
+            return held(BranchSyncHold::PushUrl);
         }
         let tracking = match n.upstream {
             NewBranchUpstream::Unset => match self.mapped_upstream(dir)? {
@@ -1100,7 +1100,7 @@ pub(super) fn pushed_ref<'a>(stdout: &'a str, dst: &str) -> Option<PushedRef<'a>
 /// of git's is taken for git's: nothing was pushed either way.
 pub(super) fn rejected(why: &str, stderr: &str) -> Stop {
     match why {
-        "stale info" | "fetch first" | "non-fast forward" => Stop::Held(SyncHold::Changed),
+        "stale info" | "fetch first" | "non-fast forward" => Stop::Held(BranchSyncHold::Changed),
         "needs force"
         | "already exists"
         | "remote ref updated since checkout"

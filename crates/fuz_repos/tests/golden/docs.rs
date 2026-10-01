@@ -7,16 +7,16 @@ use fuz_repos::git::MIN_GIT_VERSION;
 use fuz_repos::registry::{CheckoutList, EntryKind, EntryName, RegistryIssue, Visibility};
 use fuz_repos::remote::{RefGoneFix, RemoteFailure, UnreachableCause, VisibilityCheck};
 use fuz_repos::report::{
-    BranchOutcome, BranchSync, CheckoutPush, CloneOutcome, EntryStatus, EntrySync, FetchOutcome,
-    PushOutcome, PushReport, RepairBlock, Sessions, StatusReport, SyncHold, SyncReport,
-    UnregisteredClone, UnregisteredKind,
+    BranchOutcome, BranchSync, BranchSyncHold, CheckoutPush, CloneOutcome, CloneSyncHold,
+    EntryStatus, EntrySync, FetchOutcome, PushOutcome, PushReport, RepairBlock, Sessions,
+    StatusReport, SyncReport, UnregisteredClone, UnregisteredKind,
 };
 use fuz_repos::sessions::{Session, SessionSource, Unavailable};
 use fuz_repos::state::{
-    BranchNeedsHuman, BranchStatus, Checkout, CleanupReason, CloneRecipe, CloneVerdict,
-    GitDirHolds, Head, HeldBy, InProgressOp, Layout, Presence, Prune, PruneLoss, RefreshVerdict,
-    Relation, SyncAction, Uncommitted, UnprobedHead, UnprobedWhy, UnprobedWorktree,
-    UnprobedWorktreeStatus, Verdict,
+    BranchHold, BranchNeedsHuman, BranchStatus, Checkout, CleanupReason, CloneHold, CloneRecipe,
+    CloneVerdict, GitDirHolds, Head, InProgressOp, Layout, Presence, ProbeError, ProbeErrorKind,
+    Prune, PruneLoss, RefreshHold, RefreshVerdict, Relation, SyncAction, Uncommitted, UnprobedWhy,
+    UnprobedWorktree, UnprobedWorktreeStatus, Verdict,
 };
 use std::path::PathBuf;
 
@@ -42,42 +42,44 @@ pub fn status_report_doc() -> StatusReport {
         path("webref/src"),
         SessionSource::SessionFile,
     ));
+    let mut entries = vec![
+        app(),
+        fuz_app(),
+        blog(),
+        archived(),
+        test262(),
+        corpora(),
+        spec(),
+        zzz(),
+        missing(),
+        webref(),
+        twin("gro"),
+        renamed(),
+        guide(),
+        not_a_repo(),
+        partial(),
+        forge(),
+        gro(),
+        zap(),
+        site(),
+        mdz(),
+        fuz_code(),
+        fuz_docs(),
+        tsv(),
+        tsv_fuz_dev(),
+        fuz_css(),
+        fuz_ui(),
+        uz(),
+        pushy(),
+        fetchy(),
+        sparse_fork(),
+        renamed_default(),
+    ];
+    entries.extend(probe_failures());
     report(
         true,
         Sessions::Available { unscoped },
-        vec![
-            app(),
-            fuz_app(),
-            blog(),
-            archived(),
-            test262(),
-            corpora(),
-            spec(),
-            zzz(),
-            missing(),
-            webref(),
-            twin("gro"),
-            renamed(),
-            guide(),
-            not_a_repo(),
-            partial(),
-            forge(),
-            gro(),
-            zap(),
-            site(),
-            mdz(),
-            fuz_code(),
-            fuz_docs(),
-            tsv(),
-            tsv_fuz_dev(),
-            fuz_css(),
-            fuz_ui(),
-            uz(),
-            pushy(),
-            fetchy(),
-            sparse_fork(),
-            renamed_default(),
-        ],
+        entries,
         Some(unregistered()),
     )
 }
@@ -112,7 +114,7 @@ pub fn targeted_doc() -> StatusReport {
                         Relation::Ahead { commits: 1 },
                         Verdict::Held {
                             action: SyncAction::Push { commits: 1 },
-                            by: HeldBy::BusyUnknown,
+                            by: BranchHold::BusyUnknown,
                         },
                     )
                 }],
@@ -128,7 +130,7 @@ pub fn targeted_doc() -> StatusReport {
                         Relation::Behind { commits: 3 },
                         Verdict::Held {
                             action: SyncAction::FastForward { commits: 3 },
-                            by: HeldBy::BusyUnknown,
+                            by: BranchHold::BusyUnknown,
                         },
                     ),
                     "typescript",
@@ -137,7 +139,9 @@ pub fn targeted_doc() -> StatusReport {
             },
             // named, its origin a fork: held, never fetched
             EntryStatus {
-                refresh: Some(RefreshVerdict::Held { by: HeldBy::Entry }),
+                refresh: Some(RefreshVerdict::Held {
+                    by: RefreshHold::Entry,
+                }),
                 needs_human: vec![NeedsHuman::OriginMismatch {
                     origin: OriginRemote::Url {
                         url: "https://github.com/me/html".into(),
@@ -155,7 +159,7 @@ pub fn targeted_doc() -> StatusReport {
             // named, its origin the repo over SSH: held, never fetched
             EntryStatus {
                 refresh: Some(RefreshVerdict::Held {
-                    by: HeldBy::OriginNotHttps,
+                    by: RefreshHold::OriginNotHttps,
                 }),
                 needs_human: vec![NeedsHuman::OriginNotHttps {
                     fetch_url: "git@github.com:them/lit".into(),
@@ -169,7 +173,7 @@ pub fn targeted_doc() -> StatusReport {
             // named, an `insteadOf` rewriting its HTTPS origin to SSH
             EntryStatus {
                 refresh: Some(RefreshVerdict::Held {
-                    by: HeldBy::OriginNotHttps,
+                    by: RefreshHold::OriginNotHttps,
                 }),
                 needs_human: vec![NeedsHuman::OriginNotHttps {
                     fetch_url: "git@github.com:them/dom".into(),
@@ -186,7 +190,9 @@ pub fn targeted_doc() -> StatusReport {
                 visibility: None,
                 ci: false,
                 pinned: true,
-                refresh: Some(RefreshVerdict::Held { by: HeldBy::Pinned }),
+                refresh: Some(RefreshVerdict::Held {
+                    by: RefreshHold::Pinned,
+                }),
                 checkouts: vec![primary("wpt", on("fork"))],
                 branches: vec![checked_out(
                     branch(
@@ -195,7 +201,7 @@ pub fn targeted_doc() -> StatusReport {
                         Relation::Behind { commits: 2 },
                         Verdict::Held {
                             action: SyncAction::FastForward { commits: 2 },
-                            by: HeldBy::Pinned,
+                            by: BranchHold::Pinned,
                         },
                     ),
                     "wpt",
@@ -250,7 +256,7 @@ pub fn push_report_doc() -> PushReport {
                     2,
                     Verdict::Held {
                         action: push(2),
-                        by: HeldBy::Busy,
+                        by: BranchHold::Busy,
                     },
                 )
             },
@@ -335,7 +341,7 @@ pub fn push_report_doc() -> PushReport {
                 1,
                 Verdict::Held {
                     action: push(1),
-                    by: HeldBy::FetchFailed,
+                    by: BranchHold::FetchFailed,
                 },
             ),
             "forge",
@@ -397,7 +403,9 @@ pub fn push_report_doc() -> PushReport {
                 wt,
                 Some("feat"),
                 fetched.clone(),
-                PushOutcome::Held { by: SyncHold::Busy },
+                PushOutcome::Held {
+                    by: BranchSyncHold::Busy,
+                },
             ),
             target(
                 "blog",
@@ -449,7 +457,7 @@ pub fn push_report_doc() -> PushReport {
                 Some("main"),
                 FetchOutcome::Failed { failure },
                 PushOutcome::Held {
-                    by: SyncHold::FetchFailed,
+                    by: BranchSyncHold::FetchFailed,
                 },
             ),
             target(
@@ -588,7 +596,7 @@ pub fn sync_report_doc() -> SyncReport {
             None,
             BranchOutcome::Held {
                 action: ff(1),
-                by: SyncHold::Changed,
+                by: BranchSyncHold::Changed,
             },
         ),
         (
@@ -609,7 +617,7 @@ pub fn sync_report_doc() -> SyncReport {
             None,
             BranchOutcome::Held {
                 action: push(1),
-                by: SyncHold::Changed,
+                by: BranchSyncHold::Changed,
             },
         ),
         (
@@ -634,27 +642,27 @@ pub fn sync_report_doc() -> SyncReport {
             None,
             BranchOutcome::Held {
                 action: push(1),
-                by: SyncHold::PushUrl,
+                by: BranchSyncHold::PushUrl,
             },
         ),
         (
             "dirty",
             behind(1),
-            held_by(ff(1), HeldBy::DirtyCheckout),
+            held_by(ff(1), BranchHold::DirtyCheckout),
             Some(path("app-dirty")),
             BranchOutcome::Held {
                 action: ff(1),
-                by: SyncHold::DirtyCheckout,
+                by: BranchSyncHold::DirtyCheckout,
             },
         ),
         (
             "busy",
             behind(1),
-            held_by(ff(1), HeldBy::Busy),
+            held_by(ff(1), BranchHold::Busy),
             Some(path("app-busy")),
             BranchOutcome::Held {
                 action: ff(1),
-                by: SyncHold::Busy,
+                by: BranchSyncHold::Busy,
             },
         ),
         (
@@ -664,27 +672,27 @@ pub fn sync_report_doc() -> SyncReport {
             None,
             BranchOutcome::Held {
                 action: ff(1),
-                by: SyncHold::BusyUnknown,
+                by: BranchSyncHold::BusyUnknown,
             },
         ),
         (
             "usb",
             behind(4),
-            held_by(ff(4), HeldBy::UnprobedWorktree),
+            held_by(ff(4), BranchHold::UnprobedWorktree),
             Some("/media/usb/app".into()),
             BranchOutcome::Held {
                 action: ff(4),
-                by: SyncHold::UnprobedWorktree,
+                by: BranchSyncHold::UnprobedWorktree,
             },
         ),
         (
             "twin",
             behind(1),
-            held_by(ff(1), HeldBy::SeveralCheckouts),
+            held_by(ff(1), BranchHold::SeveralCheckouts),
             Some(path("app-twin")),
             BranchOutcome::Held {
                 action: ff(1),
-                by: SyncHold::SeveralCheckouts,
+                by: BranchSyncHold::SeveralCheckouts,
             },
         ),
         (
@@ -740,7 +748,7 @@ pub fn sync_report_doc() -> SyncReport {
                 ..unprobed(
                     "app",
                     "stray",
-                    UnprobedHead::Detached { commit: oid('7') },
+                    Some(Head::Detached { commit: oid('7') }),
                     UnprobedWhy::Prunable,
                 )
             },
@@ -833,10 +841,10 @@ pub fn sync_report_doc() -> SyncReport {
             ..entry("blog", Some("main"))
         },
         behind(1),
-        held_by(ff(1), HeldBy::Entry),
+        held_by(ff(1), BranchHold::Entry),
         BranchOutcome::Held {
             action: ff(1),
-            by: SyncHold::Entry,
+            by: BranchSyncHold::Entry,
         },
     );
     let forge_failure = RemoteFailure::Unreachable {
@@ -850,10 +858,10 @@ pub fn sync_report_doc() -> SyncReport {
             ..entry("fuz_forge", Some("main"))
         },
         behind(2),
-        held_by(ff(2), HeldBy::FetchFailed),
+        held_by(ff(2), BranchHold::FetchFailed),
         BranchOutcome::Held {
             action: ff(2),
-            by: SyncHold::FetchFailed,
+            by: BranchSyncHold::FetchFailed,
         },
     );
     // shallow: a branch with nothing local moved to the fetched tip
@@ -877,10 +885,10 @@ pub fn sync_report_doc() -> SyncReport {
             ..entry("spec", None)
         },
         behind(1),
-        held_by(ff(1), HeldBy::Pinned),
+        held_by(ff(1), BranchHold::Pinned),
         BranchOutcome::Held {
             action: ff(1),
-            by: SyncHold::Pinned,
+            by: BranchSyncHold::Pinned,
         },
     );
     // `--references`: fetched over HTTPS, fast-forwarded where clean;
@@ -920,14 +928,18 @@ pub fn sync_report_doc() -> SyncReport {
         },
     ];
     let broken = EntryStatus {
-        probe_error: Some("git status failed (128): error: bad tree object HEAD".into()),
+        probe_error: Some(ProbeError::new(
+            ProbeErrorKind::GitFailed,
+            "git status failed (128): error: bad tree object HEAD",
+        )),
         checkouts: vec![],
         branches: vec![],
         fetched_at: None,
         ..entry("broken", Some("main"))
     };
     // missing: cloned, held as classified or at the moment of cloning,
-    // failed at the remote, failed placing it
+    // failed at the remote, failed placing it, held for a session working
+    // where it would land
     let stray = EntryStatus {
         key: "stray".into(),
         dir: "stray".into(),
@@ -939,13 +951,21 @@ pub fn sync_report_doc() -> SyncReport {
                 shallow: false,
                 sparse: None,
             },
-            by: HeldBy::UnprobedWorktree,
+            by: CloneHold::UnprobedWorktree,
         }),
         ..missing()
     };
+    // a session whose dir was deleted from under it: `webref()`'s clone
+    // would land where it works
+    let unscoped = vec![Session::at(
+        1500,
+        0,
+        path("webref/src"),
+        SessionSource::SessionFile,
+    )];
     let status = report(
         true,
-        Sessions::Available { unscoped: vec![] },
+        Sessions::Available { unscoped },
         vec![
             app,
             app_wt,
@@ -961,6 +981,7 @@ pub fn sync_report_doc() -> SyncReport {
             missing_reference("wpt", None),
             missing_reference("html", None),
             missing_reference("dom", None),
+            webref(),
             broken,
         ],
         // no targets: the scan ran first
@@ -1004,26 +1025,26 @@ pub fn sync_report_doc() -> SyncReport {
             cloned(
                 "stray",
                 CloneOutcome::Held {
-                    by: SyncHold::UnprobedWorktree,
+                    by: CloneSyncHold::UnprobedWorktree,
                 },
             ),
             cloned(
                 "twin",
                 CloneOutcome::Held {
-                    by: SyncHold::Entry,
+                    by: CloneSyncHold::Entry,
                 },
             ),
             cloned(
                 "renamed",
                 CloneOutcome::Held {
-                    by: SyncHold::Entry,
+                    by: CloneSyncHold::Entry,
                 },
             ),
             // a dir made at the path since the probe
             cloned(
                 "wpt",
                 CloneOutcome::Held {
-                    by: SyncHold::Changed,
+                    by: CloneSyncHold::Changed,
                 },
             ),
             cloned(
@@ -1041,6 +1062,12 @@ pub fn sync_report_doc() -> SyncReport {
                         "can't move the clone into {WORKSPACE}/dom: Permission denied (os \
                          error 13)"
                     ),
+                },
+            ),
+            cloned(
+                "webref",
+                CloneOutcome::Held {
+                    by: CloneSyncHold::Busy,
                 },
             ),
             sync("broken", FetchOutcome::Fetched, vec![]),
@@ -1326,7 +1353,7 @@ fn app() -> EntryStatus {
                 Relation::Behind { commits: 1 },
                 Verdict::Held {
                     action: SyncAction::FastForward { commits: 1 },
-                    by: HeldBy::DirtyCheckout,
+                    by: BranchHold::DirtyCheckout,
                 },
             ),
             "app-feat",
@@ -1340,7 +1367,7 @@ fn app() -> EntryStatus {
                     Relation::Ahead { commits: 1 },
                     Verdict::Held {
                         action: SyncAction::Push { commits: 1 },
-                        by: HeldBy::Busy,
+                        by: BranchHold::Busy,
                     },
                 ),
                 "app/.claude/worktrees/agent",
@@ -1354,7 +1381,7 @@ fn app() -> EntryStatus {
                 Relation::Behind { commits: 4 },
                 Verdict::Held {
                     action: SyncAction::FastForward { commits: 4 },
-                    by: HeldBy::UnprobedWorktree,
+                    by: BranchHold::UnprobedWorktree,
                 },
             )
         },
@@ -1439,9 +1466,9 @@ fn app() -> EntryStatus {
     ];
     e.needs_human = vec![NeedsHuman::UnlistedGitDir {
         git_dir: "/home/me/hand/.git".into(),
-        head: UnprobedHead::Branch {
+        head: Some(Head::Branch {
             name: "other".into(),
-        },
+        }),
         busy: vec![Session::at(
             1400,
             0,
@@ -1453,12 +1480,7 @@ fn app() -> EntryStatus {
         UnprobedWorktreeStatus {
             worktree: UnprobedWorktree {
                 holds: Some(NOTHING_HELD),
-                ..unprobed(
-                    "app",
-                    "app-gone",
-                    unprobed_on("gone"),
-                    UnprobedWhy::Prunable,
-                )
+                ..unprobed("app", "app-gone", Some(on("gone")), UnprobedWhy::Prunable)
             },
             prune: Some(Prune::Safe),
             // a session still in its deleted dir
@@ -1476,9 +1498,9 @@ fn app() -> EntryStatus {
                 ..unprobed(
                     "app",
                     "guide",
-                    UnprobedHead::Detached {
+                    Some(Head::Detached {
                         commit: "4567456745674567456745674567456745674567".into(),
-                    },
+                    }),
                     UnprobedWhy::Prunable,
                 )
             },
@@ -1498,7 +1520,7 @@ fn usb() -> UnprobedWorktreeStatus {
         worktree: UnprobedWorktree {
             path: "/media/usb/app".into(),
             locked: true,
-            ..unprobed("app", "usb", unprobed_on("usb"), UnprobedWhy::Missing)
+            ..unprobed("app", "usb", Some(on("usb")), UnprobedWhy::Missing)
         },
         prune: None,
         busy: vec![],
@@ -1511,7 +1533,7 @@ fn moved_worktree(dir: &str, to: &[&str]) -> UnprobedWorktreeStatus {
     UnprobedWorktreeStatus {
         worktree: UnprobedWorktree {
             holds: Some(NOTHING_HELD),
-            ..unprobed("app", dir, unprobed_on(dir), UnprobedWhy::Prunable)
+            ..unprobed("app", dir, Some(on(dir)), UnprobedWhy::Prunable)
         },
         prune: Some(Prune::Moved {
             to: to.iter().map(|d| (*d).to_owned()).collect(),
@@ -1532,7 +1554,7 @@ fn git_dir(key: &str, id: &str) -> String {
     path(&format!("{key}/.git/worktrees/{id}"))
 }
 
-fn unprobed(key: &str, dir: &str, head: UnprobedHead, why: UnprobedWhy) -> UnprobedWorktree {
+fn unprobed(key: &str, dir: &str, head: Option<Head>, why: UnprobedWhy) -> UnprobedWorktree {
     UnprobedWorktree {
         path: path(dir),
         git_dir: Some(git_dir(key, dir)),
@@ -1544,17 +1566,13 @@ fn unprobed(key: &str, dir: &str, head: UnprobedHead, why: UnprobedWhy) -> Unpro
     }
 }
 
-fn unprobed_on(name: &str) -> UnprobedHead {
-    UnprobedHead::Branch { name: name.into() }
-}
-
-/// Stopped mid-way everywhere, so held whole (`HeldBy::Entry`): a bisect in
-/// its primary, a cherry-pick in a linked worktree, a revert in a gone one,
-/// and a worktree git dir that can't be read; its fetch failed too. One of
-/// its worktree git dirs names its worktree relatively, so no path of the
-/// repo is certain: every gone worktree loses what that hides. Between them
-/// its gone worktrees lose every `PruneLoss`, and two have HEADs no one can
-/// read, which might be on any branch.
+/// Stopped mid-way everywhere, so held whole (`BranchHold::Entry`): a
+/// bisect in its primary, a cherry-pick in a linked worktree, a revert in a
+/// gone one, and a worktree git dir that can't be read; its fetch failed
+/// too. One of its worktree git dirs names its worktree relatively, so no
+/// path of the repo is certain: every gone worktree loses what that hides.
+/// Between them its gone worktrees lose every `PruneLoss`, and two have
+/// HEADs no one can read, which might be on any branch.
 fn fuz_app() -> EntryStatus {
     let mut e = entry("fuz_app", Some("main"));
     e.fetch_error = Some(RemoteFailure::Failed {
@@ -1586,7 +1604,7 @@ fn fuz_app() -> EntryStatus {
             Relation::Behind { commits: 3 },
             Verdict::Held {
                 action: SyncAction::FastForward { commits: 3 },
-                by: HeldBy::Entry,
+                by: BranchHold::Entry,
             },
         ),
         BranchStatus {
@@ -1597,7 +1615,7 @@ fn fuz_app() -> EntryStatus {
                 Relation::Ahead { commits: 1 },
                 Verdict::Held {
                     action: SyncAction::Push { commits: 1 },
-                    by: HeldBy::Entry,
+                    by: BranchHold::Entry,
                 },
             )
         },
@@ -1622,7 +1640,7 @@ fn fuz_app() -> EntryStatus {
     let relative = PruneLoss::RelativeGitdir {
         git_dir: git_dir("fuz_app", "k"),
     };
-    let head_unknown = |dir| unprobed("fuz_app", dir, UnprobedHead::Unknown, UnprobedWhy::Prunable);
+    let head_unknown = |dir| unprobed("fuz_app", dir, None, UnprobedWhy::Prunable);
     e.unprobed_worktrees = vec![
         UnprobedWorktreeStatus {
             worktree: UnprobedWorktree {
@@ -1635,9 +1653,9 @@ fn fuz_app() -> EntryStatus {
                 ..unprobed(
                     "fuz_app",
                     "fuz_app-spike",
-                    UnprobedHead::Detached {
+                    Some(Head::Detached {
                         commit: "89abcdef0123456789abcdef0123456789abcdef".into(),
-                    },
+                    }),
                     UnprobedWhy::Prunable,
                 )
             },
@@ -1662,7 +1680,7 @@ fn fuz_app() -> EntryStatus {
                 ..unprobed(
                     "fuz_app",
                     "fuz_app-lost",
-                    unprobed_on("spike"),
+                    Some(on("spike")),
                     UnprobedWhy::Prunable,
                 )
             },
@@ -1698,7 +1716,7 @@ fn fuz_app() -> EntryStatus {
                 ..unprobed(
                     "fuz_app",
                     "x",
-                    UnprobedHead::Unknown,
+                    None,
                     UnprobedWhy::Failed {
                         error: "not listed by git: reading HEAD: Permission denied".into(),
                     },
@@ -1726,7 +1744,7 @@ fn blog() -> EntryStatus {
                 Relation::Ahead { commits: 2 },
                 Verdict::Held {
                     action: SyncAction::Push { commits: 2 },
-                    by: HeldBy::Entry,
+                    by: BranchHold::Entry,
                 },
             ),
             "fuz_blog",
@@ -1757,9 +1775,9 @@ fn blog() -> EntryStatus {
             ..unprobed(
                 "fuz_blog",
                 "fuz_blog-wt",
-                UnprobedHead::Detached {
+                Some(Head::Detached {
                     commit: "2345234523452345234523452345234523452345".into(),
-                },
+                }),
                 UnprobedWhy::Failed {
                     error: "Permission denied (os error 13)".into(),
                 },
@@ -1872,7 +1890,7 @@ fn corpora() -> EntryStatus {
                 Relation::Shallow,
                 Verdict::Held {
                     action: SyncAction::Move,
-                    by: HeldBy::DirtyCheckout,
+                    by: BranchHold::DirtyCheckout,
                 },
             ),
             "corpora-docs",
@@ -1920,7 +1938,7 @@ fn spec() -> EntryStatus {
             Relation::Behind { commits: 5 },
             Verdict::Held {
                 action: SyncAction::FastForward { commits: 5 },
-                by: HeldBy::Pinned,
+                by: BranchHold::Pinned,
             },
         ),
         "ecma262",
@@ -2023,7 +2041,7 @@ pub fn missing() -> EntryStatus {
 
 /// A missing third-party reference, `key`, cloned over HTTPS from the
 /// remote's default branch, shallow and sparse — its clone `held` or not.
-fn missing_reference(key: &str, held: Option<HeldBy>) -> EntryStatus {
+fn missing_reference(key: &str, held: Option<CloneHold>) -> EntryStatus {
     let recipe = CloneRecipe {
         url: format!("https://github.com/them/{key}"),
         branch: None,
@@ -2047,7 +2065,7 @@ fn missing_reference(key: &str, held: Option<HeldBy>) -> EntryStatus {
 /// it (`status_report_doc`'s unscoped sessions): the clone would land
 /// where it works.
 fn webref() -> EntryStatus {
-    missing_reference("webref", Some(HeldBy::Busy))
+    missing_reference("webref", Some(CloneHold::Busy))
 }
 
 /// A missing entry naming `with`'s repo, held for a person: its dir may
@@ -2064,7 +2082,7 @@ fn twin(with: &str) -> EntryStatus {
                 shallow: false,
                 sparse: None,
             },
-            by: HeldBy::Entry,
+            by: CloneHold::Entry,
         }),
         needs_human: vec![NeedsHuman::CloneSharesRepo { with: with.into() }],
         ..missing()
@@ -2085,7 +2103,7 @@ fn renamed() -> EntryStatus {
                 shallow: false,
                 sparse: None,
             },
-            by: HeldBy::Entry,
+            by: CloneHold::Entry,
         }),
         needs_human: vec![NeedsHuman::ClonedUnregistered {
             dir: "renamed-old".into(),
@@ -2108,7 +2126,7 @@ fn guide() -> EntryStatus {
                 shallow: false,
                 sparse: None,
             },
-            by: HeldBy::UnprobedWorktree,
+            by: CloneHold::UnprobedWorktree,
         }),
         ..missing()
     }
@@ -2150,7 +2168,10 @@ fn partial() -> EntryStatus {
         checkouts: vec![],
         branches: vec![],
         fetched_at: None,
-        probe_error: Some("git status failed (128): error: bad tree object HEAD".into()),
+        probe_error: Some(ProbeError::new(
+            ProbeErrorKind::GitFailed,
+            "git status failed (128): error: bad tree object HEAD",
+        )),
         fetch_error: Some(RemoteFailure::RepoNotFound {
             message: "ERROR: Repository not found.".into(),
         }),
@@ -2158,9 +2179,78 @@ fn partial() -> EntryStatus {
     }
 }
 
+/// A probe failed every other way it can (`partial()` is a git call that
+/// failed), each with the layout read before the failure, if any: looking
+/// at the path and reading the config and fetch URL come first.
+fn probe_failures() -> Vec<EntryStatus> {
+    let failed = |key: &str, kind, message: String, layout| EntryStatus {
+        layout,
+        checkouts: vec![],
+        branches: vec![],
+        fetched_at: None,
+        probe_error: Some(ProbeError::new(kind, message)),
+        ..entry(key, Some("main"))
+    };
+    let status_args = "status --porcelain=v2 --branch --show-stash --no-ahead-behind \
+                       --no-renames --untracked-files=normal -z";
+    vec![
+        failed(
+            "vault",
+            ProbeErrorKind::PathUnreadable,
+            format!(
+                "can't look up {}: Permission denied (os error 13)",
+                path("vault")
+            ),
+            None,
+        ),
+        failed(
+            "notes",
+            ProbeErrorKind::NonUtf8Path,
+            format!("non-UTF-8 path {}", path("notes")),
+            None,
+        ),
+        failed(
+            "scratch",
+            ProbeErrorKind::UnexpectedOutput,
+            format!("rev-parse: unexpected output `{}/.git`", path("scratch")),
+            None,
+        ),
+        failed(
+            "dotfiles",
+            ProbeErrorKind::ConfigUnreadable,
+            "config failed: fatal: bad config line 7 in file .git/config".into(),
+            None,
+        ),
+        failed(
+            "mirror",
+            ProbeErrorKind::FetchUrlUnreadable,
+            "fetch URL: git ls-remote --get-url origin timed out after 60s".into(),
+            None,
+        ),
+        failed(
+            "kiln",
+            ProbeErrorKind::GitNotRun,
+            "failed to run git: Resource temporarily unavailable (os error 11)".into(),
+            Some(plain_layout()),
+        ),
+        failed(
+            "monorepo",
+            ProbeErrorKind::GitTimedOut,
+            format!("git {status_args} timed out after 60s"),
+            Some(plain_layout()),
+        ),
+        failed(
+            "relay",
+            ProbeErrorKind::PushUrlsUnreadable,
+            "push URLs: git remote get-url --push --all origin timed out after 60s".into(),
+            Some(plain_layout()),
+        ),
+    ]
+}
+
 /// Private as declared; its key refused.
 /// A fetch refused by the host: its branch behind stays put
-/// (`HeldBy::FetchFailed`).
+/// (`BranchHold::FetchFailed`).
 fn forge() -> EntryStatus {
     EntryStatus {
         visibility: Some(Visibility::Private),
@@ -2178,7 +2268,7 @@ fn forge() -> EntryStatus {
                 Relation::Behind { commits: 2 },
                 Verdict::Held {
                     action: SyncAction::FastForward { commits: 2 },
-                    by: HeldBy::FetchFailed,
+                    by: BranchHold::FetchFailed,
                 },
             ),
             "fuz_forge",
@@ -2188,7 +2278,7 @@ fn forge() -> EntryStatus {
 }
 
 /// A branch on HEAD in two clean checkouts (`worktree add -f`): its
-/// fast-forward held (`HeldBy::SeveralCheckouts`).
+/// fast-forward held (`BranchHold::SeveralCheckouts`).
 fn gro() -> EntryStatus {
     let mut e = entry("gro", Some("main"));
     e.checkouts.push(linked(path("gro-twin"), on("main")));
@@ -2199,7 +2289,7 @@ fn gro() -> EntryStatus {
             Relation::Behind { commits: 3 },
             Verdict::Held {
                 action: SyncAction::FastForward { commits: 3 },
-                by: HeldBy::SeveralCheckouts,
+                by: BranchHold::SeveralCheckouts,
             },
         ),
         "gro",
@@ -2356,7 +2446,7 @@ fn pushy() -> EntryStatus {
                         Relation::Ahead { commits: 1 },
                         Verdict::Held {
                             action: push,
-                            by: HeldBy::PushUrl,
+                            by: BranchHold::PushUrl,
                         },
                     ),
                     "pushy",

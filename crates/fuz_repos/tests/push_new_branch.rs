@@ -10,7 +10,7 @@ mod support;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use fuz_repos::classify::NeedsHuman;
-use fuz_repos::report::{PushOutcome, SyncHold};
+use fuz_repos::report::{BranchSyncHold, PushOutcome};
 use fuz_repos::sessions::{LiveSessions, Session, SessionSource};
 use fuz_repos::state::{BranchNeedsHuman, Relation};
 use support::cli::{repos, stderr, stdout};
@@ -462,7 +462,12 @@ fn new_branch_is_held_as_a_push_is() {
     let run = ws.push_full(&["app"], &ws.root(), &read, true);
     assert_eq!(
         only(&run),
-        (Some("topic"), &PushOutcome::Held { by: SyncHold::Busy })
+        (
+            Some("topic"),
+            &PushOutcome::Held {
+                by: BranchSyncHold::Busy
+            }
+        )
     );
 
     ws.git(
@@ -475,7 +480,7 @@ fn new_branch_is_held_as_a_push_is() {
         (
             Some("topic"),
             &PushOutcome::Held {
-                by: SyncHold::PushUrl
+                by: BranchSyncHold::PushUrl
             }
         )
     );
@@ -487,7 +492,7 @@ fn new_branch_is_held_as_a_push_is() {
         (
             Some("topic"),
             &PushOutcome::Held {
-                by: SyncHold::Entry
+                by: BranchSyncHold::Entry
             }
         )
     );

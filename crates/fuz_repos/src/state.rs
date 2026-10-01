@@ -94,8 +94,8 @@ pub struct AtRest {
 /// One `git worktree list` names that's gone or failing, or a git dir under
 /// `<commondir>/worktrees/` the list leaves out. It's still a fact: an
 /// operation in progress in it is a reason, and a branch checked out in it
-/// is `HeldBy::UnprobedWorktree` — `HeldBy::Busy`, pushes included, when a
-/// live session works in it.
+/// is `BranchHold::UnprobedWorktree` — `BranchHold::Busy`, pushes included,
+/// when a live session works in it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct UnprobedWorktree {
     /// The worktree's path as git's worktree list prints it, or as its
@@ -105,7 +105,10 @@ pub struct UnprobedWorktree {
     /// Its own git dir, `<commondir>/worktrees/<id>`, canonicalized when it
     /// can be; `None` for one git lists that no git dir there matches.
     pub git_dir: Option<String>,
-    pub head: UnprobedHead,
+    /// From git's worktree list or, for one it doesn't list, the worktree's
+    /// own `HEAD` file; `None` when unreadable: any branch might be checked
+    /// out there, so every fast-forward or move in the entry is held.
+    pub head: Option<Head>,
     pub locked: bool,
     /// From its own git dir, which outlives the worktree's files.
     pub in_progress: Option<InProgressOp>,
@@ -209,22 +212,6 @@ pub enum PruneLoss {
     RelativeGitdir { git_dir: String },
 }
 
-/// What an unprobed worktree's HEAD is, from git's worktree list or, for one
-/// it doesn't list, the worktree's own `HEAD` file.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
-#[serde(tag = "kind", rename_all = "snake_case")]
-pub enum UnprobedHead {
-    Branch {
-        name: String,
-    },
-    Detached {
-        commit: String,
-    },
-    /// Unreadable: any branch might be checked out there, so every
-    /// fast-forward or move in the entry is held.
-    Unknown,
-}
-
 /// Why a worktree wasn't probed.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
@@ -241,7 +228,9 @@ pub enum UnprobedWhy {
     Failed { error: String },
 }
 
-/// What a checkout's HEAD points at.
+/// What a checkout's HEAD points at: a probed checkout's, an unprobed
+/// worktree's, or an unlisted git dir's — the last two an `Option`, `None`
+/// when their HEAD can't be read.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Head {
@@ -338,7 +327,7 @@ pub enum Verdict {
     Act { action: SyncAction },
     /// Sync would take the action, but something holds it back until a
     /// person clears it.
-    Held { action: SyncAction, by: HeldBy },
+    Held { action: SyncAction, by: BranchHold },
     /// Sync won't touch the branch; a person decides.
     NeedsHuman { reason: BranchNeedsHuman },
     /// Commits on no remote that sync never pushes: no origin upstream, a
@@ -374,15 +363,9 @@ pub enum RefreshVerdict {
     /// or moved when shallow, where it's clean and nothing holds it; never
     /// pushed, so a branch ahead is local-only work.
     Act,
-    /// Asked, and refused, never fetched: `by` is `pinned` for a pin named
-    /// — its consumer moves its HEAD, and its branches stay held by the
-    /// pin — or `entry` for a reference whose `origin` isn't the
-    /// registry's repo (its `origin_mismatch` reason, which says the fix):
-    /// a fetch would bring in another repo's history; or `origin_not_https`
-    /// for one whose fetch wouldn't reach the registry's repo over HTTPS
-    /// (its `origin_not_https` reason): it would fail. Its branches are
+    /// Asked, and refused, never fetched: `by` says why. Its branches are
     /// then compared against no remote, as an unasked reference's.
-    Held { by: HeldBy },
+    Held { by: RefreshHold },
 }
 
 /// What `sync` does with an entry whose dir is missing: clone it, by
@@ -392,16 +375,8 @@ pub enum RefreshVerdict {
 pub enum CloneVerdict {
     /// Sync clones it.
     Act { recipe: CloneRecipe },
-    /// Sync would clone it, but `by` holds it: `Entry`, another entry
-    /// naming the same repo, or an unregistered dir at the workspace root
-    /// cloned from it (the entry's `clone_shares_repo` or
-    /// `cloned_unregistered` reason);
-    /// `Busy`, a live session working at the missing path (its dir deleted
-    /// from under it); or `UnprobedWorktree`, another entry's gone worktree
-    /// recorded there.
-    /// Busy detection that's unavailable holds no clone: a missing dir
-    /// holds no work to lose, and the clone never replaces anything.
-    Held { recipe: CloneRecipe, by: HeldBy },
+    /// Sync would clone it, but `by` holds it.
+    Held { recipe: CloneRecipe, by: CloneHold },
 }
 
 impl CloneVerdict {
@@ -429,10 +404,10 @@ pub struct CloneRecipe {
     pub sparse: Option<String>,
 }
 
-/// What holds a branch's action back.
+/// What holds a branch's action back (`Verdict::Held`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
-pub enum HeldBy {
+pub enum BranchHold {
     /// The entry is pinned: its consumer moves HEAD, never the tool, so
     /// every fast-forward and move in it is held for good, whether HEAD is
     /// detached or on a branch — a stale local branch beside the pin
@@ -441,19 +416,12 @@ pub enum HeldBy {
     /// tool leaves a pin alone, pushes included, so a branch ahead reads
     /// `LocalOnly` when it has commits on no remote ref, else `Quiet`.)
     Pinned,
-    /// An entry-level `needs_human` reason stops sync on the whole entry —
-    /// a missing entry's clone included (`clone_shares_repo`,
-    /// `cloned_unregistered`), and a reference's refresh (`origin_mismatch`;
-    /// an `origin_not_https` refresh is held by `OriginNotHttps` instead).
+    /// An entry-level `needs_human` reason stops sync on the whole entry.
     Entry,
     /// A push through `origin` would reach somewhere other than the
     /// registry's repo over SSH (the entry's `push_url_mismatch` reason):
     /// pushes only.
     PushUrl,
-    /// A reference's refresh whose fetch wouldn't reach the registry's repo
-    /// over HTTPS, though `origin` names it (the entry's `origin_not_https`
-    /// reason): the refresh only, never fetched.
-    OriginNotHttps,
     /// The entry's fetch failed or was refused (its `fetch_error`), so its
     /// remote-tracking refs weren't refreshed and may not be origin's: no
     /// branch fast-forwards or moves to them, and none is pushed — its
@@ -468,10 +436,7 @@ pub enum HeldBy {
     DirtyCheckout,
     /// The branch is checked out in a worktree that couldn't be probed (one
     /// of the entry's `unprobed_worktrees`), so whether it's clean is
-    /// unknown. Pushes aren't held. A clone is held when its missing path is
-    /// one of another entry's unprobed worktrees: git still records a
-    /// worktree there, which would take the clone for its own files —
-    /// remove that record first.
+    /// unknown. Pushes aren't held.
     UnprobedWorktree,
     /// The branch is checked out in more than one checkout (`worktree add
     /// -f`): moving it in one would leave the others' HEAD on a commit their
@@ -479,9 +444,7 @@ pub enum HeldBy {
     SeveralCheckouts,
     /// The branch is checked out in a checkout a live session works in
     /// (its `busy`): sync leaves another session's branch alone, pushes
-    /// included. A clone is held when a live session works at or under
-    /// its missing path — its dir deleted from under it — where the clone
-    /// would land in its place.
+    /// included.
     Busy,
     /// A live session may work in a checkout, unseen, so every action is
     /// held, pushes included: busy detection is unavailable (the report's
@@ -493,6 +456,44 @@ pub enum HeldBy {
     /// through a git dir sharing the repo's refs that no worktree list names
     /// (an `unlisted_git_dir` reason), whose HEAD is on it or unknown.
     BusyUnknown,
+}
+
+/// What holds a reference's refresh back (`RefreshVerdict::Held`): it's
+/// never fetched, and its branches are compared against no remote.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RefreshHold {
+    /// A pin named: its consumer moves its HEAD, and its branches stay held
+    /// by the pin (`BranchHold::Pinned`).
+    Pinned,
+    /// The reference's `origin` isn't the registry's repo (its
+    /// `origin_mismatch` reason, which says the fix): a fetch would bring in
+    /// another repo's history.
+    Entry,
+    /// The reference's fetch wouldn't reach the registry's repo over HTTPS,
+    /// though `origin` names it (its `origin_not_https` reason): it would
+    /// fail.
+    OriginNotHttps,
+}
+
+/// What holds a missing entry's clone back (`CloneVerdict::Held`).
+///
+/// Busy detection that's unavailable holds no clone: a missing dir holds no
+/// work to lose, and the clone never replaces anything.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CloneHold {
+    /// Another entry names the same repo, or an unregistered dir at the
+    /// workspace root is cloned from it (the entry's `clone_shares_repo` or
+    /// `cloned_unregistered` reason).
+    Entry,
+    /// A live session works at or under the missing path — its dir deleted
+    /// from under it — where the clone would land in its place.
+    Busy,
+    /// Another entry's gone worktree is recorded at the missing path (one of
+    /// its `unprobed_worktrees`): git would take the clone for that
+    /// worktree's files. Remove that record first.
+    UnprobedWorktree,
 }
 
 /// A move `sync` makes on a branch.
@@ -573,4 +574,60 @@ pub struct Layout {
     pub shallow: bool,
     pub sparse: bool,
     pub partial_filter: Option<String>,
+}
+
+/// Why an entry's probe failed: its kind (flattened: the `kind` tag sits
+/// beside `message`) and the message the binary prints.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct ProbeError {
+    #[serde(flatten)]
+    pub kind: ProbeErrorKind,
+    /// What failed, for display: git's words where git failed.
+    pub message: String,
+}
+
+impl ProbeError {
+    pub fn new(kind: ProbeErrorKind, message: impl Into<String>) -> Self {
+        Self {
+            kind,
+            message: message.into(),
+        }
+    }
+}
+
+/// What kind of failure stopped an entry's probe.
+///
+/// The three reads with a kind of their own (the config, the fetch URL, the
+/// push URLs) carry it however the read failed; every other git call is
+/// classed by how it failed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum ProbeErrorKind {
+    /// The entry's path couldn't be looked up — not missing, but `lstat`
+    /// failed (a parent dir that can't be searched, say) — so whether a
+    /// repo is there is unknown.
+    PathUnreadable,
+    /// The entry's path isn't UTF-8, so the report can't name it exactly.
+    NonUtf8Path,
+    /// The repo's config couldn't be read: git couldn't run or failed (a
+    /// malformed config file, an include it can't read), or what it printed
+    /// didn't parse (a value that isn't UTF-8).
+    ConfigUnreadable,
+    /// Where a fetch from `origin` reaches (`ls-remote --get-url`, rewrites
+    /// applied) couldn't be read.
+    FetchUrlUnreadable,
+    /// Where a push through `origin` goes (`remote get-url --push --all`)
+    /// couldn't be read.
+    PushUrlsUnreadable,
+    /// A git call couldn't run: git couldn't be started.
+    GitNotRun,
+    /// A git call ran past the runner's timeout and was stopped.
+    GitTimedOut,
+    /// A git call exited with a failure — a corrupt or incomplete repo, a
+    /// missing object (on a partial clone, one the probe never fetches on
+    /// demand), a config git refuses.
+    GitFailed,
+    /// A git call's output wasn't what the probe reads: unparseable, not
+    /// UTF-8, more than the runner keeps, or not the lines asked for.
+    UnexpectedOutput,
 }

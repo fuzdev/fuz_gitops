@@ -12,8 +12,8 @@ use crate::registry::{EntryKind, Visibility};
 use crate::remote::{RemoteFailure, VisibilityCheck};
 use crate::sessions::{Session, Unavailable};
 use crate::state::{
-    AtRest, BranchNeedsHuman, BranchStatus, Checkout, CloneVerdict, HeldBy, Layout, Presence,
-    RefreshVerdict, SyncAction, UnprobedWorktreeStatus,
+    AtRest, BranchHold, BranchNeedsHuman, BranchStatus, Checkout, CloneHold, CloneVerdict, Layout,
+    Presence, ProbeError, ProbeErrorKind, RefreshVerdict, SyncAction, UnprobedWorktreeStatus,
 };
 use crate::{PUSH_FORMAT_VERSION, STATUS_FORMAT_VERSION, SYNC_FORMAT_VERSION};
 
@@ -220,14 +220,15 @@ pub struct EntryStatus {
     /// repo's default branch, a reference's declared one, else `None`.
     pub branch: Option<String>,
     /// Its consumer moves HEAD, never the tool: never fetched, and every
-    /// fast-forward and move in it `HeldBy::Pinned`.
+    /// fast-forward and move in it `BranchHold::Pinned`.
     pub pinned: bool,
     /// What the run does about refreshing it, when it was asked to — named
     /// as a target, or under `--references` (`refresh_verdict`): a
     /// third-party reference refreshed (fetched, and its branches compared
     /// against origin as an owned repo's are), or a pin refused, or one
-    /// whose origin isn't the registry's repo held (`HeldBy::Entry`), or
-    /// whose fetch wouldn't reach it over HTTPS (`HeldBy::OriginNotHttps`).
+    /// whose origin isn't the registry's repo held (`RefreshHold::Entry`),
+    /// or whose fetch wouldn't reach it over HTTPS
+    /// (`RefreshHold::OriginNotHttps`).
     /// `None` when the run didn't ask, for an owned entry that isn't pinned
     /// (synced either way), and when no repo is at the entry's dir.
     pub refresh: Option<RefreshVerdict>,
@@ -260,10 +261,11 @@ pub struct EntryStatus {
     /// empty remote.
     pub fetched_at: Option<u64>,
     pub needs_human: Vec<NeedsHuman>,
-    /// A git call that failed after the repo was found, as a plain message;
-    /// the facts above are then incomplete. On a partial clone the call may
-    /// have needed an object the clone lacks (`probe_failed_partial`).
-    pub probe_error: Option<String>,
+    /// Why the probe failed — a git call after the repo was found, or
+    /// looking at the entry's path — classified, with a message; the facts
+    /// above are then incomplete. On a partial clone a failed call may have
+    /// needed an object the clone lacks (`probe_failed_partial`).
+    pub probe_error: Option<ProbeError>,
     /// The repo's worktrees that couldn't be probed — gone, or failing; the
     /// rest of the entry's facts stand.
     pub unprobed_worktrees: Vec<UnprobedWorktreeStatus>,
@@ -300,13 +302,16 @@ impl EntryStatus {
             .find(|c| same_path(Path::new(&c.path), path))
     }
 
-    /// Whether the probe failed on a partial clone (its layout, read before
-    /// any call that needs objects, carries a filter): a call may have
-    /// needed an object the clone lacks, and the probe never fetches one on
-    /// demand. Keyed on the filter, never git's message — a `checkout` in
-    /// the clone fetches what's missing from origin and fills the checkout.
+    /// Whether a git call failed in the probe of a partial clone (its
+    /// layout, read before any call that needs objects, carries a filter):
+    /// the call may have needed an object the clone lacks, and the probe
+    /// never fetches one on demand. Keyed on the filter, never git's
+    /// message — a `checkout` in the clone fetches what's missing from
+    /// origin and fills the checkout.
     pub fn probe_failed_partial(&self) -> bool {
-        self.probe_error.is_some()
+        self.probe_error
+            .as_ref()
+            .is_some_and(|e| e.kind == ProbeErrorKind::GitFailed)
             && self
                 .layout
                 .as_ref()
@@ -425,7 +430,7 @@ pub enum CloneOutcome {
     /// Not cloned: the verdict's hold, or one found right before cloning —
     /// `busy`, a live session now at or under the path, or `changed`,
     /// something now at the path.
-    Held { by: SyncHold },
+    Held { by: CloneSyncHold },
     /// Git's clone (or its sparse checkout) failed reaching for the remote
     /// or at it, classified as a fetch failure is; nothing is left at the
     /// path. The run exits `1`.
@@ -496,7 +501,10 @@ pub enum BranchOutcome {
     NeedsHuman { reason: BranchNeedsHuman },
     /// Sync would take `action`, but `by` held it — the verdict's hold, or
     /// one found when sync came to act.
-    Held { action: SyncAction, by: SyncHold },
+    Held {
+        action: SyncAction,
+        by: BranchSyncHold,
+    },
     /// Fast-forwarded from `from` to `to`, in place or in its clean
     /// checkout.
     FastForwarded { from: String, to: String },
@@ -524,12 +532,12 @@ impl BranchOutcome {
     }
 }
 
-/// What held a branch's action: the verdict's hold (`HeldBy`, the same
-/// names), or one found at the moment of acting, when sync re-checks what
-/// the action relies on.
+/// What held a branch's action in `sync` or `repos push`: the verdict's hold
+/// (`BranchHold`, the same names), or one found at the moment of acting,
+/// when the action's re-check of what it relies on fails.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
-pub enum SyncHold {
+pub enum BranchSyncHold {
     Pinned,
     Entry,
     /// A push through `origin` wouldn't reach the registry's repo over SSH —
@@ -537,9 +545,6 @@ pub enum SyncHold {
     /// pushing (the push itself goes to the registry's URL, never through
     /// origin).
     PushUrl,
-    /// Never in a sync document's outcomes — a held refresh isn't one — but
-    /// named so every `HeldBy` converts.
-    OriginNotHttps,
     FetchFailed,
     /// The checkout the branch is on has uncommitted changes — as
     /// classified, or found when sync came to act.
@@ -563,24 +568,47 @@ pub enum SyncHold {
     /// branch `repos push --new-branch` creates, created there since); or a
     /// partial clone's origin, read again as git resolves it right before
     /// the checkout, no longer names the registry's repo over the transport
-    /// its lazy fetch was decided on; or a missing dir to clone into is
-    /// there now. Rerun to reclassify.
+    /// its lazy fetch was decided on. Rerun to reclassify.
     Changed,
 }
 
-impl From<HeldBy> for SyncHold {
-    fn from(by: HeldBy) -> Self {
+impl From<BranchHold> for BranchSyncHold {
+    fn from(by: BranchHold) -> Self {
         match by {
-            HeldBy::Pinned => Self::Pinned,
-            HeldBy::Entry => Self::Entry,
-            HeldBy::PushUrl => Self::PushUrl,
-            HeldBy::OriginNotHttps => Self::OriginNotHttps,
-            HeldBy::FetchFailed => Self::FetchFailed,
-            HeldBy::DirtyCheckout => Self::DirtyCheckout,
-            HeldBy::UnprobedWorktree => Self::UnprobedWorktree,
-            HeldBy::SeveralCheckouts => Self::SeveralCheckouts,
-            HeldBy::Busy => Self::Busy,
-            HeldBy::BusyUnknown => Self::BusyUnknown,
+            BranchHold::Pinned => Self::Pinned,
+            BranchHold::Entry => Self::Entry,
+            BranchHold::PushUrl => Self::PushUrl,
+            BranchHold::FetchFailed => Self::FetchFailed,
+            BranchHold::DirtyCheckout => Self::DirtyCheckout,
+            BranchHold::UnprobedWorktree => Self::UnprobedWorktree,
+            BranchHold::SeveralCheckouts => Self::SeveralCheckouts,
+            BranchHold::Busy => Self::Busy,
+            BranchHold::BusyUnknown => Self::BusyUnknown,
+        }
+    }
+}
+
+/// What held a missing entry's clone in `sync`: the verdict's hold
+/// (`CloneHold`, the same names), or one found right before cloning.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CloneSyncHold {
+    Entry,
+    /// A live session works at or under the missing path — as classified,
+    /// or found when sync re-read the sessions right before cloning.
+    Busy,
+    UnprobedWorktree,
+    /// Found right before cloning: something is at the missing path now.
+    /// Rerun to reclassify.
+    Changed,
+}
+
+impl From<CloneHold> for CloneSyncHold {
+    fn from(by: CloneHold) -> Self {
+        match by {
+            CloneHold::Entry => Self::Entry,
+            CloneHold::Busy => Self::Busy,
+            CloneHold::UnprobedWorktree => Self::UnprobedWorktree,
         }
     }
 }
@@ -662,7 +690,7 @@ pub enum PushOutcome {
     InSync,
     /// Ahead, but `by` held the push — the verdict's hold, or one found
     /// right before pushing (the same holds as `sync`'s).
-    Held { by: SyncHold },
+    Held { by: BranchSyncHold },
     /// The push reached for the remote and failed there (as `sync`'s).
     PushFailed { failure: RemoteFailure },
     /// The push couldn't run, or git refused it (`message`, git's words).

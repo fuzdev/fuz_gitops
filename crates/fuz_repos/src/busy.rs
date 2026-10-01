@@ -148,7 +148,7 @@ use crate::gitdir::{read_commondir, read_gitfile, read_head};
 use crate::paths::{Unresolved, resolve};
 use crate::report::Sessions;
 use crate::sessions::{ClaudeLock, LiveSessions, Session, Unavailable, claude_lock};
-use crate::state::UnprobedHead;
+use crate::state::Head;
 
 /// Whether busy detection vouched for every live session.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -175,10 +175,10 @@ pub struct UnresolvedCheckout {
 /// `refs/heads`). A commit there moves the entry's branch its `HEAD` names.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct UnlistedGitDir {
-    /// Its `HEAD`, read as git would; `Unknown` when it can't be read or
-    /// names no branch or commit (or is a symlink, git's oldest form), so it
-    /// might be on any branch.
-    pub head: UnprobedHead,
+    /// Its `HEAD`, read as git would; `None` when it can't be read or names
+    /// no branch or commit (or is a symlink, git's oldest form), so it might
+    /// be on any branch.
+    pub head: Option<Head>,
     pub busy: Vec<Session>,
 }
 
@@ -249,9 +249,9 @@ impl EntrySessions {
         self.unlisted
             .values()
             .filter(|u| match &u.head {
-                UnprobedHead::Branch { name } => name == branch,
-                UnprobedHead::Detached { .. } => false,
-                UnprobedHead::Unknown => true,
+                Some(Head::Branch { name }) => name == branch,
+                Some(Head::Detached { .. }) => false,
+                None => true,
             })
             .count()
     }
@@ -481,7 +481,7 @@ enum Attributed<'a> {
     Unlisted {
         entries: Vec<usize>,
         git_dir: PathBuf,
-        head: UnprobedHead,
+        head: Option<Head>,
         /// As for `Checkouts`.
         toplevel: Option<PathBuf>,
     },

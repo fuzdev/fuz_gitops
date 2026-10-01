@@ -3,7 +3,9 @@
 mod support;
 
 use fuz_repos::classify::NeedsHuman;
-use fuz_repos::state::{BranchNeedsHuman, CleanupReason, HeldBy, Relation, SyncAction, Verdict};
+use fuz_repos::state::{
+    BranchHold, BranchNeedsHuman, CleanupReason, Relation, SyncAction, Verdict,
+};
 use support::{FixtureWorkspace, branch, branch_names, find_entry};
 
 #[test]
@@ -412,7 +414,7 @@ fn a_dirty_checkout_holds_a_fast_forward_but_not_a_push() {
         branch(behind, "main").verdict,
         Verdict::Held {
             action: SyncAction::FastForward { commits: 1 },
-            by: HeldBy::DirtyCheckout
+            by: BranchHold::DirtyCheckout
         }
     );
     assert_eq!(
@@ -457,7 +459,7 @@ fn a_symlinked_root_still_holds_a_dirty_primary_as_dirty() {
         main.verdict,
         Verdict::Held {
             action: SyncAction::FastForward { commits: 1 },
-            by: HeldBy::DirtyCheckout
+            by: BranchHold::DirtyCheckout
         }
     );
 }

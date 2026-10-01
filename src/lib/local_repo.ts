@@ -104,7 +104,7 @@ export const local_repos_resolve = (options: {
 		} else if (entry.presence.kind === 'not_a_repo') {
 			problems.push(`\`${key}\`: ${repo_dir} isn't a git repo`);
 		} else if (entry.probe_error !== null) {
-			problems.push(`\`${key}\`: probing ${repo_dir} failed: ${entry.probe_error}`);
+			problems.push(`\`${key}\`: probing ${repo_dir} failed: ${entry.probe_error.message}`);
 		} else {
 			resolved.push({ repo_name: key, repo_dir, repo_url: entry.url, entry });
 		}

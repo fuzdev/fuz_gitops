@@ -148,6 +148,17 @@ sessions — `checkouts[0].busy` does. And `followed` is as fresh as the
 remote-tracking refs, as `branches` is: as of `fetched_at`, and stale after
 a failed `--fetch`.
 
+A failed probe's `probe_error` is an object: its `kind` — the entry's path
+couldn't be looked up (`path_unreadable`) or isn't UTF-8
+(`non_utf8_path`); a read with a kind of its own failed, however it failed
+(`config_unreadable`, `fetch_url_unreadable`, `push_urls_unreadable`); or
+another git call couldn't start (`git_not_run`), timed out
+(`git_timed_out`), failed (`git_failed`), or printed what the probe can't
+read (`unexpected_output`) — and a `message` for display. The text output
+prints the message. A HEAD that can't be read — an unprobed worktree's, or
+an unlisted git dir's — is `null`; a readable one is `branch` or
+`detached`, as a probed checkout's is.
+
 ## `repos status --brief`
 
 `repos status --brief [<path>]` is the nudge a user-scope `SessionStart` hook
@@ -566,8 +577,9 @@ together the goldens cover every variant
 (`crates/fuz_repos/tests/golden/coverage.rs`): the status documents —
 both reports, `sessions.json`, and the status error documents — carry every
 variant of every closed enum the status report and its error document
-hold, in each place it can appear (a hold per action it can meet), and the
-sync and push documents every outcome of theirs. Each enum's variants are
-listed once, a list an exhaustive `match` checks, and the floor counts
-that list: a new variant fails to compile until it's listed, and fails the
-floor until a golden covers it.
+hold, in each place it can appear (each action's holds — a branch's, a
+refresh's, a clone's — their own enum), the sync and push documents
+every outcome of theirs, and the sync document every hold sync can
+report. Each enum's variants are listed once, a list an exhaustive
+`match` checks, and the floor counts that list: a new variant fails to
+compile until it's listed, and fails the floor until a golden covers it.

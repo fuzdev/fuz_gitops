@@ -17,9 +17,9 @@ use std::time::Duration;
 use fuz_repos::classify::NeedsHuman;
 use fuz_repos::clone::temp_dir_name;
 use fuz_repos::remote::RemoteFailure;
-use fuz_repos::report::{CloneOutcome, EntrySync, FetchOutcome, SyncHold, UnregisteredKind};
+use fuz_repos::report::{CloneOutcome, CloneSyncHold, EntrySync, FetchOutcome, UnregisteredKind};
 use fuz_repos::sessions::{LiveSessions, Session, SessionSource, Unavailable};
-use fuz_repos::state::{CloneRecipe, CloneVerdict, HeldBy, Presence, Verdict};
+use fuz_repos::state::{CloneHold, CloneRecipe, CloneVerdict, Presence, Verdict};
 use fuz_repos::sync::SyncRun;
 use support::{FixtureWorkspace, LiveChild, OWNER, THIRD_PARTY, find_entry, write};
 
@@ -606,7 +606,7 @@ fn a_path_made_before_cloning_is_held() {
     assert_eq!(
         cloned(&run, "app"),
         CloneOutcome::Held {
-            by: SyncHold::Changed
+            by: CloneSyncHold::Changed
         }
     );
     assert!(ws.ssh_log().is_empty(), "{:?}", ws.ssh_log());
@@ -646,7 +646,7 @@ fn a_session_at_the_missing_path_holds_its_clone() {
     let run = ws.status_live(&live);
     let held = Some(CloneVerdict::Held {
         recipe: owned_recipe("app"),
-        by: HeldBy::Busy,
+        by: CloneHold::Busy,
     });
     assert_eq!(find_entry(&run.entries, "app").clone, held);
 
@@ -654,7 +654,9 @@ fn a_session_at_the_missing_path_holds_its_clone() {
     let run = ws.sync_with(4, &|| live.clone());
     assert_eq!(
         cloned(&run, "app"),
-        CloneOutcome::Held { by: SyncHold::Busy }
+        CloneOutcome::Held {
+            by: CloneSyncHold::Busy
+        }
     );
     assert!(!ws.dir("app").exists());
 
@@ -674,7 +676,9 @@ fn a_session_at_the_missing_path_holds_its_clone() {
     );
     assert_eq!(
         cloned(&run, "app"),
-        CloneOutcome::Held { by: SyncHold::Busy }
+        CloneOutcome::Held {
+            by: CloneSyncHold::Busy
+        }
     );
     assert!(!ws.dir("app").exists());
 
@@ -685,7 +689,9 @@ fn a_session_at_the_missing_path_holds_its_clone() {
     let run = ws.sync_with(4, &|| linked.clone());
     assert_eq!(
         cloned(&run, "app"),
-        CloneOutcome::Held { by: SyncHold::Busy }
+        CloneOutcome::Held {
+            by: CloneSyncHold::Busy
+        }
     );
     assert!(!ws.dir("app").exists());
 
@@ -732,13 +738,13 @@ fn another_entrys_gone_worktree_at_the_path_holds_its_clone() {
         find_entry(&run.entries, "lib").clone,
         Some(CloneVerdict::Held {
             recipe,
-            by: HeldBy::UnprobedWorktree
+            by: CloneHold::UnprobedWorktree
         })
     );
     assert_eq!(
         cloned(&run, "lib"),
         CloneOutcome::Held {
-            by: SyncHold::UnprobedWorktree
+            by: CloneSyncHold::UnprobedWorktree
         }
     );
     assert!(!ws.dir("lib").exists());
@@ -936,7 +942,7 @@ fn a_missing_entry_sharing_its_repo_is_held_for_a_person() {
 
     let held = Some(CloneVerdict::Held {
         recipe: owned_recipe("app"),
-        by: HeldBy::Entry,
+        by: CloneHold::Entry,
     });
     let e = find_entry(&run.entries, "app_wt");
     assert_eq!(e.presence, Presence::Missing);
@@ -948,7 +954,7 @@ fn a_missing_entry_sharing_its_repo_is_held_for_a_person() {
     assert_eq!(
         cloned(&run, "app_wt"),
         CloneOutcome::Held {
-            by: SyncHold::Entry
+            by: CloneSyncHold::Entry
         }
     );
     // the present one is untouched by it

@@ -145,7 +145,10 @@ fn silent_on_every_runtime_failure() {
         .output()
         .unwrap();
     let report: serde_json::Value = serde_json::from_slice(&json.stdout).unwrap();
-    assert!(report["entries"][0]["probe_error"].is_string(), "{report}");
+    assert_eq!(
+        report["entries"][0]["probe_error"]["kind"], "git_failed",
+        "{report}"
+    );
     assert_eq!(brief(&ws, &app), "");
 }
 

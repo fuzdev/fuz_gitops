@@ -6,7 +6,7 @@ mod support;
 use fuz_repos::classify::NeedsHuman;
 use fuz_repos::report::Sessions;
 use fuz_repos::sessions::{LiveSessions, SessionSource, Unavailable};
-use fuz_repos::state::{CleanupReason, HeldBy, Verdict};
+use fuz_repos::state::{BranchHold, CleanupReason, Verdict};
 use fuz_repos::status::StatusRun;
 use support::busy::{ahead_branch, app, held, push, session};
 use support::{FixtureWorkspace, branch, ff, find_entry, path};
@@ -103,7 +103,7 @@ fn an_unresolvable_checkout_holds_only_the_branch_checked_out_there() {
         assert_eq!(branch(e, "main").verdict, Verdict::Act { action: push(1) });
         assert_eq!(
             branch(e, "sealed").verdict,
-            held(push(1), HeldBy::BusyUnknown)
+            held(push(1), BranchHold::BusyUnknown)
         );
         let lib = find_entry(&run.entries, "lib");
         assert!(lib.needs_human.is_empty(), "{:?}", lib.needs_human);
@@ -139,7 +139,7 @@ fn an_unresolvable_checkout_holds_only_the_branch_checked_out_there() {
     );
     assert_eq!(
         branch(find_entry(&run.entries, "lib"), "main").verdict,
-        held(push(1), HeldBy::BusyUnknown)
+        held(push(1), BranchHold::BusyUnknown)
     );
 }
 
@@ -163,7 +163,7 @@ fn one_checkout_of_two_entries_is_busy_for_both() {
         assert_eq!(c.busy, std::slice::from_ref(&s), "{key}");
         assert_eq!(
             branch(e, "next").verdict,
-            held(push(1), HeldBy::Busy),
+            held(push(1), BranchHold::Busy),
             "{key}"
         );
     }
@@ -237,15 +237,15 @@ fn unavailable_detection_holds_every_action() {
     assert!(e.checkouts.iter().all(|c| c.busy.is_empty()));
     assert_eq!(
         branch(e, "main").verdict,
-        held(push(1), HeldBy::BusyUnknown)
+        held(push(1), BranchHold::BusyUnknown)
     );
     // checked out nowhere, held all the same
     assert_eq!(
         branch(e, "loose").verdict,
-        held(push(1), HeldBy::BusyUnknown)
+        held(push(1), BranchHold::BusyUnknown)
     );
     assert_eq!(
         branch(e, "feat").verdict,
-        held(ff(1), HeldBy::DirtyCheckout)
+        held(ff(1), BranchHold::DirtyCheckout)
     );
 }

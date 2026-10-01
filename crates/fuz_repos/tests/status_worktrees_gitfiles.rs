@@ -4,7 +4,7 @@ mod support;
 
 use std::path::Path;
 
-use fuz_repos::state::{UnprobedHead, UnprobedWhy};
+use fuz_repos::state::{Head, UnprobedWhy};
 use support::worktrees::app;
 use support::{FixtureWorkspace, path};
 
@@ -107,7 +107,7 @@ fn an_unlisted_worktrees_head_is_read_as_git_reads_it() {
     let e = ws.entry("app");
     let head_of = |name: &str| {
         let suffix = format!("/worktrees/{name}");
-        let found: Vec<&UnprobedHead> = e
+        let found: Vec<&Option<Head>> = e
             .unprobed_worktrees
             .iter()
             .filter(|u| u.worktree.path.ends_with(&suffix))
@@ -116,11 +116,11 @@ fn an_unlisted_worktrees_head_is_read_as_git_reads_it() {
         assert_eq!(found.len(), 1, "{name}: {:?}", e.unprobed_worktrees);
         found[0].clone()
     };
-    let on = |name: &str| UnprobedHead::Branch { name: name.into() };
+    let on = |name: &str| Some(Head::Branch { name: name.into() });
     assert_eq!(head_of("nospace"), on("nospace"));
     assert_eq!(head_of("nul"), on("nul"));
-    assert_eq!(head_of("junk"), UnprobedHead::Detached { commit });
-    assert_eq!(head_of("lead"), UnprobedHead::Unknown);
+    assert_eq!(head_of("junk"), Some(Head::Detached { commit }));
+    assert_eq!(head_of("lead"), None);
 }
 
 #[test]
@@ -192,7 +192,7 @@ fn an_unlisted_worktrees_symlinked_head_is_read_as_git_reads_it() {
     let e = ws.entry("app");
     let head_of = |name: &str| {
         let suffix = format!("/worktrees/{name}");
-        let found: Vec<&UnprobedHead> = e
+        let found: Vec<&Option<Head>> = e
             .unprobed_worktrees
             .iter()
             .filter(|u| u.worktree.path.ends_with(&suffix))
@@ -201,10 +201,10 @@ fn an_unlisted_worktrees_symlinked_head_is_read_as_git_reads_it() {
         assert_eq!(found.len(), 1, "{name}: {:?}", e.unprobed_worktrees);
         found[0].clone()
     };
-    let on = |name: &str| UnprobedHead::Branch { name: name.into() };
+    let on = |name: &str| Some(Head::Branch { name: name.into() });
     assert_eq!(head_of("sym"), on("sym"));
     // the tool reports only branches
-    assert_eq!(head_of("tag"), UnprobedHead::Unknown);
-    assert_eq!(head_of("through"), UnprobedHead::Detached { commit });
+    assert_eq!(head_of("tag"), None);
+    assert_eq!(head_of("through"), Some(Head::Detached { commit }));
     assert_eq!(head_of("fall"), on("fall"));
 }

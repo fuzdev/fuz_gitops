@@ -1,7 +1,7 @@
 {
-	"version": 7,
+	"version": 8,
 	"status": {
-		"version": 17,
+		"version": 18,
 		"workspace": "/home/me/dev",
 		"registry": "/home/me/dev/repos.toml",
 		"fetched": true,

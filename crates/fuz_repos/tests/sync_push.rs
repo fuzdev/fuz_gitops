@@ -23,9 +23,9 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 use fuz_repos::classify::NeedsHuman;
 use fuz_repos::remote::{RemoteFailure, UnreachableCause};
-use fuz_repos::report::{BranchOutcome, SyncHold};
+use fuz_repos::report::{BranchOutcome, BranchSyncHold};
 use fuz_repos::sessions::{LiveSessions, Session, SessionSource};
-use fuz_repos::state::{BranchNeedsHuman, HeldBy, SyncAction, Verdict};
+use fuz_repos::state::{BranchHold, BranchNeedsHuman, SyncAction, Verdict};
 use fuz_repos::sync::SyncRun;
 use support::{FixtureWorkspace, LiveChild, branch, find_entry, write_executable};
 
@@ -49,7 +49,7 @@ fn outcome<'a>(run: &'a SyncRun, key: &str, name: &str) -> &'a BranchOutcome {
         .outcome
 }
 
-const fn held(action: SyncAction, by: SyncHold) -> BranchOutcome {
+const fn held(action: SyncAction, by: BranchSyncHold) -> BranchOutcome {
     BranchOutcome::Held { action, by }
 }
 
@@ -230,7 +230,7 @@ fn a_commit_landing_after_classifying_is_never_pushed() {
 
     assert_eq!(
         outcome(&run, "app", "main"),
-        &held(push(1), SyncHold::Changed)
+        &held(push(1), BranchSyncHold::Changed)
     );
     assert_eq!(remote_refs(&ws, "app"), remote_before);
     assert_eq!(
@@ -303,7 +303,7 @@ fn a_branch_reconfigured_after_classifying_is_held() {
         );
         assert_eq!(
             outcome(&run, "app", "main"),
-            &held(push(1), SyncHold::Changed),
+            &held(push(1), BranchSyncHold::Changed),
             "{case}"
         );
         assert_eq!(ws.git(&app, &["rev-parse", "main"]), tip, "{case}");
@@ -336,7 +336,7 @@ fn a_remote_moved_since_the_fetch_refuses_the_push() {
     // git refused the push, which isn't a fast-forward now: rerun
     assert_eq!(
         outcome(&run, "app", "main"),
-        &held(push(1), SyncHold::Changed)
+        &held(push(1), BranchSyncHold::Changed)
     );
     let moved = moved.lock().unwrap().clone();
     assert_eq!(ws.git(&ws.bare("app"), &["rev-parse", "main"]), moved);
@@ -378,7 +378,7 @@ fn a_remote_branch_deleted_after_the_fetch_is_never_recreated() {
     // the lease on the fetched tip refused it: rerun
     assert_eq!(
         outcome(&run, "app", "feat"),
-        &held(push(1), SyncHold::Changed)
+        &held(push(1), BranchSyncHold::Changed)
     );
     assert!(!remote_refs(&ws, "app").contains_key("refs/heads/feat"));
     assert_eq!(ws.ssh_push_log().len(), 1);
@@ -488,7 +488,7 @@ fn a_push_url_other_than_the_registrys_is_refused() {
             branch(&e, "main").verdict,
             Verdict::Held {
                 action: push(1),
-                by: HeldBy::PushUrl
+                by: BranchHold::PushUrl
             },
             "{case}"
         );
@@ -497,7 +497,7 @@ fn a_push_url_other_than_the_registrys_is_refused() {
 
         assert_eq!(
             outcome(&run, "app", "main"),
-            &held(push(1), SyncHold::PushUrl),
+            &held(push(1), BranchSyncHold::PushUrl),
             "{case}"
         );
         assert_eq!(remote_refs(&ws, "app"), app_before, "{case}");
@@ -553,7 +553,7 @@ fn a_push_url_that_only_spells_the_registrys_is_refused() {
 
         assert_eq!(
             outcome(&run, "app", "main"),
-            &held(push(1), SyncHold::PushUrl),
+            &held(push(1), BranchSyncHold::PushUrl),
             "{url}"
         );
         assert_eq!(remote_refs(&ws, "app"), remote_before, "{url}");
@@ -586,7 +586,7 @@ fn a_remote_tracking_ref_moved_after_classifying_is_held() {
     assert_eq!(branch(e, "main").verdict, Verdict::Act { action: push(2) });
     assert_eq!(
         outcome(&run, "app", "main"),
-        &held(push(2), SyncHold::Changed)
+        &held(push(2), BranchSyncHold::Changed)
     );
     assert_eq!(ws.git(&bare, &["rev-parse", "main"]), first);
     assert_eq!(ws.git(&app, &["rev-parse", "main"]), second);
@@ -624,7 +624,7 @@ fn a_fetch_after_classifying_never_turns_the_push_into_a_force() {
     ws.assert_count(&app, &[&range], 1);
     assert_eq!(
         outcome(&run, "app", "main"),
-        &held(push(1), SyncHold::Changed)
+        &held(push(1), BranchSyncHold::Changed)
     );
     assert_eq!(ws.git(&ws.bare("app"), &["rev-parse", "main"]), theirs);
     assert_eq!(ws.ssh_push_log(), Vec::<String>::new());
@@ -652,7 +652,7 @@ fn a_push_url_set_after_classifying_is_refused() {
     assert_eq!(branch(e, "main").verdict, Verdict::Act { action: push(1) });
     assert_eq!(
         outcome(&run, "app", "main"),
-        &held(push(1), SyncHold::PushUrl)
+        &held(push(1), BranchSyncHold::PushUrl)
     );
     assert_eq!(remote_refs(&ws, "app"), app_before);
     assert_eq!(remote_refs(&ws, "other"), other_before);
@@ -772,7 +772,10 @@ fn a_busy_checkout_holds_its_push_and_no_other() {
 
     let run = ws.sync_with(4, &|| live.clone());
 
-    assert_eq!(outcome(&run, "app", "main"), &held(push(1), SyncHold::Busy));
+    assert_eq!(
+        outcome(&run, "app", "main"),
+        &held(push(1), BranchSyncHold::Busy)
+    );
     // checked out nowhere: pushed
     assert_eq!(
         outcome(&run, "app", "side"),
@@ -809,7 +812,10 @@ fn a_session_arriving_before_the_push_holds_it() {
 
     let e = find_entry(&run.entries, "app");
     assert_eq!(branch(e, "main").verdict, Verdict::Act { action: push(1) });
-    assert_eq!(outcome(&run, "app", "main"), &held(push(1), SyncHold::Busy));
+    assert_eq!(
+        outcome(&run, "app", "main"),
+        &held(push(1), BranchSyncHold::Busy)
+    );
     assert_eq!(remote_refs(&ws, "app"), remote_before);
 }
 
@@ -838,7 +844,7 @@ fn a_failed_fetch_holds_the_push() {
     ));
     assert_eq!(
         outcome(&run, "app", "main"),
-        &held(push(1), SyncHold::FetchFailed)
+        &held(push(1), BranchSyncHold::FetchFailed)
     );
     assert_eq!(remote_refs(&ws, "app"), remote_before);
     assert_eq!(ws.refs(&app), local_before);

@@ -63,7 +63,7 @@ fn a_rejected_push_is_held_or_failed_by_why() {
     // the remote isn't at the fetched tip: rerun
     for why in ["stale info", "fetch first", "non-fast forward"] {
         assert!(
-            matches!(rejected(why, ""), Stop::Held(SyncHold::Changed)),
+            matches!(rejected(why, ""), Stop::Held(BranchSyncHold::Changed)),
             "{why}"
         );
     }
@@ -400,7 +400,7 @@ fn a_branch_moved_past_the_tip_before_the_merge_is_held() {
     // git's "Already up to date", and nothing lost
     assert!(matches!(
         step.merge_ff(&repo.dir, from, tip),
-        Ok(UpdateDone::Held(SyncHold::Changed))
+        Ok(UpdateDone::Held(BranchSyncHold::Changed))
     ));
     assert_eq!(repo.git(&["rev-parse", "main"]), past);
 }
@@ -418,7 +418,7 @@ fn a_branch_moved_to_the_tip_by_another_hand_is_held_not_moved() {
 
     assert!(matches!(
         step.switch_reset(&repo.dir, counted, tip.clone()),
-        Ok(UpdateDone::Held(SyncHold::Changed))
+        Ok(UpdateDone::Held(BranchSyncHold::Changed))
     ));
     assert_eq!(repo.git(&["rev-parse", "main"]), tip);
 
@@ -436,7 +436,7 @@ fn a_branch_moved_to_the_tip_by_another_hand_is_held_not_moved() {
     assert_eq!(repo.git(&["rev-parse", "main@{1}"]), tip);
     assert!(matches!(
         step.switch_reset(&repo.dir, tip, next.clone()),
-        Ok(UpdateDone::Held(SyncHold::Changed))
+        Ok(UpdateDone::Held(BranchSyncHold::Changed))
     ));
     assert_eq!(repo.git(&["rev-parse", "main"]), next);
 }

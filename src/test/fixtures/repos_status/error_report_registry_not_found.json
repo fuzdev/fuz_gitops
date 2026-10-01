@@ -1,5 +1,5 @@
 {
-	"version": 17,
+	"version": 18,
 	"error": {
 		"kind": "registry_not_found",
 		"message": "no repos.toml found in /home/me or any parent directory",

@@ -42,7 +42,8 @@ import type {
 	ReposSession,
 	ReposStatusReport,
 	ReposUncommitted,
-	ReposUnavailable
+	ReposUnavailable,
+	ReposUnreachableCause
 } from './repos_status.ts';
 
 /** One way a repo isn't where the registry puts it, or isn't ready to publish. */
@@ -556,25 +557,34 @@ const format_needs_human = (reason: ReposNeedsHuman): string => {
 	}
 };
 
+// worded as Rust's `RemoteFailure::words` words it with its detail, so the
+// TS messages and `repos status` say the same
 const format_fetch_failure = (failure: ReposFetchFailure): string => {
 	switch (failure.kind) {
 		case 'ref_gone':
-			return `ref_gone: ${failure.refname}`;
+			return `origin has no ${failure.refname}`;
 		case 'unreachable':
-			return `unreachable (${failure.cause}): ${failure.message}`;
+			return `${UNREACHABLE_WORDS[failure.cause]} — ${failure.message}`;
 		case 'repo_not_found':
-			return `repo_not_found: ${failure.message}`;
+			return `repo not found — ${failure.message}`;
 		case 'timed_out':
 			return `timed out after ${failure.after_secs}s`;
 		case 'failed':
 			return failure.message;
 		case 'refspec_outside_origin':
-			return `refused: refspec ${failure.refspec} writes outside refs/remotes/origin/`;
+			return `not run — refspec ${failure.refspec} writes outside refs/remotes/origin/`;
 		case 'origin_refs_shared':
-			return `refused: remote ${failure.remote}'s refspec ${failure.refspec} writes origin's refs`;
+			return `not run — remote ${failure.remote}'s refspec ${failure.refspec} can write under refs/remotes/origin/, which pruning origin may empty`;
 		case 'legacy_remotes_unreadable':
-			return `refused: ${failure.path} can't be read`;
+			return `not run — the legacy remote ${failure.path} couldn't be read, and may share origin's refs`;
 	}
+};
+
+const UNREACHABLE_WORDS: Record<ReposUnreachableCause, string> = {
+	dns: 'host not found',
+	connection: 'no connection',
+	host_key: 'host not trusted',
+	auth: 'access denied'
 };
 
 const format_unavailable = (reason: ReposUnavailable): string => {
@@ -592,7 +602,7 @@ const format_unavailable = (reason: ReposUnavailable): string => {
 };
 
 const unprobed_detail = (entry: ReposEntryStatus): string => {
-	if (entry.probe_error !== null) return `probing failed: ${entry.probe_error}`;
+	if (entry.probe_error !== null) return `probing failed: ${entry.probe_error.message}`;
 	switch (entry.presence.kind) {
 		case 'missing':
 			return 'missing';

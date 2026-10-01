@@ -9,7 +9,7 @@ use fuz_repos::classify::{NeedsHuman, Refresh};
 use fuz_repos::registry::RegistryDirs;
 use fuz_repos::sessions::LiveSessions;
 use fuz_repos::state::{
-    CleanupReason, GitDirHolds, InProgressOp, Prune, PruneLoss, UnprobedHead, UnprobedWhy,
+    CleanupReason, GitDirHolds, Head, InProgressOp, Prune, PruneLoss, UnprobedWhy,
     UnprobedWorktree, Verdict,
 };
 use fuz_repos::status::{StatusOptions, status};
@@ -39,7 +39,7 @@ fn pruning_a_gone_detached_worktree_would_lose_its_commit() {
         [UnprobedWorktree {
             path: path(&wt),
             git_dir: Some(path(&git_dir)),
-            head: UnprobedHead::Detached { commit: spike },
+            head: Some(Head::Detached { commit: spike }),
             locked: false,
             in_progress: None,
             why: UnprobedWhy::Prunable,

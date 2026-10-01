@@ -144,6 +144,27 @@ describe('the mirror refuses drift', () => {
 				)
 			)
 		);
+		// a refresh's hold is never a branch's
+		assert_refused(
+			ReposStatusReport.safeParse(
+				report_with((_, entry) => {
+					const branch = entry.branches[0];
+					assert.ok(branch);
+					branch.verdict = { kind: 'held', action: { kind: 'move' }, by: 'pinned' };
+					Object.assign(branch.verdict, { by: 'origin_not_https' });
+				})
+			)
+		);
+		// an unreadable HEAD is `null`, never a kind of its own
+		assert_refused(
+			ReposStatusReport.safeParse(
+				report_with((_, entry) => {
+					const unprobed = entry.unprobed_worktrees[0];
+					assert.ok(unprobed);
+					Object.assign(unprobed, { head: { kind: 'unknown' } });
+				})
+			)
+		);
 		// `repos push`'s alone
 		assert_refused(
 			ReposStatusErrorReport.safeParse(

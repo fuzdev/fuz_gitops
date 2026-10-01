@@ -1,5 +1,5 @@
 {
-	"version": 17,
+	"version": 18,
 	"error": {
 		"kind": "registry_parse",
 		"message": "invalid registry at /home/me/dev/repos.toml:\nTOML parse error at line 4, column 1: invalid table header",

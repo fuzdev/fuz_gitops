@@ -40,7 +40,7 @@ pub fn render_push_summary(report: &PushReport, view: View<'_>) -> String {
     for e in &report.status.entries {
         let key = &e.key;
         if let Some(error) = &e.probe_error {
-            failed.push(format!("{key} (probe: {})", first_line(error)));
+            failed.push(format!("{key} (probe: {})", first_line(&error.message)));
         }
         if let Some(failure) = &e.fetch_error {
             failed.push(format!("{key} (fetch: {})", failure.words(false)));
@@ -579,7 +579,7 @@ impl Groups {
 
         if let Some(error) = &e.probe_error {
             self.failed
-                .push(format!("{key} (probe: {})", first_line(error)));
+                .push(format!("{key} (probe: {})", first_line(&error.message)));
         }
         if let Some(failure) = &e.fetch_error {
             self.failed
@@ -628,7 +628,7 @@ impl Groups {
             }
             (Some(CloneVerdict::Act { .. }), false) => self.act.add_clone(key, ""),
             (Some(CloneVerdict::Held { by, .. }), false) => {
-                self.held.add_clone(key, held_note(*by));
+                self.held.add_clone(key, clone_held_note(*by));
             }
             (None, _) => {}
         }
@@ -648,7 +648,8 @@ impl Groups {
                 // what it holds
                 Verdict::Quiet
                 | Verdict::Held {
-                    by: HeldBy::Pinned, ..
+                    by: BranchHold::Pinned,
+                    ..
                 } => {}
                 Verdict::Act { action } => self.act.add(*action, &label(b), ""),
                 Verdict::Held { action, by } => {
@@ -773,7 +774,7 @@ impl Groups {
     fn add_clone_outcome(&mut self, key: &str, outcome: Option<&CloneOutcome>) {
         match outcome {
             Some(CloneOutcome::Cloned { .. }) => self.act.add_clone(key, ""),
-            Some(CloneOutcome::Held { by }) => self.held.add_clone(key, hold_note(*by)),
+            Some(CloneOutcome::Held { by }) => self.held.add_clone(key, clone_hold_note(*by)),
             Some(CloneOutcome::CloneFailed { failure }) => self
                 .failed
                 .push(format!("{key} (clone: {})", failure.words(false))),
@@ -802,7 +803,7 @@ impl Groups {
             // a pin is a standing choice: counted, not held
             Some(
                 BranchOutcome::Held {
-                    by: SyncHold::Pinned,
+                    by: BranchSyncHold::Pinned,
                     ..
                 }
                 | BranchOutcome::Untouched,

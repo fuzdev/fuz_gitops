@@ -21,9 +21,9 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 use fuz_repos::classify::NeedsHuman;
 use fuz_repos::remote::RemoteFailure;
-use fuz_repos::report::{BranchOutcome, BranchSync, EntrySync, FetchOutcome, SyncHold};
+use fuz_repos::report::{BranchOutcome, BranchSync, BranchSyncHold, EntrySync, FetchOutcome};
 use fuz_repos::sessions::{LiveSessions, Session, SessionSource, Unavailable};
-use fuz_repos::state::{BranchNeedsHuman, HeldBy, Relation, SyncAction, Verdict};
+use fuz_repos::state::{BranchHold, BranchNeedsHuman, Relation, SyncAction, Verdict};
 use fuz_repos::sync::SyncRun;
 use support::{FixtureWorkspace, LiveChild, branch, find_entry, write};
 
@@ -201,7 +201,7 @@ fn a_dirty_checkout_holds_its_branch_and_nothing_else() {
         outcome(&run, "app", "main"),
         &BranchOutcome::Held {
             action: ff(1),
-            by: SyncHold::DirtyCheckout
+            by: BranchSyncHold::DirtyCheckout
         }
     );
     assert!(matches!(
@@ -233,7 +233,7 @@ fn a_checkout_dirtied_after_classifying_is_held() {
         outcome(&run, "app", "main"),
         &BranchOutcome::Held {
             action: ff(1),
-            by: SyncHold::DirtyCheckout
+            by: BranchSyncHold::DirtyCheckout
         }
     );
     // feat acted first (the reader's second call was its re-check)
@@ -263,14 +263,14 @@ fn a_busy_checkout_holds_its_branch() {
         branch(e, "main").verdict,
         Verdict::Held {
             action: ff(1),
-            by: HeldBy::Busy
+            by: BranchHold::Busy
         }
     );
     assert_eq!(
         outcome(&run, "app", "main"),
         &BranchOutcome::Held {
             action: ff(1),
-            by: SyncHold::Busy
+            by: BranchSyncHold::Busy
         }
     );
     // a branch checked out nowhere still acts
@@ -309,7 +309,7 @@ fn sessions_are_read_after_the_fetch_and_again_before_acting() {
         outcome(&run, "app", "main"),
         &BranchOutcome::Held {
             action: ff(1),
-            by: SyncHold::Busy
+            by: BranchSyncHold::Busy
         }
     );
     assert_eq!(
@@ -338,7 +338,7 @@ fn sessions_are_read_after_the_fetch_and_again_before_acting() {
         outcome(&run, "app", "main"),
         &BranchOutcome::Held {
             action: ff(1),
-            by: SyncHold::Busy
+            by: BranchSyncHold::Busy
         }
     );
     assert_eq!(
@@ -362,7 +362,7 @@ fn unavailable_busy_detection_fetches_only() {
             outcome(&run, "app", name),
             &BranchOutcome::Held {
                 action: ff(1),
-                by: SyncHold::BusyUnknown
+                by: BranchSyncHold::BusyUnknown
             },
             "{name}"
         );
@@ -390,7 +390,7 @@ fn unavailable_busy_detection_fetches_only() {
             outcome(&run, "app", name),
             &BranchOutcome::Held {
                 action: ff(1),
-                by: SyncHold::BusyUnknown
+                by: BranchSyncHold::BusyUnknown
             },
             "{name}"
         );
@@ -725,7 +725,7 @@ fn an_owned_entry_with_origin_drift_is_never_fetched() {
         branch(&e, "main").verdict,
         Verdict::Held {
             action: SyncAction::Push { commits: 1 },
-            by: HeldBy::Entry
+            by: BranchHold::Entry
         }
     );
 
@@ -736,7 +736,7 @@ fn an_owned_entry_with_origin_drift_is_never_fetched() {
         outcome(&run, "app", "main"),
         &BranchOutcome::Held {
             action: SyncAction::Push { commits: 1 },
-            by: SyncHold::Entry
+            by: BranchSyncHold::Entry
         }
     );
     assert_eq!(ws.ssh_log(), Vec::<String>::new());
@@ -797,7 +797,7 @@ fn an_owned_fetch_a_rewrite_sends_elsewhere_is_never_made() {
         branch(&e, "main").verdict,
         Verdict::Held {
             action: SyncAction::Push { commits: 1 },
-            by: HeldBy::Entry
+            by: BranchHold::Entry
         }
     );
 
@@ -808,7 +808,7 @@ fn an_owned_fetch_a_rewrite_sends_elsewhere_is_never_made() {
         outcome(&run, "app", "main"),
         &BranchOutcome::Held {
             action: SyncAction::Push { commits: 1 },
-            by: SyncHold::Entry
+            by: BranchSyncHold::Entry
         }
     );
     assert_eq!(ws.ssh_log(), Vec::<String>::new());
@@ -848,7 +848,7 @@ fn an_owned_origin_an_alias_resolves_to_the_registrys_repo_is_fetched() {
         branch(&e, "main").verdict,
         Verdict::Held {
             action: SyncAction::FastForward { commits: 1 },
-            by: HeldBy::Entry
+            by: BranchHold::Entry
         }
     );
     let log = ws.ssh_log();
@@ -864,7 +864,7 @@ fn an_owned_origin_an_alias_resolves_to_the_registrys_repo_is_fetched() {
         outcome(&run, "app", "main"),
         &BranchOutcome::Held {
             action: SyncAction::FastForward { commits: 1 },
-            by: SyncHold::Entry
+            by: BranchSyncHold::Entry
         }
     );
 }
@@ -922,7 +922,7 @@ fn a_failed_fetch_holds_every_move() {
             outcome(&run, "app", name),
             &BranchOutcome::Held {
                 action: ff(1),
-                by: SyncHold::FetchFailed
+                by: BranchSyncHold::FetchFailed
             },
             "{name}"
         );
@@ -1030,7 +1030,7 @@ fn outcomes_are_the_same_whatever_the_jobs() {
     assert!(matches!(
         kinds["third"][..],
         [BranchOutcome::Held {
-            by: SyncHold::DirtyCheckout,
+            by: BranchSyncHold::DirtyCheckout,
             ..
         }]
     ));
@@ -1063,7 +1063,7 @@ fn a_symbolic_branch_ref_never_acts() {
         outcome(&run, "app", "main"),
         &BranchOutcome::Held {
             action: ff(1),
-            by: SyncHold::DirtyCheckout
+            by: BranchSyncHold::DirtyCheckout
         }
     );
     // `main` never moved under its dirty files; `m` is still its alias
@@ -1145,7 +1145,7 @@ fn a_branch_made_a_symbolic_ref_before_acting_is_held() {
         outcome(&run, "app", "feat"),
         &BranchOutcome::Held {
             action: ff(1),
-            by: SyncHold::Changed
+            by: BranchSyncHold::Changed
         }
     );
     // `main` moved only by its own fast-forward, its files with it
@@ -1182,7 +1182,7 @@ fn head_leaving_the_branch_before_its_fast_forward_is_held() {
         outcome(&run, "app", "main"),
         &BranchOutcome::Held {
             action: ff(1),
-            by: SyncHold::Changed
+            by: BranchSyncHold::Changed
         }
     );
     // neither `main` nor the branch HEAD moved to was touched
@@ -1235,7 +1235,7 @@ fn a_shallow_branch_that_gained_a_commit_before_its_move_is_held() {
             outcome(&run, "app", name),
             &BranchOutcome::Held {
                 action: SyncAction::Move,
-                by: SyncHold::Changed
+                by: BranchSyncHold::Changed
             },
             "{name}"
         );
@@ -1263,7 +1263,7 @@ fn a_branch_deleted_before_its_action_is_held() {
         outcome(&run, "app", "feat"),
         &BranchOutcome::Held {
             action: ff(1),
-            by: SyncHold::Changed
+            by: BranchSyncHold::Changed
         }
     );
     assert!(matches!(
@@ -1291,7 +1291,7 @@ fn a_branch_deleted_before_its_action_is_held() {
         outcome(&run, "app", "side"),
         &BranchOutcome::Held {
             action: SyncAction::Move,
-            by: SyncHold::Changed
+            by: BranchSyncHold::Changed
         }
     );
     assert_eq!(ws.git(&app, &["rev-parse", "main"]), main_tip);
@@ -1327,7 +1327,7 @@ fn a_shallow_branch_checked_out_before_its_move_in_place_is_held() {
         outcome(&run, "app", "side"),
         &BranchOutcome::Held {
             action: SyncAction::Move,
-            by: SyncHold::Changed
+            by: BranchSyncHold::Changed
         }
     );
     // `side` stayed under the worktree that took it; `main` moved
@@ -1451,7 +1451,7 @@ fn a_shallow_branch_made_a_symbolic_ref_before_its_move_is_held() {
         outcome(&run, "app", "side"),
         &BranchOutcome::Held {
             action: SyncAction::Move,
-            by: SyncHold::Changed
+            by: BranchSyncHold::Changed
         }
     );
     assert_eq!(

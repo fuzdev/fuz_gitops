@@ -1,13 +1,21 @@
 {
-	"version": 11,
+	"version": 12,
 	"status": {
-		"version": 17,
+		"version": 18,
 		"workspace": "/home/me/dev",
 		"registry": "/home/me/dev/repos.toml",
 		"fetched": true,
 		"sessions": {
 			"kind": "available",
-			"unscoped": []
+			"unscoped": [
+				{
+					"pid": 1500,
+					"cwd": "/home/me/dev/webref/src",
+					"worktree": null,
+					"process_cwd": null,
+					"source": "session_file"
+				}
+			]
 		},
 		"entries": [
 			{
@@ -1262,6 +1270,43 @@
 				"visibility_check": null
 			},
 			{
+				"key": "webref",
+				"kind": "reference",
+				"dir": "webref",
+				"url": "https://github.com/them/webref",
+				"writable": false,
+				"archived": false,
+				"visibility": null,
+				"ci": false,
+				"branch": null,
+				"pinned": false,
+				"refresh": null,
+				"presence": {
+					"kind": "missing"
+				},
+				"clone": {
+					"kind": "held",
+					"recipe": {
+						"url": "https://github.com/them/webref",
+						"branch": null,
+						"shallow": true,
+						"sparse": "css"
+					},
+					"by": "busy"
+				},
+				"layout": null,
+				"checkouts": [],
+				"branches": [],
+				"at_rest": null,
+				"stashes": 0,
+				"fetched_at": null,
+				"needs_human": [],
+				"probe_error": null,
+				"unprobed_worktrees": [],
+				"fetch_error": null,
+				"visibility_check": null
+			},
+			{
 				"key": "broken",
 				"kind": "repo",
 				"dir": "broken",
@@ -1288,7 +1333,10 @@
 				"stashes": 0,
 				"fetched_at": null,
 				"needs_human": [],
-				"probe_error": "git status failed (128): error: bad tree object HEAD",
+				"probe_error": {
+					"kind": "git_failed",
+					"message": "git status failed (128): error: bad tree object HEAD"
+				},
 				"unprobed_worktrees": [],
 				"fetch_error": null,
 				"visibility_check": null
@@ -1636,6 +1684,17 @@
 			"clone": {
 				"kind": "failed",
 				"message": "can't move the clone into /home/me/dev/dom: Permission denied (os error 13)"
+			},
+			"branches": []
+		},
+		{
+			"key": "webref",
+			"fetch": {
+				"kind": "not_fetched"
+			},
+			"clone": {
+				"kind": "held",
+				"by": "busy"
 			},
 			"branches": []
 		},

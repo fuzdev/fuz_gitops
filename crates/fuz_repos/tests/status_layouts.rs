@@ -4,7 +4,9 @@
 
 mod support;
 
-use fuz_repos::state::{BranchNeedsHuman, Head, Presence, Relation, SyncAction, Verdict};
+use fuz_repos::state::{
+    BranchNeedsHuman, Head, Presence, ProbeErrorKind, Relation, SyncAction, Verdict,
+};
 use support::{FixtureWorkspace, branch, find_entry};
 
 /// Every object reachable from a ref, missing ones marked `?`.
@@ -199,8 +201,9 @@ fn a_probe_that_needs_a_missing_object_fails_rather_than_fetching() {
     // nothing fetched: the probe refused instead of guessing
     assert_eq!(objects(&ws, &app), before);
     assert_eq!(e.presence, Presence::Present);
-    let error = e.probe_error.as_deref().unwrap_or_default();
-    assert!(error.contains("bad tree object HEAD"), "{e:?}");
+    let error = e.probe_error.as_ref().unwrap();
+    assert_eq!(error.kind, ProbeErrorKind::GitFailed);
+    assert!(error.message.contains("bad tree object HEAD"), "{e:?}");
     // the layout survives the failure, so the hint keys on the filter
     assert_eq!(
         e.layout.as_ref().and_then(|l| l.partial_filter.as_deref()),
@@ -258,8 +261,9 @@ fn a_full_clone_probe_failure_is_not_a_partial_one() {
     std::fs::remove_file(app.join(".git/objects").join(dir).join(file)).unwrap();
 
     let e = ws.entry("app");
-    let error = e.probe_error.as_deref().unwrap_or_default();
-    assert!(error.contains("bad tree object HEAD"), "{e:?}");
+    let error = e.probe_error.as_ref().unwrap();
+    assert_eq!(error.kind, ProbeErrorKind::GitFailed);
+    assert!(error.message.contains("bad tree object HEAD"), "{e:?}");
     assert_eq!(
         e.layout.as_ref().map(|l| l.partial_filter.as_deref()),
         Some(None)

@@ -9,7 +9,7 @@ use std::path::{Path, PathBuf};
 
 use fuz_repos::report::Sessions;
 use fuz_repos::sessions::{LiveSessions, Session, SessionSource};
-use fuz_repos::state::{HeldBy, UnprobedWhy, Verdict};
+use fuz_repos::state::{BranchHold, UnprobedWhy, Verdict};
 use support::busy::{ahead_branch, app, child_session, claude_dir, held, push, read, read_as};
 use support::{FixtureWorkspace, LiveChild, branch, dead_pid, find_entry, path};
 
@@ -59,7 +59,7 @@ fn assert_lib_feat(
         .collect();
     if let Some(s) = holder {
         assert_eq!(busy, [(path(wt).as_str(), std::slice::from_ref(s))]);
-        assert_eq!(branch(e, "feat").verdict, held(push(1), HeldBy::Busy));
+        assert_eq!(branch(e, "feat").verdict, held(push(1), BranchHold::Busy));
     } else {
         assert_eq!(busy, []);
         assert_eq!(branch(e, "feat").verdict, Verdict::Act { action: push(1) });

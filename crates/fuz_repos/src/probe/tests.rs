@@ -347,9 +347,9 @@ fn an_unlisted_worktree_takes_its_path_from_a_readable_gitdir() {
     );
     assert_eq!(
         u.head,
-        UnprobedHead::Branch {
+        Some(Head::Branch {
             name: "feat".into()
-        }
+        })
     );
     assert_eq!(u.in_progress, Some(InProgressOp::Rebase));
     // not: the git dir itself
@@ -393,7 +393,7 @@ fn a_failed_record_takes_its_head_from_its_git_dir() {
     probe_record(&git, record, Some(&git_dir), true, &HashSet::new(), &mut w);
     assert_eq!(git.spawns(), 0);
     assert_eq!(w.unprobed.len(), 1);
-    assert_eq!(w.unprobed[0].head, UnprobedHead::Unknown);
+    assert_eq!(w.unprobed[0].head, None);
     assert_eq!(w.unprobed[0].why, UnprobedWhy::Missing);
 }
 
@@ -536,4 +536,46 @@ purpose = "a .git git can't use"
         "{}",
         details[2]
     );
+}
+
+/// A git call's failure is classed by how it failed, git's words kept.
+#[test]
+fn a_git_failure_is_classed_by_how_it_failed() {
+    let args = || "status".to_owned();
+    for (e, kind) in [
+        (GitError::NotFound, ProbeErrorKind::GitNotRun),
+        (
+            GitError::Spawn(std::io::Error::other("no fds")),
+            ProbeErrorKind::GitNotRun,
+        ),
+        (
+            GitError::Timeout {
+                args: args(),
+                after: Duration::from_secs(60),
+            },
+            ProbeErrorKind::GitTimedOut,
+        ),
+        (
+            GitError::Failed {
+                args: args(),
+                code: Some(128),
+                stderr: "fatal: bad object".into(),
+            },
+            ProbeErrorKind::GitFailed,
+        ),
+        (
+            GitError::OutputTooLarge {
+                args: args(),
+                cap: 1,
+            },
+            ProbeErrorKind::UnexpectedOutput,
+        ),
+        (
+            GitError::NonUtf8 { args: args() },
+            ProbeErrorKind::UnexpectedOutput,
+        ),
+    ] {
+        let message = e.to_string();
+        assert_eq!(git_failure(&e), ProbeError::new(kind, message));
+    }
 }

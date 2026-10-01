@@ -11,7 +11,7 @@ use std::path::Path;
 
 use fuz_repos::classify::NeedsHuman;
 use fuz_repos::state::{
-    CleanupReason, Head, HeldBy, InProgressOp, Relation, SyncAction, UnprobedHead, UnprobedWhy,
+    BranchHold, CleanupReason, Head, InProgressOp, Relation, SyncAction, UnprobedWhy,
     UnprobedWorktree, Verdict,
 };
 use support::worktrees::{app, behind_branch, pushed_branch};
@@ -75,14 +75,14 @@ fn a_worktree_that_cannot_be_looked_at_is_a_failure_not_gone() {
         branch(&e, "feat").verdict,
         Verdict::Held {
             action: ff(1),
-            by: HeldBy::UnprobedWorktree
+            by: BranchHold::UnprobedWorktree
         }
     );
     assert_eq!(
         branch(&e, "wip").verdict,
         Verdict::Held {
             action: SyncAction::Push { commits: 1 },
-            by: HeldBy::BusyUnknown
+            by: BranchHold::BusyUnknown
         }
     );
     assert_eq!(
@@ -137,9 +137,9 @@ fn a_worktree_git_does_not_list_is_still_a_fact() {
             UnprobedWorktree {
                 path: path(&blank_git_dir),
                 git_dir: Some(path(&blank_git_dir)),
-                head: UnprobedHead::Branch {
+                head: Some(Head::Branch {
                     name: "blank".into()
-                },
+                }),
                 locked: false,
                 in_progress: None,
                 why: UnprobedWhy::Failed {
@@ -153,9 +153,9 @@ fn a_worktree_git_does_not_list_is_still_a_fact() {
             UnprobedWorktree {
                 path: path(&git_dir),
                 git_dir: Some(path(&git_dir)),
-                head: UnprobedHead::Branch {
+                head: Some(Head::Branch {
                     name: "feat".into()
-                },
+                }),
                 locked: false,
                 in_progress: None,
                 why: UnprobedWhy::Failed {
@@ -173,7 +173,7 @@ fn a_worktree_git_does_not_list_is_still_a_fact() {
             branch(&e, b).verdict,
             Verdict::Held {
                 action: ff(1),
-                by: HeldBy::UnprobedWorktree
+                by: BranchHold::UnprobedWorktree
             },
             "{b}"
         );
@@ -211,7 +211,7 @@ fn an_unreadable_worktree_git_dir_holds_the_entry() {
     let u = &e.unprobed_worktrees[0].worktree;
     assert_eq!(u.path, path(&git_dir));
     // its HEAD can't be read: it might be on any branch
-    assert_eq!(u.head, UnprobedHead::Unknown);
+    assert_eq!(u.head, None);
     match &u.why {
         UnprobedWhy::Failed { error } => {
             assert!(error.starts_with("not listed by git: reading"), "{error}");
@@ -235,7 +235,7 @@ fn an_unreadable_worktree_git_dir_holds_the_entry() {
             branch(&e, b).verdict,
             Verdict::Held {
                 action,
-                by: HeldBy::Entry
+                by: BranchHold::Entry
             },
             "{b}"
         );
@@ -415,7 +415,7 @@ fn a_listed_worktree_whose_head_git_cannot_read_holds_every_fast_forward() {
 
     let e = ws.entry("app");
     assert!(e.needs_human.is_empty(), "{:?}", e.needs_human);
-    let heads: Vec<(&str, &UnprobedHead)> = e
+    let heads: Vec<(&str, &Option<Head>)> = e
         .unprobed_worktrees
         .iter()
         .map(|u| (u.worktree.path.as_str(), &u.worktree.head))
@@ -423,7 +423,7 @@ fn a_listed_worktree_whose_head_git_cannot_read_holds_every_fast_forward() {
     assert_eq!(heads.len(), 2, "{heads:?}");
     for (p, head) in heads {
         assert!(p == path(&missing) || p == path(&garbled), "{p}");
-        assert_eq!(*head, UnprobedHead::Unknown, "{p}");
+        assert_eq!(*head, None, "{p}");
     }
     // either might be on any branch: none reads as merged
     for b in ["missing", "garbled"] {
@@ -434,7 +434,7 @@ fn a_listed_worktree_whose_head_git_cannot_read_holds_every_fast_forward() {
         branch(&e, "main").verdict,
         Verdict::Held {
             action: ff(1),
-            by: HeldBy::UnprobedWorktree
+            by: BranchHold::UnprobedWorktree
         }
     );
     assert_eq!(
@@ -493,7 +493,7 @@ fn an_unreadable_worktrees_dir_holds_the_entry() {
                 branch(&e, b).verdict,
                 Verdict::Held {
                     action,
-                    by: HeldBy::Entry
+                    by: BranchHold::Entry
                 },
                 "{mode:o} {b}"
             );
@@ -604,7 +604,7 @@ fn an_unreadable_worktree_git_dir_withholds_cleanup_of_gone_branches() {
         .iter()
         .find(|u| u.worktree.path == path(&git_dirs[0]))
         .unwrap();
-    assert_eq!(u.worktree.head, UnprobedHead::Unknown);
+    assert_eq!(u.worktree.head, None);
     assert_eq!(branch(&e, "gone").relation, Relation::Gone);
     assert_eq!(branch(&e, "gone").verdict, Verdict::LocalOnly);
     assert_eq!(branch(&e, "gone0").verdict, Verdict::Quiet);
@@ -710,7 +710,7 @@ fn an_unlisted_worktree_mid_rebase_holds_the_entry() {
         branch(&e, "main").verdict,
         Verdict::Held {
             action: SyncAction::Push { commits: 1 },
-            by: HeldBy::Entry
+            by: BranchHold::Entry
         }
     );
 }
@@ -765,7 +765,7 @@ fn stray_entries_under_worktrees() {
         [UnprobedWorktree {
             path: path(&empty),
             git_dir: Some(path(&empty)),
-            head: UnprobedHead::Unknown,
+            head: None,
             locked: false,
             in_progress: None,
             why: UnprobedWhy::Failed {
@@ -831,9 +831,9 @@ fn copied_git_dir_serves_one_worktree(copy_name: &str, copy_head: &str) {
     assert_eq!(u.path, path(&wt));
     assert_eq!(
         u.head,
-        UnprobedHead::Branch {
+        Some(Head::Branch {
             name: copy_head.into()
-        },
+        }),
         "{copy_name}"
     );
     assert!(

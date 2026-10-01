@@ -30,8 +30,8 @@ use crate::registry::{Entry, RegistryDirs};
 use crate::regular_file::{open_regular, read_regular};
 use crate::remote::{RefspecContext, RemoteFailure};
 use crate::state::{
-    Checkout, GitDirHolds, Head, InProgressOp, Layout, RefreshVerdict, UnprobedHead, UnprobedWhy,
-    UnprobedWorktree,
+    Checkout, GitDirHolds, Head, InProgressOp, Layout, ProbeError, ProbeErrorKind, RefreshVerdict,
+    UnprobedWhy, UnprobedWorktree,
 };
 
 /// What the probe needs from its caller.
@@ -109,7 +109,7 @@ pub enum Probed {
     /// `config` is the repo's, once `probe_config` has read it: the
     /// refresh verdict (`refresh_verdict`) the fetch obeyed.
     Failed {
-        error: String,
+        error: ProbeError,
         layout: Option<Layout>,
         config: Option<Box<ConfigFacts>>,
     },
@@ -304,7 +304,7 @@ fn probe_present(
     dir: &Path,
     cx: ProbeContext<'_>,
     early: &mut Recorded,
-) -> Result<Probed, String> {
+) -> Result<Probed, ProbeError> {
     let local = CallOptions {
         ceiling: Some(cx.root),
         network: None,
@@ -348,8 +348,8 @@ fn probe_present(
     let status = cx
         .git
         .output(dir, &STATUS_ARGS, local)
-        .map_err(|e| e.to_string())?;
-    let status = porcelain::parse_status(&status)?;
+        .map_err(|e| git_failure(&e))?;
+    let status = porcelain::parse_status(&status).map_err(unexpected_output)?;
 
     let branches = probe_branches(cx.git, dir, &shallow_roots, local)?;
 
@@ -361,7 +361,10 @@ fn probe_present(
         && config.origin_url().is_some()
         && branches.iter().any(|b| could_push(b, layout.shallow))
     {
-        Some(read_push_urls(cx.git, dir, local)?)
+        Some(
+            read_push_urls(cx.git, dir, local)
+                .map_err(|m| ProbeError::new(ProbeErrorKind::PushUrlsUnreadable, m))?,
+        )
     } else {
         None
     };
@@ -453,13 +456,18 @@ enum NoRepo {
 ///
 /// Why it can't be told: a path that can't be looked up or isn't UTF-8, or
 /// a `rev-parse` that didn't run or printed something else.
-fn locate(dir: &Path, git: &Git, local: CallOptions<'_>) -> Result<Located, String> {
+fn locate(dir: &Path, git: &Git, local: CallOptions<'_>) -> Result<Located, ProbeError> {
     if let Some(no_repo) = presence(dir)? {
         return Ok(Located::NoRepo(no_repo));
     }
     let path = dir
         .to_str()
-        .ok_or_else(|| format!("non-UTF-8 path {}", dir.display()))?
+        .ok_or_else(|| {
+            ProbeError::new(
+                ProbeErrorKind::NonUtf8Path,
+                format!("non-UTF-8 path {}", dir.display()),
+            )
+        })?
         .to_owned();
     let out = match git.output_string(
         dir,
@@ -477,11 +485,13 @@ fn locate(dir: &Path, git: &Git, local: CallOptions<'_>) -> Result<Located, Stri
                 detail: not_a_repo_detail(dir, &stderr),
             }));
         }
-        Err(e) => return Err(e.to_string()),
+        Err(e) => return Err(git_failure(&e)),
     };
     let mut lines = out.lines();
     let (Some(git_dir), Some(common_dir)) = (lines.next(), lines.next()) else {
-        return Err(format!("rev-parse: unexpected output `{out}`"));
+        return Err(unexpected_output(format!(
+            "rev-parse: unexpected output `{out}`"
+        )));
     };
     let common_dir = PathBuf::from(common_dir);
     Ok(Located::Repo(RepoDirs {
@@ -500,10 +510,13 @@ fn locate(dir: &Path, git: &Git, local: CallOptions<'_>) -> Result<Located, Stri
 /// # Errors
 ///
 /// A path that can't be looked up.
-fn presence(dir: &Path) -> Result<Option<NoRepo>, String> {
+fn presence(dir: &Path) -> Result<Option<NoRepo>, ProbeError> {
     match std::fs::symlink_metadata(dir) {
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(Some(NoRepo::Missing)),
-        Err(e) => Err(format!("can't look up {}: {e}", dir.display())),
+        Err(e) => Err(ProbeError::new(
+            ProbeErrorKind::PathUnreadable,
+            format!("can't look up {}: {e}", dir.display()),
+        )),
         Ok(meta) if meta.file_type().is_symlink() => {
             let Err(e) = std::fs::metadata(dir) else {
                 return Ok(None);
@@ -537,16 +550,19 @@ fn probe_config(
     common_dir: &Path,
     cx: ProbeContext<'_>,
     local: CallOptions<'_>,
-) -> Result<ConfigFacts, String> {
+) -> Result<ConfigFacts, ProbeError> {
     // the repo's own config file, which the advised `git remote` and `git
     // config` commands edit; git prints its path relative to `dir` from the
     // main checkout, absolute from a linked worktree
     let repo_file = canonical(&common_dir.join("config"));
     let is_repo_file = |path: &str| repo_file.is_some() && canonical(&dir.join(path)) == repo_file;
-    let mut config = read_config(cx.git, dir, local, is_repo_file).map_err(|e| match e {
-        ConfigReadError::Git(e) => e.to_string(),
-        ConfigReadError::Exit { stderr } => format!("config failed: {}", stderr.trim()),
-        ConfigReadError::Parse(message) => message,
+    let mut config = read_config(cx.git, dir, local, is_repo_file).map_err(|e| {
+        let message = match e {
+            ConfigReadError::Git(e) => e.to_string(),
+            ConfigReadError::Exit { stderr } => format!("config failed: {}", stderr.trim()),
+            ConfigReadError::Parse(message) => message,
+        };
+        ProbeError::new(ProbeErrorKind::ConfigUnreadable, message)
     })?;
     // where a fetch would reach, rewrites applied: classify holds an owned
     // entry's that isn't the registry's repo (`fetch_url_mismatch`), and a
@@ -554,7 +570,12 @@ fn probe_config(
     if (syncs_owned(entry) || refresh_intent(entry, cx.refresh) == Some(RefreshVerdict::Act))
         && config.origin_url().is_some()
     {
-        let url = read_fetch_url(cx.git, dir, local).map_err(|e| format!("fetch URL: {e}"))?;
+        let url = read_fetch_url(cx.git, dir, local).map_err(|e| {
+            ProbeError::new(
+                ProbeErrorKind::FetchUrlUnreadable,
+                format!("fetch URL: {e}"),
+            )
+        })?;
         config.origin_fetch_url = Some(url);
     }
     Ok(config)
@@ -634,12 +655,12 @@ fn probe_branches(
     dir: &Path,
     shallow_roots: &HashSet<String>,
     local: CallOptions<'_>,
-) -> Result<Vec<BranchFacts>, String> {
+) -> Result<Vec<BranchFacts>, ProbeError> {
     let format = format!("--format={}", porcelain::REFS_FORMAT);
     let refs = git
         .output(dir, &["for-each-ref", &format, "refs/heads"], local)
-        .map_err(|e| e.to_string())?;
-    let refs = porcelain::parse_refs(&refs)?;
+        .map_err(|e| git_failure(&e))?;
+    let refs = porcelain::parse_refs(&refs).map_err(unexpected_output)?;
     let mut branches = Vec::with_capacity(refs.len());
     for r in refs {
         let (unique_commits, on_fetched_tip) = if could_carry_local_work(&r) {
@@ -668,7 +689,7 @@ fn other_worktrees(
     dirs: &RepoDirs,
     branches: &[BranchFacts],
     local: CallOptions<'_>,
-) -> Result<Worktrees, String> {
+) -> Result<Worktrees, ProbeError> {
     let dir = Path::new(&dirs.path);
     let worktrees_dir = dirs.common_dir.join("worktrees");
     match std::fs::metadata(&worktrees_dir) {
@@ -991,11 +1012,11 @@ fn probe_worktrees(
     common_dir: &Path,
     gone_branches: &HashSet<&str>,
     opts: CallOptions<'_>,
-) -> Result<Worktrees, String> {
+) -> Result<Worktrees, ProbeError> {
     let out = git
         .output(dir, &["worktree", "list", "--porcelain", "-z"], opts)
-        .map_err(|e| e.to_string())?;
-    let records = porcelain::parse_worktrees(&out)?;
+        .map_err(|e| git_failure(&e))?;
+    let records = porcelain::parse_worktrees(&out).map_err(unexpected_output)?;
     let mut w = Worktrees::default();
     let worktree_git_dirs = read_worktree_git_dirs(common_dir).unwrap_or_else(|_| {
         w.unreadable
@@ -1141,7 +1162,7 @@ fn probe_record(
             // git lists a HEAD it couldn't read as detached, or with no head
             // at all: read it from the git dir, failing closed
             let head = match (&record.head, git_dir) {
-                (WorktreeHead::Branch { name }, _) => UnprobedHead::Branch { name: name.clone() },
+                (WorktreeHead::Branch { name }, _) => Some(Head::Branch { name: name.clone() }),
                 (_, Some(d)) => read_head(d),
                 (head, None) => unprobed_head(head),
             };
@@ -1149,7 +1170,7 @@ fn probe_record(
             // one that can't be matched can't be read at all
             let holds = git_dir
                 .filter(|_| why == UnprobedWhy::Prunable)
-                .map(|d| git_dir_holds(git, d, &head));
+                .map(|d| git_dir_holds(git, d, head.as_ref()));
             w.unprobed.push(UnprobedWorktree {
                 path: record.path,
                 git_dir: git_dir.map(shown_git_dir),
@@ -1186,16 +1207,16 @@ fn unlisted_worktree(git_dir: &WorktreeGitDir, unreadable: &mut Vec<String>) -> 
     }
 }
 
-/// A record's head in `UnprobedHead`'s terms: to compare with a worktree
-/// git dir's `HEAD` (`match_worktree_git_dir`), or as an unprobed
-/// worktree's head when its git dir is unknown.
-fn unprobed_head(head: &WorktreeHead) -> UnprobedHead {
+/// A record's head as an unprobed worktree's, `None` when unknown: to
+/// compare with a worktree git dir's `HEAD` (`match_worktree_git_dir`), or
+/// as an unprobed worktree's head when its git dir is unknown.
+fn unprobed_head(head: &WorktreeHead) -> Option<Head> {
     match head {
-        WorktreeHead::Branch { name } => UnprobedHead::Branch { name: name.clone() },
-        WorktreeHead::Detached { commit } => UnprobedHead::Detached {
+        WorktreeHead::Branch { name } => Some(Head::Branch { name: name.clone() }),
+        WorktreeHead::Detached { commit } => Some(Head::Detached {
             commit: commit.clone(),
-        },
-        WorktreeHead::Bare | WorktreeHead::Unknown => UnprobedHead::Unknown,
+        }),
+        WorktreeHead::Bare | WorktreeHead::Unknown => None,
     }
 }
 
@@ -1238,10 +1259,10 @@ fn any_populated(path: &Path, gitlinks: &[String]) -> bool {
 /// index against HEAD by one `diff-index --cached` — not asked when its
 /// HEAD is unknown, and none needed when it has no index (added
 /// `--no-checkout`).
-fn git_dir_holds(git: &Git, git_dir: &Path, head: &UnprobedHead) -> GitDirHolds {
+fn git_dir_holds(git: &Git, git_dir: &Path, head: Option<&Head>) -> GitDirHolds {
     let staged = match git_dir.join("index").try_exists() {
         Ok(false) => Some(false),
-        Ok(true) if *head != UnprobedHead::Unknown => staged_changes(git, git_dir),
+        Ok(true) if head.is_some() => staged_changes(git, git_dir),
         Ok(true) | Err(_) => None,
     };
     GitDirHolds {
@@ -1574,7 +1595,7 @@ fn count_unique(
     r: &RefFacts,
     shallow_roots: &HashSet<String>,
     opts: CallOptions<'_>,
-) -> Result<(u32, bool), String> {
+) -> Result<(u32, bool), ProbeError> {
     let rev = format!("refs/heads/{}", r.name);
     if shallow_roots.is_empty() {
         let n = git
@@ -1583,30 +1604,30 @@ fn count_unique(
                 &["rev-list", "--count", &rev, "--not", "--remotes"],
                 opts,
             )
-            .map_err(|e| e.to_string())?;
+            .map_err(|e| git_failure(&e))?;
         let n = n
             .trim()
             .parse()
-            .map_err(|_| format!("rev-list --count: `{}`", n.trim()))?;
+            .map_err(|_| unexpected_output(format!("rev-list --count: `{}`", n.trim())))?;
         return Ok((n, false));
     }
     let out = git
         .output_string(dir, &["rev-list", &rev, "--not", "--remotes"], opts)
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| git_failure(&e))?;
     let n = out.lines().filter(|c| !shallow_roots.contains(*c)).count();
     let n = u32::try_from(n).unwrap_or(u32::MAX);
     let on_fetched_tip = match (&r.upstream_ref, n) {
         (Some(upstream), 1..) => {
             let out = git
                 .run(dir, &["merge-base", "--is-ancestor", upstream, &rev], opts)
-                .map_err(|e| e.to_string())?;
+                .map_err(|e| git_failure(&e))?;
             match out.status.code() {
                 Some(0) => true,
                 Some(1) => false,
                 _ => {
-                    return Err(format!(
-                        "merge-base --is-ancestor failed: {}",
-                        out.stderr.trim()
+                    return Err(ProbeError::new(
+                        ProbeErrorKind::GitFailed,
+                        format!("merge-base --is-ancestor failed: {}", out.stderr.trim()),
                     ));
                 }
             }
@@ -1614,6 +1635,28 @@ fn count_unique(
         _ => false,
     };
     Ok((n, on_fetched_tip))
+}
+
+/// A git call's failure as the probe reports it, classed by how it failed
+/// (`ProbeErrorKind`), git's message kept.
+fn git_failure(e: &GitError) -> ProbeError {
+    let kind = match e {
+        // `UnsupportedUrl` comes only from the anonymous read, which the probe never runs
+        GitError::NotFound | GitError::Spawn(_) | GitError::UnsupportedUrl { .. } => {
+            ProbeErrorKind::GitNotRun
+        }
+        GitError::Timeout { .. } => ProbeErrorKind::GitTimedOut,
+        GitError::Failed { .. } => ProbeErrorKind::GitFailed,
+        GitError::OutputTooLarge { .. } | GitError::NonUtf8 { .. } => {
+            ProbeErrorKind::UnexpectedOutput
+        }
+    };
+    ProbeError::new(kind, e.to_string())
+}
+
+/// Output the probe couldn't read, as it reports it.
+fn unexpected_output(message: String) -> ProbeError {
+    ProbeError::new(ProbeErrorKind::UnexpectedOutput, message)
 }
 
 /// The commits in `<commondir>/shallow`; empty for a full clone.

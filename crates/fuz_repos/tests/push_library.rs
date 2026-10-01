@@ -11,7 +11,7 @@ mod support;
 use std::path::Path;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use fuz_repos::report::{FetchOutcome, PushOutcome, SyncHold};
+use fuz_repos::report::{BranchSyncHold, FetchOutcome, PushOutcome};
 use fuz_repos::sessions::{LiveSessions, Session, SessionSource};
 use fuz_repos::state::{BranchNeedsHuman, Relation, SyncAction, Verdict};
 use support::cli::{repos, stderr, stdout};
@@ -267,7 +267,12 @@ fn a_busy_checkout_holds_the_push() {
     let run = ws.push_with(&["app"], &ws.root(), &|| live.clone());
     assert_eq!(
         only(&run),
-        (Some("main"), &PushOutcome::Held { by: SyncHold::Busy })
+        (
+            Some("main"),
+            &PushOutcome::Held {
+                by: BranchSyncHold::Busy
+            }
+        )
     );
     assert_eq!(remote_refs(&ws, "app"), remote_before);
 
@@ -290,7 +295,12 @@ fn a_busy_checkout_holds_the_push() {
     );
     assert_eq!(
         only(&run),
-        (Some("main"), &PushOutcome::Held { by: SyncHold::Busy })
+        (
+            Some("main"),
+            &PushOutcome::Held {
+                by: BranchSyncHold::Busy
+            }
+        )
     );
     assert_eq!(remote_refs(&ws, "app"), remote_before);
     assert_eq!(pushes_served(&ws), Vec::<String>::new());
@@ -300,11 +310,11 @@ fn a_busy_checkout_holds_the_push() {
 fn origin_drift_holds_the_push() {
     // (config set in the clone, the hold its verdict names)
     type Drift = fn(&FixtureWorkspace, &Path);
-    let cases: [(&str, Drift, SyncHold); 2] = [
+    let cases: [(&str, Drift, BranchSyncHold); 2] = [
         (
             "origin",
             |ws, app| ws.set_origin(app, "other", "git@github.com:me/other"),
-            SyncHold::Entry,
+            BranchSyncHold::Entry,
         ),
         (
             "pushurl",
@@ -314,7 +324,7 @@ fn origin_drift_holds_the_push() {
                     &["config", "remote.origin.pushurl", "git@github.com:me/other"],
                 );
             },
-            SyncHold::PushUrl,
+            BranchSyncHold::PushUrl,
         ),
     ];
     for (case, drift, by) in cases {
@@ -369,7 +379,7 @@ fn no_upstream_reads_so_when_the_fetch_fails() {
         (
             Some("topic"),
             &PushOutcome::Held {
-                by: SyncHold::FetchFailed
+                by: BranchSyncHold::FetchFailed
             }
         )
     );

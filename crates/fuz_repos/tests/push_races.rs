@@ -17,7 +17,7 @@ use std::path::Path;
 use std::process::Command;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use fuz_repos::report::{PushOutcome, SyncHold};
+use fuz_repos::report::{BranchSyncHold, PushOutcome};
 use fuz_repos::sessions::LiveSessions;
 use fuz_repos::state::Relation;
 use support::push::{
@@ -86,7 +86,7 @@ fn a_remote_rewound_after_the_fetch_is_never_overwritten() {
         (
             Some("main"),
             &PushOutcome::Held {
-                by: SyncHold::Changed
+                by: BranchSyncHold::Changed
             }
         )
     );
@@ -117,7 +117,7 @@ fn a_remote_branch_deleted_after_the_fetch_is_never_recreated() {
         (
             Some("feat"),
             &PushOutcome::Held {
-                by: SyncHold::Changed
+                by: BranchSyncHold::Changed
             }
         )
     );
@@ -150,7 +150,7 @@ fn a_branch_created_on_origin_after_the_fetch_is_never_overwritten() {
         (
             Some("topic"),
             &PushOutcome::Held {
-                by: SyncHold::Changed
+                by: BranchSyncHold::Changed
             }
         )
     );
@@ -206,7 +206,7 @@ fn a_branch_changed_after_the_fetch_is_never_created() {
             (
                 Some("topic"),
                 &PushOutcome::Held {
-                    by: SyncHold::Changed
+                    by: BranchSyncHold::Changed
                 }
             ),
             "{case}"

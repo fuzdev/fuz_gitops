@@ -8,13 +8,13 @@ use super::{ClaudeDir, FixtureWorkspace, LiveChild, path, write};
 use fuz_repos::sessions::{
     LiveSessions, Session, SessionSource, SessionsSource, read_live_sessions,
 };
-use fuz_repos::state::{HeldBy, SyncAction, Verdict};
+use fuz_repos::state::{BranchHold, SyncAction, Verdict};
 
 pub const fn push(commits: u32) -> SyncAction {
     SyncAction::Push { commits }
 }
 
-pub const fn held(action: SyncAction, by: HeldBy) -> Verdict {
+pub const fn held(action: SyncAction, by: BranchHold) -> Verdict {
     Verdict::Held { action, by }
 }
 

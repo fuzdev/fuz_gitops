@@ -1,5 +1,5 @@
 {
-	"version": 17,
+	"version": 18,
 	"workspace": "/home/me/dev",
 	"registry": "/home/me/dev/repos.toml",
 	"fetched": true,
@@ -746,9 +746,7 @@
 				{
 					"path": "/home/me/dev/fuz_app-blind",
 					"git_dir": "/home/me/dev/fuz_app/.git/worktrees/fuz_app-blind",
-					"head": {
-						"kind": "unknown"
-					},
+					"head": null,
 					"locked": false,
 					"in_progress": null,
 					"why": {
@@ -776,9 +774,7 @@
 				{
 					"path": "/home/me/dev/fuz_app/.git/worktrees/x",
 					"git_dir": null,
-					"head": {
-						"kind": "unknown"
-					},
+					"head": null,
 					"locked": false,
 					"in_progress": null,
 					"why": {
@@ -1689,7 +1685,10 @@
 			"stashes": 0,
 			"fetched_at": null,
 			"needs_human": [],
-			"probe_error": "git status failed (128): error: bad tree object HEAD",
+			"probe_error": {
+				"kind": "git_failed",
+				"message": "git status failed (128): error: bad tree object HEAD"
+			},
 			"unprobed_worktrees": [],
 			"fetch_error": {
 				"kind": "repo_not_found",
@@ -3056,6 +3055,266 @@
 				"kind": "timed_out",
 				"after_secs": 120
 			},
+			"visibility_check": null
+		},
+		{
+			"key": "vault",
+			"kind": "repo",
+			"dir": "vault",
+			"url": "https://github.com/me/vault",
+			"writable": true,
+			"archived": false,
+			"visibility": "public",
+			"ci": true,
+			"branch": "main",
+			"pinned": false,
+			"refresh": null,
+			"presence": {
+				"kind": "present"
+			},
+			"clone": null,
+			"layout": null,
+			"checkouts": [],
+			"branches": [],
+			"at_rest": null,
+			"stashes": 0,
+			"fetched_at": null,
+			"needs_human": [],
+			"probe_error": {
+				"kind": "path_unreadable",
+				"message": "can't look up /home/me/dev/vault: Permission denied (os error 13)"
+			},
+			"unprobed_worktrees": [],
+			"fetch_error": null,
+			"visibility_check": null
+		},
+		{
+			"key": "notes",
+			"kind": "repo",
+			"dir": "notes",
+			"url": "https://github.com/me/notes",
+			"writable": true,
+			"archived": false,
+			"visibility": "public",
+			"ci": true,
+			"branch": "main",
+			"pinned": false,
+			"refresh": null,
+			"presence": {
+				"kind": "present"
+			},
+			"clone": null,
+			"layout": null,
+			"checkouts": [],
+			"branches": [],
+			"at_rest": null,
+			"stashes": 0,
+			"fetched_at": null,
+			"needs_human": [],
+			"probe_error": {
+				"kind": "non_utf8_path",
+				"message": "non-UTF-8 path /home/me/dev/notes"
+			},
+			"unprobed_worktrees": [],
+			"fetch_error": null,
+			"visibility_check": null
+		},
+		{
+			"key": "scratch",
+			"kind": "repo",
+			"dir": "scratch",
+			"url": "https://github.com/me/scratch",
+			"writable": true,
+			"archived": false,
+			"visibility": "public",
+			"ci": true,
+			"branch": "main",
+			"pinned": false,
+			"refresh": null,
+			"presence": {
+				"kind": "present"
+			},
+			"clone": null,
+			"layout": null,
+			"checkouts": [],
+			"branches": [],
+			"at_rest": null,
+			"stashes": 0,
+			"fetched_at": null,
+			"needs_human": [],
+			"probe_error": {
+				"kind": "unexpected_output",
+				"message": "rev-parse: unexpected output `/home/me/dev/scratch/.git`"
+			},
+			"unprobed_worktrees": [],
+			"fetch_error": null,
+			"visibility_check": null
+		},
+		{
+			"key": "dotfiles",
+			"kind": "repo",
+			"dir": "dotfiles",
+			"url": "https://github.com/me/dotfiles",
+			"writable": true,
+			"archived": false,
+			"visibility": "public",
+			"ci": true,
+			"branch": "main",
+			"pinned": false,
+			"refresh": null,
+			"presence": {
+				"kind": "present"
+			},
+			"clone": null,
+			"layout": null,
+			"checkouts": [],
+			"branches": [],
+			"at_rest": null,
+			"stashes": 0,
+			"fetched_at": null,
+			"needs_human": [],
+			"probe_error": {
+				"kind": "config_unreadable",
+				"message": "config failed: fatal: bad config line 7 in file .git/config"
+			},
+			"unprobed_worktrees": [],
+			"fetch_error": null,
+			"visibility_check": null
+		},
+		{
+			"key": "mirror",
+			"kind": "repo",
+			"dir": "mirror",
+			"url": "https://github.com/me/mirror",
+			"writable": true,
+			"archived": false,
+			"visibility": "public",
+			"ci": true,
+			"branch": "main",
+			"pinned": false,
+			"refresh": null,
+			"presence": {
+				"kind": "present"
+			},
+			"clone": null,
+			"layout": null,
+			"checkouts": [],
+			"branches": [],
+			"at_rest": null,
+			"stashes": 0,
+			"fetched_at": null,
+			"needs_human": [],
+			"probe_error": {
+				"kind": "fetch_url_unreadable",
+				"message": "fetch URL: git ls-remote --get-url origin timed out after 60s"
+			},
+			"unprobed_worktrees": [],
+			"fetch_error": null,
+			"visibility_check": null
+		},
+		{
+			"key": "kiln",
+			"kind": "repo",
+			"dir": "kiln",
+			"url": "https://github.com/me/kiln",
+			"writable": true,
+			"archived": false,
+			"visibility": "public",
+			"ci": true,
+			"branch": "main",
+			"pinned": false,
+			"refresh": null,
+			"presence": {
+				"kind": "present"
+			},
+			"clone": null,
+			"layout": {
+				"shallow": false,
+				"sparse": false,
+				"partial_filter": null
+			},
+			"checkouts": [],
+			"branches": [],
+			"at_rest": null,
+			"stashes": 0,
+			"fetched_at": null,
+			"needs_human": [],
+			"probe_error": {
+				"kind": "git_not_run",
+				"message": "failed to run git: Resource temporarily unavailable (os error 11)"
+			},
+			"unprobed_worktrees": [],
+			"fetch_error": null,
+			"visibility_check": null
+		},
+		{
+			"key": "monorepo",
+			"kind": "repo",
+			"dir": "monorepo",
+			"url": "https://github.com/me/monorepo",
+			"writable": true,
+			"archived": false,
+			"visibility": "public",
+			"ci": true,
+			"branch": "main",
+			"pinned": false,
+			"refresh": null,
+			"presence": {
+				"kind": "present"
+			},
+			"clone": null,
+			"layout": {
+				"shallow": false,
+				"sparse": false,
+				"partial_filter": null
+			},
+			"checkouts": [],
+			"branches": [],
+			"at_rest": null,
+			"stashes": 0,
+			"fetched_at": null,
+			"needs_human": [],
+			"probe_error": {
+				"kind": "git_timed_out",
+				"message": "git status --porcelain=v2 --branch --show-stash --no-ahead-behind --no-renames --untracked-files=normal -z timed out after 60s"
+			},
+			"unprobed_worktrees": [],
+			"fetch_error": null,
+			"visibility_check": null
+		},
+		{
+			"key": "relay",
+			"kind": "repo",
+			"dir": "relay",
+			"url": "https://github.com/me/relay",
+			"writable": true,
+			"archived": false,
+			"visibility": "public",
+			"ci": true,
+			"branch": "main",
+			"pinned": false,
+			"refresh": null,
+			"presence": {
+				"kind": "present"
+			},
+			"clone": null,
+			"layout": {
+				"shallow": false,
+				"sparse": false,
+				"partial_filter": null
+			},
+			"checkouts": [],
+			"branches": [],
+			"at_rest": null,
+			"stashes": 0,
+			"fetched_at": null,
+			"needs_human": [],
+			"probe_error": {
+				"kind": "push_urls_unreadable",
+				"message": "push URLs: git remote get-url --push --all origin timed out after 60s"
+			},
+			"unprobed_worktrees": [],
+			"fetch_error": null,
 			"visibility_check": null
 		}
 	],

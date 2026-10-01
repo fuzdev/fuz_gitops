@@ -16,13 +16,14 @@ use fuz_repos::error::ErrorKind;
 use fuz_repos::registry::{CheckoutList, EntryKind, RegistryIssue, Visibility};
 use fuz_repos::remote::{RefGoneFix, RemoteFailure, UnreachableCause, VisibilityCheck};
 use fuz_repos::report::{
-    BranchOutcome, CloneOutcome, ErrorReport, FetchOutcome, PushOutcome, PushReport, RepairBlock,
-    Sessions, StatusReport, SyncHold, SyncReport, UnregisteredKind,
+    BranchOutcome, BranchSyncHold, CloneOutcome, CloneSyncHold, ErrorReport, FetchOutcome,
+    PushOutcome, PushReport, RepairBlock, Sessions, StatusReport, SyncReport, UnregisteredKind,
 };
 use fuz_repos::sessions::{Session, SessionSource, Unavailable};
 use fuz_repos::state::{
-    BranchNeedsHuman, CleanupReason, CloneVerdict, Head, HeldBy, InProgressOp, Presence, Prune,
-    PruneLoss, RefreshVerdict, Relation, SyncAction, UnprobedHead, UnprobedWhy, Verdict,
+    BranchHold, BranchNeedsHuman, CleanupReason, CloneHold, CloneVerdict, Head, InProgressOp,
+    Presence, ProbeErrorKind, Prune, PruneLoss, RefreshHold, RefreshVerdict, Relation, SyncAction,
+    UnprobedWhy, Verdict,
 };
 
 /// Defines `$f`, a value's floor index — the position of the first of the
@@ -94,16 +95,12 @@ floor_index!(
     Head,
     [Head::Branch { .. }, Head::Detached { .. }]
 );
-floor_index!(
-    unprobed_head,
-    UNPROBED_HEAD,
-    UnprobedHead,
-    [
-        UnprobedHead::Branch { .. },
-        UnprobedHead::Detached { .. },
-        UnprobedHead::Unknown,
-    ]
-);
+/// An unprobed worktree's or an unlisted git dir's HEAD: `head`'s floor
+/// index, or the one past them for a HEAD that can't be read (`None`).
+fn unprobed_head(h: Option<&Head>) -> usize {
+    h.map_or(HEAD, head)
+}
+const UNPROBED_HEAD: usize = HEAD + 1;
 floor_index!(
     unprobed_why,
     UNPROBED_WHY,
@@ -189,20 +186,55 @@ floor_index!(
     ]
 );
 floor_index!(
-    held_by,
-    HELD_BY,
-    HeldBy,
+    branch_hold,
+    BRANCH_HOLD,
+    BranchHold,
     [
-        HeldBy::Pinned,
-        HeldBy::Entry,
-        HeldBy::PushUrl,
-        HeldBy::OriginNotHttps,
-        HeldBy::FetchFailed,
-        HeldBy::DirtyCheckout,
-        HeldBy::UnprobedWorktree,
-        HeldBy::SeveralCheckouts,
-        HeldBy::Busy,
-        HeldBy::BusyUnknown,
+        BranchHold::Pinned,
+        BranchHold::Entry,
+        BranchHold::PushUrl,
+        BranchHold::FetchFailed,
+        BranchHold::DirtyCheckout,
+        BranchHold::UnprobedWorktree,
+        BranchHold::SeveralCheckouts,
+        BranchHold::Busy,
+        BranchHold::BusyUnknown,
+    ]
+);
+floor_index!(
+    refresh_hold,
+    REFRESH_HOLD,
+    RefreshHold,
+    [
+        RefreshHold::Pinned,
+        RefreshHold::Entry,
+        RefreshHold::OriginNotHttps,
+    ]
+);
+floor_index!(
+    clone_hold,
+    CLONE_HOLD,
+    CloneHold,
+    [
+        CloneHold::Entry,
+        CloneHold::Busy,
+        CloneHold::UnprobedWorktree
+    ]
+);
+floor_index!(
+    probe_error_kind,
+    PROBE_ERROR_KIND,
+    ProbeErrorKind,
+    [
+        ProbeErrorKind::PathUnreadable,
+        ProbeErrorKind::NonUtf8Path,
+        ProbeErrorKind::ConfigUnreadable,
+        ProbeErrorKind::FetchUrlUnreadable,
+        ProbeErrorKind::PushUrlsUnreadable,
+        ProbeErrorKind::GitNotRun,
+        ProbeErrorKind::GitTimedOut,
+        ProbeErrorKind::GitFailed,
+        ProbeErrorKind::UnexpectedOutput,
     ]
 );
 floor_index!(
@@ -488,7 +520,7 @@ fn mark_reason(seen: &mut Seen, r: &NeedsHuman) {
             }
         }
         NeedsHuman::UnlistedGitDir { head, busy, .. } => {
-            seen.mark("unprobed_head", unprobed_head(head));
+            seen.mark("unprobed_head", unprobed_head(head.as_ref()));
             mark_sessions(seen, busy);
         }
         NeedsHuman::NotARepo { .. }
@@ -515,13 +547,13 @@ fn mark_report(seen: &mut Seen, report: &StatusReport) {
         if let Some(r) = &e.refresh {
             seen.mark("refresh_verdict", refresh_verdict(r));
             if let RefreshVerdict::Held { by } = r {
-                seen.mark("held_by/refresh", held_by(by));
+                seen.mark("refresh_hold", refresh_hold(by));
             }
         }
         if let Some(c) = &e.clone {
             seen.mark("clone_verdict", clone_verdict(c));
             if let CloneVerdict::Held { by, .. } = c {
-                seen.mark("held_by/clone", held_by(by));
+                seen.mark("clone_hold", clone_hold(by));
             }
         }
         for c in &e.checkouts {
@@ -538,7 +570,7 @@ fn mark_report(seen: &mut Seen, report: &StatusReport) {
                 Verdict::Act { action } => seen.mark("verdict_action", sync_action(action)),
                 Verdict::Held { action, by } => {
                     seen.mark("verdict_action", SYNC_ACTION + sync_action(action));
-                    seen.mark("held_by/branch", held_by(by));
+                    seen.mark("branch_hold", branch_hold(by));
                 }
                 Verdict::NeedsHuman { reason } => {
                     seen.mark("branch_needs_human", branch_needs_human(reason));
@@ -553,7 +585,7 @@ fn mark_report(seen: &mut Seen, report: &StatusReport) {
             mark_reason(seen, r);
         }
         for u in &e.unprobed_worktrees {
-            seen.mark("unprobed_head", unprobed_head(&u.worktree.head));
+            seen.mark("unprobed_head", unprobed_head(u.worktree.head.as_ref()));
             seen.mark("unprobed_why", unprobed_why(&u.worktree.why));
             if let Some(op) = &u.worktree.in_progress {
                 seen.mark("in_progress", in_progress(op));
@@ -570,6 +602,9 @@ fn mark_report(seen: &mut Seen, report: &StatusReport) {
                 }
             }
             mark_sessions(seen, &u.busy);
+        }
+        if let Some(p) = &e.probe_error {
+            seen.mark("probe_error_kind", probe_error_kind(&p.kind));
         }
         if let Some(f) = &e.fetch_error {
             seen.mark("remote_failure/fetch", remote_failure(f));
@@ -647,32 +682,6 @@ pub fn assert_status_coverage(
     for e in errors {
         mark_error(&mut seen, e);
     }
-    let held = |hs: &[HeldBy]| -> Vec<usize> {
-        let can: Vec<usize> = hs.iter().map(held_by).collect();
-        (0..HELD_BY).filter(|i| !can.contains(i)).collect()
-    };
-    // the holds each action can meet
-    let branch_holds = [
-        HeldBy::Pinned,
-        HeldBy::Entry,
-        HeldBy::PushUrl,
-        HeldBy::FetchFailed,
-        HeldBy::DirtyCheckout,
-        HeldBy::UnprobedWorktree,
-        HeldBy::SeveralCheckouts,
-        HeldBy::Busy,
-        HeldBy::BusyUnknown,
-    ];
-    let clone_holds = [HeldBy::Entry, HeldBy::Busy, HeldBy::UnprobedWorktree];
-    let refresh_holds = [HeldBy::Pinned, HeldBy::Entry, HeldBy::OriginNotHttps];
-    // and every hold is some action's
-    let all: BTreeSet<usize> = branch_holds
-        .iter()
-        .chain(&clone_holds)
-        .chain(&refresh_holds)
-        .map(held_by)
-        .collect();
-    assert_eq!(all, (0..HELD_BY).collect(), "a hold no action meets");
     // a push's alone: never a fetch's
     let rejected = remote_failure(&RemoteFailure::Rejected {
         reason: String::new(),
@@ -704,9 +713,10 @@ pub fn assert_status_coverage(
         ("verdict", VERDICT, vec![]),
         // act and held, each of every action
         ("verdict_action", 2 * SYNC_ACTION, vec![]),
-        ("held_by/branch", HELD_BY, held(&branch_holds)),
-        ("held_by/clone", HELD_BY, held(&clone_holds)),
-        ("held_by/refresh", HELD_BY, held(&refresh_holds)),
+        ("branch_hold", BRANCH_HOLD, vec![]),
+        ("clone_hold", CLONE_HOLD, vec![]),
+        ("refresh_hold", REFRESH_HOLD, vec![]),
+        ("probe_error_kind", PROBE_ERROR_KIND, vec![]),
         ("branch_needs_human", BRANCH_NEEDS_HUMAN, vec![]),
         ("cleanup_reason", CLEANUP_REASON, vec![]),
         ("clone_verdict", CLONE_VERDICT, vec![]),
@@ -761,21 +771,31 @@ floor_index!(
     ]
 );
 floor_index!(
-    sync_hold,
-    SYNC_HOLD,
-    SyncHold,
+    branch_sync_hold,
+    BRANCH_SYNC_HOLD,
+    BranchSyncHold,
     [
-        SyncHold::Pinned,
-        SyncHold::Entry,
-        SyncHold::PushUrl,
-        SyncHold::FetchFailed,
-        SyncHold::DirtyCheckout,
-        SyncHold::UnprobedWorktree,
-        SyncHold::SeveralCheckouts,
-        SyncHold::Busy,
-        SyncHold::BusyUnknown,
-        SyncHold::Changed,
-        SyncHold::OriginNotHttps,
+        BranchSyncHold::Pinned,
+        BranchSyncHold::Entry,
+        BranchSyncHold::PushUrl,
+        BranchSyncHold::FetchFailed,
+        BranchSyncHold::DirtyCheckout,
+        BranchSyncHold::UnprobedWorktree,
+        BranchSyncHold::SeveralCheckouts,
+        BranchSyncHold::Busy,
+        BranchSyncHold::BusyUnknown,
+        BranchSyncHold::Changed,
+    ]
+);
+floor_index!(
+    clone_sync_hold,
+    CLONE_SYNC_HOLD,
+    CloneSyncHold,
+    [
+        CloneSyncHold::Entry,
+        CloneSyncHold::Busy,
+        CloneSyncHold::UnprobedWorktree,
+        CloneSyncHold::Changed,
     ]
 );
 floor_index!(
@@ -817,21 +837,22 @@ pub fn assert_sync_coverage(doc: &SyncReport) {
         seen.mark("fetch_outcome", fetch_outcome(&e.fetch));
         if let Some(c) = &e.clone {
             seen.mark("clone_outcome", clone_outcome(c));
+            if let CloneOutcome::Held { by } = c {
+                seen.mark("clone_sync_hold", clone_sync_hold(by));
+            }
         }
         for b in &e.branches {
             seen.mark("branch_outcome", branch_outcome(&b.outcome));
             if let BranchOutcome::Held { by, .. } = &b.outcome {
-                seen.mark("sync_hold", sync_hold(by));
+                seen.mark("branch_sync_hold", branch_sync_hold(by));
             }
         }
     }
-    // a refresh's hold alone, never a branch's: the targeted status
-    // document carries it, as a refresh verdict's
-    let origin_not_https = sync_hold(&SyncHold::OriginNotHttps);
     seen.floor("clone_outcome", CLONE_OUTCOME, &[]);
     seen.floor("branch_outcome", BRANCH_OUTCOME, &[]);
     seen.floor("fetch_outcome", FETCH_OUTCOME, &[]);
-    seen.floor("sync_hold", SYNC_HOLD, &[origin_not_https]);
+    seen.floor("branch_sync_hold", BRANCH_SYNC_HOLD, &[]);
+    seen.floor("clone_sync_hold", CLONE_SYNC_HOLD, &[]);
 }
 
 /// The push document's every-variant floor: each outcome and fetch

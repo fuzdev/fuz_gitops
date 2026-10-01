@@ -9,7 +9,9 @@
  * names its variant, an `Option` as `null` (never omitted), counts as
  * integers, and times as unix seconds. A flattened enum's `kind`
  * and payload sit beside its struct's own fields, so those structs are
- * unions here (`ReposUnregisteredClone`, `ReposStatusErrorBody`). Where a
+ * unions here (`ReposUnregisteredClone`, `ReposStatusErrorBody`) — or, for
+ * an enum with no payloads, an object whose `kind` is an enum
+ * (`ReposProbeError`). Where a
  * Rust enum holds variants the status document never carries, the mirror
  * leaves them out: `ReposFetchFailure` has no push rejection, and
  * `ReposStatusErrorBody` holds only the errors `repos status --json` can
@@ -39,7 +41,7 @@ import { z } from 'zod';
  * The `repos status --json` document's format version, Rust's
  * `STATUS_FORMAT_VERSION`: the one these schemas parse.
  */
-export const REPOS_STATUS_FORMAT_VERSION = 17;
+export const REPOS_STATUS_FORMAT_VERSION = 18;
 
 // u32 and u64 on the Rust side
 const Count = z.number().int().nonnegative();
@@ -127,12 +129,11 @@ export type ReposRegistryIssue = z.infer<typeof ReposRegistryIssue>;
 
 // --- verdicts ---
 
-/** What holds an action back. */
-export const ReposHeldBy = z.enum([
+/** What holds a branch's action back. */
+export const ReposBranchHold = z.enum([
 	'pinned',
 	'entry',
 	'push_url',
-	'origin_not_https',
 	'fetch_failed',
 	'dirty_checkout',
 	'unprobed_worktree',
@@ -140,12 +141,20 @@ export const ReposHeldBy = z.enum([
 	'busy',
 	'busy_unknown'
 ]);
-export type ReposHeldBy = z.infer<typeof ReposHeldBy>;
+export type ReposBranchHold = z.infer<typeof ReposBranchHold>;
+
+/** What holds a reference's refresh back. */
+export const ReposRefreshHold = z.enum(['pinned', 'entry', 'origin_not_https']);
+export type ReposRefreshHold = z.infer<typeof ReposRefreshHold>;
+
+/** What holds a missing entry's clone back. */
+export const ReposCloneHold = z.enum(['entry', 'busy', 'unprobed_worktree']);
+export type ReposCloneHold = z.infer<typeof ReposCloneHold>;
 
 /** What a run does about refreshing a third-party reference or a pin. */
 export const ReposRefreshVerdict = z.discriminatedUnion('kind', [
 	z.strictObject({ kind: z.literal('act') }),
-	z.strictObject({ kind: z.literal('held'), by: ReposHeldBy })
+	z.strictObject({ kind: z.literal('held'), by: ReposRefreshHold })
 ]);
 export type ReposRefreshVerdict = z.infer<typeof ReposRefreshVerdict>;
 
@@ -169,7 +178,7 @@ export type ReposCloneRecipe = z.infer<typeof ReposCloneRecipe>;
 /** What sync does about a missing entry: clone it, or why not yet. */
 export const ReposCloneVerdict = z.discriminatedUnion('kind', [
 	z.strictObject({ kind: z.literal('act'), recipe: ReposCloneRecipe }),
-	z.strictObject({ kind: z.literal('held'), recipe: ReposCloneRecipe, by: ReposHeldBy })
+	z.strictObject({ kind: z.literal('held'), recipe: ReposCloneRecipe, by: ReposCloneHold })
 ]);
 export type ReposCloneVerdict = z.infer<typeof ReposCloneVerdict>;
 
@@ -199,7 +208,7 @@ export type ReposCleanupReason = z.infer<typeof ReposCleanupReason>;
 export const ReposVerdict = z.discriminatedUnion('kind', [
 	z.strictObject({ kind: z.literal('quiet') }),
 	z.strictObject({ kind: z.literal('act'), action: ReposSyncAction }),
-	z.strictObject({ kind: z.literal('held'), action: ReposSyncAction, by: ReposHeldBy }),
+	z.strictObject({ kind: z.literal('held'), action: ReposSyncAction, by: ReposBranchHold }),
 	z.strictObject({ kind: z.literal('needs_human'), reason: ReposBranchNeedsHuman }),
 	z.strictObject({ kind: z.literal('local_only') }),
 	z.strictObject({
@@ -220,7 +229,10 @@ export const ReposLayout = z.strictObject({
 });
 export type ReposLayout = z.infer<typeof ReposLayout>;
 
-/** A checkout's HEAD. */
+/**
+ * A checkout's HEAD: a probed checkout's, an unprobed worktree's, or an
+ * unlisted git dir's — the last two `null` when it can't be read.
+ */
 export const ReposHead = z.discriminatedUnion('kind', [
 	z.strictObject({ kind: z.literal('branch'), name: z.string() }),
 	z.strictObject({ kind: z.literal('detached'), commit: z.string() })
@@ -299,14 +311,6 @@ export type ReposAtRest = z.infer<typeof ReposAtRest>;
 
 // --- worktrees not probed ---
 
-/** An unprobed worktree's HEAD, as its git dir records it. */
-export const ReposUnprobedHead = z.discriminatedUnion('kind', [
-	z.strictObject({ kind: z.literal('branch'), name: z.string() }),
-	z.strictObject({ kind: z.literal('detached'), commit: z.string() }),
-	z.strictObject({ kind: z.literal('unknown') })
-]);
-export type ReposUnprobedHead = z.infer<typeof ReposUnprobedHead>;
-
 /** Why a worktree wasn't probed. */
 export const ReposUnprobedWhy = z.discriminatedUnion('kind', [
 	z.strictObject({ kind: z.literal('prunable') }),
@@ -349,7 +353,7 @@ export type ReposPrune = z.infer<typeof ReposPrune>;
 export const ReposUnprobedWorktree = z.strictObject({
 	path: z.string(),
 	git_dir: z.string().nullable(),
-	head: ReposUnprobedHead,
+	head: ReposHead.nullable().meta({ description: 'null when its HEAD cannot be read' }),
 	locked: z.boolean(),
 	in_progress: ReposInProgressOp.nullable(),
 	why: ReposUnprobedWhy,
@@ -440,6 +444,27 @@ export type ReposVisibilityCheck = z.infer<typeof ReposVisibilityCheck>;
 
 // --- entries ---
 
+/** What kind of failure stopped an entry's probe. */
+export const ReposProbeErrorKind = z.enum([
+	'path_unreadable',
+	'non_utf8_path',
+	'config_unreadable',
+	'fetch_url_unreadable',
+	'push_urls_unreadable',
+	'git_not_run',
+	'git_timed_out',
+	'git_failed',
+	'unexpected_output'
+]);
+export type ReposProbeErrorKind = z.infer<typeof ReposProbeErrorKind>;
+
+/** Why an entry's probe failed: its kind, and a message for display. */
+export const ReposProbeError = z.strictObject({
+	kind: ReposProbeErrorKind,
+	message: z.string()
+});
+export type ReposProbeError = z.infer<typeof ReposProbeError>;
+
 /** Why sync would stop on an entry and leave it to a person. */
 export const ReposNeedsHuman = z.discriminatedUnion('kind', [
 	z.strictObject({ kind: z.literal('not_a_repo'), detail: z.string() }),
@@ -480,7 +505,7 @@ export const ReposNeedsHuman = z.discriminatedUnion('kind', [
 	z.strictObject({
 		kind: z.literal('unlisted_git_dir'),
 		git_dir: z.string(),
-		head: ReposUnprobedHead,
+		head: ReposHead.nullable().meta({ description: 'null when its HEAD cannot be read' }),
 		busy: z.array(ReposSession)
 	}),
 	z.strictObject({
@@ -515,7 +540,7 @@ export const ReposEntryStatus = z.strictObject({
 	stashes: Count,
 	fetched_at: UnixSeconds.nullable(),
 	needs_human: z.array(ReposNeedsHuman),
-	probe_error: z.string().nullable(),
+	probe_error: ReposProbeError.nullable(),
 	unprobed_worktrees: z.array(ReposUnprobedWorktreeStatus),
 	fetch_error: ReposFetchFailure.nullable(),
 	visibility_check: ReposVisibilityCheck.nullable()

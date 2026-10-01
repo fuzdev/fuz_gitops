@@ -58,7 +58,7 @@ use crate::git::Git;
 use crate::probe::RepoFacts;
 use crate::registry::{Entry, RegistryDirs};
 use crate::report::{
-    CheckoutPush, EntryStatus, FetchOutcome, PushOutcome, PushReport, Sessions, SyncHold,
+    BranchSyncHold, CheckoutPush, EntryStatus, FetchOutcome, PushOutcome, PushReport, Sessions,
 };
 use crate::sessions::{Caller, LiveSessions, SessionsSource, read_live_sessions};
 use crate::state::{BranchNeedsHuman, BranchStatus, Head, Relation, SyncAction, Verdict};
@@ -370,7 +370,7 @@ fn target_outcome(
         return (
             branch,
             PushOutcome::Held {
-                by: SyncHold::Entry,
+                by: BranchSyncHold::Entry,
             },
         );
     }
@@ -393,7 +393,7 @@ fn target_outcome(
         return (branch, PushOutcome::NoUpstream);
     }
     if *t.fetch != FetchOutcome::Fetched {
-        let by = SyncHold::FetchFailed;
+        let by = BranchSyncHold::FetchFailed;
         return (branch, PushOutcome::Held { by });
     }
     if let Some(upstream) = create {

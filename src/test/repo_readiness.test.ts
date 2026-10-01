@@ -159,7 +159,10 @@ describe('repo_readiness_at_rest', () => {
 	});
 
 	test('an unprobed entry is one problem saying why', () => {
-		const entry = entry_with('a', { at_rest: null, probe_error: 'boom' });
+		const entry = entry_with('a', {
+			at_rest: null,
+			probe_error: { kind: 'git_failed', message: 'boom' }
+		});
 		assert.deepEqual(repo_readiness_at_rest({ ...entry, checkouts: [] }), [
 			{ kind: 'unprobed', detail: 'probing failed: boom' }
 		]);

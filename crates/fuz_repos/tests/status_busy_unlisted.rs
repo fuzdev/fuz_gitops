@@ -11,7 +11,7 @@ use std::path::{Path, PathBuf};
 use fuz_repos::classify::NeedsHuman;
 use fuz_repos::report::Sessions;
 use fuz_repos::sessions::{LiveSessions, SessionSource};
-use fuz_repos::state::{HeldBy, UnprobedHead, Verdict};
+use fuz_repos::state::{BranchHold, Head, Verdict};
 use support::busy::{MAX_GITFILE_BYTES, ahead_branch, app, held, push, session};
 use support::{FixtureWorkspace, branch, find_entry, path};
 
@@ -31,7 +31,7 @@ fn assert_unlisted(
     ws: &FixtureWorkspace,
     cwd: &Path,
     git_dir: &Path,
-    head: UnprobedHead,
+    head: Option<Head>,
     held_ones: &[(&str, u32)],
     acting: &[(&str, u32)],
 ) {
@@ -51,7 +51,7 @@ fn assert_unlisted(
     for &(name, commits) in held_ones {
         assert_eq!(
             branch(e, name).verdict,
-            held(push(commits), HeldBy::BusyUnknown),
+            held(push(commits), BranchHold::BusyUnknown),
             "{name}"
         );
     }
@@ -88,9 +88,9 @@ fn a_session_in_a_hand_made_git_dir_holds_the_branch_it_is_on() {
         ws.assert_track(&app, "other", "[ahead 2]");
         assert!(!ws.git(&app, &["worktree", "list"]).contains("hand"));
 
-        let on_other = UnprobedHead::Branch {
+        let on_other = Some(Head::Branch {
             name: "other".into(),
-        };
+        });
         assert_unlisted(
             &ws,
             &hand,
@@ -131,7 +131,7 @@ fn a_hand_made_git_dirs_head_decides_what_it_holds() {
         &ws,
         &hand,
         &git_dir,
-        UnprobedHead::Detached { commit },
+        Some(Head::Detached { commit }),
         &[],
         &[("main", 1), ("other", 1)],
     );
@@ -141,7 +141,7 @@ fn a_hand_made_git_dirs_head_decides_what_it_holds() {
         &ws,
         &hand,
         &git_dir,
-        UnprobedHead::Unknown,
+        None,
         &[("main", 1), ("other", 1)],
         &[],
     );
@@ -205,9 +205,9 @@ fn a_hand_made_git_dirs_commondir_and_head_are_read_as_git_reads_them() {
             &ws,
             &hand,
             &git_dir,
-            UnprobedHead::Branch {
+            Some(Head::Branch {
                 name: "other".into(),
-            },
+            }),
             &[("other", 2)],
             &[("main", 1)],
         );
@@ -236,9 +236,9 @@ fn a_session_in_a_git_dir_with_only_its_branches_linked_holds_the_branch_it_is_o
         &ws,
         &linked,
         &git_dir,
-        UnprobedHead::Branch {
+        Some(Head::Branch {
             name: "other".into(),
-        },
+        }),
         &[("other", 2)],
         &[("main", 1)],
     );
@@ -288,9 +288,9 @@ fn a_session_in_a_git_new_workdir_holds_the_branch_it_is_on() {
         &ws,
         &new,
         &new.join(".git"),
-        UnprobedHead::Branch {
+        Some(Head::Branch {
             name: "other".into(),
-        },
+        }),
         &[("other", 2)],
         &[("main", 1)],
     );

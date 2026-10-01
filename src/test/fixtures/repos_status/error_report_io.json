@@ -1,5 +1,5 @@
 {
-	"version": 17,
+	"version": 18,
 	"error": {
 		"kind": "io",
 		"message": "failed to list the workspace root /home/me/dev: Permission denied (os error 13)",

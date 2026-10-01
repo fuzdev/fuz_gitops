@@ -289,7 +289,7 @@ pub struct Entry {
     pub branch: Option<String>,
     /// A pinned reference's consumer moves its HEAD, never the tool: a
     /// permanent hold, whether HEAD is detached or on a branch. It's never
-    /// fetched, and every fast-forward and move in it is `HeldBy::Pinned`.
+    /// fetched, and every fast-forward and move in it is `BranchHold::Pinned`.
     pub pinned: bool,
     /// A reference cloned `--depth 1` when missing; an existing full clone
     /// is left as is. Repos are never shallow.

@@ -11,8 +11,8 @@
 //! its own whitespace — the ASCII space, tab, and line breaks, never the
 //! locale's), and then takes what's left as a C string, cut at the first
 //! NUL. So do these readers: a path is taken as bytes, UTF-8 or not; only a
-//! branch name must be UTF-8 to be reported (else the `HEAD` is `Unknown`,
-//! which holds every branch).
+//! branch name must be UTF-8 to be reported (else the `HEAD` is unknown,
+//! `None`, which holds every branch).
 //!
 //! Git caps a gitfile at 1 MiB (`MAX_GITFILE_BYTES`) and reads a
 //! `commondir`, a `HEAD`, or a `gitdir` whole, however large. The tool reads
@@ -29,7 +29,7 @@ use std::path::{Path, PathBuf};
 use crate::paths::realpath_forgiving;
 use crate::porcelain::is_object_id;
 use crate::regular_file::{open_regular, read_bounded_bytes};
-use crate::state::UnprobedHead;
+use crate::state::Head;
 
 /// The largest gitfile git reads (`read_gitfile_gently`); git refuses a
 /// larger one.
@@ -288,40 +288,40 @@ fn read_gitdir_file(git_dir: &Path) -> std::io::Result<GitdirFile> {
 /// `refs/heads/<name>`; or an object id followed by the end or whitespace
 /// (anything after is ignored, as git ignores it).
 ///
-/// `Unknown` for everything else — a ref outside `refs/heads/`, a name that
+/// `None` for everything else — a ref outside `refs/heads/`, a name that
 /// isn't UTF-8, and a file that can't be read or has no NUL within the
 /// tool's limit — so it might be on any branch. A name git refuses in a
 /// file (`x y`) is reported as written: git won't move any real branch
 /// through it.
-pub fn read_head(git_dir: &Path) -> UnprobedHead {
+pub fn read_head(git_dir: &Path) -> Option<Head> {
     let head = git_dir.join("HEAD");
     let Ok(meta) = std::fs::symlink_metadata(&head) else {
-        return UnprobedHead::Unknown;
+        return None;
     };
     if meta.is_symlink() {
         let Ok(link) = std::fs::read_link(&head) else {
-            return UnprobedHead::Unknown;
+            return None;
         };
         let link = link.as_os_str().as_bytes();
         if link.starts_with(b"refs/") && is_valid_refname(link) {
             return head_on(link);
         }
     } else if !meta.is_file() {
-        return UnprobedHead::Unknown;
+        return None;
     }
     let Ok(bytes) = read_c_string(&head, MAX_GIT_C_STRING_BYTES, is_git_space) else {
-        return UnprobedHead::Unknown;
+        return None;
     };
     parse_head(&bytes)
 }
 
 /// A `HEAD` naming the ref `refname`: on a branch when it's
-/// `refs/heads/<name>` with a UTF-8 name, else `Unknown`.
-fn head_on(refname: &[u8]) -> UnprobedHead {
+/// `refs/heads/<name>` with a UTF-8 name, else `None`.
+fn head_on(refname: &[u8]) -> Option<Head> {
     refname
         .strip_prefix(b"refs/heads/")
         .and_then(|name| std::str::from_utf8(name).ok())
-        .map_or(UnprobedHead::Unknown, |name| UnprobedHead::Branch {
+        .map(|name| Head::Branch {
             name: name.to_owned(),
         })
 }
@@ -358,7 +358,7 @@ pub fn is_valid_refname(refname: &[u8]) -> bool {
 }
 
 /// A `HEAD`'s C string, trimmed, as `read_head` reads it.
-fn parse_head(bytes: &[u8]) -> UnprobedHead {
+fn parse_head(bytes: &[u8]) -> Option<Head> {
     if let Some(target) = bytes.strip_prefix(b"ref:") {
         let start = target
             .iter()
@@ -371,10 +371,10 @@ fn parse_head(bytes: &[u8]) -> UnprobedHead {
         .position(|&b| is_git_space(b))
         .unwrap_or(bytes.len());
     match std::str::from_utf8(&bytes[..end]) {
-        Ok(id) if is_object_id(id) => UnprobedHead::Detached {
+        Ok(id) if is_object_id(id) => Some(Head::Detached {
             commit: id.to_owned(),
-        },
-        _ => UnprobedHead::Unknown,
+        }),
+        _ => None,
     }
 }
 

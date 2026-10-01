@@ -1,7 +1,8 @@
 use fuz_repos::registry::{EntryKind, Visibility};
-use fuz_repos::report::{BranchSync, FetchOutcome};
+use fuz_repos::report::{BranchSync, BranchSyncHold, CloneSyncHold, FetchOutcome};
 use fuz_repos::state::{
-    AtRest, Checkout, CloneRecipe, InProgressOp, Layout, UnprobedWorktree, UnprobedWorktreeStatus,
+    AtRest, BranchHold, Checkout, CloneHold, CloneRecipe, Head, InProgressOp, Layout, ProbeError,
+    ProbeErrorKind, RefreshHold, UnprobedWorktree, UnprobedWorktreeStatus,
 };
 
 use super::labels::group_digits;
@@ -152,11 +153,15 @@ fn unprobed(path: &str, branch: Option<&str>, why: UnprobedWhy) -> UnprobedWorkt
         path: path.into(),
         git_dir: None,
         head: branch.map_or_else(
-            || UnprobedHead::Detached {
-                commit: "0123456789abcdef0123456789abcdef01234567".into(),
+            || {
+                Some(Head::Detached {
+                    commit: "0123456789abcdef0123456789abcdef01234567".into(),
+                })
             },
-            |name| UnprobedHead::Branch {
-                name: name.to_owned(),
+            |name| {
+                Some(Head::Branch {
+                    name: name.to_owned(),
+                })
             },
         ),
         locked: false,
@@ -234,7 +239,7 @@ fn pushes_read_as_what_the_push_did() {
                 1,
                 Verdict::Held {
                     action: push(1),
-                    by: HeldBy::Busy,
+                    by: BranchHold::Busy,
                 },
             ),
         ),
@@ -312,7 +317,9 @@ fn pushes_read_as_what_the_push_did() {
             target(
                 "blog",
                 Some("feat"),
-                PushOutcome::Held { by: SyncHold::Busy },
+                PushOutcome::Held {
+                    by: BranchSyncHold::Busy,
+                },
             ),
             target("site", Some("main"), PushOutcome::NotAhead),
             target(
@@ -484,7 +491,7 @@ fn clones_read_as_what_sync_would_do_and_did() {
     };
     let r = report(vec![
         missing("a"),
-        held("b", HeldBy::Busy),
+        held("b", CloneHold::Busy),
         missing("c"),
         missing("d"),
         missing("e"),
@@ -513,11 +520,16 @@ fn clones_read_as_what_sync_would_do_and_did() {
                     head: "c".repeat(40),
                 },
             ),
-            outcome("b", CloneOutcome::Held { by: SyncHold::Busy }),
+            outcome(
+                "b",
+                CloneOutcome::Held {
+                    by: CloneSyncHold::Busy,
+                },
+            ),
             outcome(
                 "c",
                 CloneOutcome::Held {
-                    by: SyncHold::Changed,
+                    by: CloneSyncHold::Changed,
                 },
             ),
             outcome(
@@ -561,7 +573,7 @@ fn a_missing_entry_sharing_a_repo_needs_a_person() {
     let recipe = e.clone.take().unwrap().recipe().clone();
     e.clone = Some(CloneVerdict::Held {
         recipe,
-        by: HeldBy::Entry,
+        by: CloneHold::Entry,
     });
     e.needs_human = vec![NeedsHuman::CloneSharesRepo { with: "app".into() }];
     let r = report(vec![entry("app", main(), "main"), e]);
@@ -590,7 +602,7 @@ fn a_missing_entry_cloned_under_another_name_needs_a_person() {
     let recipe = e.clone.take().unwrap().recipe().clone();
     e.clone = Some(CloneVerdict::Held {
         recipe,
-        by: HeldBy::Entry,
+        by: CloneHold::Entry,
     });
     e.needs_human = vec![NeedsHuman::ClonedUnregistered {
         dir: "app old".into(),
@@ -643,7 +655,9 @@ fn a_refresh_reads_as_what_sync_would_do_and_did() {
         kind: EntryKind::Reference,
         visibility: None,
         ci: false,
-        refresh: Some(RefreshVerdict::Held { by: HeldBy::Pinned }),
+        refresh: Some(RefreshVerdict::Held {
+            by: RefreshHold::Pinned,
+        }),
         ..entry("wpt", Mode::PinnedOn("fork"), "fork")
     };
     wpt.branches = vec![branch(
@@ -653,7 +667,7 @@ fn a_refresh_reads_as_what_sync_would_do_and_did() {
         0,
         Verdict::Held {
             action: SyncAction::FastForward { commits: 2 },
-            by: HeldBy::Pinned,
+            by: BranchHold::Pinned,
         },
     )];
     let r = report(vec![lib, dom, off, wpt]);
@@ -711,7 +725,7 @@ fn a_refresh_reads_as_what_sync_would_do_and_did() {
                     name: "fork".into(),
                     outcome: BranchOutcome::Held {
                         action: SyncAction::FastForward { commits: 2 },
-                        by: SyncHold::Pinned,
+                        by: BranchSyncHold::Pinned,
                     },
                     repeats: None,
                 }],
@@ -760,7 +774,7 @@ fn a_clean_workspace_is_one_line() {
 fn a_pin_holds_quietly() {
     let held = |commits| Verdict::Held {
         action: SyncAction::FastForward { commits },
-        by: HeldBy::Pinned,
+        by: BranchHold::Pinned,
     };
     // on the branch it lives on, behind a stale ref, with a stale main
     // beside it and local work
@@ -1165,7 +1179,10 @@ fn a_failed_probe_of_a_partial_clone_hints_how_to_fill_it() {
             sparse: false,
             partial_filter: partial_filter.map(str::to_owned),
         });
-        e.probe_error = Some("git status failed (128): error: bad tree object HEAD".into());
+        e.probe_error = Some(ProbeError::new(
+            ProbeErrorKind::GitFailed,
+            "git status failed (128): error: bad tree object HEAD",
+        ));
         e
     };
     let r = report(vec![failed("app", Some("tree:0")), failed("full", None)]);
@@ -1229,7 +1246,7 @@ fn origin_drift_shallow_moves_and_not_a_repo() {
         2,
         Verdict::Held {
             action: SyncAction::Push { commits: 2 },
-            by: HeldBy::Entry,
+            by: BranchHold::Entry,
         },
     )];
     blog.needs_human = vec![NeedsHuman::OriginMismatch {
@@ -1383,7 +1400,7 @@ fn dirty_holds_and_a_footer_over_repos_only() {
         0,
         Verdict::Held {
             action: SyncAction::FastForward { commits: 1 },
-            by: HeldBy::DirtyCheckout,
+            by: BranchHold::DirtyCheckout,
         },
     )];
     gro.checkouts[0].uncommitted.unstaged = 2;
@@ -1418,7 +1435,7 @@ fn busy_holds_and_sessions() {
         1,
         Verdict::Held {
             action: SyncAction::Push { commits: 1 },
-            by: HeldBy::Busy,
+            by: BranchHold::Busy,
         },
     )];
     app.checkouts[0].busy = vec![
@@ -1464,9 +1481,12 @@ clean 0 · on branches 0 · pinned 0      ~/dev/repos.toml · fetched 3h ago
     r.entries[0].checkouts[0].busy.clear();
     r.entries[0].branches[0].verdict = Verdict::Held {
         action: SyncAction::Push { commits: 1 },
-        by: HeldBy::BusyUnknown,
+        by: BranchHold::BusyUnknown,
     };
-    r.entries[0].probe_error = Some("fatal: bad object".into());
+    r.entries[0].probe_error = Some(ProbeError::new(
+        ProbeErrorKind::GitFailed,
+        "fatal: bad object",
+    ));
     r.sessions = Sessions::Unavailable {
         reason: Unavailable::ForeignPidDomain {
             path: "/home/me/.claude/sessions/9.json".into(),
@@ -1587,7 +1607,7 @@ fn linked_worktrees_in_the_summary() {
             0,
             Verdict::Held {
                 action: SyncAction::FastForward { commits: 1 },
-                by: HeldBy::DirtyCheckout,
+                by: BranchHold::DirtyCheckout,
             },
         ),
         branch(
@@ -1607,7 +1627,7 @@ fn linked_worktrees_in_the_summary() {
             0,
             Verdict::Held {
                 action: SyncAction::FastForward { commits: 4 },
-                by: HeldBy::UnprobedWorktree,
+                by: BranchHold::UnprobedWorktree,
             },
         ),
     ];
@@ -1663,7 +1683,7 @@ fn linked_worktrees_in_the_summary() {
         ),
         status(
             UnprobedWorktree {
-                head: UnprobedHead::Unknown,
+                head: None,
                 ..unprobed("/home/me/dev/app-garbled", None, UnprobedWhy::Prunable)
             },
             loses(vec![PruneLoss::UnknownHead]),
@@ -1864,7 +1884,7 @@ fn linked_worktrees_in_the_entry_block() {
         status(usb, None),
         status(
             UnprobedWorktree {
-                head: UnprobedHead::Unknown,
+                head: None,
                 ..unprobed(
                     "/home/me/dev/app/.git/worktrees/x",
                     None,
@@ -1905,9 +1925,9 @@ fn linked_worktrees_in_the_entry_block() {
         },
         NeedsHuman::UnlistedGitDir {
             git_dir: "/home/me/hand/.git".into(),
-            head: UnprobedHead::Branch {
+            head: Some(Head::Branch {
                 name: "other".into(),
-            },
+            }),
             busy: vec![Session::at(
                 41,
                 0,
@@ -1917,7 +1937,7 @@ fn linked_worktrees_in_the_entry_block() {
         },
         NeedsHuman::UnlistedGitDir {
             git_dir: "/home/me/dev/app-new/.git".into(),
-            head: UnprobedHead::Unknown,
+            head: None,
             busy: vec![Session::at(
                 42,
                 0,
@@ -2417,7 +2437,10 @@ fn printed_commands_are_shell_quoted() {
         sparse: false,
         partial_filter: Some("tree:0".into()),
     });
-    app.probe_error = Some("bad tree object HEAD".into());
+    app.probe_error = Some(ProbeError::new(
+        ProbeErrorKind::GitFailed,
+        "bad tree object HEAD",
+    ));
     app.needs_human = vec![NeedsHuman::OriginMismatch {
         origin: OriginRemote::Missing,
         expected: "file:///srv/it's/app".into(),
@@ -2495,7 +2518,7 @@ fn an_unreadable_git_dir_is_said_once_as_needing_a_person() {
     let failed = |path: &str| {
         status(
             UnprobedWorktree {
-                head: UnprobedHead::Unknown,
+                head: None,
                 ..unprobed(
                     path,
                     None,
@@ -2559,7 +2582,7 @@ fn color_marks_group_labels_only() {
         0,
         Verdict::Held {
             action: SyncAction::FastForward { commits: 2 },
-            by: HeldBy::Entry,
+            by: BranchHold::Entry,
         },
     )];
     gro.needs_human = vec![NeedsHuman::OriginMismatch {
@@ -2823,7 +2846,10 @@ fn brief_says_sessions_operation_behind_then_ahead() {
 
     // a failed probe says nothing, whatever it read
     let mut failed = all.clone();
-    failed.probe_error = Some("fatal: bad object".into());
+    failed.probe_error = Some(ProbeError::new(
+        ProbeErrorKind::GitFailed,
+        "fatal: bad object",
+    ));
     assert_eq!(brief(&failed), None);
 }
 
