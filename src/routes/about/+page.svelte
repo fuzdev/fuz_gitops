@@ -14,7 +14,7 @@
 </script>
 
 <svelte:head>
-	<title>about {site.glyph} fuz_gitops</title>
+	<title>about {site.glyph} fuz_repos</title>
 </svelte:head>
 
 <main class="width_atmost_md box mx_auto">

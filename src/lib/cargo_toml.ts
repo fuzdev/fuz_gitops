@@ -3,7 +3,7 @@ import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
 /**
- * The handful of identity fields gitops reads from a Rust repo's `Cargo.toml`
+ * The handful of identity fields fuz_repos reads from a Rust repo's `Cargo.toml`
  * to render it on the dashboard. Everything is optional — a workspace root has
  * no `name`, and any field may be absent or inherited.
  */
@@ -21,7 +21,7 @@ type CargoMetadataKey = (typeof CARGO_METADATA_KEYS)[number];
 
 /**
  * Best-effort read of a repo's root `Cargo.toml` for the identity fields the
- * gitops dashboard renders. Returns `null` when there's no `Cargo.toml`.
+ * dashboard renders. Returns `null` when there's no `Cargo.toml`.
  *
  * @param repo_dir - absolute path to the repo
  */
@@ -39,7 +39,7 @@ export const cargo_toml_load = async (repo_dir: string): Promise<CargoMetadata |
  * string entries in those two tables, which covers both a single-crate manifest
  * and a workspace root. Inline-table values like `version = { workspace = true }`
  * (and the equivalent `version.workspace = true`) are ignored — a member crate
- * inheriting from the workspace has no literal here, and gitops only ever reads a
+ * inheriting from the workspace has no literal here, and fuz_repos only ever reads a
  * repo's root manifest, where these are concrete. The first non-empty value for a
  * key wins, so a top-level `[package]` takes precedence over `[workspace.package]`
  * when both appear.

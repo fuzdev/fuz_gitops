@@ -47,9 +47,9 @@ describe('local_repos_resolve', () => {
 	});
 
 	test('the dir comes from the workspace and the entry, whatever the key', () => {
-		const entry = create_mock_repos_entry({ key: 'fuz_gitops', dir: 'gitops_checkout' });
+		const entry = create_mock_repos_entry({ key: 'fuz_repos', dir: 'gitops_checkout' });
 		const result = local_repos_resolve({
-			keys: ['fuz_gitops'],
+			keys: ['fuz_repos'],
 			report: create_mock_repos_report([entry], { workspace: '/w' })
 		});
 		assert.ok(result.ok);
@@ -81,10 +81,10 @@ describe('local_repos_resolve', () => {
 	});
 
 	test('a dir name listed in place of its key', () => {
-		const entry = create_mock_repos_entry({ key: 'fuz_gitops', dir: 'gitops_checkout' });
+		const entry = create_mock_repos_entry({ key: 'fuz_repos', dir: 'gitops_checkout' });
 		assert.deepEqual(
 			problems_of({ keys: ['gitops_checkout'], report: create_mock_repos_report([entry]) }),
-			['`gitops_checkout` is the dir of `fuz_gitops`, not a registry key — list `fuz_gitops`']
+			['`gitops_checkout` is the dir of `fuz_repos`, not a registry key — list `fuz_repos`']
 		);
 	});
 

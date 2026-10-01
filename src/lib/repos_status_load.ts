@@ -83,13 +83,13 @@ export const parse_repos_status_output = (
 	if (version !== REPOS_STATUS_FORMAT_VERSION) {
 		const fix =
 			typeof version === 'number' && version > REPOS_STATUS_FORMAT_VERSION
-				? "upgrade @fuzdev/fuz_gitops to match the binary, or install the binary from a fuz_repos checkout at this package's version"
+				? "upgrade @fuzdev/fuz_repos to match the binary, or install the binary from a fuz_repos checkout at this package's version"
 				: "install the binary from a fuz_repos checkout at this package's version";
 		return {
 			ok: false,
 			message:
 				`the \`repos\` binary prints status format ${JSON.stringify(version ?? null)}, ` +
-				`but this @fuzdev/fuz_gitops parses format ${REPOS_STATUS_FORMAT_VERSION}: ` +
+				`but this @fuzdev/fuz_repos parses format ${REPOS_STATUS_FORMAT_VERSION}: ` +
 				`${fix} (\`${REPOS_INSTALL_COMMAND}\`) — the npm package and the binary are installed separately`
 		};
 	}

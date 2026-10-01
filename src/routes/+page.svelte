@@ -10,7 +10,7 @@
 </script>
 
 <svelte:head>
-	<title>fuz_gitops</title>
+	<title>fuz_repos</title>
 </svelte:head>
 
 <main class="box mx_auto">

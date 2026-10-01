@@ -1,8 +1,8 @@
-# fuz_gitops
+# fuz_repos
 
 > Multi-repo management - alternative to monorepo pattern
 
-fuz_gitops (`@fuzdev/fuz_gitops`) loosely couples repos with cascade publishing
+fuz_repos (`@fuzdev/fuz_repos`) loosely couples repos with cascade publishing
 and cross-repo automation.
 
 For coding conventions, see Skill(fuz-stack).
@@ -29,7 +29,7 @@ The Rust `repos` tool's command reference is [docs/repos.md](docs/repos.md).
 
 ## Scope and boundaries
 
-fuz_gitops runs **deterministic, config-driven operations over a declared set
+fuz_repos runs **deterministic, config-driven operations over a declared set
 of repos — and is the gateway agents use for sensitive git operations.** Every
 word is load-bearing:
 
@@ -45,7 +45,8 @@ word is load-bearing:
   policy lives in one place. Write authority is derived from the registry's
   owner accounts, never declared per repo.
 
-The package is renaming to **fuz_repos**, with a `repos` binary: "GitOps" names
+The package is **fuz_repos**, with a `repos` binary. The `gitops_*` task names,
+`Gitops*` identifiers and `gitops.config.ts` keep an older name: "GitOps" names
 the inverse relationship (git as the desired state, infrastructure as the
 target), where this tool treats the repos themselves as the target.
 
@@ -139,16 +140,16 @@ fetching — is in docs/repos.md: [status](docs/repos.md#repos-status),
 
 - **Single-repo work** — build, check, publish, gen, format. That's `gro`. (A
   single-repo *push* by an agent is the exception: it goes through the gateway.)
-  fuz_gitops orchestrates gro across many repos and delegates hard: it carries
+  fuz_repos orchestrates gro across many repos and delegates hard: it carries
   no install or cache-healing logic of its own because gro's install path
   already self-heals npm's stale-cache failure. If gro can do it for one repo,
-  fuz_gitops's job is ordering and reporting, not reimplementation.
+  fuz_repos's job is ordering and reporting, not reimplementation.
 - **Work that needs judgment per repo** — a refactor whose resolution differs
   in each repo, a migration with per-repo edge cases. The rule that follows:
   **where a plan would have to guess, it must stop and report rather than
   guess.** A tool that resolves ambiguity on your behalf across many repos
   multiplies its mistakes.
-- **Secrets and env files.** fuz_gitops never stores, transports, or reads
+- **Secrets and env files.** fuz_repos never stores, transports, or reads
   secret material as data — not as a convenience, not behind a flag. Its own
   operating credential (`SECRET_GITHUB_API_TOKEN`, read from `.env` and sent
   only to the GitHub API) is the tool authenticating itself, not fleet secrets
@@ -289,7 +290,7 @@ Publishing intentionally leaves the workspace dirty when failures occur:
 
 ### No Rollback Support
 
-fuz_gitops does not support rollback of published packages:
+fuz_repos does not support rollback of published packages:
 
 - NPM does not support reliable unpublishing of packages
 - Once a package is published to NPM, it cannot be easily reverted
@@ -306,7 +307,7 @@ conflicts on git commits and changeset files.
 
 ```ts
 // gitops.config.ts
-import type { GitopsConfig } from '@fuzdev/fuz_gitops/gitops_config.ts';
+import type { GitopsConfig } from '@fuzdev/fuz_repos/gitops_config.ts';
 
 const config: GitopsConfig = {
 	repos: ['fuz_util', 'gro', 'fuz_ui'] // repos.toml registry keys, in display order
@@ -461,7 +462,7 @@ of them.
 The publishing executor never runs a bare `npm install` itself. Installing
 dependencies is gro's responsibility, and gro's install path self-heals npm's
 stale-cache (ETARGET) failure mode — clear the cache and retry once when a
-just-published version isn't visible yet. So fuz_gitops carries no install or
+just-published version isn't visible yet. So fuz_repos carries no install or
 cache-healing logic of its own:
 
 1. **Republishing dependents:** after a package publishes, the executor rewrites
@@ -620,7 +621,7 @@ Pages compose a detail component between `PageHeader.svelte` and
 ## Commands
 
 ```bash
-npm i -D @fuzdev/fuz_gitops
+npm i -D @fuzdev/fuz_repos
 
 # Dashboard data (reads each repo as it sits; `repos sync` moves them)
 gro gitops_sync               # fetch, check each repo is ready, then write repos.json + repos.ts from GitHub and library data
@@ -736,7 +737,7 @@ For packages you control, use `>=` instead of `^` for peer dependencies:
 
 **Version prefix preservation:**
 
-When fuz_gitops updates dependencies, it preserves existing prefixes:
+When fuz_repos updates dependencies, it preserves existing prefixes:
 
 - `>=0.38.0` updates to `>=0.39.0` (preserves `>=`)
 - `^1.0.0` updates to `^1.1.0` (preserves `^`)

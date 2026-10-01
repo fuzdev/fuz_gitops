@@ -39,7 +39,7 @@
 </script>
 
 <svelte:head>
-	<title>@fuzdev/fuz_gitops</title>
+	<title>@fuzdev/fuz_repos</title>
 </svelte:head>
 
 <svelte:body

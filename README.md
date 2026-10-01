@@ -1,17 +1,17 @@
-# fuz_gitops
+# fuz_repos
 
-[<img src="/static/logo.svg" alt="a friendly blue spider facing you" align="right" width="192" height="192">](https://gitops.fuz.dev/)
+[<img src="/static/logo.svg" alt="a friendly blue spider facing you" align="right" width="192" height="192">](https://repos.fuz.dev/)
 
-> a tool for managing many repos 🪄 [gitops.fuz.dev](https://gitops.fuz.dev/)
+> a tool for managing many repos 🪄 [repos.fuz.dev](https://repos.fuz.dev/)
 
-fuz_gitops is alternative to the monorepo pattern that more loosely couples repos:
+fuz_repos is alternative to the monorepo pattern that more loosely couples repos:
 
 - enables automations across repos without requiring them to be in the same monorepo
-- allows each repo to be managed from multiple fuz_gitops projects
+- allows each repo to be managed from multiple fuz_repos projects
 - runs automations locally on your machine, giving you full control and visibility
   (big tradeoffs in both directions compared to GitHub actions)
 
-With fuz_gitops you can:
+With fuz_repos you can:
 
 - dynamically compose repos
 - fetch metadata about collections of repos and import it as typesafe JSON (using fuz_ui's
@@ -23,17 +23,16 @@ With fuz_gitops you can:
 
 ## Scope
 
-fuz_gitops runs **deterministic, config-driven operations over a declared set
+fuz_repos runs **deterministic, config-driven operations over a declared set
 of repos** — no LLM in the loop, and the repo set comes from a declared list
 (a `repos.toml` registry, and a `gitops.config.ts` naming a subset of its keys). Publishing is its flagship capability, not its whole
 identity. The Rust `repos` tool in this repo (`crates/fuz_repos`) reports
 every declared repo's git state (`repos status`), syncs them (`repos sync`),
-and is the gateway agents push through (`repos push`); the package is
-renaming to `fuz_repos`.
+and is the gateway agents push through (`repos push`).
 
 Deliberately out of scope: single-repo build work (that's [gro](https://github.com/fuzdev/gro)),
 work whose resolution differs per repo and needs judgment, machine and server
-state, and **secrets** — fuz_gitops never stores, transports, or reads secret
+state, and **secrets** — fuz_repos never stores, transports, or reads secret
 material as data, including env-file contents. Its own GitHub API token
 (noted below) is the one credential it uses, to authenticate itself.
 
@@ -43,7 +42,7 @@ See [CLAUDE.md](CLAUDE.md#scope-and-boundaries) for the capability tiers, what
 ## Usage
 
 ```bash
-npm i -D @fuzdev/fuz_gitops
+npm i -D @fuzdev/fuz_repos
 ```
 
 - install the `repos` binary, which the tasks read repo state from — it isn't in the npm
@@ -52,7 +51,7 @@ npm i -D @fuzdev/fuz_gitops
   each repo's dir, URL, branch, visibility, and CI come from the registry:
 
   ```ts
-  import type { GitopsConfig } from '@fuzdev/fuz_gitops/gitops_config.ts';
+  import type { GitopsConfig } from '@fuzdev/fuz_repos/gitops_config.ts';
 
   const config: GitopsConfig = { repos: ['fuz_util', 'gro', 'fuz_ui'] };
 
@@ -61,7 +60,7 @@ npm i -D @fuzdev/fuz_gitops
 
   The tasks find the registry the way `repos` does, walking up from the cwd, or take
   `--registry <path>`; a repo the registry has but the disk lacks is cloned by `repos sync <key>`.
-- fuz_gitops calls the GitHub API using the environment variable `SECRET_GITHUB_API_TOKEN` for authorization,
+- fuz_repos calls the GitHub API using the environment variable `SECRET_GITHUB_API_TOKEN` for authorization,
   which is a [classic GitHub token](https://github.com/settings/tokens)
   (with "public access" for public repos, no options selected)
   or a [fine-grained GitHub token (beta)](https://github.com/settings/tokens?type=beta)
@@ -73,22 +72,22 @@ npm i -D @fuzdev/fuz_gitops
 
   ```ts
   // gitops_sync.task.ts
-  export * from '@fuzdev/fuz_gitops/gitops_sync.task.ts';
+  export * from '@fuzdev/fuz_repos/gitops_sync.task.ts';
 
   // gitops_analyze.task.ts
-  export * from '@fuzdev/fuz_gitops/gitops_analyze.task.ts';
+  export * from '@fuzdev/fuz_repos/gitops_analyze.task.ts';
 
   // gitops_plan.task.ts
-  export * from '@fuzdev/fuz_gitops/gitops_plan.task.ts';
+  export * from '@fuzdev/fuz_repos/gitops_plan.task.ts';
 
   // gitops_publish.task.ts
-  export * from '@fuzdev/fuz_gitops/gitops_publish.task.ts';
+  export * from '@fuzdev/fuz_repos/gitops_publish.task.ts';
 
   // gitops_validate.task.ts
-  export * from '@fuzdev/fuz_gitops/gitops_validate.task.ts';
+  export * from '@fuzdev/fuz_repos/gitops_validate.task.ts';
 
   // gitops_run.task.ts
-  export * from '@fuzdev/fuz_gitops/gitops_run.task.ts';
+  export * from '@fuzdev/fuz_repos/gitops_run.task.ts';
   ```
 
 - run `gro gitops_sync` to generate the dashboard's data from the repos
@@ -203,7 +202,7 @@ TODO
 
 - figure out better automation than manually running `gro gitops_sync`
 - show the rate limit info
-- think about how fuz_gitops could use both GitHub Actions and
+- think about how fuz_repos could use both GitHub Actions and
   [Forgejo Actions](https://forgejo.org/docs/v1.20/user/actions/)
 
 ## Contributing

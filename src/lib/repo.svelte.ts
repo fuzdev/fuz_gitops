@@ -11,7 +11,7 @@ import { GithubCheckRunsItem, type GithubPullRequest } from './github.ts';
  * Serialized repo data as stored in `repos.ts` (JSON).
  *
  * `package_json` is the repo's full `package.json`, carried alongside
- * `library_json` because gitops reads `dependencies`/`devDependencies` for the
+ * `library_json` because fuz_repos reads `dependencies`/`devDependencies` for the
  * publishing cascade — fields the curated `LibraryJson.pkg_json` omits.
  */
 export interface RepoJson {

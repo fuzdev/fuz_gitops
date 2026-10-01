@@ -1,7 +1,7 @@
 # Publishing Guide
 
 This guide covers multi-repo publishing workflows, changeset semantics, and the
-algorithms that power fuz_gitops publishing.
+algorithms that power fuz_repos publishing.
 
 ## Table of Contents
 

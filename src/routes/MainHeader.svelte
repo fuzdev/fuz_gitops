@@ -5,7 +5,7 @@
 
 <header class="pane p_lg">
 	<div class="box shade_00 mb_lg">
-		<h1 class="mb_lg font_size_xl2 font-weight:400">fuz_gitops</h1>
+		<h1 class="mb_lg font_size_xl2 font-weight:400">fuz_repos</h1>
 		<!-- TODO FuzGitopsLogo -->
 		<Svg
 			data={logo_fuz}

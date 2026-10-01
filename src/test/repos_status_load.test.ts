@@ -55,7 +55,7 @@ describe('parse_repos_status_output', () => {
 				0
 			);
 			assert.include(message, `format ${REPOS_STATUS_FORMAT_VERSION + 1}`);
-			assert.include(message, 'upgrade @fuzdev/fuz_gitops');
+			assert.include(message, 'upgrade @fuzdev/fuz_repos');
 		});
 
 		test('checked before the error document is parsed', () => {

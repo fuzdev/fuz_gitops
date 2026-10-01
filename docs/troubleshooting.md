@@ -1,6 +1,6 @@
 # Troubleshooting
 
-Common errors, solutions, and debugging tips for fuz_gitops.
+Common errors, solutions, and debugging tips for fuz_repos.
 
 ## Table of Contents
 
@@ -14,7 +14,7 @@ Common errors, solutions, and debugging tips for fuz_gitops.
 
 Every task reads repo state from `repos status --json`, and the `repos` binary
 isn't in the npm package. Install it from a checkout of this repo at the
-version of `@fuzdev/fuz_gitops` you use — its format version must match the
+version of `@fuzdev/fuz_repos` you use — its format version must match the
 package's:
 
 ```bash

@@ -110,9 +110,9 @@ export const task: Task<Args> = {
 
 		// TODO should package_json be provided in the Gro task/gen contexts? check if it's always loaded
 		const repo_specifier =
-			package_json.name === '@fuzdev/fuz_gitops'
+			package_json.name === '@fuzdev/fuz_repos'
 				? '$lib/repo.svelte.ts'
-				: '@fuzdev/fuz_gitops/repo.svelte.ts';
+				: '@fuzdev/fuz_repos/repo.svelte.ts';
 
 		log.info(`generating ${outfile_json} and ${outfile_ts}`);
 

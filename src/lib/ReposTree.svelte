@@ -28,7 +28,7 @@
 				<!--
 					`links_full` points the module/declaration links at each repo's own
 					deployed docs (`homepage_url`-based) rather than this site's local
-					`/docs/api/*`, which only knows fuz_gitops's own modules — otherwise
+					`/docs/api/*`, which only knows fuz_repos's own modules — otherwise
 					the foreign links dangle.
 				-->
 				<LibraryDetail library={selected_repo.library} links_full />
