@@ -18,7 +18,7 @@ const config: GitopsConfig = {
 		'tsv.fuz.dev',
 		'zzz',
 		'fuz_docs',
-		'fuz_gitops'
+		'fuz_repos'
 		// 'fuz.dev',
 	]
 };
