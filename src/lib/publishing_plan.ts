@@ -160,35 +160,11 @@ export const generate_publishing_plan = async (
 	}
 	const repos = all_repos.filter(repo_is_npm);
 
-	// Build dependency graph and validate
-	let publishing_order: Array<string>;
-	let production_cycles: Array<Array<string>>;
-	let dev_cycles: Array<Array<string>>;
-	let graph: DependencyGraph;
-
-	try {
-		const validation = validate_dependency_graph(repos);
-		publishing_order = validation.publishing_order;
-		production_cycles = validation.production_cycles;
-		dev_cycles = validation.dev_cycles;
-		graph = validation.graph; // Store for verbose output
-
-		// Add topological sort error if present
-		if (validation.sort_error) {
-			errors.push(validation.sort_error);
-		}
-	} catch (error) {
-		errors.push(`Failed to validate dependency graph: ${error}`);
-		return {
-			publishing_order: [],
-			version_changes: [],
-			dependency_updates: [],
-			breaking_cascades: new Map(),
-			warnings,
-			info,
-			no_changes: [],
-			errors
-		};
+	// Build dependency graph and validate; cycles and a failed sort are reported, never thrown
+	const validation = validate_dependency_graph(repos);
+	const { publishing_order, production_cycles, dev_cycles, graph } = validation;
+	if (validation.sort_error) {
+		errors.push(validation.sort_error);
 	}
 
 	for (const cycle of production_cycles) {

@@ -12,6 +12,7 @@ import type { Logger } from '@fuzdev/fuz_util/log.ts';
 import { compactReplacer } from 'svelte-docinfo';
 
 import { fetch_repo_data } from './fetch_repo_data.ts';
+import type { RepoJson } from './repo.svelte.ts';
 import { create_fs_fetch_value_cache } from './fs_fetch_value_cache.ts';
 import { resolve_gitops_repos } from './gitops_task_helpers.ts';
 import { GITOPS_CONFIG_PATH_DEFAULT } from './gitops_constants.ts';
@@ -117,7 +118,7 @@ export const task: Task<Args> = {
 		log.info(`generating ${outfile_json} and ${outfile_ts}`);
 
 		// Generate repos.json with the raw data
-		const json_contents = format_file(JSON.stringify(repos_json, compactReplacer), {
+		const json_contents = format_file(serialize_repos_json(repos_json), {
 			lang: 'json'
 		});
 		const existing_json = existsSync(outfile_json) ? await readFile(outfile_json, 'utf8') : '';
@@ -165,6 +166,25 @@ export const task: Task<Args> = {
 		}
 	}
 };
+
+/**
+ * Serializes the site data for `repos.json`. Only each repo's `library_json`
+ * is compacted with svelte-docinfo's `compactReplacer`, the format its schema
+ * reads back: the replacer drops every `false` and empty array, which outside
+ * the library data would strip a pull request's `draft: false`, an empty
+ * `pull_requests`, and `package.json` fields like `private: false`.
+ *
+ * @param repos_json - the repos' data, in order
+ * @returns unformatted JSON
+ * @nodocs
+ */
+export const serialize_repos_json = (repos_json: Array<RepoJson>): string =>
+	JSON.stringify(
+		repos_json.map((repo_json) => ({
+			...repo_json,
+			library_json: JSON.parse(JSON.stringify(repo_json.library_json, compactReplacer))
+		}))
+	);
 
 /**
  * The side effects `prepare_gitops_sync` reaches through, injectable for tests.

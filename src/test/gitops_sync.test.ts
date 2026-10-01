@@ -4,7 +4,14 @@ import { TaskError } from '@fuzdev/gro';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { prepare_gitops_sync, type GitopsSyncDeps } from '$lib/gitops_sync.task.ts';
+import {
+	prepare_gitops_sync,
+	serialize_repos_json,
+	type GitopsSyncDeps
+} from '$lib/gitops_sync.task.ts';
+import { fetch_repo_data } from '$lib/fetch_repo_data.ts';
+import { GithubPullRequests } from '$lib/github.ts';
+import type { RepoJson } from '$lib/repo.svelte.ts';
 import type { ReposEntryStatus } from '$lib/repos_status.ts';
 import { basic_publishing } from './fixtures/repo_fixtures/basic_publishing.ts';
 import {
@@ -290,5 +297,67 @@ describe('prepare_gitops_sync --check', () => {
 			/`repo_c` is private, and @test\/host is a public package/
 		);
 		assert.deepEqual(steps, ['repos status']);
+	});
+});
+
+describe('serialize_repos_json', () => {
+	const json_response = (body: unknown): Response =>
+		new Response(JSON.stringify(body), { headers: { 'content-type': 'application/json' } });
+
+	/** The document written for one repo whose open pull requests are `pulls`. */
+	const write_and_read = async (pulls: Array<unknown>): Promise<Array<RepoJson>> => {
+		const repo = create_mock_repo({ name: 'a' });
+		repo.package_json = { ...repo.package_json, private: false, files: [] };
+		const repos_json = await fetch_repo_data({
+			local_repos: [repo],
+			delay: 0,
+			fetch: async (input) =>
+				String(input instanceof Request ? input.url : input).endsWith('/pulls')
+					? json_response(pulls)
+					: json_response({ total_count: 0, check_runs: [] })
+		});
+		return JSON.parse(serialize_repos_json(repos_json));
+	};
+
+	test('a non-draft pull request parses with its schema', async () => {
+		const pulls = [
+			{ number: 1, title: 'ready', user: { login: 'u' }, draft: false },
+			{ number: 2, title: 'wip', user: { login: 'u' }, draft: true }
+		];
+		const [written] = await write_and_read(pulls);
+		assert.deepEqual(GithubPullRequests.parse(written!.pull_requests), pulls);
+	});
+
+	test('no open pull requests stays an empty array, apart from a failed fetch', async () => {
+		const [written] = await write_and_read([]);
+		assert.deepEqual(written!.pull_requests, []);
+	});
+
+	test('the package.json keeps its false values and empty arrays', async () => {
+		const [written] = await write_and_read([]);
+		assert.strictEqual(written!.package_json.private, false);
+		assert.deepEqual(written!.package_json.files, []);
+	});
+
+	test('the library data stays compact', () => {
+		const repo = create_mock_repo({ name: 'a' });
+		const library_json = {
+			...repo.library.library_json,
+			source_json: {
+				...repo.library.library_json.source_json,
+				modules: [{ path: 'a.ts', declarations: [], dependencies: [] }]
+			}
+		};
+		const [written] = JSON.parse(
+			serialize_repos_json([
+				{
+					library_json,
+					package_json: repo.package_json,
+					check_runs: null,
+					pull_requests: null
+				}
+			])
+		);
+		assert.deepEqual(written.library_json.source_json.modules, [{ path: 'a.ts' }]);
 	});
 });

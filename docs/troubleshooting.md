@@ -318,10 +318,13 @@ gro gitops_publish --wetrun --format json --outfile result.json
 `package_failed` event whose `code` says why — one of `drift` (the version
 `changeset version` wrote isn't the plan's; its `error` names both),
 `not_ready`, `network` (the npm wait), or `publish` (its `error` ends with the
-end of `gro publish`'s stderr). `failed[]` names the packages, but its `error`
-values serialize empty, so read the events. Both the report's events and
-`--emit_json`'s live stream mask secrets. Under `--emit_json`, or a report
-written to stdout rather than `--outfile`, the task's log, the confirmation
+end of `gro publish`'s stderr). `failed[]` names each failed package with its
+`error` message as a string; when the executor itself threw (a plan with
+errors, a failed preflight) it holds one entry named `FATAL_ERROR` carrying
+the thrown message. A readiness refusal or a blocked plan throws before any
+report is written. The report's events and failures and `--emit_json`'s live
+stream mask secrets. Under `--emit_json`, or a report written to stdout rather
+than `--outfile`, the task's log, the confirmation
 prompt, and the stdout of `gro publish` and `gro deploy` go to stderr, out of
 the JSON's way.
 

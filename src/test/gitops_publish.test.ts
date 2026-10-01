@@ -350,6 +350,48 @@ describe('run_gitops_publish report masking', () => {
 		assert.notInclude(JSON.stringify(report), 'hunter2');
 	});
 
+	test('--format json carries each failure message, masked', async () => {
+		const report = JSON.parse(await run_failing('json'));
+		assert.isAbove(report.failed.length, 0);
+		for (const failure of report.failed as Array<{ name: string; error: unknown }>) {
+			assert.isString(failure.name);
+			assert.isString(failure.error);
+		}
+		assert.include(report.failed[0].error, 'SECRET_NPM_TOKEN=[redacted]');
+		assert.notInclude(JSON.stringify(report), 'hunter2');
+	});
+
+	test('--format json carries a fatal error message, masked', async () => {
+		const { deps } = create_recording_deps({
+			repos: create_gate_repos(),
+			fetched_entries: [
+				create_mock_repos_entry({ key: 'a' }),
+				create_mock_repos_entry({ key: 'b' })
+			]
+		});
+		deps.ops = {
+			...deps.ops,
+			preflight: {
+				run_preflight_checks: async () => {
+					throw new Error('preflight blew up: SECRET_NPM_TOKEN=hunter2');
+				}
+			}
+		};
+		const log = create_stream_log();
+		const outcome = await run_gitops_publish(
+			Args.parse({ wetrun: true, plan: false, format: 'json' }),
+			log,
+			deps
+		);
+		assert.strictEqual(outcome, 'failed');
+		assert.strictEqual(log.stdout.length, 1);
+		const report = JSON.parse(log.stdout[0]!);
+		assert.deepEqual(report.failed, [
+			{ name: 'FATAL_ERROR', error: 'preflight blew up: SECRET_NPM_TOKEN=[redacted]' }
+		]);
+		assert.notInclude(log.stdout[0]!, 'hunter2');
+	});
+
 	test('--format markdown masks secrets in the failures', async () => {
 		const report = await run_failing('markdown');
 		assert.include(report, 'SECRET_NPM_TOKEN=[redacted]');

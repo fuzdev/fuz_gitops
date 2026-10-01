@@ -257,7 +257,7 @@ export const run_gitops_publish = async (
 		result = {
 			ok: false,
 			published: [],
-			// Note: FATAL_ERROR is a placeholder - only fatal_error.message is displayed in output
+			// FATAL_ERROR is a placeholder name: markdown shows only the message, the JSON report shows the entry
 			failed: [{ name: 'FATAL_ERROR', error: fatal_error }],
 			duration: 0,
 			events: [],
@@ -314,22 +314,42 @@ export const format_failure_markdown = (name: string, message: string): Array<st
 	return lines;
 };
 
-interface PublishResultData {
+/** @nodocs */
+export interface PublishResultData {
 	result: PublishingResult;
 	fatal_error: Error | null;
 	preview_steps: Array<PublishStep> | null;
 }
 
-const create_publish_formatters = (): OutputFormatters<PublishResultData> => ({
-	json: (data) => {
+/**
+ * The `--format json` document: the result with each failure's `Error` as its
+ * message string — an `Error` serializes as `{}` — and secrets masked in those
+ * messages and in the events, as the markdown report and the live stream mask
+ * them. A fatal error is the one `FATAL_ERROR` entry in `failed`, carrying its
+ * message. `preview` is present under `--preview`.
+ *
+ * @nodocs
+ */
+export const to_publish_result_json = (
+	data: PublishResultData
+): Omit<PublishingResult, 'failed'> & {
+	failed: Array<{ name: string; error: string }>;
+	preview?: Array<PublishStep>;
+} => {
+	const result = {
+		...data.result,
+		failed: data.result.failed.map(({ name, error }) => ({
+			name,
+			error: redact_secrets(error.message)
+		})),
 		// the result's events are the executor's unmasked capture; mask them as the live stream is
-		const result = { ...data.result, events: data.result.events.map(mask_secrets) };
-		return JSON.stringify(
-			data.preview_steps ? { ...result, preview: data.preview_steps } : result,
-			null,
-			2
-		);
-	},
+		events: data.result.events.map(mask_secrets)
+	};
+	return data.preview_steps ? { ...result, preview: data.preview_steps } : result;
+};
+
+const create_publish_formatters = (): OutputFormatters<PublishResultData> => ({
+	json: (data) => JSON.stringify(to_publish_result_json(data), null, 2),
 	markdown: (data) => format_result_markdown(data.result, data.fatal_error, data.preview_steps),
 	stdout: () => {
 		// stdout format is handled by the executor's logging
