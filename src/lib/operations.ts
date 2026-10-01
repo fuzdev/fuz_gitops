@@ -2,7 +2,8 @@
  * Operations interfaces for dependency injection.
  *
  * This is the core pattern enabling testability without mocks.
- * All side effects (git, npm, fs, process) are abstracted into interfaces.
+ * All side effects (git, npm, fs, process, build, and the `repos` binary) are
+ * abstracted into interfaces.
  *
  * **Design principles:**
  * - All operations accept a single `options` object parameter

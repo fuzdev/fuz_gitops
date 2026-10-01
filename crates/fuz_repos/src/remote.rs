@@ -9,7 +9,7 @@
 //! — git's, or what the runner or a push's report said; `ref_gone` carries
 //! the ref git named and the repair decided for it, `timed_out` the
 //! runner's timeout, and `rejected` — a push's alone — the reason git gave
-//! and the remote's own line, when it sent one. The three not-run kinds are no remote's
+//! and the remote's own line, when it sent one. The not-run kinds are no remote's
 //! answer: the probe refused to fetch (`refspec_outside_origin`,
 //! `origin_refs_shared`, `legacy_remotes_unreadable`). Each kind is worded
 //! once, here (`RemoteFailure::words`); a renderer may add a hint, but the

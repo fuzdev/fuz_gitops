@@ -305,7 +305,7 @@ gro gitops_analyze --format markdown --outfile deps.md
 ### Preview a publish's side effects
 
 ```bash
-gro gitops_publish --preview  # the ordered publishes, npm waits, dependency rewrites, and (with --deploy) deploys a --wetrun would perform
+gro gitops_publish --preview  # the ordered publishes, npm waits, dependency rewrites, dev-dep updates, and (with --deploy) deploys a --wetrun would perform
 ```
 
 ### Find what stopped a real publish

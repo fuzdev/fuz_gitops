@@ -598,7 +598,7 @@ impl ProbeError {
 
 /// What kind of failure stopped an entry's probe.
 ///
-/// The three reads with a kind of their own (the config, the fetch URL, the
+/// The reads with a kind of their own (the config, the fetch URL, the
 /// push URLs) carry it however the read failed; every other git call is
 /// classed by how it failed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]

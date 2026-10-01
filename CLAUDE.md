@@ -249,8 +249,8 @@ Publishing has two stages with the plan as the single source of truth:
 - **Plan** (`generate_publishing_plan`) resolves the full cascade up front using
   fixed-point iteration (max 10 iterations): explicit changesets, bump
   escalations from breaking dependencies, and auto-generated changesets for
-  dependents. It converges when no new version changes are discovered, and warns
-  with a pending-package count if it hits the iteration limit.
+  dependents. It converges when no new version changes are discovered, and warns,
+  naming the packages one more pass would change, if it hits the iteration limit.
 - **Publish** (`publish_repos`) executes the frozen plan in a single linear pass
   over the topological order — it re-derives nothing. Publishing a package
   immediately rewrites each dependent's `package.json` and creates its
@@ -272,8 +272,9 @@ two never disagree.
 Publishing intentionally leaves the workspace dirty when failures occur:
 
 - Auto-changesets are created and committed DURING the publishing pass
-- If publishing fails mid-way — a publish error, an npm-propagation timeout, or
-  a plan/reality drift — some packages are published, others are not
+- If publishing fails mid-way — a publish error, an npm-propagation timeout, a
+  plan/reality drift, or a re-check that found the repo no longer ready
+  (`not_ready`) — some packages are published, others are not
 - The dirty workspace state shows exactly what succeeded/failed
 - This enables **natural resumption**: just fix the issue and re-run the same
   command, which re-plans from the current state
@@ -515,16 +516,25 @@ published.
 
 #### Key Publishing Modules
 
-- `multi_repo_publisher.ts` - Main publishing orchestration (`generate_publishing_plan`
-  builds the plan, `execute_publishing_plan` executes the frozen plan; `publish_repos`
-  composes the two)
+- `multi_repo_publisher.ts` - Main publishing orchestration (`execute_publishing_plan`
+  executes the frozen plan `generate_publishing_plan` builds in `publishing_plan.ts`;
+  `publish_repos` composes the two)
 - `publishing_plan.ts` - Publishing plan generation and cascade analysis
+- `publishing_plan_helpers.ts` - The plan's dependency updates and required bumps
+  (`calculate_dependency_updates`, `get_required_bump_for_dependencies`)
+- `publishing_plan_logging.ts` - Prints a plan to the log (`log_publishing_plan`)
 - `publish_steps.ts` - Derives the ordered side-effect preview (`--preview`) from a plan
+- `publish_gate.ts` - The task's decision to confirm, block, or proceed after the
+  plan (`decide_publish_gate`), and whether a run failed (`publish_run_failed`)
+- `publishing_event.ts` / `publishing_event_handler.ts` - The publishing event
+  stream (`PublishingEvent`, failure codes, `summarize_events`) and its sinks
+  (capturing, JSON-lines stdout, secret masking)
 - `changeset_reader.ts` - Parses changesets and predicts versions
 - `changeset_generator.ts` - Auto-generates changesets for dependency updates
 - `dependency_graph.ts` - Topological sorting, cycle detection, and wildcard analysis
-- `graph_validation.ts` - Shared cycle detection and publishing order
-  computation
+- `graph_validation.ts` - `validate_dependency_graph` (graph, cycles by type,
+  publishing order; reports, never throws) and `analyze_repos` for the analysis
+  tasks
 - `version_utils.ts` - Version comparison and bump type detection
 - `npm_registry.ts` - NPM availability checks with retry (`NpmRegistryDeps`
   injects npm, the sleep, and the clock)

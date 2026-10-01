@@ -30,7 +30,7 @@ export interface UpdatePackageJsonOptions {
  * 3. Creates auto-changeset if `published_versions` provided (for transitive updates)
  * 4. Commits both `package.json` and changeset with standard message
  *
- * Uses version strategy to determine prefix (exact, caret, tilde) while preserving
+ * Uses version strategy to determine prefix (exact, caret, tilde, gte) while preserving
  * existing prefixes when possible.
  *
  * @throws {Error} if file operations or git operations fail

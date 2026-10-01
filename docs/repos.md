@@ -571,7 +571,7 @@ checked by parsing every status golden with its strict schemas
 (`src/test/repos_status.golden.test.ts`); the sync and push documents have
 no TS consumer yet.
 
-The goldens hold to two checks. Every report they build is checked for its
+The goldens hold to these checks. Every report they build is checked for its
 structure (`crates/fuz_repos/tests/golden/invariants.rs`): keys and dirs
 unique, nothing read of an entry with no repo or a failed probe, the
 primary checkout first, an unasked reference's branches its local work

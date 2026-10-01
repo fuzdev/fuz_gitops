@@ -64,7 +64,7 @@ npm i -D @fuzdev/fuz_gitops
 - fuz_gitops calls the GitHub API using the environment variable `SECRET_GITHUB_API_TOKEN` for authorization,
   which is a [classic GitHub token](https://github.com/settings/tokens)
   (with "public access" for public repos, no options selected)
-  or a [fine-grainted GitHub token (beta)](https://github.com/settings/tokens?type=beta)
+  or a [fine-grained GitHub token (beta)](https://github.com/settings/tokens?type=beta)
   (with `"Public Repositories (read-only)"` selected)
   in either `process.env`, a project-local `.env`, or the parent directory at `../.env`
   (currently optional to read public repos, but it's recommended regardless,
@@ -86,6 +86,9 @@ npm i -D @fuzdev/fuz_gitops
 
   // gitops_validate.task.ts
   export * from '@fuzdev/fuz_gitops/gitops_validate.task.ts';
+
+  // gitops_run.task.ts
+  export * from '@fuzdev/fuz_gitops/gitops_run.task.ts';
   ```
 
 - run `gro gitops_sync` to generate the dashboard's data from the repos
@@ -136,7 +139,7 @@ origin or missing its `node_modules`.
 ### Diagnostic commands (read-only)
 
 ```bash
-gro gitops_validate           # run all validation checks (analyze + plan + dry run)
+gro gitops_validate           # run all validation checks (analyze + plan + dry run + CI reconcile)
 gro gitops_analyze            # analyze dependency graph and detect cycles
 gro gitops_plan               # generate publishing plan showing version changes and cascades
 gro gitops_publish            # simulate publishing, writing nothing in git (dry run default)
@@ -153,7 +156,7 @@ rest.
 ### Publishing packages
 
 ```bash
-gro gitops_publish --wetrun  # actually publish all repos with changesets
+gro gitops_publish --wetrun  # publish every package the plan publishes, in dependency order
 gro gitops_publish --wetrun --no-plan  # skip plan confirmation
 ```
 

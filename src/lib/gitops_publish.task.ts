@@ -50,15 +50,24 @@ export const Args = z.strictObject({
 		})
 		.optional(),
 	peer_strategy: z
-		.enum(['exact', 'caret', 'tilde'])
-		.meta({ description: 'version strategy for peer dependencies' })
+		.enum(['exact', 'caret', 'tilde', 'gte'])
+		.meta({
+			description:
+				'range prefix for a rewritten dependency of any type whose range has none (an existing prefix is kept; a wildcard becomes ^)'
+		})
 		.default('caret' as const),
 	wetrun: z.boolean().meta({ description: 'actually publish (default is dry run)' }).default(false),
 	format: z
 		.enum(['stdout', 'json', 'markdown'])
 		.meta({ description: 'output format' })
 		.default('stdout'),
-	deploy: z.boolean().meta({ description: 'deploy all repos after publishing' }).default(false),
+	deploy: z
+		.boolean()
+		.meta({
+			description:
+				'deploy each repo the run changed (published, or any dependency updated) after publishing'
+		})
+		.default(false),
 	plan: z
 		.boolean()
 		.meta({ description: 'show the plan and confirm before publishing; --no-plan to skip' })
@@ -85,7 +94,8 @@ export type Args = z.infer<typeof Args>;
 
 /** @nodocs */
 export const task: Task<Args> = {
-	summary: 'publish all repos in dependency order',
+	summary:
+		'publish the packages the plan publishes, in dependency order (a dry run unless --wetrun)',
 	Args,
 	run: async ({ args, log }): Promise<void> => {
 		const outcome = await run_gitops_publish(args, log);

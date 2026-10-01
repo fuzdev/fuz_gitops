@@ -18,16 +18,16 @@ algorithms that power fuz_gitops publishing.
 ## Quick Start
 
 ```bash
-# 1. Validate configuration (writes nothing in git)
-gro gitops_validate
-
-# 2. Review what will be published
-gro gitops_plan
-
-# 3. Fetch, fast-forward what's behind, push what's ahead (repos off their branch or dirty are yours to move)
+# 1. Fetch, fast-forward what's behind, push what's ahead (repos off their branch or dirty are yours to move)
 repos sync
 
-# 4. Publish (after dry run looks good)
+# 2. Validate configuration (writes nothing in git)
+gro gitops_validate
+
+# 3. Review what will be published
+gro gitops_plan
+
+# 4. Publish
 gro gitops_publish --wetrun
 ```
 
@@ -323,19 +323,22 @@ Packages with `"private": true` in package.json never publish:
 Before publishing, always validate your configuration:
 
 ```bash
-# 1. Run comprehensive validation (writes nothing in git)
+# 1. Fetch, fast-forward what's behind, push what's ahead, so the checks read the canonical branches
+repos sync
+
+# 2. Run comprehensive validation (writes nothing in git)
 gro gitops_validate
 
-# 2. Review analyze output
+# 3. Review analyze output
 gro gitops_analyze
 
-# 3. Review plan to see what will be published
+# 4. Review plan to see what will be published
 gro gitops_plan
 
-# 4. Test with dry run (default)
+# 5. Test with dry run (default)
 gro gitops_publish
 
-# 5. If everything looks good, actually publish
+# 6. If everything looks good, actually publish
 gro gitops_publish --wetrun
 ```
 

@@ -1,5 +1,6 @@
 //! One sync action's git calls: the fast-forwards, shallow moves, pushes,
-//! branch creation, and a partial clone's lazy fetch.
+//! branch creation, and a partial clone's lazy fetch. What each relies on,
+//! and the races it leaves, is the `sync` module's doc.
 
 use std::path::Path;
 use std::time::Duration;

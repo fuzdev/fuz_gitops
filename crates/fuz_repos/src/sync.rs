@@ -2,6 +2,9 @@
 //! fast-forwards, shallow moves, and pushes `status` previews — and on each
 //! missing entry's, cloning it.
 //!
+//! Each action's git calls are in `sync/step.rs`; this doc says what they
+//! rely on and the races they leave.
+//!
 //! **The pipeline.** Sync is `status --fetch` (the same probe pool, the same
 //! hardened fetch writing remote-tracking refs alone, the same visibility
 //! checks) and then acts:
