@@ -348,6 +348,22 @@ gro gitops_analyze --format json --outfile analysis.json
 gro gitops_plan --format markdown --outfile plan.md
 ```
 
+Without `--outfile`, a `--format json` or `markdown` report goes to stdout, and so
+do `gitops_publish --emit_json`'s JSON-lines events and `gitops_run --format json`'s
+results. In those modes everything meant for a person goes to stderr instead: the
+task's log (the plan, the readiness block and gate, the executor's progress), gro's
+own lines after the task, the stdout of the `gro publish` and `gro deploy` it runs,
+and the confirmation prompt, which is always on stderr. With both `--emit_json` and
+a `json` or `markdown` report on stdout, the report follows the events on stdout;
+give the report an `--outfile` to keep the stream line-parseable. Gro prints two
+lines before a task runs (`[gitops_plan] invoking gitops_plan` and `[gitops_plan] →
+gitops_plan …`) that the task can't reach, so they still lead stdout; use
+`--outfile` for a file holding the document alone, or skip them when piping
+(`tail -n +3` at the default log level).
+
+The JSON report masks secrets in its `events` as the `--emit_json` stream does, and
+the markdown report masks them in its failures.
+
 ## Examples
 
 ### Publishing a single package with changesets

@@ -19,7 +19,8 @@ import {
 	create_mock_repos_entry,
 	create_mock_repos_ops,
 	create_mock_repos_report,
-	create_populated_fs_ops
+	create_populated_fs_ops,
+	create_stream_log
 } from './test_helpers.ts';
 
 /** A logger that keeps what it logs, by stream. */
@@ -274,6 +275,116 @@ describe('run_gitops_publish dry run', () => {
 		const log = create_capturing_log();
 		await run_gitops_publish(Args.parse({}), log, deps);
 		assert.notInclude(log.warned.join('\n'), 'not at rest');
+	});
+});
+
+describe('run_gitops_publish machine output', () => {
+	const ready_entries = () => [
+		create_mock_repos_entry({ key: 'a' }),
+		create_mock_repos_entry({ key: 'b' })
+	];
+
+	test('--format json dry run: stdout carries the report alone', async () => {
+		const { deps } = create_recording_deps({
+			repos: create_repos(OFF_BRANCH),
+			fetched_entries: []
+		});
+		const log = create_stream_log();
+		const outcome = await run_gitops_publish(Args.parse({ format: 'json' }), log, deps);
+		assert.strictEqual(outcome, 'done');
+		assert.strictEqual(log.stdout.length, 1);
+		const report = JSON.parse(log.stdout[0]!);
+		assert.strictEqual(report.ok, true);
+		// the readiness block and the executor's progress went to stderr
+		assert.include(log.stderr.join('\n'), 'b: on `feature`, not `main`');
+	});
+
+	test('--format markdown --wetrun: the plan, the gate, and the progress go to stderr', async () => {
+		const { deps, steps } = create_recording_deps({
+			repos: create_repos(),
+			fetched_entries: ready_entries()
+		});
+		const log = create_stream_log();
+		const outcome = await run_gitops_publish(
+			Args.parse({ wetrun: true, format: 'markdown' }),
+			log,
+			deps
+		);
+		assert.strictEqual(outcome, 'done');
+		assert.include(steps, 'confirm');
+		assert.strictEqual(log.stdout.length, 1);
+		assert.ok(log.stdout[0]!.startsWith('# Publishing Result'));
+		const errors = log.stderr.join('\n');
+		assert.include(errors, 'Publishing Plan');
+		assert.include(errors, 'all 2 npm repos are ready to publish');
+		assert.include(errors, 'This will publish the packages shown above');
+	});
+
+	test('--emit_json --wetrun: stdout carries JSON-lines events alone', async () => {
+		const { deps } = create_recording_deps({
+			repos: create_repos(),
+			fetched_entries: ready_entries()
+		});
+		const log = create_stream_log();
+		const outcome = await run_gitops_publish(
+			Args.parse({ wetrun: true, emit_json: true }),
+			log,
+			deps
+		);
+		assert.strictEqual(outcome, 'done');
+		assert.ok(log.stdout.length > 1);
+		for (const line of log.stdout) {
+			assert.notInclude(line, '\n');
+			assert.isString(JSON.parse(line).event);
+		}
+		assert.include(log.stderr.join('\n'), 'Publishing Plan');
+	});
+
+	test('the human format logs on stdout', async () => {
+		const { deps } = create_recording_deps({ repos: create_repos(), fetched_entries: [] });
+		const log = create_stream_log();
+		await run_gitops_publish(Args.parse({}), log, deps);
+		assert.ok(log.stdout.length > 0);
+		assert.ok(log.stdout.every((l) => l.startsWith('[test]')));
+	});
+});
+
+describe('run_gitops_publish report masking', () => {
+	const SECRET_FAILURE = { ok: false as const, message: 'failed: SECRET_NPM_TOKEN=hunter2' };
+
+	const run_failing = async (format: 'json' | 'markdown'): Promise<string> => {
+		const { deps } = create_recording_deps({
+			repos: create_repos(),
+			fetched_entries: [
+				create_mock_repos_entry({ key: 'a' }),
+				create_mock_repos_entry({ key: 'b' })
+			]
+		});
+		deps.ops = { ...deps.ops, process: { run_interactive: async () => SECRET_FAILURE } };
+		const log = create_stream_log();
+		const outcome = await run_gitops_publish(
+			Args.parse({ wetrun: true, plan: false, format }),
+			log,
+			deps
+		);
+		assert.strictEqual(outcome, 'failed');
+		assert.strictEqual(log.stdout.length, 1);
+		return log.stdout[0]!;
+	};
+
+	test('--format json masks secrets in the events, as the live stream does', async () => {
+		const report = JSON.parse(await run_failing('json'));
+		const failed = report.events.find((e: { event: string }) => e.event === 'package_failed') as {
+			error: string;
+		};
+		assert.include(failed.error, 'SECRET_NPM_TOKEN=[redacted]');
+		assert.notInclude(JSON.stringify(report), 'hunter2');
+	});
+
+	test('--format markdown masks secrets in the failures', async () => {
+		const report = await run_failing('markdown');
+		assert.include(report, 'SECRET_NPM_TOKEN=[redacted]');
+		assert.notInclude(report, 'hunter2');
 	});
 });
 

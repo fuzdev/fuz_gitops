@@ -62,6 +62,15 @@ describe('event handlers', () => {
 		assert.strictEqual(parsed.wetrun, false);
 	});
 
+	test('stdout_handler writes each event as one line through an injected writer', () => {
+		const lines: Array<string> = [];
+		const handler = stdout_handler((line) => lines.push(line));
+		handler.emit(run_started);
+		handler.emit(completed);
+		assert.strictEqual(lines.length, 2);
+		assert.strictEqual(JSON.parse(lines[1]!).event, completed.event);
+	});
+
 	test('masking_handler redacts secrets before forwarding', () => {
 		const inner = capture_handler();
 		const handler = masking_handler(inner);

@@ -1,15 +1,28 @@
 import type { Task } from '@fuzdev/gro';
+import type { Logger } from '@fuzdev/fuz_util/log.ts';
 import { z } from 'zod';
 import { styleText as st } from 'node:util';
 
-import { get_gitops_ready, log_readiness_block } from './gitops_task_helpers.ts';
+import {
+	get_gitops_ready,
+	log_readiness_block,
+	type ResolveGitopsReposOptions
+} from './gitops_task_helpers.ts';
+import type { LocalRepo } from './local_repo.ts';
+import type { ChangesetOperations } from './operations.ts';
+import { default_changeset_operations } from './operations_defaults.ts';
 import {
 	generate_publishing_plan,
 	version_change_kind,
 	type PublishingPlan
 } from './publishing_plan.ts';
 import { log_publishing_plan, type LogPlanOptions } from './publishing_plan_logging.ts';
-import { format_and_output, type OutputFormatters } from './output_helpers.ts';
+import {
+	format_and_output,
+	output_is_machine,
+	route_human_output,
+	type OutputFormatters
+} from './output_helpers.ts';
 import { GITOPS_CONFIG_PATH_DEFAULT } from './gitops_constants.ts';
 
 /** @nodocs */
@@ -49,26 +62,67 @@ export const task: Task<Args> = {
 	summary: 'generate a publishing plan based on changesets',
 	Args,
 	run: async ({ args, log }): Promise<void> => {
-		const { config, registry, format, outfile, verbose } = args;
+		await run_gitops_plan(args, log);
+	}
+};
 
-		log.info(st('cyan', 'Generating multi-repo publishing plan...'));
+/**
+ * The side effects `run_gitops_plan` reaches through, injectable for tests.
+ *
+ * @nodocs
+ */
+export interface GitopsPlanDeps {
+	/** Loads the configured repos as they sit (`get_gitops_ready`). */
+	load_repos: (options: ResolveGitopsReposOptions) => Promise<{ local_repos: Array<LocalRepo> }>;
+	/** Reads each repo's changesets for the plan. */
+	changeset_ops: ChangesetOperations;
+}
 
-		// Load local repos as they sit, and say which aren't at rest
-		const { local_repos } = await get_gitops_ready({ config, registry, log });
-		log_readiness_block(local_repos, log);
+const default_gitops_plan_deps: GitopsPlanDeps = {
+	load_repos: get_gitops_ready,
+	changeset_ops: default_changeset_operations
+};
 
-		log.info(`  Found ${local_repos.length} local repos`);
+/**
+ * Runs `gro gitops_plan`: loads the repos as they sit, logs the readiness
+ * block, generates the plan, and outputs it. Under `--format json` or
+ * `markdown` without `--outfile`, the log goes to stderr and stdout carries
+ * the document alone (`route_human_output`).
+ *
+ * @throws {Error} when the plan has errors that would block publishing, after outputting it
+ * @nodocs
+ */
+export const run_gitops_plan = async (
+	args: Args,
+	log: Logger,
+	deps: Partial<GitopsPlanDeps> = {}
+): Promise<void> => {
+	const { load_repos, changeset_ops } = { ...default_gitops_plan_deps, ...deps };
+	const { config, registry, format, outfile, verbose } = args;
+	const write_stdout = route_human_output(log, output_is_machine(format, outfile));
 
-		// Generate publishing plan
-		const plan = await generate_publishing_plan(local_repos, { log, verbose });
+	log.info(st('cyan', 'Generating multi-repo publishing plan...'));
 
-		// Format and output using output_helpers
-		await format_and_output(plan, create_plan_formatters({ verbose }), { format, outfile, log });
+	// Load local repos as they sit, and say which aren't at rest
+	const { local_repos } = await load_repos({ config, registry, log });
+	log_readiness_block(local_repos, log);
 
-		// Exit with error if there are blocking issues
-		if (plan.errors.length > 0) {
-			throw new Error('Publishing plan found errors that would block publishing');
-		}
+	log.info(`  Found ${local_repos.length} local repos`);
+
+	// Generate publishing plan
+	const plan = await generate_publishing_plan(local_repos, { log, verbose, ops: changeset_ops });
+
+	// Format and output using output_helpers
+	await format_and_output(plan, create_plan_formatters({ verbose }), {
+		format,
+		outfile,
+		log,
+		write_stdout
+	});
+
+	// Exit with error if there are blocking issues
+	if (plan.errors.length > 0) {
+		throw new Error('Publishing plan found errors that would block publishing');
 	}
 };
 

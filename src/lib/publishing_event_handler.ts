@@ -11,6 +11,11 @@
  */
 
 import type { PublishingEvent } from './publishing_event.ts';
+import type { WriteStdout } from './output_helpers.ts';
+
+const write_process_stdout_line: WriteStdout = (line) => {
+	process.stdout.write(line + '\n');
+};
 
 /** A sink for publishing events. */
 export interface PublishingEventHandler {
@@ -34,13 +39,17 @@ export const capture_handler = (): CapturingEventHandler => {
 };
 
 /**
- * Writes each event as one JSON object per line (JSON-lines) to `process.stdout`.
+ * Writes each event as one JSON object per line (JSON-lines) to stdout.
  * Write failures are swallowed — the stream is observability, not control flow.
+ *
+ * @param write_line - writes one line and its newline; defaults to `process.stdout`
  */
-export const stdout_handler = (): PublishingEventHandler => ({
+export const stdout_handler = (
+	write_line: WriteStdout = write_process_stdout_line
+): PublishingEventHandler => ({
 	emit: (event) => {
 		try {
-			process.stdout.write(JSON.stringify(event) + '\n');
+			write_line(JSON.stringify(event));
 		} catch {
 			// best-effort: a logging sink must never fail a run
 		}

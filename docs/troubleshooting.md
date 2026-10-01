@@ -319,10 +319,20 @@ gro gitops_publish --wetrun --format json --outfile result.json
 `changeset version` wrote isn't the plan's; its `error` names both),
 `not_ready`, `network` (the npm wait), or `publish` (its `error` ends with the
 end of `gro publish`'s stderr). `failed[]` names the packages, but its `error`
-values serialize empty, so read the events. `--emit_json` streams the same
-events live, secrets masked. Under `--emit_json`, or a report written to
-stdout rather than `--outfile`, the stdout of `gro publish` and `gro deploy`
-goes to stderr, out of the JSON's way.
+values serialize empty, so read the events. Both the report's events and
+`--emit_json`'s live stream mask secrets. Under `--emit_json`, or a report
+written to stdout rather than `--outfile`, the task's log, the confirmation
+prompt, and the stdout of `gro publish` and `gro deploy` go to stderr, out of
+the JSON's way.
+
+### Extra lines before the JSON on stdout
+
+Gro prints `[<task>] invoking <task>` and `[<task>] → <task> …` before running
+a task, out of the task's reach, so they lead stdout even under `--format json`
+or `--emit_json`. Everything after is the document or the events (the log goes
+to stderr). Write the report with `--outfile`, or skip the two lines
+(`tail -n +3` at the default log level). If `.svelte-kit` is missing, gro runs `svelte-kit sync` first, and
+its output can land there too.
 
 ### Check what changed since last publish
 

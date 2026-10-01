@@ -1,6 +1,7 @@
 import type { LibraryJson } from '@fuzdev/fuz_util/library_json.ts';
 import type { PackageJson } from '@fuzdev/fuz_util/package_json.ts';
 import { Library } from '@fuzdev/fuz_ui/library.svelte.ts';
+import { Logger } from '@fuzdev/fuz_util/log.ts';
 
 import type { LocalRepo } from '$lib/local_repo.ts';
 import type {
@@ -20,6 +21,30 @@ import {
 	type ReposEntryStatus,
 	type ReposStatusReport
 } from '$lib/repos_status.ts';
+
+/** A logger that records what reaches each stream, as Node's console routes it. */
+export type StreamLog = Logger & { stdout: Array<string>; stderr: Array<string> };
+
+/**
+ * Creates a logger at `debug` whose console records by stream the way Node's
+ * does: `log` on `stdout`, `warn` and `error` on `stderr`. A task that routes
+ * its human output to stderr (`route_human_output`) leaves `stdout` holding
+ * only its document.
+ */
+export const create_stream_log = (): StreamLog => {
+	const stdout: Array<string> = [];
+	const stderr: Array<string> = [];
+	const log = new Logger('test', {
+		level: 'debug',
+		colors: false,
+		console: {
+			log: (...args) => stdout.push(args.join(' ')),
+			warn: (...args) => stderr.push(args.join(' ')),
+			error: (...args) => stderr.push(args.join(' '))
+		}
+	});
+	return Object.assign(log, { stdout, stderr });
+};
 
 export interface MockRepoOptions {
 	name: string;

@@ -359,7 +359,8 @@ a branch, pulls, or installs:
 ### Data fetching
 
 - Pull requests via GitHub API
-- CI check runs and status
+- CI check runs and status, for repos whose registry entry declares `ci`
+  (a branch with no check runs is `null`, not a failure)
 - Package metadata from .well-known endpoints
 - Caches responses to minimize API calls
 
@@ -443,6 +444,16 @@ broken state:
 
 This prevents the known issue in `gro publish` where build failures leave repos
 in broken state (version bumped but not published).
+
+**Machine-readable stdout**: under `--emit_json`, or `--format json` or
+`markdown` without `--outfile` (`gitops_analyze`, `gitops_plan`,
+`gitops_publish`; `gitops_run --format json`), each task routes its logger to
+stderr (`route_human_output` in `output_helpers.ts`) — the plan, the readiness
+block and gate, the executor's progress, and gro's lines after the task — and
+the confirmation prompt is always on stderr, so stdout carries the document or
+the events alone. Gro's two lines before a task runs (`invoking`, `→ <task>`)
+are out of the task's reach and stay on stdout; `--outfile` gives a file free
+of them.
 
 **Dependency Installation (delegated to gro)**
 
@@ -611,7 +622,7 @@ gro gitops_sync --registry ../repos.toml # every task takes a registry repos wou
 # Run commands across repos (reads repos as-is, no branch switch/pull; a missing repo fails the run)
 gro gitops_run "npm test"                          # run command in all repos (parallel, concurrency: 5)
 gro gitops_run "npm audit" --concurrency 3         # limit parallelism
-gro gitops_run "gro check" --format json           # JSON output (logged to stdout)
+gro gitops_run "gro check" --format json           # JSON on stdout, the log on stderr
 gro gitops_run "gro check" --format json --outfile out.json # clean JSON to a file
 
 # Publishing
@@ -786,7 +797,14 @@ Core modules tested:
 - `repo_readiness.test.ts` - Readiness predicates, the gate's refusal,
   `gitops_sync`'s policy, the diagnostics' block
 - `gitops_publish.test.ts` - The gate's order in a real publish: before the
-  prompt and every side effect
+  prompt and every side effect; stdout carrying the report or events alone,
+  and the report's secrets masked
+- `gitops_plan.test.ts`, `gitops_analyze.test.ts` - stdout carrying the
+  JSON or markdown document alone
+- `gitops_run.test.ts` - Commands across repos through an injected runner:
+  exit codes, signals, spawn errors, a missing repo, the JSON document
+- `fetch_repo_data.test.ts` - CI status: repos without CI skipped, no check
+  runs apart from a failed fetch
 - `gitops_sync.test.ts` - `gitops_sync`'s refusals and warnings, `--check`,
   and the order of its reads before anything is fetched or written
 - `dependency_updater.test.ts` - Package.json updates and git commits
