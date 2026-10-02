@@ -9,15 +9,15 @@
 //! one right before the push that follows.
 //!
 //! Upstream history a test builds by hand reaches the bare remote by a
-//! fetch into it (`publish`).
+//! fetch into it (`publish`). The diverged fixture and what a run must
+//! leave are `support::rebase`'s, shared with `push_rebase`.
 
 // helpers outside `#[test]` fns fail the test the way an assertion would
 #![allow(clippy::unwrap_used, clippy::panic)]
 
 mod support;
 
-use std::collections::BTreeMap;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use fuz_repos::classify::NeedsHuman;
 use fuz_repos::report::{BranchOutcome, BranchSyncHold, RebasePush, RebaseRefusal};
@@ -27,103 +27,17 @@ use fuz_repos::{STATUS_FORMAT_VERSION, SYNC_FORMAT_VERSION};
 use support::busy::live_session;
 use support::cli::{REPOS, parse, repos, stderr, stdout};
 use support::push::{pushes_served, remote_refs, with};
+use support::rebase::{
+    ORIGIN_HEAD, TRACKING, assert_replayed, diverge, diverged, publish, untouched,
+};
 use support::sync::outcome;
 use support::{
     FixtureWorkspace, LiveChild, OWNER, assert_git_dir_unchanged, branch, files, find_entry,
     git_env, reader_then, snapshot_git_dir, write,
 };
 
-const TRACKING: &str = "refs/remotes/origin/main";
-/// Origin's `HEAD`, a symbolic ref to `TRACKING`: `refs` reads it through.
-const ORIGIN_HEAD: &str = "refs/remotes/origin/HEAD";
-
 const fn rebase(ahead: u32, behind: u32) -> SyncAction {
     SyncAction::Rebase { ahead, behind }
-}
-
-/// Moves the bare remote's `main` to the upstream author's, by a fetch into
-/// it.
-fn publish(ws: &FixtureWorkspace, name: &str) {
-    let up = ws.upstream(name);
-    ws.git(
-        &ws.bare(name),
-        &[
-            "fetch",
-            "-q",
-            up.to_str().unwrap(),
-            "+refs/heads/main:refs/heads/main",
-        ],
-    );
-}
-
-/// A clone of `app` whose `main` diverged from origin's.
-struct Diverged {
-    app: PathBuf,
-    /// The local-only commits, oldest first.
-    local: Vec<String>,
-    /// Origin's tip, fetched.
-    upstream: String,
-}
-
-impl Diverged {
-    fn tip(&self) -> &str {
-        self.local.last().unwrap()
-    }
-}
-
-/// `app`'s clone with two commits on `main` and one more on origin's,
-/// fetched, so it reads diverged before the tool looks; the entry's table
-/// is the caller's to declare.
-fn diverge(ws: &FixtureWorkspace, app: PathBuf) -> Diverged {
-    let local = vec![ws.commit(&app, "local-1"), ws.commit(&app, "local-2")];
-    let upstream = ws.upstream_commit("app", "main");
-    ws.git(&app, &["fetch", "-q", "origin"]);
-    assert_eq!(ws.git(&app, &["rev-parse", TRACKING]), upstream);
-    ws.assert_track(&app, "main", "[ahead 2, behind 1]");
-    ws.assert_count(&app, &["--merges", "origin/main..main"], 0);
-    ws.assert_head(&app, Some("main"));
-    ws.assert_clean(&app);
-    Diverged {
-        app,
-        local,
-        upstream,
-    }
-}
-
-/// `app`, owned, its `main` — the registry's branch — diverged, checked
-/// out and clean.
-fn diverged(ws: &mut FixtureWorkspace) -> Diverged {
-    let app = ws.owned_repo("app", &[]);
-    let d = diverge(ws, app);
-    ws.write_registry();
-    d
-}
-
-/// What a run must leave untouched: the clone's refs, index, and files,
-/// and the remote's refs.
-#[derive(Debug, PartialEq, Eq)]
-struct Untouched {
-    refs: BTreeMap<String, String>,
-    index: Vec<u8>,
-    staged: String,
-    files: Vec<(String, Vec<u8>)>,
-    remote: BTreeMap<String, String>,
-}
-
-fn untouched(ws: &FixtureWorkspace, app: &Path) -> Untouched {
-    Untouched {
-        refs: ws.refs(app),
-        index: std::fs::read(app.join(".git/index")).unwrap(),
-        staged: ws.git_raw(app, &["ls-files", "--stage"]),
-        files: files(app)
-            .into_iter()
-            .map(|f| {
-                let bytes = std::fs::read(app.join(&f)).unwrap();
-                (f, bytes)
-            })
-            .collect(),
-        remote: remote_refs(ws, "app"),
-    }
 }
 
 /// The run's `Rebased` outcome for `app`'s `main`: `(from, to, onto, push)`.
@@ -137,22 +51,6 @@ fn rebased(run: &fuz_repos::sync::SyncRun) -> (&str, &str, &str, &RebasePush) {
         } => (from, to, onto, push),
         other => panic!("not rebased: {other:?}"),
     }
-}
-
-/// Asserts `main` in `app` is `d`'s local commits replayed onto origin's
-/// tip, `to`: the same subjects and authors, a linear chain on the fetched
-/// tip, new commits.
-fn assert_replayed(ws: &FixtureWorkspace, d: &Diverged, to: &str) {
-    let app = &d.app;
-    assert_eq!(ws.git(app, &["rev-parse", "main"]), to);
-    assert_eq!(ws.git(app, &["rev-parse", "main~2"]), d.upstream);
-    ws.assert_count(app, &["--merges", &format!("{}..main", d.upstream)], 0);
-    let said = |rev: &str| ws.git(app, &["log", "-1", "--format=%s %an %ae %at", rev]);
-    assert_eq!(said("main~1"), said(&d.local[0]));
-    assert_eq!(said("main"), said(&d.local[1]));
-    assert_ne!(to, d.tip());
-    // the originals stay reachable, by the branch's reflog
-    assert_eq!(ws.git(app, &["rev-parse", "main@{1}"]), d.tip());
 }
 
 #[test]
@@ -776,9 +674,11 @@ fn a_rebase_never_replaces_an_ignored_file() {
         panic!("{:?}", run.outcomes);
     };
     assert_eq!(*action, rebase(1, 1));
-    assert!(
-        message.contains("untracked working tree files would be overwritten"),
-        "{message}"
+    // git's message, with the file it names on the line after
+    assert_eq!(
+        message,
+        "error: The following untracked working tree files would be overwritten by checkout: \
+         secret.env"
     );
     // the replay ran, and nothing moved: the branch, the index, the file
     assert_eq!(untouched(&ws, &app), before);
@@ -974,7 +874,8 @@ fn sync_text_says_a_rebase_and_a_conflict_and_exits_zero() {
         text.starts_with("sync would    rebase blog +1 −1\n"),
         "{text}"
     );
-    // `repos push` of the conflicted branch stays a person's, unpushed
+    // `repos push` of the conflicted branch tries the same rebase, and
+    // stops the same way: a person's, unpushed
     let out = ws
         .command(REPOS, &blog)
         .env("COLUMNS", "300")
@@ -986,9 +887,10 @@ fn sync_text_says_a_rebase_and_a_conflict_and_exits_zero() {
     // the hint whole, on its one line
     assert!(
         text.starts_with(
-            "needs human   blog (diverged +1 −1)\n              hint: repos push never rebases \
-             or force-pushes: repos sync rebases the registry's branch when its commits replay \
-             cleanly; any other is resolved by hand\n"
+            "needs human   blog (diverged +1 −1, rebase conflicts)\n              hint: repos \
+             push rebases the registry's branch onto origin's when its commits replay cleanly, \
+             then pushes it, and never force-pushes; any other diverged branch is resolved by \
+             hand\n"
         ),
         "{text}"
     );

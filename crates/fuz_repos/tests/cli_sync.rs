@@ -222,7 +222,7 @@ fn sync_exits_one_when_git_refuses_an_action() {
     assert!(
         stdout(&out).starts_with(
             "failed        app (ff: error: The following untracked working tree files would \
-             be overwritten by merge:)\n"
+             be overwritten by merge: secret.env)\n"
         ),
         "{}",
         stdout(&out)

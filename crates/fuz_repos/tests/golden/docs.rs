@@ -221,7 +221,8 @@ pub fn targeted_doc() -> StatusReport {
 
 /// A `repos push --new-branch` of several targets: every outcome and fetch
 /// outcome, each branch's verdict the one the outcome follows from — a
-/// linked worktree's branch among them, beside its primary's.
+/// linked worktree's branch among them, beside its primary's — and each way
+/// a diverged branch's rebase and the push after it can go.
 pub fn push_report_doc() -> PushReport {
     let oid = |c: char| c.to_string().repeat(40);
     let push = |commits| SyncAction::Push { commits };
@@ -421,31 +422,108 @@ pub fn push_report_doc() -> PushReport {
             )
         },
     );
+    // the registry's branch, diverged: rebased, each way its push can go,
+    // refused by its replay, and held in a dirty checkout
+    let rebase = |ahead, behind| Verdict::Act {
+        action: SyncAction::Rebase { ahead, behind },
+    };
+    let rebased = |key: &str, push| {
+        target(
+            key,
+            path(key),
+            Some("main"),
+            FetchOutcome::Fetched,
+            PushOutcome::Rebased {
+                from: oid('1'),
+                to: oid('2'),
+                onto: oid('3'),
+                push,
+            },
+        )
+    };
+    let refused_replay = |key: &str, why| {
+        target(
+            key,
+            path(key),
+            Some("main"),
+            FetchOutcome::Fetched,
+            PushOutcome::RebaseRefused { why },
+        )
+    };
+    let rebases = vec![
+        self::diverged("almanac", 2, 3, rebase(2, 3)),
+        self::diverged("atlas", 1, 1, rebase(1, 1)),
+        self::diverged("ledger", 1, 2, rebase(1, 2)),
+        self::diverged("gazette", 3, 1, rebase(3, 1)),
+        self::diverged("digest", 1, 1, rebase(1, 1)),
+        self::diverged("primer", 1, 1, rebase(1, 1)),
+        self::diverged("memoir", 2, 1, rebase(2, 1)),
+        journal(),
+    ];
+    let mut entries = vec![
+        app,
+        in_sync,
+        behind,
+        diverged,
+        no_upstream,
+        detached,
+        missing(),
+        fetch_failed,
+        refused,
+        unborn,
+        created,
+        exists,
+        merged,
+        default_gone,
+        elsewhere,
+    ];
+    entries.extend(rebases);
     let status = report(
         true,
         Sessions::Available { unscoped: vec![] },
-        vec![
-            app,
-            in_sync,
-            behind,
-            diverged,
-            no_upstream,
-            detached,
-            missing(),
-            fetch_failed,
-            refused,
-            unborn,
-            created,
-            exists,
-            merged,
-            default_gone,
-            elsewhere,
-        ],
+        entries,
         None,
     );
     PushReport::new(
         status,
         vec![
+            rebased("almanac", RebasePush::Pushed),
+            rebased("atlas", RebasePush::AlreadyThere),
+            rebased(
+                "ledger",
+                RebasePush::Held {
+                    by: BranchSyncHold::Changed,
+                },
+            ),
+            rebased(
+                "gazette",
+                RebasePush::PushFailed {
+                    failure: RemoteFailure::Rejected {
+                        reason: "pre-receive hook declined".into(),
+                        message: None,
+                    },
+                },
+            ),
+            rebased(
+                "digest",
+                RebasePush::Failed {
+                    message: "fatal: unable to access the pack".into(),
+                },
+            ),
+            refused_replay("primer", RebaseRefusal::Conflicts),
+            refused_replay(
+                "memoir",
+                RebaseRefusal::AlreadyUpstream { commit: oid('4') },
+            ),
+            target(
+                "journal",
+                path("journal"),
+                Some("main"),
+                fetched.clone(),
+                PushOutcome::Held {
+                    by: BranchSyncHold::DirtyCheckout,
+                },
+            ),
             target(
                 "app",
                 path("app"),

@@ -58,6 +58,7 @@
 pub mod busy;
 pub mod cli;
 pub mod push;
+pub mod rebase;
 pub mod remote;
 pub mod sync;
 pub mod unregistered;

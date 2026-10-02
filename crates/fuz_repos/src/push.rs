@@ -2,33 +2,61 @@
 //! push`.
 //!
 //! It pushes the branch checked out in each target checkout, through
-//! `sync`'s own push and under its policy, and nothing else.
+//! `sync`'s own push and under its policy — rebasing it first, through
+//! `sync`'s own rebase, when it diverged from origin's — and nothing else.
 //!
 //! **The pipeline.** For the targets' entries alone, what `sync` runs before
 //! it acts: probe each, fetching it first as `status --fetch` does (the
 //! same hardened fetch, remote-tracking refs alone, and the visibility
 //! check); read the live sessions after the fetches, the caller's own
 //! excluded; classify. Then, for each target, read the branch its checkout
-//! has checked out and act on that branch's push verdict alone, through
-//! `Actor::push` — the one push `sync` makes, with every re-check it makes
-//! right before (the live sessions, the branch as classified, origin's push
-//! URL, the commits ahead) and its race closures (the lease on the fetched
-//! tip, the registry's URL pushed to directly, the remote-tracking ref
-//! moved by compare-and-swap: the `sync` module doc says how).
+//! has checked out and act on that branch's verdict alone, when it's a push
+//! or a rebase. A push is `Actor::push` — the one push `sync` makes, with
+//! every re-check it makes right before (the live sessions, the branch as
+//! classified, origin's push URL, the commits ahead) and its race closures
+//! (the lease on the fetched tip, the registry's URL pushed to directly,
+//! the remote-tracking ref moved by compare-and-swap: the `sync` module doc
+//! says how).
 //!
-//! **Never** a fast-forward, a move, a clone, or any branch but the one
-//! checked out at a target: a branch behind is `NotAhead` (sync's to
-//! fast-forward), a diverged one `NeedsHuman` (sync's to rebase when it's
-//! the registry's branch, else a person's). The policy is sync's, and
-//! structural: owned entries only (a third-party reference or a pin named
-//! is refused before anything runs, `check_pushable`), never a force or a
-//! tag, and a remote branch created only under `--new-branch`, below; a
-//! checkout another live session works in holds the push (`busy`), and so
-//! does origin drift (`entry`, or `push_url`). A branch's relation the run
-//! can't vouch for — its entry held whole (origin drift among the
-//! reasons), or its fetch failed — holds it whatever it reads, in sync
-//! included (`entry`, `fetch_failed`), so the push never exits `0` on refs
-//! that aren't origin's. Dirt doesn't matter: a push moves refs alone.
+//! **A diverged branch is rebased, then pushed**, when it's one `sync`
+//! rebases (`classify`'s `rebasable`: the branch the registry names, in an
+//! owned entry neither archived nor pinned, its commits ahead on no remote,
+//! no merge or tag among them) — through `Actor::rebase_and_push`, the one
+//! rebase `sync` makes and the push after it, with the same guards and
+//! re-checks: its local-only commits replayed onto the fetched tip, the
+//! branch and the target's checkout moved to the replayed tip, and that
+//! tip pushed (`Rebased`). The target is a checkout, so the move is always
+//! the checked-out one (`git switch -C`, in the target's own checkout, a
+//! linked worktree's included; the replay itself runs in the repo and
+//! writes commit objects alone). A conflict, or a local commit whose change
+//! origin already has, stops it with nothing moved (`RebaseRefused`), and
+//! any other diverged branch is `NeedsHuman`, by its reason. A push the
+//! rebase's re-checks or the remote stop leaves the branch rebased and
+//! ahead, the next run's to push. The report says what moved — the tip
+//! replaced, the new one, the fetched tip under it — since commit ids read
+//! before the run name the commits replaced, and whatever was checked
+//! before it was checked on the old base.
+//!
+//! **Never** a fast-forward, a shallow move, a clone, or any branch but the
+//! one checked out at a target: a branch behind is `NotAhead` (sync's to
+//! fast-forward). The policy is sync's, and structural: owned entries only
+//! (a third-party reference or a pin named is refused before anything runs,
+//! `check_pushable`), never a force or a tag, and a remote branch created
+//! only under `--new-branch`, below; a checkout another live session works
+//! in holds the push (`busy`), and so does origin drift (`entry`, or
+//! `push_url`). A branch's relation the run can't vouch for — its entry
+//! held whole (origin drift among the reasons), or its fetch failed — holds
+//! it whatever it reads, in sync included (`entry`, `fetch_failed`), so the
+//! push never exits `0` on refs that aren't origin's. Whatever holds a push
+//! holds the rebase before it.
+//!
+//! **Dirt matters only to a rebase.** A push of a branch ahead moves refs
+//! alone, so it runs whatever the checkout holds. A rebase moves the
+//! checkout to the replayed commits, so any uncommitted change in it —
+//! staged, unstaged, or untracked, as `sync`'s rebase reads clean — holds
+//! it (`dirty_checkout`), with nothing moved: committed, or stashed with
+//! its untracked files (`git stash -u`), the next `repos push` rebases. So
+//! does the branch checked out in several checkouts (`several_checkouts`).
 //!
 //! **`--new-branch`, the user's**: a branch with no upstream on origin —
 //! none configured (`NoUpstream`), or origin's same-named branch as its
@@ -46,9 +74,10 @@
 //! without the flag. An agent is refused it before anything runs
 //! (`check_new_branch`).
 //!
-//! **An agent may run it** without `--new-branch`: its push is classified
-//! and made as a person's. It's the path agents push by: the user's Claude
-//! Code settings deny them raw `git push`.
+//! **An agent may run it** without `--new-branch`: its push, and the
+//! rebase before it, is classified and made as a person's. It's the path
+//! agents push by: the user's Claude Code settings deny them raw `git
+//! push`.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -67,7 +96,7 @@ use crate::report::{
 use crate::sessions::{Caller, LiveSessions, SessionsSource, read_live_sessions};
 use crate::state::{BranchNeedsHuman, BranchStatus, Head, Relation, SyncAction, Verdict};
 use crate::status::{EntryTiming, Reported, RunTimings, Survey, assemble_report, probe_and_assess};
-use crate::sync::{Actor, NewBranchUpstream, PushDone, Stop, fetch_outcome};
+use crate::sync::{Actor, NewBranchUpstream, PushDone, RebasedPush, Stop, fetch_outcome};
 
 /// How to run `push`.
 #[derive(Clone, Copy)]
@@ -77,8 +106,8 @@ pub struct PushOptions<'a> {
     /// As `StatusOptions::visibility_base`: a seam for tests.
     pub visibility_base: Option<&'a str>,
     /// Reads the live sessions (`read_live_sessions`): once the fetches are
-    /// done, to classify, and again right before each push. A seam for
-    /// tests.
+    /// done, to classify, and again right before each push and each rebase.
+    /// A seam for tests.
     pub read_live: &'a (dyn Fn() -> LiveSessions + Sync),
     /// `--new-branch`: create a target's branch on origin when it has no
     /// upstream there to push to (`new_branch`) — the user's alone:
@@ -124,12 +153,13 @@ pub struct PushReportOptions<'a> {
     /// Entries fetched at once, at least one.
     pub jobs: usize,
     /// Where the live sessions are read (`SessionsSource::from_env`), after
-    /// the fetches and again right before each push.
+    /// the fetches and again right before each push and each rebase.
     pub sessions: &'a SessionsSource,
 }
 
 /// `repos push`'s report: the branch checked out at each checkout `targets`
-/// name, pushed.
+/// name, pushed — rebased first, when it diverged and is the tool's to
+/// rebase.
 ///
 /// `new_branch` is refused to an agent before anything else
 /// (`check_new_branch`). Then it loads the workspace (`Workspace::load`,
@@ -222,7 +252,8 @@ const fn check_new_branch(caller: Caller) -> Result<()> {
 }
 
 /// Fetches the targets' entries, classifies them, and pushes the branch
-/// checked out at each target where its verdict is a push.
+/// checked out at each target where its verdict is a push, or rebases and
+/// then pushes it where its verdict is a rebase.
 ///
 /// `targets` are resolved (`resolve_push_targets`) and pushable
 /// (`check_pushable`); `registry_dirs` are the whole registry's dirs.
@@ -272,7 +303,7 @@ pub fn push(
         checkouts: &assessed.checkouts,
         read_live: opts.read_live,
     };
-    // by repo and branch: a branch pushes once, however many targets name it
+    // by repo and branch: a branch acts once, however many targets name it
     let mut done: HashMap<(PathBuf, String), PushOutcome> = HashMap::new();
     let pushes = targets
         .iter()
@@ -323,11 +354,12 @@ struct Target<'a> {
 }
 
 /// The branch checked out at the target's checkout, and what pushing it
-/// came to: pushed through `actor` when its verdict is a push — or, under
+/// came to: pushed through `actor` when its verdict is a push, rebased and
+/// then pushed through it when its verdict is a rebase — or, under
 /// `--new-branch`, created on origin when it has no upstream there
 /// (`creatable`) — else what the verdict says of it; unless the entry is
 /// held whole or its fetch didn't land, which holds it whatever the
-/// verdict. `done` holds the pushes already made, by repo
+/// verdict. `done` holds what was already done, by repo
 /// (`RepoFacts::repo_key`) and branch.
 fn target_outcome(
     actor: &Actor<'_>,
@@ -369,7 +401,8 @@ fn target_outcome(
     // an entry-level reason (origin drift among them) or a fetch that
     // didn't land — the branch is held as sync holds a push, in sync's
     // order (entry, push URL, fetch), never reported in sync. A push
-    // verdict already held names its hold as sync would
+    // verdict already held names its hold as sync would, and so does a
+    // rebase's: a dirty checkout among them, which holds only a rebase
     if t.status.needs_human.iter().any(NeedsHuman::holds_entry) {
         return (
             branch,
@@ -379,7 +412,7 @@ fn target_outcome(
         );
     }
     if let Verdict::Held {
-        action: SyncAction::Push { .. },
+        action: SyncAction::Push { .. } | SyncAction::Rebase { .. },
         by,
     } = &b.verdict
     {
@@ -420,20 +453,21 @@ fn target_outcome(
             .entry((facts.repo_key.clone(), name.clone()))
             .or_insert_with(|| pushed(actor.push(t.i, facts, b, *commits)))
             .clone(),
+        // diverged, and the tool's to rebase: the one branch, in the
+        // target's checkout, then the push of what the rebase made
+        Verdict::Act {
+            action: SyncAction::Rebase { ahead, behind },
+        } => done
+            .entry((facts.repo_key.clone(), name.clone()))
+            .or_insert_with(|| rebased(actor.rebase_and_push(t.i, facts, b, *ahead, *behind)))
+            .clone(),
+        // unreachable: returned above, before the fetch is asked about.
+        // Kept so a held push or rebase never falls to the arm below and
+        // reads `NotAhead`, should that return ever move
         Verdict::Held {
-            action: SyncAction::Push { .. },
+            action: SyncAction::Push { .. } | SyncAction::Rebase { .. },
             by,
         } => PushOutcome::Held { by: (*by).into() },
-        // diverged, sync's to rebase, held or not: never the push's
-        Verdict::Act {
-            action: SyncAction::Rebase { .. },
-        }
-        | Verdict::Held {
-            action: SyncAction::Rebase { .. },
-            ..
-        } => PushOutcome::NeedsHuman {
-            reason: BranchNeedsHuman::Diverged,
-        },
         // behind, or a stale shallow pointer: sync's to move
         Verdict::Act { .. } | Verdict::Held { .. } => PushOutcome::NotAhead,
         Verdict::NeedsHuman { reason } => PushOutcome::NeedsHuman { reason: *reason },
@@ -521,6 +555,27 @@ fn pushed(result: std::result::Result<PushDone, String>) -> PushOutcome {
         Ok(PushDone::AlreadyThere) => PushOutcome::InSync,
         Ok(PushDone::Stopped(Stop::Held(by))) => PushOutcome::Held { by },
         Ok(PushDone::Stopped(Stop::PushFailed(failure))) => PushOutcome::PushFailed { failure },
+        Err(message) => PushOutcome::Failed { message },
+    }
+}
+
+/// A rebase's outcome, and its push's (`Actor::rebase_and_push`), as
+/// `repos push` reports it.
+fn rebased(result: std::result::Result<RebasedPush, String>) -> PushOutcome {
+    match result {
+        Ok(RebasedPush::Rebased {
+            from,
+            to,
+            onto,
+            push,
+        }) => PushOutcome::Rebased {
+            from,
+            to,
+            onto,
+            push,
+        },
+        Ok(RebasedPush::Held(by)) => PushOutcome::Held { by },
+        Ok(RebasedPush::Refused(why)) => PushOutcome::RebaseRefused { why },
         Err(message) => PushOutcome::Failed { message },
     }
 }

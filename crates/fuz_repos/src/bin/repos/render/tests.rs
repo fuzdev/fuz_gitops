@@ -498,6 +498,155 @@ fn new_branches_read_as_what_the_push_did() {
     );
 }
 
+/// A diverged branch `repos push` rebased, by how its push went, with what
+/// moved; one its replay refused; one held in a dirty checkout; and a
+/// rebase that failed — each hint said once.
+#[test]
+fn a_rebase_reads_as_what_moved_and_how_its_push_went() {
+    use fuz_repos::report::{CheckoutPush, PushOutcome};
+    let rebase = |ahead, behind| SyncAction::Rebase { ahead, behind };
+    let diverged = |key: &str, ahead, behind, verdict| {
+        let mut e = entry(key, main(), "main");
+        e.branches = vec![branch(
+            "main",
+            Some("origin/main"),
+            Relation::Diverged { ahead, behind },
+            ahead,
+            verdict,
+        )];
+        e
+    };
+    let acting =
+        |key: &str, ahead, behind| diverged(key, ahead, behind, act(rebase(ahead, behind)));
+    let r = report(vec![
+        acting("app", 2, 1),
+        acting("blog", 1, 3),
+        acting("site", 1, 1),
+        acting("tsv", 1, 1),
+        acting("zap", 1, 1),
+        acting("gro", 2, 1),
+        diverged(
+            "mdz",
+            1,
+            2,
+            Verdict::Held {
+                action: rebase(1, 2),
+                by: BranchHold::DirtyCheckout,
+            },
+        ),
+        acting("uz", 1, 1),
+    ]);
+    let target = |key: &str, outcome| CheckoutPush {
+        key: key.into(),
+        checkout: format!("/home/me/dev/{key}"),
+        branch: Some("main".into()),
+        fetch: FetchOutcome::Fetched,
+        outcome,
+    };
+    let rebased = |key: &str, push| {
+        target(
+            key,
+            PushOutcome::Rebased {
+                from: "a".repeat(40),
+                to: "b".repeat(40),
+                onto: "c".repeat(40),
+                push,
+            },
+        )
+    };
+    let pushed = PushReport::new(
+        r,
+        vec![
+            rebased("app", RebasePush::Pushed),
+            rebased(
+                "blog",
+                RebasePush::Held {
+                    by: BranchSyncHold::Changed,
+                },
+            ),
+            rebased(
+                "site",
+                RebasePush::PushFailed {
+                    failure: RemoteFailure::Rejected {
+                        reason: "pre-receive hook declined".into(),
+                        message: None,
+                    },
+                },
+            ),
+            rebased("tsv", RebasePush::AlreadyThere),
+            target(
+                "zap",
+                PushOutcome::RebaseRefused {
+                    why: RebaseRefusal::Conflicts,
+                },
+            ),
+            target(
+                "gro",
+                PushOutcome::RebaseRefused {
+                    why: RebaseRefusal::AlreadyUpstream {
+                        commit: "4".repeat(40),
+                    },
+                },
+            ),
+            target(
+                "mdz",
+                PushOutcome::Held {
+                    by: BranchSyncHold::DirtyCheckout,
+                },
+            ),
+            target(
+                "uz",
+                PushOutcome::Failed {
+                    message: "fatal: no email was given and auto-detection is disabled".into(),
+                },
+            ),
+        ],
+    );
+    // a rebase held, refused, or unpushed leaves the branch off its upstream
+    assert!(!pushed.in_sync());
+    let wide = View { width: 400, ..VIEW };
+    let text = render_push_summary(&pushed, wide);
+    let lines: Vec<&str> = text.lines().collect();
+    assert_eq!(
+        lines,
+        [
+            "failed        site (push: rejected (pre-receive hook declined))  uz (rebase: fatal: \
+             no email was given and auto-detection is disabled)",
+            "needs human   zap (diverged +1 −1, rebase conflicts)  gro (diverged +2 −1, 4444444 is \
+             already upstream)",
+            format!("              hint: {DIVERGED_HINT}").as_str(),
+            "rebased       app +2 (onto 1 new upstream commit, now bbbbbbb, was aaaaaaa)  blog +1 \
+             (onto 3 new upstream commits, now bbbbbbb, was aaaaaaa)  site +1 (onto 1 new \
+             upstream commit, now bbbbbbb, was aaaaaaa)  tsv +1 (onto 1 new upstream commit, now \
+             bbbbbbb, was aaaaaaa)",
+            format!("              hint: {REBASED_HINT}").as_str(),
+            "pushed        app +2",
+            "in sync       tsv",
+            "held          blog +1 (changed since read, rerun)  mdz +1 −2 (dirty)",
+            format!("              hint: {DIRTY_REBASE_HINT}").as_str(),
+            "~/dev/repos.toml · fetched 3h ago",
+        ],
+        "{text}"
+    );
+    // rebased and pushed alone: in sync, and the one hint, on what moved
+    let landed = PushReport::new(pushed.status.clone(), vec![pushed.pushes[0].clone()]);
+    assert!(landed.in_sync());
+    assert_eq!(
+        render_push_summary(&landed, wide)
+            .lines()
+            .collect::<Vec<_>>(),
+        [
+            "rebased       app +2 (onto 1 new upstream commit, now bbbbbbb, was aaaaaaa)",
+            format!("              hint: {REBASED_HINT}").as_str(),
+            "pushed        app +2",
+            "~/dev/repos.toml · fetched 3h ago",
+        ]
+    );
+    // found there already: in sync too
+    let there = PushReport::new(pushed.status.clone(), vec![pushed.pushes[3].clone()]);
+    assert!(there.in_sync());
+}
+
 /// The entry's own branch gone from origin: a person repoints it, and
 /// `--new-branch` never puts it back.
 #[test]

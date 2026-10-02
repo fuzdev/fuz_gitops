@@ -186,11 +186,13 @@ fn a_branch_behind_is_never_moved() {
     assert_eq!(pushes_served(&ws), Vec::<String>::new());
 }
 
+/// A diverged branch that isn't the registry's: never rebased (the
+/// registry's own is, `push_rebase.rs`).
 #[test]
-fn a_diverged_branch_is_a_persons() {
+fn a_diverged_feature_branch_is_a_persons() {
     let mut ws = FixtureWorkspace::new();
-    let (app, tip) = ahead(&mut ws);
-    ws.upstream_commit("app", "main");
+    let (app, tip) = feat_ahead(&mut ws);
+    ws.upstream_commit("app", "feat");
     let remote_before = remote_refs(&ws, "app");
 
     let run = ws.push(&["app"]);
@@ -198,15 +200,17 @@ fn a_diverged_branch_is_a_persons() {
     assert_eq!(
         only(&run),
         (
-            Some("main"),
+            Some("feat"),
             &PushOutcome::NeedsHuman {
                 reason: BranchNeedsHuman::Diverged
             }
         )
     );
-    ws.assert_track(&app, "main", "[ahead 1, behind 1]");
-    assert_eq!(ws.git(&app, &["rev-parse", "main"]), tip);
+    ws.assert_track(&app, "feat", "[ahead 1, behind 1]");
+    assert_eq!(ws.git(&app, &["rev-parse", "feat"]), tip);
+    ws.assert_clean(&app);
     assert_eq!(remote_refs(&ws, "app"), remote_before);
+    assert_eq!(pushes_served(&ws), Vec::<String>::new());
 }
 
 #[test]

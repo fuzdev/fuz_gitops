@@ -854,6 +854,8 @@ floor_index!(
         PushOutcome::Unread,
         PushOutcome::Created { .. },
         PushOutcome::RemoteBranchExists { .. },
+        PushOutcome::Rebased { .. },
+        PushOutcome::RebaseRefused { .. },
     ]
 );
 
@@ -908,17 +910,29 @@ pub fn assert_sync_coverage(doc: &SyncReport) {
 }
 
 /// The push document's every-variant floor: each outcome, fetch outcome,
-/// and reason a branch has no upstream appears at least once.
+/// and reason a branch has no upstream appears at least once, and each way
+/// a rebase's push and its replay's refusal can go.
 pub fn assert_push_coverage(doc: &PushReport) {
     let mut seen = Seen::default();
     for p in &doc.pushes {
         seen.mark("push_outcome", push_outcome(&p.outcome));
         seen.mark("fetch_outcome", fetch_outcome(&p.fetch));
-        if let PushOutcome::NoUpstream { why } = &p.outcome {
-            seen.mark("no_upstream_why", no_upstream_why(why));
+        match &p.outcome {
+            PushOutcome::NoUpstream { why } => {
+                seen.mark("no_upstream_why", no_upstream_why(why));
+            }
+            PushOutcome::Rebased { push, .. } => {
+                seen.mark("rebase_push", rebase_push(push));
+            }
+            PushOutcome::RebaseRefused { why } => {
+                seen.mark("rebase_refusal", rebase_refusal(why));
+            }
+            _ => {}
         }
     }
     seen.floor("push_outcome", PUSH_OUTCOME, &[]);
+    seen.floor("rebase_push", REBASE_PUSH, &[]);
+    seen.floor("rebase_refusal", REBASE_REFUSAL, &[]);
     seen.floor("fetch_outcome", FETCH_OUTCOME, &[]);
     seen.floor("no_upstream_why", NO_UPSTREAM_WHY, &[]);
 }

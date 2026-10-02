@@ -172,9 +172,20 @@ const PUSH_REF_GONE_HINT: &str = concat!(
 const BEHIND_HINT: &str =
     "repos sync fast-forwards a branch behind its upstream (and moves a stale shallow one)";
 
-/// A diverged branch `repos push` found: never the push's to place.
-const DIVERGED_HINT: &str = "repos push never rebases or force-pushes: repos sync rebases the \
-     registry's branch when its commits replay cleanly; any other is resolved by hand";
+/// A diverged branch `repos push` left to a person: one it doesn't rebase,
+/// or one whose replay it stopped.
+const DIVERGED_HINT: &str = "repos push rebases the registry's branch onto origin's when its \
+     commits replay cleanly, then pushes it, and never force-pushes; any other diverged branch \
+     is resolved by hand";
+
+/// A branch `repos push` rebased: what the caller knew of it is stale.
+const REBASED_HINT: &str = "a rebase replays the branch's commits onto origin's as new commits \
+     and moves the checkout to them: commit ids from before it are stale, and anything checked \
+     before it was checked on the old base";
+
+/// A diverged branch `repos push` would rebase, in a dirty checkout.
+const DIRTY_REBASE_HINT: &str = "a diverged branch is rebased before it's pushed, which needs a \
+     clean checkout (untracked files count): commit, or git stash -u, then repos push again";
 
 /// A branch with no upstream on origin that `--new-branch` would create:
 /// none set, or a same-named one gone. The user's, never an agent's.

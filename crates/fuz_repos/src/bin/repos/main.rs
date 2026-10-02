@@ -8,8 +8,9 @@
 //! is no failure: the branch stays diverged, a person's, as the report
 //! says) — and under `push` for any
 //! target whose branch didn't end in sync with its upstream (held, not
-//! ahead, a person's, no upstream, a remote branch in the way, detached,
-//! unread, or a push that failed), as `git push` exits on a rejected ref;
+//! ahead, a person's, a rebase its replay stopped or whose push didn't
+//! land, no upstream, a remote branch in the way, detached, unread, or a
+//! push that failed), as `git push` exits on a rejected ref;
 //! `2` when the caller must change something — usage, a missing or invalid
 //! registry, git missing or too old, an unknown target, and under `push`
 //! the cwd in no entry's checkout, a third-party or pinned target, or
@@ -194,14 +195,20 @@ struct SyncArgs {
 /// Push the branch checked out where you are (or in each target's
 /// checkout) to its upstream on origin: fetch, then push a branch ahead as
 /// a fast-forward of exactly what was fetched, to the registry's repo over
-/// SSH. Never force-pushes, pushes a tag, or touches another branch, and
-/// creates a remote branch only under --new-branch (the user's); a checkout
-/// another live session works in, and origin drift, hold it. Exits 0 when
-/// every branch ends in sync with its upstream (pushed, created, or already
-/// there), 1 when any didn't push (held, behind, diverged, detached, no
-/// upstream, a remote branch in the way, a failed fetch or push), 2 for
-/// usage (an unknown target, the cwd in no entry's checkout, a third-party
-/// or pinned target, --new-branch in an agent's shell).
+/// SSH. A registry branch that diverged from origin's is rebased onto the
+/// fetched upstream first, as sync rebases it, when its checkout is clean
+/// (untracked files count) and its commits replay without conflict: the
+/// branch and the checkout move to new commits, which the report names.
+/// Never force-pushes, pushes a tag, resolves a conflict, or touches
+/// another branch, and creates a remote branch only under --new-branch (the
+/// user's); a checkout another live session works in, and origin drift,
+/// hold it. Exits 0 when every branch ends in sync with its upstream
+/// (pushed, rebased and pushed, created, or already there), 1 when any
+/// didn't (held, behind, diverged and left to a person, a rebase a conflict
+/// stopped, detached, no upstream, a remote branch in the way, a failed
+/// fetch or push), 2 for usage (an unknown target, the cwd in no entry's
+/// checkout, a third-party or pinned target, --new-branch in an agent's
+/// shell).
 #[derive(FromArgs, Debug)]
 #[argh(subcommand, name = "push")]
 struct PushArgs {
@@ -544,7 +551,8 @@ fn run_sync(cx: &Context<'_>, args: &SyncArgs) -> Result<Printed> {
 }
 
 /// `repos push`: fails (exit `1`) unless every target's branch ends in
-/// sync (`push_report`).
+/// sync (`push_report`) — a rebase held or refused among the failures,
+/// though `sync` exits `0` on the same.
 fn run_push(cx: &Context<'_>, args: &PushArgs) -> Result<Printed> {
     let reported = push_report(
         &cx.git,

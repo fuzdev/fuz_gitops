@@ -16,11 +16,13 @@ pub fn render_sync_summary(report: &SyncReport, view: View<'_>, verbose: bool) -
 }
 
 /// `repos push`'s summary: what it did with each target's branch —
-/// `pushed`, `in sync`, `held`, `not pushed` — after what failed and what's
-/// a person's (the targets' entries' own reasons among them, so a hold on
-/// the entry is explained), the hints that say what to do next, and the
-/// registry line. Worded as `sync`'s, a branch labeled by its entry's key
-/// alone when it's the registry's branch.
+/// `rebased`, `pushed`, `in sync`, `held`, `not pushed` — after what failed
+/// and what's a person's (the targets' entries' own reasons among them, so
+/// a hold on the entry is explained), the hints that say what to do next,
+/// and the registry line. Worded as `sync`'s, a branch labeled by its
+/// entry's key alone when it's the registry's branch. A branch rebased is
+/// said under `rebased` — the upstream commits it now sits on, its new tip
+/// and the one replaced — and again by how its push went.
 pub fn render_push_summary(report: &PushReport, view: View<'_>) -> String {
     let mut g = PushGroups::default();
     // the guard itself failed: said once, first among the failures
@@ -45,6 +47,8 @@ enum PushHint {
     Diverged,
     Unmapped,
     Exists,
+    Rebased,
+    DirtyRebase,
     Behind,
     NewBranch,
     Merged,
@@ -59,6 +63,8 @@ impl PushHint {
             Self::Diverged => DIVERGED_HINT,
             Self::Unmapped => UNMAPPED_HINT,
             Self::Exists => EXISTS_HINT,
+            Self::Rebased => REBASED_HINT,
+            Self::DirtyRebase => DIRTY_REBASE_HINT,
             Self::Behind => BEHIND_HINT,
             Self::NewBranch => NEW_BRANCH_HINT,
             Self::Merged => MERGED_HINT,
@@ -98,13 +104,17 @@ const PUSH_NOT_PUSHED_HINTS: [PushHint; 5] = [
 #[derive(Debug, Default)]
 struct PushGroups {
     problems: Problems,
+    /// The branches rebased, each with what moved; how its push went is in
+    /// the group that says so.
+    rebased: Vec<String>,
     pushed: Vec<String>,
     in_sync: Vec<String>,
     held: Vec<String>,
     not_pushed: Vec<String>,
     /// The branch hints called for, as many times as branches call for
-    /// them: each prints once, in its group's order
-    /// (`PUSH_NEEDS_HUMAN_HINTS`, `PUSH_NOT_PUSHED_HINTS`).
+    /// them: each prints once, after its group — in the group's order for
+    /// the groups with several (`PUSH_NEEDS_HUMAN_HINTS`,
+    /// `PUSH_NOT_PUSHED_HINTS`).
     hints: Vec<PushHint>,
 }
 
@@ -133,11 +143,70 @@ impl PushGroups {
         } else {
             format!(", worktree {}", view.show(&p.checkout))
         };
-        let ahead = match b.map(|b| b.relation) {
-            Some(Relation::Ahead { commits }) => format!(" +{commits}"),
+        let relation = b.map(|b| b.relation);
+        // the commits a push sends: a branch ahead's, or a diverged one's,
+        // replayed
+        let ahead = match relation {
+            Some(Relation::Ahead { commits } | Relation::Diverged { ahead: commits, .. }) => {
+                format!(" +{commits}")
+            }
             _ => String::new(),
         };
+        // how a branch held where it stood reads: ahead, or diverged
+        let standing = match relation {
+            Some(Relation::Diverged { ahead, behind }) => format!(" +{ahead} −{behind}"),
+            _ => ahead.clone(),
+        };
+        // a rebase is the action that failed when the verdict was one: its
+        // push's failure is the rebased outcome's own
+        let failed_at = match b.map(|b| &b.verdict) {
+            Some(Verdict::Act {
+                action: SyncAction::Rebase { .. },
+            }) => "rebase",
+            _ => "push",
+        };
         match &p.outcome {
+            PushOutcome::Rebased { from, to, push, .. } => {
+                self.hints.push(PushHint::Rebased);
+                let short = |oid: &str| oid.get(..7).unwrap_or(oid).to_owned();
+                let onto = match relation {
+                    Some(Relation::Diverged { behind, .. }) => format!(
+                        "onto {behind} new upstream commit{}, ",
+                        if behind == 1 { "" } else { "s" }
+                    ),
+                    _ => String::new(),
+                };
+                self.rebased.push(format!(
+                    "{label}{ahead} ({onto}now {}, was {})",
+                    short(to),
+                    short(from)
+                ));
+                // the replayed commits, ahead of the fetched tip: pushed as
+                // any branch ahead, or not
+                match push {
+                    RebasePush::Pushed => self.pushed.push(format!("{label}{ahead}")),
+                    RebasePush::AlreadyThere => self.in_sync.push(label),
+                    RebasePush::Held { by } => {
+                        self.held.push(format!("{label}{ahead}{}", hold_note(*by)));
+                    }
+                    RebasePush::PushFailed { failure } => self
+                        .problems
+                        .failed
+                        .push(format!("{label} (push: {})", failure.words(false))),
+                    RebasePush::Failed { message } => self
+                        .problems
+                        .failed
+                        .push(format!("{label} (push: {})", first_line(message))),
+                }
+            }
+            PushOutcome::RebaseRefused { why } => {
+                self.hints.push(PushHint::Diverged);
+                let relation = relation.map_or_else(|| "diverged".to_owned(), relation_label);
+                self.problems.needs_human.push(format!(
+                    "{label} ({relation}, {})",
+                    rebase_refusal_label(why)
+                ));
+            }
             PushOutcome::Pushed { .. } => self.pushed.push(format!("{label}{ahead}")),
             PushOutcome::Created { .. } => self.pushed.push(format!("{label} (new branch)")),
             PushOutcome::RemoteBranchExists { at } => {
@@ -149,7 +218,12 @@ impl PushGroups {
             }
             PushOutcome::InSync => self.in_sync.push(label),
             PushOutcome::Held { by } => {
-                self.held.push(format!("{label}{ahead}{}", hold_note(*by)));
+                // only a rebase is held for dirt
+                if *by == BranchSyncHold::DirtyCheckout {
+                    self.hints.push(PushHint::DirtyRebase);
+                }
+                self.held
+                    .push(format!("{label}{standing}{}", hold_note(*by)));
             }
             PushOutcome::PushFailed { failure } => {
                 self.problems
@@ -159,7 +233,7 @@ impl PushGroups {
             PushOutcome::Failed { message } => {
                 self.problems
                     .failed
-                    .push(format!("{label} (push: {})", first_line(message)));
+                    .push(format!("{label} ({failed_at}: {})", first_line(message)));
             }
             PushOutcome::NotAhead => {
                 self.hints.push(PushHint::Behind);
@@ -217,9 +291,16 @@ impl PushGroups {
             }
         }
         line("origin drift", Tone::Yellow, self.problems.origin_drift);
+        line("rebased", Tone::Green, self.rebased);
+        if self.hints.contains(&PushHint::Rebased) {
+            line("", Tone::Plain, hint(PushHint::Rebased.text()));
+        }
         line("pushed", Tone::Green, self.pushed);
         line("in sync", Tone::Plain, self.in_sync);
         line("held", Tone::Yellow, self.held);
+        if self.hints.contains(&PushHint::DirtyRebase) {
+            line("", Tone::Plain, hint(PushHint::DirtyRebase.text()));
+        }
         line("not pushed", Tone::Yellow, self.not_pushed);
         for branch_hint in PUSH_NOT_PUSHED_HINTS {
             if self.hints.contains(&branch_hint) {
@@ -898,15 +979,11 @@ impl Groups {
                 }
             }
             Some(BranchOutcome::RebaseRefused { why }) => {
-                let why = match why {
-                    RebaseRefusal::Conflicts => "rebase conflicts".to_owned(),
-                    RebaseRefusal::AlreadyUpstream { commit } => {
-                        format!("{} is already upstream", commit.get(..7).unwrap_or(commit))
-                    }
-                };
-                self.problems
-                    .needs_human
-                    .push(format!("{label} ({}, {why})", relation_label(b.relation)));
+                self.problems.needs_human.push(format!(
+                    "{label} ({}, {})",
+                    relation_label(b.relation),
+                    rebase_refusal_label(why)
+                ));
             }
             // a pin is a standing choice: counted, not held
             Some(
@@ -949,6 +1026,16 @@ impl Groups {
             + self.local_only.len()
             + self.uncommitted.len()
             + self.cleanup.len()
+    }
+}
+
+/// Why a rebase's replay left the branch to a person, after its relation.
+fn rebase_refusal_label(why: &RebaseRefusal) -> String {
+    match why {
+        RebaseRefusal::Conflicts => "rebase conflicts".to_owned(),
+        RebaseRefusal::AlreadyUpstream { commit } => {
+            format!("{} is already upstream", commit.get(..7).unwrap_or(commit))
+        }
     }
 }
 

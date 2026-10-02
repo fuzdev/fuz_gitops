@@ -2,8 +2,9 @@
 //! fast-forwards, shallow moves, rebases, and pushes `status` previews — and
 //! on each missing entry's, cloning it.
 //!
-//! Each action's git calls are in `sync/step.rs`; this doc says what they
-//! rely on and the races they leave.
+//! Each action's git calls are in `sync/step.rs`, a rebase's replay and move
+//! in `sync/rebase.rs`; this doc says what they rely on and the races they
+//! leave.
 //!
 //! **The pipeline.** Sync is `status --fetch` (the same probe pool, the same
 //! hardened fetch writing remote-tracking refs alone, the same visibility
@@ -38,7 +39,8 @@
 //! a person's does — every branch ahead or diverged that nothing holds, busy
 //! detection keeping it off live sessions' checkouts — and `repos push` (the
 //! `push` module) pushes one checkout's branch through this module's one
-//! push (`Actor::push`).
+//! push (`Actor::push`), rebasing it first, when it diverged, through this
+//! module's one rebase (`Actor::rebase_and_push`).
 //!
 //! **The one rewrite: a rebase.** A registry branch diverged from origin's
 //! — local-only commits here, new ones there, the everyday case of two
@@ -283,7 +285,7 @@ use crate::registry::{Entry, RegistryDirs};
 use crate::remote::RemoteFailure;
 use crate::report::{
     BranchOutcome, BranchSync, BranchSyncHold, CloneOutcome, EntryStatus, EntrySync, FetchOutcome,
-    PushOutcome, RebasePush, Sessions, SyncReport, UnregisteredClone,
+    PushOutcome, RebasePush, RebaseRefusal, Sessions, SyncReport, UnregisteredClone,
 };
 use crate::sessions::{LiveSessions, SessionsSource, read_live_sessions};
 use crate::state::{
@@ -560,7 +562,8 @@ fn repo_groups(facts: &[Option<RepoFacts>]) -> Vec<Vec<usize>> {
 
 /// What acting needs: the runner, the root discovery stops at, and every
 /// entry's checkouts, which the live sessions re-read before each action
-/// are scoped to. `repos push` acts through it too, on one branch's push.
+/// are scoped to. `repos push` acts through it too, on one branch's push,
+/// and the rebase before it when the branch diverged.
 pub(crate) struct Actor<'a> {
     pub git: &'a Git,
     pub root: &'a Path,
@@ -632,8 +635,8 @@ impl Actor<'_> {
 
     /// Takes `action` on branch `b` of entry `i`, re-checking first — the
     /// one way sync acts: a push through `push`, a fast-forward or move
-    /// through `update`, a rebase through `rebase` and then the push of what
-    /// it made (`push_commit`).
+    /// through `update`, a rebase and the push of what it made through
+    /// `rebase_and_push`.
     fn act(
         &self,
         i: usize,
@@ -656,28 +659,20 @@ impl Actor<'_> {
                 };
             }
             SyncAction::Rebase { ahead, behind } => {
-                return match self.rebase(i, facts, b, ahead, behind) {
-                    Ok(RebaseDone::Rebased { from, to, onto }) => {
-                        // ahead of the fetched tip now, by the commits
-                        // replayed: the one push, of the replayed tip
-                        let push = match self.push_commit(i, facts, b, Some(&to), ahead) {
-                            Ok(PushDone::Pushed { .. }) => RebasePush::Pushed,
-                            Ok(PushDone::AlreadyThere) => RebasePush::AlreadyThere,
-                            Ok(PushDone::Stopped(Stop::Held(by))) => RebasePush::Held { by },
-                            Ok(PushDone::Stopped(Stop::PushFailed(failure))) => {
-                                RebasePush::PushFailed { failure }
-                            }
-                            Err(message) => RebasePush::Failed { message },
-                        };
-                        BranchOutcome::Rebased {
-                            from,
-                            to,
-                            onto,
-                            push,
-                        }
-                    }
-                    Ok(RebaseDone::Held(by)) => held(by),
-                    Ok(RebaseDone::Refused(why)) => BranchOutcome::RebaseRefused { why },
+                return match self.rebase_and_push(i, facts, b, ahead, behind) {
+                    Ok(RebasedPush::Rebased {
+                        from,
+                        to,
+                        onto,
+                        push,
+                    }) => BranchOutcome::Rebased {
+                        from,
+                        to,
+                        onto,
+                        push,
+                    },
+                    Ok(RebasedPush::Held(by)) => held(by),
+                    Ok(RebasedPush::Refused(why)) => BranchOutcome::RebaseRefused { why },
                     Err(message) => failed(message),
                 };
             }
@@ -708,11 +703,44 @@ impl Actor<'_> {
         self.push_commit(i, facts, b, None, commits)
     }
 
+    /// Rebases branch `b` of entry `i` (`rebase`), then pushes the tip the
+    /// rebase moved it to (`push_commit`): ahead of the fetched tip now, by
+    /// the `ahead` commits replayed. The one rebase sync and `repos push`
+    /// make, and the one push after it; a rebase held or refused pushes
+    /// nothing.
+    pub(crate) fn rebase_and_push(
+        &self,
+        i: usize,
+        facts: &RepoFacts,
+        b: &BranchStatus,
+        ahead: u32,
+        behind: u32,
+    ) -> Result<RebasedPush, String> {
+        let (from, to, onto) = match self.rebase(i, facts, b, ahead, behind)? {
+            RebaseDone::Rebased { from, to, onto } => (from, to, onto),
+            RebaseDone::Held(by) => return Ok(RebasedPush::Held(by)),
+            RebaseDone::Refused(why) => return Ok(RebasedPush::Refused(why)),
+        };
+        let push = match self.push_commit(i, facts, b, Some(&to), ahead) {
+            Ok(PushDone::Pushed { .. }) => RebasePush::Pushed,
+            Ok(PushDone::AlreadyThere) => RebasePush::AlreadyThere,
+            Ok(PushDone::Stopped(Stop::Held(by))) => RebasePush::Held { by },
+            Ok(PushDone::Stopped(Stop::PushFailed(failure))) => RebasePush::PushFailed { failure },
+            Err(message) => RebasePush::Failed { message },
+        };
+        Ok(RebasedPush::Rebased {
+            from,
+            to,
+            onto,
+            push,
+        })
+    }
+
     /// `push`, of `oid` — the tip a rebase just moved the branch to
     /// (`rebase`), or with `None` the commit the branch held when probed —
     /// `commits` ahead of the fetched tip. The branch must hold it when the
     /// push re-reads it.
-    pub(crate) fn push_commit(
+    fn push_commit(
         &self,
         i: usize,
         facts: &RepoFacts,
@@ -756,9 +784,9 @@ impl Actor<'_> {
     /// Rebases branch `b` of entry `i`, diverged `ahead` and `behind` as
     /// classify counted: replays its local-only commits onto the fetched
     /// tip and moves it there, in the one checkout it's on or in place,
-    /// re-checking first (`Step::rebase`). No push: the caller pushes the
-    /// tip it returns (`push_commit`), as sync does.
-    pub(crate) fn rebase(
+    /// re-checking first (`Step::rebase`). No push: `rebase_and_push`
+    /// pushes the tip it returns.
+    fn rebase(
         &self,
         i: usize,
         facts: &RepoFacts,
@@ -947,6 +975,25 @@ impl Actor<'_> {
     }
 }
 
+/// How a rebase and the push of what it made went, short of the rebase
+/// failing (`Actor::rebase_and_push`).
+#[derive(Debug)]
+pub(crate) enum RebasedPush {
+    /// The branch moved from `from` to `to`, its local-only commits
+    /// replayed onto `onto`, the fetched tip; `push` is how the push of
+    /// `to` went.
+    Rebased {
+        from: String,
+        to: String,
+        onto: String,
+        push: RebasePush,
+    },
+    /// A re-check held the rebase; nothing moved.
+    Held(BranchSyncHold),
+    /// The replay found it a person's; nothing moved.
+    Refused(RebaseRefusal),
+}
+
 /// Which update an `act` fast-forward or move makes (`Actor::update`).
 #[derive(Debug, Clone, Copy)]
 enum UpdateKind {
@@ -984,9 +1031,11 @@ fn settled(verdict: &Verdict) -> BranchOutcome {
     }
 }
 
+mod rebase;
 mod step;
-use step::{Creation, NewBranch, Push, Rebase, Step, UpdateDone, lazy_fetch};
-pub(crate) use step::{NewBranchUpstream, PushDone, RebaseDone, Stop};
+use rebase::{Rebase, RebaseDone};
+use step::{Creation, NewBranch, Push, Step, UpdateDone, lazy_fetch};
+pub(crate) use step::{NewBranchUpstream, PushDone, Stop};
 
 #[cfg(test)]
 mod tests;

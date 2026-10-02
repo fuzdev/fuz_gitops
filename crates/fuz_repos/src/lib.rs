@@ -32,19 +32,21 @@
 //! state: it fetches, fast-forwards, moves shallow branches with no local
 //! commits, clones, and pushes commits that already exist — and replays a
 //! diverged registry branch's local-only commits onto the fetched upstream
-//! (`sync`'s rebase), new commit objects carrying the same changes,
-//! messages, and authors. It never makes a commit of new content or a tag,
-//! resolves a conflict, merges anything but a fast-forward, force-pushes,
-//! deletes a branch, or prunes a worktree. `status` writes nothing, and
-//! `status --fetch`'s fetch writes remote-tracking refs and what a fetch
-//! needs behind them (objects, `FETCH_HEAD`, the shallow boundary) — never
-//! a tag; `sync` writes the branch it acts on, the checkout that branch is
-//! on, the commits a rebase replays, and new clones; a push writes one remote branch of an owned entry,
-//! under a lease (on the fetched tip, or on none for `--new-branch`), then
-//! its remote-tracking ref (and, for `--new-branch`, the upstream config).
-//! Authoring content — commits, changesets,
-//! release tags — and package meaning (npm, the dependency graph, the
-//! GitHub API) are left to the tools around it.
+//! (the rebase `sync` makes, and `push` of the branch it's asked to push),
+//! new commit objects carrying the same changes, messages, and authors. It
+//! never makes a commit of new content or a tag, resolves a conflict,
+//! merges anything but a fast-forward, force-pushes, deletes a branch, or
+//! prunes a worktree. `status` writes nothing, and `status --fetch`'s fetch
+//! writes remote-tracking refs and what a fetch needs behind them (objects,
+//! `FETCH_HEAD`, the shallow boundary) — never a tag; `sync` writes the
+//! branch it acts on, the checkout that branch is on, the commits a rebase
+//! replays, and new clones; `push` writes those of one branch's rebase when
+//! the branch it's asked to push diverged, and nothing local otherwise; a
+//! push writes one remote branch of an owned entry, under a lease (on the
+//! fetched tip, or on none for `--new-branch`), then its remote-tracking
+//! ref (and, for `--new-branch`, the upstream config). Authoring content —
+//! commits, changesets, release tags — and package meaning (npm, the
+//! dependency graph, the GitHub API) are left to the tools around it.
 //!
 //! Unix-only: it takes git's paths as raw bytes, as git does. Busy
 //! detection reads `/proc`, so it works on Linux alone; elsewhere, with any
@@ -85,4 +87,4 @@ pub const SYNC_FORMAT_VERSION: u32 = 13;
 /// The version of the `repos push --json` document. Bumped on any change to
 /// its shape, the embedded status report's included (so with every
 /// `STATUS_FORMAT_VERSION` bump).
-pub const PUSH_FORMAT_VERSION: u32 = 10;
+pub const PUSH_FORMAT_VERSION: u32 = 11;

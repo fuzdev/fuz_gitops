@@ -583,9 +583,12 @@ impl BranchOutcome {
     }
 }
 
-/// How the push that follows a rebase went (`BranchOutcome::Rebased`): the
-/// one push sync makes, of the replayed tip. Short of `Pushed`, the branch
-/// stays rebased and ahead, the next run's to push.
+/// How the push that follows a rebase went (`BranchOutcome::Rebased`,
+/// `PushOutcome::Rebased`): the one push `sync` and `repos push` make, of
+/// the replayed tip.
+///
+/// Short of `Pushed`, the branch stays rebased and ahead, the next run's to
+/// push.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum RebasePush {
@@ -603,8 +606,8 @@ pub enum RebasePush {
 }
 
 /// Why a replay left a diverged branch to a person
-/// (`BranchOutcome::RebaseRefused`). The tool resolves nothing: either
-/// stops the rebase whole.
+/// (`BranchOutcome::RebaseRefused`, `PushOutcome::RebaseRefused`). The tool
+/// resolves nothing: either stops the rebase whole.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum RebaseRefusal {
@@ -728,10 +731,11 @@ impl PushReport {
     }
 
     /// Whether every target's branch ended in sync with its upstream —
-    /// pushed, created, or already there — so the run exits `0`; anything
-    /// else (held, not ahead, left to a person, no upstream, a remote
-    /// branch found in the way, a detached HEAD, a checkout not read, a
-    /// push that failed) exits `1`, as `git push` does on a rejected ref.
+    /// pushed, rebased and pushed, created, or already there — so the run
+    /// exits `0`; anything else (held, not ahead, left to a person, a rebase
+    /// its replay refused, no upstream, a remote branch found in the way, a
+    /// detached HEAD, a checkout not read, a push that failed, a rebased
+    /// branch's among them) exits `1`, as `git push` does on a rejected ref.
     pub fn in_sync(&self) -> bool {
         self.pushes.iter().all(|p| p.outcome.in_sync())
     }
@@ -774,17 +778,40 @@ pub enum PushOutcome {
     /// fetched from the registry's repo, or found already there when pushed
     /// (another hand's push since the fetch).
     InSync,
-    /// Ahead, but `by` held the push — the verdict's hold, or one found
-    /// right before pushing (the same holds as `sync`'s).
+    /// Diverged, and rebased as `sync` rebases (`BranchOutcome::Rebased`):
+    /// the branch's local-only commits, tip `from`, replayed onto the
+    /// fetched tip `onto`, and the branch and the target's checkout moved
+    /// to the replayed tip `to` — new commits, so `from` and every commit
+    /// id read before the run name the ones replaced. Then pushed: `push`
+    /// says how that went, the remote's branch moving from `onto` to `to`
+    /// when it did. Short of that, the branch stays rebased and ahead, the
+    /// next run's to push. The commits replayed and the upstream's they
+    /// were replayed onto are counted on the branch's relation, in the
+    /// status entry (`diverged`: `ahead`, `behind`).
+    Rebased {
+        from: String,
+        to: String,
+        onto: String,
+        push: RebasePush,
+    },
+    /// Diverged, and the rebase's replay found it a person's (`why`):
+    /// nothing moved, nothing pushed.
+    RebaseRefused { why: RebaseRefusal },
+    /// Ahead or diverged, but `by` held the push, or the rebase before it
+    /// — the verdict's hold, or one found right before acting (the same
+    /// holds as `sync`'s). Nothing moved. `dirty_checkout` holds only a
+    /// rebase: a push of a branch ahead moves refs alone.
     Held { by: BranchSyncHold },
     /// The push reached for the remote and failed there (as `sync`'s).
     PushFailed { failure: RemoteFailure },
-    /// The push couldn't run, or git refused it (`message`, git's words).
+    /// The push, or the rebase before it, couldn't run, or git refused it
+    /// (`message`, git's words).
     Failed { message: String },
     /// Not ahead of its upstream: behind it, or a shallow branch whose tip
     /// differs with nothing local — `repos sync` fast-forwards or moves it.
     NotAhead,
-    /// Left to a person (diverged, archived, …): never pushed.
+    /// Left to a person (diverged and not the tool's to rebase, archived,
+    /// …): never pushed.
     NeedsHuman { reason: BranchNeedsHuman },
     /// No upstream on origin to push to — none set, another remote's, or
     /// one deleted on origin (`gone`) — and a push creates a remote branch
@@ -830,11 +857,18 @@ pub enum NoUpstreamWhy {
 }
 
 impl PushOutcome {
-    /// Whether the branch ends in sync with its upstream.
+    /// Whether the branch ends in sync with its upstream: a rebased one
+    /// only when its push landed, or found the replayed tip there.
     pub const fn in_sync(&self) -> bool {
         matches!(
             self,
-            Self::Pushed { .. } | Self::Created { .. } | Self::InSync
+            Self::Pushed { .. }
+                | Self::Created { .. }
+                | Self::InSync
+                | Self::Rebased {
+                    push: RebasePush::Pushed | RebasePush::AlreadyThere,
+                    ..
+                }
         )
     }
 }

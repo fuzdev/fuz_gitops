@@ -15,10 +15,40 @@ fn git_s_first_error_line_is_the_message() {
             "Updating a..b\nerror: Your local changes to the following files would be \
              overwritten by merge:\n\tf\nAborting\n"
         ),
-        "error: Your local changes to the following files would be overwritten by merge:"
+        "error: Your local changes to the following files would be overwritten by merge: f"
     );
     assert_eq!(first_message("\n  hint: x\n"), "hint: x");
     assert_eq!(first_message(""), "git failed without a message");
+}
+
+/// A message that heads a list carries the paths listed under it — the
+/// tab-indented lines right after, and no others — bounded.
+#[test]
+fn a_message_heading_a_list_carries_its_paths() {
+    let head = "error: The following untracked working tree files would be overwritten by \
+                checkout:";
+    let tail = "Please move or remove them before you switch branches.\nAborting\n";
+    assert_eq!(
+        first_message(&format!("{head}\n\tsecret.env\n\tdir/a b.txt\n{tail}")),
+        format!("{head} secret.env, dir/a b.txt")
+    );
+    // more than the bound: the first ones, and a count
+    let paths = "\tf1\n\tf2\n\tf3\n\tf4\n\tf5\n\tf6\n\tf7\n";
+    assert_eq!(
+        first_message(&format!("{head}\n{paths}{tail}")),
+        format!("{head} f1, f2, f3, f4, f5, and 2 more")
+    );
+    // nothing listed under it, or lines that aren't a list: the line alone
+    assert_eq!(first_message(&format!("{head}\n{tail}")), head);
+    assert_eq!(
+        first_message("fatal: could not read from:\nremote: gone\n"),
+        "fatal: could not read from:"
+    );
+    // a line that heads no list is the message, whatever follows
+    assert_eq!(
+        first_message("error: refused\n\tindented\n"),
+        "error: refused"
+    );
 }
 
 #[test]

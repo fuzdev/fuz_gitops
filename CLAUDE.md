@@ -57,14 +57,15 @@ Publishing is the flagship vertical of the TS side, not the identity.
 Multi-repo work doesn't carry uniform risk, so the tiers are keyed by what a
 command may write, ordered by blast radius. A command maps onto every row it
 writes: `repos sync` fetches, converges, and pushes; `repos push` fetches and
-pushes.
+pushes, and converges the one branch it's asked to push when that branch
+diverged.
 
 | Writes | Tier | Commands |
 | --- | --- | --- |
 | nothing in git | **observe** | `repos status` (local refs), `repos status --brief`; `gitops_analyze`, `gitops_plan`, `gitops_publish` (dry run), `gitops_validate`, `gitops_sync --check`, `gitops_run` with read-only commands |
 | remote-tracking refs only, plus the objects, `FETCH_HEAD`, and shallow boundary a fetch writes | **observe** (refreshed) | `repos status --fetch`; the fetch that starts `repos sync` and `repos push`, the readiness gate before `gitops_publish --wetrun`'s prompt and its re-check before each `gro publish`, and `gitops_sync`'s fetch before it writes its host's site data |
-| local branches, working trees, new clones, and the commit objects a rebase replays | **converge** | `repos sync` (fast-forwards, shallow moves, a diverged registry branch's local-only commits replayed onto its fetched upstream, clones of missing entries, references refreshed when named or under `--references`) |
-| remote branches, under policy | **gateway** | `repos push`, and the push step of `repos sync` (a rebased branch's included): fast-forwards only, under a lease, to the registry's SSH URL, owned entries only, no tags or force; a new remote branch is `repos push --new-branch`, the user's |
+| local branches, working trees, new clones, and the commit objects a rebase replays | **converge** | `repos sync` (fast-forwards, shallow moves, a diverged registry branch's local-only commits replayed onto its fetched upstream, clones of missing entries, references refreshed when named or under `--references`); `repos push`, for the one branch checked out at a target and only when it diverged: the same rebase, in that checkout, clean — never a fast-forward, move, or clone |
+| remote branches, under policy | **gateway** | `repos push`, and the push step of `repos sync` (a rebased branch's included, under either): fast-forwards only, under a lease, to the registry's SSH URL, owned entries only, no tags or force; a new remote branch is `repos push --new-branch`, the user's |
 | releases: npm, git commits and tags, deploys | **publish** | `gitops_publish --wetrun`, and gro's own `publish` and `deploy` it runs — the user's |
 
 "Nothing in git" is exact for `repos status`; the TS observe tasks move no
@@ -89,7 +90,8 @@ changes discovered."
 `repos` moves refs it didn't author — it fetches, fast-forwards, moves
 shallow branches, clones, and pushes commits that already exist — and reports
 git state. The one thing it rewrites is a diverged registry branch's
-local-only commits, which `repos sync` replays onto the fetched upstream:
+local-only commits, which `repos sync` — and `repos push`, for the branch
+it's asked to push — replays onto the fetched upstream:
 new commit objects carrying the same changes, messages, authors, and author
 dates, committed by whoever runs the tool, and no content of its own. The TS
 tasks and gro author content — commits, changesets, release
@@ -105,7 +107,8 @@ Each is structural, in the code (the rustdoc of `sync.rs`, `push.rs`,
 `sessions.rs` (busy detection) says how):
 
 - never `pull`s, merges anything but a fast-forward, or resolves a conflict.
-  The one history change is `repos sync`'s rebase: it replays the local-only
+  The one history change is a rebase, `repos sync`'s and — of the branch it
+  was asked to push — `repos push`'s: it replays the local-only
   commits of a diverged registry branch onto the fetched upstream (`git
   replay`, in memory), stops on any conflict with nothing moved — no merge
   driver settles one, the user's or git's `union` — and never rewrites a
@@ -126,7 +129,9 @@ Each is structural, in the code (the rustdoc of `sync.rs`, `push.rs`,
   another branch: a fast-forward, move, or rebase in a checkout runs only
   after reading it on that branch and clean (a switch by another hand in the
   instant between is the window left; `sync.rs` says what each action checks
-  after)
+  after). `repos push` touches a working tree only to rebase: a branch ahead
+  pushes from a dirty checkout, and a diverged one in a dirty checkout is
+  held, nothing moved
 - never touches a pin once it's cloned, refreshes a third-party reference
   only when the run names it or passes `--references`, and writes to a remote
   only for owned entries
@@ -144,9 +149,10 @@ Each is structural, in the code (the rustdoc of `sync.rs`, `push.rs`,
   holds no credential of its own
 
 What each command writes, exactly — the fetch's confinement, sync's writes,
-clone placement, `--new-branch`'s upstream config, partial clones' lazy
-fetching — is in docs/repos.md: [status](docs/repos.md#repos-status),
+a push's rebase, clone placement, `--new-branch`'s upstream config, partial
+clones' lazy fetching — is in docs/repos.md: [status](docs/repos.md#repos-status),
 [Fetching](docs/repos.md#fetching), [sync](docs/repos.md#repos-sync),
+[push](docs/repos.md#repos-push-the-gateway),
 [`--new-branch`](docs/repos.md#--new-branch), and
 [clones](docs/repos.md#cloning-missing-entries).
 
@@ -185,7 +191,8 @@ plus the `repos` binary), and moves refs under the authoring rule above — git
 only, no API calls. `repos status` reports each entry's git state from local
 refs (`--fetch` refreshes them first), `repos sync` carries out the
 fast-forwards, moves, rebases, pushes, and clones `status` previews, and `repos push`,
-the gateway, pushes one checkout's branch through sync's own push — each in
+the gateway, pushes one checkout's branch through sync's own push, rebasing
+it first through sync's own rebase when it diverged — each in
 [docs/repos.md](docs/repos.md#commands).
 
 The structured model of each repo's git state — every local branch against
@@ -711,7 +718,10 @@ UPDATE_GOLDEN=1 cargo test --test golden # regenerate the --json golden fixtures
 
 **Agents push through `repos push`**, never raw `git push` — a Claude Code
 deny rule on the latter is guidance, not a boundary
-([docs/repos.md](docs/repos.md#agents-push-through-repos-push)).
+([docs/repos.md](docs/repos.md#agents-push-through-repos-push)). A push of a
+diverged registry branch rebases it first, from a clean checkout: the report's
+`rebased` line means earlier commit ids are stale and earlier checks ran on
+the old base.
 
 ### Command Workflow
 

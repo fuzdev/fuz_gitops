@@ -183,7 +183,7 @@ cargo install --path crates/fuz_repos --locked # install the `repos` binary
 repos status          # git state of every entry, from local refs
 repos status --fetch  # fetch from origin first (remote-tracking refs only)
 repos sync            # fetch, then fast-forward, push, and clone what's safe
-repos push            # push the branch checked out here, as a fast-forward
+repos push            # push the branch checked out here, as a fast-forward (rebased first if it diverged)
 ```
 
 **Documentation:**

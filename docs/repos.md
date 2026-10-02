@@ -58,7 +58,7 @@ repos sync --verbose         # plus a block per entry: the state sync acted on
 repos sync --jobs 4 --timings # as under status; push takes both too
 repos sync typescript prettier # a named third-party reference is refreshed: fetched over HTTPS, then ff'd or moved where clean
 repos sync --references      # refresh every third-party reference too (never a pin); alone — with targets it's a usage error
-repos push                   # the gateway: fetch, then push the branch checked out here as a fast-forward of what was fetched; exit 1 unless it ends in sync
+repos push                   # the gateway: fetch, then push the branch checked out here as a fast-forward of what was fetched, rebasing a diverged registry branch first; exit 1 unless it ends in sync
 repos push app ../wt --json  # targets: a key or dir name (the entry's own checkout), or a path (the checkout holding it); --json prints the versioned outcome report
 repos push --new-branch      # the user's (refused under CLAUDECODE): create the branch on origin when it has no upstream there, and track it as git push -u does
 repos --version              # the crate version, the commit the binary was built from, and each --json document's format version
@@ -413,7 +413,10 @@ checkouts holds its fast-forward, move, or rebase.
 that failed at the remote, a rebased branch's included. A hold is no failure,
 and neither is a rebase its replay stopped (a conflict, a commit already
 upstream): the branch is a person's, as any diverged branch left alone.
-`--json` prints each branch's outcome; a rebase is `rebased` (`from`, `to`,
+`--json` prints the entries after the fetch — the state sync acted on, not
+the state it left: a branch `rebased`, `pushed`, or `fast_forwarded` still
+reads `diverged`, `ahead`, or `behind` there — and each branch's outcome; a
+rebase is `rebased` (`from`, `to`,
 `onto` the fetched tip, and `push`: `pushed`, `already_there`, `held`,
 `push_failed`, or `failed`) or `rebase_refused` (`why`: `conflicts`, or
 `already_upstream` with the `commit`).
@@ -430,12 +433,44 @@ checkout) or a path (the checkout holding it, a linked worktree's own).
 
 **Pipeline.** For those entries alone it runs what sync runs before acting —
 the same fetch, a re-probe, the live sessions read (the caller's own
-excluded), classification — then acts on each checked-out branch's push
-verdict alone, through sync's own push (the lease, the direct URL, the
-compare-and-swap, every re-check right before). It never fast-forwards,
-moves, rebases, clones, or touches another branch: a branch behind is
-reported for `repos sync` to fast-forward, and a diverged one reads `needs
-human` — `repos sync` rebases the registry's branch, any other is a person's.
+excluded), classification — then acts on each checked-out branch's verdict
+alone, when it's a push or a rebase: a branch ahead through sync's own push
+(the lease, the direct URL, the compare-and-swap, every re-check right
+before), a diverged one through sync's own rebase and then that push. It
+never fast-forwards, moves a shallow branch, clones, or touches a branch
+other than the one checked out at a target: a branch behind is reported for
+`repos sync` to fast-forward.
+
+**A diverged branch is rebased, then pushed**, when it's one
+[sync rebases](#repos-sync): the branch the registry names, in an owned entry
+that's neither archived nor pinned, its commits ahead on no remote, with no
+merge or tag among them. It's the same action, with the same guards and
+re-checks: the local-only commits are replayed onto the fetched tip, the
+branch and the target's checkout move to the replayed commits (`switch -C
+--no-overwrite-ignore`, in the target's own checkout — a linked worktree's
+too), and the new tip is pushed under the lease. Any other diverged branch
+reads `needs human`, by the same reasons (`diverged`, `diverged_published`,
+`diverged_merge`, `diverged_tagged`), and a conflict — or a local commit whose
+change origin already has — stops the rebase with nothing moved. A rebase is
+all `repos push` ever writes locally beyond its fetch and the remote-tracking
+ref a push records: the commit objects the replay makes, that one branch, and
+the checkout it's on.
+
+A rebase changes what the caller knew: the branch's commits are new ones, so
+commit ids read before the push are stale, and whatever was checked before it
+(tests, a build) was checked on the old base. The report says what moved —
+the text's `rebased` line carries the upstream commits the branch now sits on,
+its new tip, and the tip replaced; the JSON's `rebased` outcome carries
+`from`, `to`, and `onto` — and when the push that follows is held or fails
+(origin moved again since the fetch, a ruleset refused it), the branch stays
+rebased and ahead, and the next `repos push` pushes it, or rebases it again.
+
+**Dirt matters only when the push must rebase.** A branch ahead pushes from a
+dirty checkout, since a push moves refs alone. A diverged one is held
+(`dirty_checkout`) by any uncommitted change in its checkout — staged,
+unstaged, or untracked, the same reading of clean sync's rebase uses — with
+nothing moved: commit, or `git stash -u`, then `repos push` again. A branch
+checked out in several checkouts is held too (`several_checkouts`).
 
 **Policy.** The policy is structural: owned entries only (a third-party
 reference or a pin named is a usage error), never a force or a tag; another
@@ -443,8 +478,8 @@ live session in the checkout holds the push (`busy`), and so does origin
 drift; a failed fetch or an entry-level reason (origin drift among them)
 holds even a branch that reads in sync, since its refs may not be origin's (a
 branch with no upstream configured reads `no_upstream` whatever the fetch,
-since that's its config); dirt doesn't matter, since a push moves refs alone.
-It runs for an agent as for a person.
+since that's its config). Whatever holds a push holds the rebase before it.
+It runs for an agent as for a person, the rebase included.
 
 ### `--new-branch`
 
@@ -475,13 +510,26 @@ set.
 ### Push outcomes
 
 Exit `0` when every target's branch ends in sync with its upstream (pushed,
-created, or already there), `1` when any didn't push (held, behind, diverged,
-detached, no upstream, a remote branch in the way, a checkout not read, a
-failed fetch or push), as `git push` exits on a rejected ref, and `2` for
-usage (an unknown target, the cwd in no entry's checkout, a third-party or
-pinned target, `--new-branch` in an agent's shell). `--json` prints its own
-versioned outcome report: the targets' entries after the fetch, and one
-outcome per target checkout. A `no_upstream` outcome carries `why`, what
+rebased and pushed, created, or already there), `1` when any didn't (held,
+behind, diverged and left to a person, a rebase its replay stopped, a rebased
+branch whose push was held or failed, detached, no upstream, a remote branch
+in the way, a checkout not read, a failed fetch or push), as `git push` exits
+on a rejected ref, and `2` for usage (an unknown target, the cwd in no
+entry's checkout, a third-party or pinned target, `--new-branch` in an
+agent's shell). So a rebase a conflict stopped exits `1` here, where
+`repos sync` exits `0` on the same: sync reports a branch left to a person,
+and a push reports a branch that wasn't pushed.
+
+`--json` prints its own
+versioned outcome report: the targets' entries after the fetch — the state
+the push acted on, not the state it left: a branch `rebased` or `pushed`
+still reads `diverged` or `ahead` there — and one outcome per target
+checkout. A rebase is `rebased` (`from`, the tip replaced;
+`to`, the new tip; `onto`, the fetched tip; and `push`: `pushed`,
+`already_there`, `held`, `push_failed`, or `failed`) or `rebase_refused`
+(`why`: `conflicts`, or `already_upstream` with the `commit`), as in sync's
+report; the commits replayed and the upstream commits under them are the
+branch's `diverged` relation in the entry (`ahead`, `behind`). A `no_upstream` outcome carries `why`, what
 `--new-branch` would do with the branch, read as that flag reads it:
 `creatable` (only without the flag, which creates it), `merged`,
 `default_gone`, or `other_upstream`. The hint the text prints after it words
@@ -498,6 +546,14 @@ prefix rule, with `Bash(repos push --new-branch:*)` beside it) and allow
 Permission rules hold in every permission mode but match a command's prefix
 alone, so a push spelled another way slips past them: guidance, not a
 boundary — the host's own rules are the floor.
+
+An agent's `repos push` may rebase its branch: when the registry's branch
+diverged (another machine, or another session, pushed to it meanwhile) and
+the checkout is clean, the push replays the agent's commits onto origin's and
+moves the checkout to them before pushing. The report's `rebased` line is the
+agent's cue that the commit ids it reported earlier are stale and that its
+checks ran on the old base. A dirty checkout holds it instead, exit `1`,
+saying to commit or `git stash -u` and push again.
 
 ## Third-party references
 
@@ -585,8 +641,9 @@ The rustdoc of `clone.rs` has the recipe.
   failure or the tool's refusal to run one whose refspec it can't confine; a
   probe; an action git refused — a rebase a conflict stopped is not one, see
   [Sync outcomes](#repos-sync)); under `push`, any target whose branch didn't
-  end in sync with its upstream ([Push outcomes](#push-outcomes)); or,
-  under any command, a fatal I/O error
+  end in sync with its upstream — a rebase held, or stopped by a conflict,
+  among them ([Push outcomes](#push-outcomes)); or, under any command, a
+  fatal I/O error
 - `2` when the caller must change something — usage, a missing or invalid
   registry, git missing or too old, an unknown target, a refused root
   (`root_in_entry`), and `push`'s usage cases
@@ -631,11 +688,12 @@ system config, fixed identities and dates) and no network:
   tests' own child processes
 
 The test files split by command and aspect: `status_*.rs`, `sync.rs` and
-`sync_*.rs` (`sync_rebase.rs` the rebase), `push_*.rs`, `cli_*.rs` (the binary's documents, text, and exit
+`sync_*.rs` (`sync_rebase.rs` the rebase), `push_*.rs` (`push_rebase.rs` a
+push's rebase), `cli_*.rs` (the binary's documents, text, and exit
 codes), `targets.rs`, `registry_real.rs`, and `golden.rs` with its
 `golden/` modules. Helpers a family shares sit beside `support/mod.rs` in
-`support/` (`busy`, `cli`, `push`, `remote`, `sync`, `unregistered`,
-`worktrees`).
+`support/` (`busy`, `cli`, `push`, `rebase`, `remote`, `sync`,
+`unregistered`, `worktrees`).
 
 The tests need git 2.44 or newer on `PATH`, and Linux (`/proc`,
 `/etc/machine-id`). CI runs these fmt, clippy, and test commands (with
@@ -669,7 +727,8 @@ both reports, `sessions.json`, and the status error documents — carry every
 variant of every closed enum the status report and its error document
 hold, in each place it can appear (each action's holds — a branch's, a
 refresh's, a clone's — their own enum), the sync and push documents
-every outcome of theirs, and the sync document every hold sync can
-report and every way a rebase's push and its replay's refusal can go. Each enum's variants are listed once, a list an exhaustive
+every outcome of theirs and every way a rebase's push and its replay's
+refusal can go, and the sync document every hold sync can report. Each enum's
+variants are listed once, a list an exhaustive
 `match` checks, and the floor counts that list: a new variant fails to
 compile until it's listed, and fails the floor until a golden covers it.
