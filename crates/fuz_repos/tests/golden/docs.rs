@@ -8,8 +8,9 @@ use fuz_repos::registry::{CheckoutList, EntryKind, EntryName, RegistryIssue, Vis
 use fuz_repos::remote::{RefGoneFix, RemoteFailure, UnreachableCause, VisibilityCheck};
 use fuz_repos::report::{
     BranchOutcome, BranchSync, BranchSyncHold, CheckoutPush, CloneOutcome, CloneSyncHold,
-    EntryStatus, EntrySync, FetchOutcome, NoUpstreamWhy, PushOutcome, PushReport, RepairBlock,
-    Sessions, StatusReport, SyncReport, UnregisteredClone, UnregisteredKind,
+    EntryStatus, EntrySync, FetchOutcome, NoUpstreamWhy, PushOutcome, PushReport, RebasePush,
+    RebaseRefusal, RepairBlock, Sessions, StatusReport, SyncReport, UnregisteredClone,
+    UnregisteredKind,
 };
 use fuz_repos::sessions::{Session, SessionSource, Unavailable};
 use fuz_repos::state::{
@@ -74,6 +75,11 @@ pub fn status_report_doc() -> StatusReport {
         fetchy(),
         sparse_fork(),
         renamed_default(),
+        almanac(),
+        journal(),
+        merged_in(),
+        released(),
+        shared(),
     ];
     entries.extend(probe_failures());
     report(
@@ -972,6 +978,69 @@ pub fn sync_report_doc() -> SyncReport {
             by: BranchSyncHold::Pinned,
         },
     );
+    // diverged, the registry's branch: rebased onto the fetched tip, then
+    // pushed — or not; or the replay refused, nothing moved
+    let rebase = SyncAction::Rebase {
+        ahead: 2,
+        behind: 3,
+    };
+    let rebased = |key: &str, push| {
+        let outcome = BranchOutcome::Rebased {
+            from: oid('1'),
+            to: oid('2'),
+            onto: oid('3'),
+            push,
+        };
+        one(
+            &diverged(key, 2, 3, act(rebase)),
+            Relation::Diverged {
+                ahead: 2,
+                behind: 3,
+            },
+            act(rebase),
+            outcome,
+        )
+    };
+    let refused = |key: &str, why| {
+        one(
+            &diverged(key, 2, 3, act(rebase)),
+            Relation::Diverged {
+                ahead: 2,
+                behind: 3,
+            },
+            act(rebase),
+            BranchOutcome::RebaseRefused { why },
+        )
+    };
+    let rebases = vec![
+        rebased("fieldbook", RebasePush::Pushed),
+        rebased("journal", RebasePush::AlreadyThere),
+        rebased(
+            "atlas",
+            RebasePush::Held {
+                by: BranchSyncHold::Changed,
+            },
+        ),
+        rebased(
+            "ledger",
+            RebasePush::PushFailed {
+                failure: RemoteFailure::Rejected {
+                    reason: "protected branch hook declined".into(),
+                    message: Some(
+                        "GH006: Protected branch update failed for refs/heads/main.".into(),
+                    ),
+                },
+            },
+        ),
+        rebased(
+            "almanac",
+            RebasePush::Failed {
+                message: "git send-pack reported nothing for refs/heads/main".into(),
+            },
+        ),
+        refused("cord", RebaseRefusal::Conflicts),
+        refused("dealt", RebaseRefusal::AlreadyUpstream { commit: oid('4') }),
+    ];
     // `--references`: fetched over HTTPS, fast-forwarded where clean;
     // never pushed, so a branch ahead is local-only work
     let lib = EntryStatus {
@@ -1044,28 +1113,42 @@ pub fn sync_report_doc() -> SyncReport {
         path("webref/src"),
         SessionSource::SessionFile,
     )];
+    let (rebase_entries, rebase_syncs): (Vec<EntryStatus>, Vec<EntrySync>) = rebases
+        .into_iter()
+        .map(|(e, branches)| {
+            let sync = EntrySync {
+                key: e.key.clone(),
+                fetch: FetchOutcome::Fetched,
+                clone: None,
+                branches,
+            };
+            (e, sync)
+        })
+        .unzip();
+    let mut entries = vec![
+        app,
+        app_wt,
+        blog,
+        forge,
+        corpora,
+        spec,
+        lib,
+        missing(),
+        stray,
+        twin("app"),
+        renamed(),
+        missing_reference("wpt", None),
+        missing_reference("html", None),
+        missing_reference("dom", None),
+        webref(),
+        broken,
+    ];
+    entries.extend(rebase_entries);
+    // no targets: the scan ran first
     let status = report(
         true,
         Sessions::Available { unscoped },
-        vec![
-            app,
-            app_wt,
-            blog,
-            forge,
-            corpora,
-            spec,
-            lib,
-            missing(),
-            stray,
-            twin("app"),
-            renamed(),
-            missing_reference("wpt", None),
-            missing_reference("html", None),
-            missing_reference("dom", None),
-            webref(),
-            broken,
-        ],
-        // no targets: the scan ran first
+        entries,
         Some(vec![renamed_old()]),
     );
     let sync = |key: &str, fetch, branches| EntrySync {
@@ -1080,80 +1163,79 @@ pub fn sync_report_doc() -> SyncReport {
         clone: Some(clone),
         branches: vec![],
     };
-    SyncReport::new(
-        status,
-        vec![
-            sync("app", FetchOutcome::Fetched, app_sync),
-            sync("app_wt", FetchOutcome::Fetched, app_wt_sync),
-            sync("blog", FetchOutcome::Fetched, blog_sync),
-            sync(
-                "fuz_forge",
-                FetchOutcome::Failed {
-                    failure: forge_failure,
+    let mut synced = vec![
+        sync("app", FetchOutcome::Fetched, app_sync),
+        sync("app_wt", FetchOutcome::Fetched, app_wt_sync),
+        sync("blog", FetchOutcome::Fetched, blog_sync),
+        sync(
+            "fuz_forge",
+            FetchOutcome::Failed {
+                failure: forge_failure,
+            },
+            forge_sync,
+        ),
+        sync("corpora", FetchOutcome::Fetched, corpora_sync),
+        sync("spec", FetchOutcome::NotFetched, spec_sync),
+        sync("lib", FetchOutcome::Fetched, lib_sync),
+        cloned(
+            "blake3",
+            CloneOutcome::Cloned {
+                branch: "main".into(),
+                head: oid('c'),
+            },
+        ),
+        cloned(
+            "stray",
+            CloneOutcome::Held {
+                by: CloneSyncHold::UnprobedWorktree,
+            },
+        ),
+        cloned(
+            "twin",
+            CloneOutcome::Held {
+                by: CloneSyncHold::Entry,
+            },
+        ),
+        cloned(
+            "renamed",
+            CloneOutcome::Held {
+                by: CloneSyncHold::Entry,
+            },
+        ),
+        // a dir made at the path since the probe
+        cloned(
+            "wpt",
+            CloneOutcome::Held {
+                by: CloneSyncHold::Changed,
+            },
+        ),
+        cloned(
+            "html",
+            CloneOutcome::CloneFailed {
+                failure: RemoteFailure::RepoNotFound {
+                    message: "remote: Repository not found.".into(),
                 },
-                forge_sync,
-            ),
-            sync("corpora", FetchOutcome::Fetched, corpora_sync),
-            sync("spec", FetchOutcome::NotFetched, spec_sync),
-            sync("lib", FetchOutcome::Fetched, lib_sync),
-            cloned(
-                "blake3",
-                CloneOutcome::Cloned {
-                    branch: "main".into(),
-                    head: oid('c'),
-                },
-            ),
-            cloned(
-                "stray",
-                CloneOutcome::Held {
-                    by: CloneSyncHold::UnprobedWorktree,
-                },
-            ),
-            cloned(
-                "twin",
-                CloneOutcome::Held {
-                    by: CloneSyncHold::Entry,
-                },
-            ),
-            cloned(
-                "renamed",
-                CloneOutcome::Held {
-                    by: CloneSyncHold::Entry,
-                },
-            ),
-            // a dir made at the path since the probe
-            cloned(
-                "wpt",
-                CloneOutcome::Held {
-                    by: CloneSyncHold::Changed,
-                },
-            ),
-            cloned(
-                "html",
-                CloneOutcome::CloneFailed {
-                    failure: RemoteFailure::RepoNotFound {
-                        message: "remote: Repository not found.".into(),
-                    },
-                },
-            ),
-            cloned(
-                "dom",
-                CloneOutcome::Failed {
-                    message: format!(
-                        "can't move the clone into {WORKSPACE}/dom: Permission denied (os \
+            },
+        ),
+        cloned(
+            "dom",
+            CloneOutcome::Failed {
+                message: format!(
+                    "can't move the clone into {WORKSPACE}/dom: Permission denied (os \
                          error 13)"
-                    ),
-                },
-            ),
-            cloned(
-                "webref",
-                CloneOutcome::Held {
-                    by: CloneSyncHold::Busy,
-                },
-            ),
-            sync("broken", FetchOutcome::Fetched, vec![]),
-        ],
-    )
+                ),
+            },
+        ),
+        cloned(
+            "webref",
+            CloneOutcome::Held {
+                by: CloneSyncHold::Busy,
+            },
+        ),
+        sync("broken", FetchOutcome::Fetched, vec![]),
+    ];
+    synced.extend(rebase_syncs);
+    SyncReport::new(status, synced)
 }
 
 /// Every fatal error `repos status --json` can print (`error_reports`).
@@ -2403,6 +2485,71 @@ fn mdz() -> EntryStatus {
         }],
         ..entry("mdz", Some("main"))
     }
+}
+
+/// An entry whose `main` diverged from origin's, `ahead` and `behind`, with
+/// `verdict`.
+fn diverged(key: &str, ahead: u32, behind: u32, verdict: Verdict) -> EntryStatus {
+    let mut e = entry(key, Some("main"));
+    e.branches = vec![BranchStatus {
+        unique_commits: ahead,
+        ..checked_out(
+            branch(
+                "main",
+                Some("origin/main"),
+                Relation::Diverged { ahead, behind },
+                verdict,
+            ),
+            key,
+        )
+    }];
+    e
+}
+
+/// Its `main` diverged from origin's, the registry's branch, clean: sync
+/// rebases it.
+fn almanac() -> EntryStatus {
+    let action = SyncAction::Rebase {
+        ahead: 2,
+        behind: 3,
+    };
+    diverged("almanac", 2, 3, Verdict::Act { action })
+}
+
+/// Its `main` diverged, in a dirty checkout: the rebase held.
+fn journal() -> EntryStatus {
+    let action = SyncAction::Rebase {
+        ahead: 1,
+        behind: 4,
+    };
+    let by = BranchHold::DirtyCheckout;
+    let mut e = diverged("journal", 1, 4, Verdict::Held { action, by });
+    e.checkouts[0].uncommitted = Uncommitted {
+        untracked: 1,
+        ..Uncommitted::default()
+    };
+    e
+}
+
+/// Its `main` diverged, one of the commits it's ahead by held by another
+/// remote branch (a pushed `feat`, merged here): a person's.
+fn shared() -> EntryStatus {
+    let reason = BranchNeedsHuman::DivergedPublished;
+    let mut e = diverged("shared", 2, 1, Verdict::NeedsHuman { reason });
+    e.branches[0].unique_commits = 1;
+    e
+}
+
+/// Its `main` diverged, a merge among its local-only commits: a person's.
+fn merged_in() -> EntryStatus {
+    let reason = BranchNeedsHuman::DivergedMerge;
+    diverged("merged_in", 3, 1, Verdict::NeedsHuman { reason })
+}
+
+/// Its `main` diverged, a tag on one of its local-only commits: a person's.
+fn released() -> EntryStatus {
+    let reason = BranchNeedsHuman::DivergedTagged;
+    diverged("released", 1, 2, Verdict::NeedsHuman { reason })
 }
 
 /// A branch deleted on the remote, named by one of several fetch refspecs.

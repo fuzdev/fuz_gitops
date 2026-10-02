@@ -169,7 +169,12 @@ impl PushGroups {
             }
             PushOutcome::NeedsHuman { reason } => {
                 match reason {
-                    BranchNeedsHuman::Diverged => self.hints.push(PushHint::Diverged),
+                    BranchNeedsHuman::Diverged
+                    | BranchNeedsHuman::DivergedPublished
+                    | BranchNeedsHuman::DivergedMerge
+                    | BranchNeedsHuman::DivergedTagged => {
+                        self.hints.push(PushHint::Diverged);
+                    }
                     BranchNeedsHuman::Unmapped => self.hints.push(PushHint::Unmapped),
                     _ => {}
                 }
@@ -304,7 +309,7 @@ fn summary(
         g.problems.failed.insert(
             0,
             format!(
-                "busy detection ({}; every push, ff, and move held)",
+                "busy detection ({}; every push, ff, move, and rebase held)",
                 unavailable_label(reason, view)
             ),
         );
@@ -554,6 +559,7 @@ struct Actions {
     push: Vec<String>,
     ff: Vec<String>,
     moves: Vec<String>,
+    rebases: Vec<String>,
     clones: Vec<String>,
 }
 
@@ -566,6 +572,10 @@ impl Actions {
                 self.ff.push(format!("{label} −{commits}{note}"));
             }
             SyncAction::Move => self.moves.push(format!("{label}{note}")),
+            SyncAction::Rebase { ahead, behind } => {
+                self.rebases
+                    .push(format!("{label} +{ahead} −{behind}{note}"));
+            }
         }
     }
 
@@ -580,13 +590,14 @@ impl Actions {
     }
 
     /// A run per verb — `refresh lib`, `push a +1, b +2`, `ff …`, `move …`,
-    /// `clone …` — omitting empty verbs.
+    /// `rebase c +1 −2`, `clone …` — omitting empty verbs.
     fn verbs(&self) -> Vec<Vec<String>> {
         [
             ("refresh ", &self.refreshes),
             ("push ", &self.push),
             ("ff ", &self.ff),
             ("move ", &self.moves),
+            ("rebase ", &self.rebases),
             ("clone ", &self.clones),
         ]
         .into_iter()
@@ -599,6 +610,7 @@ impl Actions {
             + self.push.len()
             + self.ff.len()
             + self.moves.len()
+            + self.rebases.len()
             + self.clones.len()
     }
 }
@@ -864,6 +876,38 @@ impl Groups {
             ) => {
                 self.act.add(action, label, "");
             }
+            // rebased, and what its push came to short of pushing: held or
+            // failed as any push of a branch ahead by the commits replayed
+            Some(BranchOutcome::Rebased { push, .. }) => {
+                self.act.add(action, label, "");
+                let pushing = match action {
+                    SyncAction::Rebase { ahead, .. } => SyncAction::Push { commits: ahead },
+                    action => action,
+                };
+                match push {
+                    RebasePush::Pushed | RebasePush::AlreadyThere => {}
+                    RebasePush::Held { by } => self.held.add(pushing, label, hold_note(*by)),
+                    RebasePush::PushFailed { failure } => self
+                        .problems
+                        .failed
+                        .push(format!("{label} (push: {})", failure.words(false))),
+                    RebasePush::Failed { message } => self
+                        .problems
+                        .failed
+                        .push(format!("{label} (push: {})", first_line(message))),
+                }
+            }
+            Some(BranchOutcome::RebaseRefused { why }) => {
+                let why = match why {
+                    RebaseRefusal::Conflicts => "rebase conflicts".to_owned(),
+                    RebaseRefusal::AlreadyUpstream { commit } => {
+                        format!("{} is already upstream", commit.get(..7).unwrap_or(commit))
+                    }
+                };
+                self.problems
+                    .needs_human
+                    .push(format!("{label} ({}, {why})", relation_label(b.relation)));
+            }
             // a pin is a standing choice: counted, not held
             Some(
                 BranchOutcome::Held {
@@ -996,6 +1040,16 @@ fn branch_needs_human_label(reason: BranchNeedsHuman, b: &BranchStatus) -> Strin
             format!("diverged +{ahead} −{behind}")
         }
         (BranchNeedsHuman::Diverged, _) => "diverged".into(),
+        (BranchNeedsHuman::DivergedPublished, relation) => format!(
+            "{}, a commit of its own on another remote branch",
+            relation_label(relation)
+        ),
+        (BranchNeedsHuman::DivergedMerge, relation) => {
+            format!("{}, a merge among its commits", relation_label(relation))
+        }
+        (BranchNeedsHuman::DivergedTagged, relation) => {
+            format!("{}, a tag on its commits", relation_label(relation))
+        }
         (BranchNeedsHuman::Unmapped, _) => "outside refspec".into(),
         (BranchNeedsHuman::ArchivedAhead, Relation::Ahead { commits }) => {
             format!("archived, +{commits}")

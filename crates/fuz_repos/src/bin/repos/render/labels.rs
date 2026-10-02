@@ -79,6 +79,7 @@ pub(super) const fn action_verb(action: SyncAction) -> &'static str {
         SyncAction::Push { .. } => "push",
         SyncAction::FastForward { .. } => "ff",
         SyncAction::Move => "move",
+        SyncAction::Rebase { .. } => "rebase",
     }
 }
 

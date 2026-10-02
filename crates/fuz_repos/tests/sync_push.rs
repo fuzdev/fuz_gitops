@@ -21,7 +21,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 use fuz_repos::classify::NeedsHuman;
 use fuz_repos::remote::{RemoteFailure, UnreachableCause};
-use fuz_repos::report::{BranchOutcome, BranchSyncHold};
+use fuz_repos::report::{BranchOutcome, BranchSyncHold, RebasePush};
 use fuz_repos::sessions::{LiveSessions, Session, SessionSource};
 use fuz_repos::state::{BranchHold, BranchNeedsHuman, Relation, SyncAction, Verdict};
 use support::busy::push;
@@ -270,15 +270,22 @@ fn a_remote_moved_since_the_fetch_refuses_the_push() {
     // the remote was reached, and refused it
     assert_eq!(ws.ssh_push_log().len(), 1);
 
-    // the rerun sees it diverged: a person's
+    // the rerun sees it diverged, the registry's branch: rebased onto the
+    // commit that landed, and pushed on top of it
     let run = ws.sync();
-    assert_eq!(
-        outcome(&run, "app", "main"),
-        &BranchOutcome::NeedsHuman {
-            reason: BranchNeedsHuman::Diverged
-        }
-    );
-    assert_eq!(ws.git(&ws.bare("app"), &["rev-parse", "main"]), moved);
+    let BranchOutcome::Rebased {
+        from,
+        to,
+        onto,
+        push: RebasePush::Pushed,
+    } = outcome(&run, "app", "main")
+    else {
+        panic!("{:?}", run.outcomes);
+    };
+    assert_eq!((from, onto), (&tip, &moved));
+    assert_eq!(ws.git(&ws.bare("app"), &["rev-parse", "main"]), *to);
+    assert_eq!(ws.git(&app, &["rev-parse", "main"]), *to);
+    assert_eq!(ws.git(&app, &["rev-parse", "main~1"]), moved);
 }
 
 #[test]

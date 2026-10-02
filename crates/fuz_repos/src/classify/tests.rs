@@ -68,6 +68,8 @@ struct B<'a> {
     track: Track,
     unique: u32,
     on_tip: bool,
+    merges: u32,
+    tagged: bool,
 }
 
 const fn b<'a>(name: &'a str, remote: Option<&'a str>, resolved: bool, track: Track) -> B<'a> {
@@ -78,6 +80,8 @@ const fn b<'a>(name: &'a str, remote: Option<&'a str>, resolved: bool, track: Tr
         track,
         unique: 0,
         on_tip: false,
+        merges: 0,
+        tagged: false,
     }
 }
 
@@ -88,6 +92,14 @@ impl B<'_> {
     }
     const fn on_tip(mut self) -> Self {
         self.on_tip = true;
+        self
+    }
+    const fn merges(mut self, n: u32) -> Self {
+        self.merges = n;
+        self
+    }
+    const fn tagged(mut self) -> Self {
+        self.tagged = true;
         self
     }
 }
@@ -126,6 +138,8 @@ fn facts(head: Head, branches: &[B<'_>]) -> RepoFacts {
             },
             unique_commits: b.unique,
             on_fetched_tip: b.on_tip,
+            local_merges: b.merges,
+            local_tagged: b.tagged,
         })
         .collect();
     test_facts(head, config, branches)
@@ -3337,4 +3351,196 @@ fn remote_accounts() {
     ] {
         assert_eq!(remote_account(url).as_deref(), account, "{url}");
     }
+}
+
+#[test]
+fn only_the_registrys_branch_of_an_owned_entry_is_rebased() {
+    let diverged = Track::Diverged {
+        ahead: 2,
+        behind: 3,
+    };
+    let rebase = SyncAction::Rebase {
+        ahead: 2,
+        behind: 3,
+    };
+    let branches = || {
+        [
+            b("main", O, true, diverged).unique(2),
+            b("feat", O, true, diverged).unique(2),
+        ]
+    };
+    let f = facts(on("other"), &branches());
+    let e = owned(Mode::Follow("main"));
+    // the registry's branch, checked out nowhere; a feature branch is as
+    // likely a local rebase awaiting a force-push
+    assert_eq!(
+        verdicts(&e, &f),
+        named(&[
+            ("main", act(rebase)),
+            ("feat", needs(BranchNeedsHuman::Diverged)),
+        ])
+    );
+    // an entry following no branch has none to rebase
+    assert_eq!(
+        verdicts(&owned(Mode::Head), &f)[0].1,
+        needs(BranchNeedsHuman::Diverged)
+    );
+    // an archived repo takes no push
+    let archived = Entry {
+        archived: true,
+        ..owned(Mode::Follow("main"))
+    };
+    assert_eq!(
+        verdicts(&archived, &f)[0].1,
+        needs(BranchNeedsHuman::Diverged)
+    );
+    // a pin's refs are stale by contract: local work, as before
+    assert_eq!(
+        verdicts(&owned(Mode::PinnedOn("main")), &f)[0].1,
+        Verdict::LocalOnly
+    );
+    // a third-party reference the run refreshes is never pushed
+    let lib = lib_facts(on("other"), &[b("main", O, true, diverged).unique(2)]);
+    assert_eq!(
+        classify(
+            &third_party(Mode::Follow("main")),
+            &lib,
+            &EntrySessions::idle(),
+            Refresh::Named
+        )
+        .branches[0]
+            .verdict,
+        needs(BranchNeedsHuman::Diverged)
+    );
+    // a merge among the local-only commits: a replay carries none
+    let merged = facts(
+        on("other"),
+        &[
+            b("main", O, true, diverged).unique(2).merges(1),
+            b("feat", O, true, diverged).unique(2).merges(1),
+        ],
+    );
+    assert_eq!(
+        verdicts(&e, &merged),
+        named(&[
+            ("main", needs(BranchNeedsHuman::DivergedMerge)),
+            // a person's either way
+            ("feat", needs(BranchNeedsHuman::Diverged)),
+        ])
+    );
+    // a commit it's ahead by that another remote-tracking ref holds (a
+    // pushed feature branch, merged here): never rewritten — named before
+    // a merge or a tag in the way
+    let published = facts(
+        on("other"),
+        &[
+            b("main", O, true, diverged).unique(1),
+            b("feat", O, true, diverged).unique(0),
+        ],
+    );
+    assert_eq!(
+        verdicts(&e, &published),
+        named(&[
+            ("main", needs(BranchNeedsHuman::DivergedPublished)),
+            ("feat", needs(BranchNeedsHuman::Diverged)),
+        ])
+    );
+    let none_its_own = facts(
+        on("other"),
+        &[b("main", O, true, diverged).merges(1).tagged()],
+    );
+    assert_eq!(
+        verdicts(&e, &none_its_own)[0].1,
+        needs(BranchNeedsHuman::DivergedPublished)
+    );
+    // a tag on a local-only commit: a rebase would leave it behind
+    let tagged = facts(
+        on("other"),
+        &[
+            b("main", O, true, diverged).unique(2).tagged(),
+            b("feat", O, true, diverged).unique(2).tagged(),
+        ],
+    );
+    assert_eq!(
+        verdicts(&e, &tagged),
+        named(&[
+            ("main", needs(BranchNeedsHuman::DivergedTagged)),
+            ("feat", needs(BranchNeedsHuman::Diverged)),
+        ])
+    );
+    // its upstream origin's branch under another name: the replay would
+    // land on a branch it isn't pushed to by name
+    let mut renamed = facts(on("other"), &branches());
+    renamed.branches[0].branch.merge_ref = Some("refs/heads/trunk".into());
+    assert_eq!(
+        verdicts(&e, &renamed)[0].1,
+        needs(BranchNeedsHuman::Diverged)
+    );
+    // a partial clone may lack a blob the replay needs
+    let mut partial = facts(on("other"), &branches());
+    partial.config.partial_filter = Some("blob:none".into());
+    assert_eq!(
+        verdicts(&e, &partial)[0].1,
+        needs(BranchNeedsHuman::Diverged)
+    );
+}
+
+#[test]
+fn a_rebase_is_held_as_a_fast_forward_and_a_push_are() {
+    let diverged = Track::Diverged {
+        ahead: 1,
+        behind: 1,
+    };
+    let rebase = SyncAction::Rebase {
+        ahead: 1,
+        behind: 1,
+    };
+    let held = |by| Verdict::Held { action: rebase, by };
+    let e = owned(Mode::Follow("main"));
+    let fresh = || {
+        let mut f = facts(on("main"), &[b("main", O, true, diverged).unique(1)]);
+        f.branches[0].branch.worktree = Some("/ws/app".into());
+        f
+    };
+    let main = |f: &RepoFacts| verdicts(&e, f).remove(0).1;
+    // checked out, clean
+    assert_eq!(main(&fresh()), act(rebase));
+
+    // dirt holds it as it holds a fast-forward: untracked files count
+    let mut f = fresh();
+    f.status.uncommitted.untracked = 1;
+    assert_eq!(main(&f), held(BranchHold::DirtyCheckout));
+    // it ends in a push: a push URL elsewhere holds it
+    let mut f = fresh();
+    f.push_urls = Some(vec!["git@github.com:me/other".into()]);
+    assert_eq!(main(&f), held(BranchHold::PushUrl));
+    let mut f = fresh();
+    f.fetch_failed = true;
+    assert_eq!(main(&f), held(BranchHold::FetchFailed));
+    // an operation in progress in any checkout holds the entry
+    let mut f = fresh();
+    f.in_progress = Some(InProgressOp::Rebase);
+    assert_eq!(main(&f), held(BranchHold::Entry));
+    // on HEAD in two checkouts
+    let mut f = fresh();
+    f.worktrees = vec![linked("/ws/app-twin", on("main"))];
+    assert_eq!(main(&f), held(BranchHold::SeveralCheckouts));
+    // in a worktree that couldn't be probed
+    let mut f = facts(on("other"), &[b("main", O, true, diverged).unique(1)]);
+    f.unprobed = vec![unprobed("/ws/app-usb", Some("main"), UnprobedWhy::Missing)];
+    assert_eq!(main(&f), held(BranchHold::UnprobedWorktree));
+    // a live session in its checkout, or busy detection unavailable
+    let busy = busy_at(&["/ws/app"]);
+    assert_eq!(
+        verdicts_with(&e, &fresh(), &busy)[0],
+        held(BranchHold::Busy)
+    );
+    let unavailable = EntrySessions {
+        detection: Detection::Unavailable,
+        ..EntrySessions::idle()
+    };
+    assert_eq!(
+        verdicts_with(&e, &fresh(), &unavailable)[0],
+        held(BranchHold::BusyUnknown)
+    );
 }

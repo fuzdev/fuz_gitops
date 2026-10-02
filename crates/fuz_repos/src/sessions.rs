@@ -44,7 +44,7 @@
 //!
 //! **Fail closed.** No sessions dir means nothing is live. But a live
 //! session the reader can't vouch for makes detection `Unavailable`, and
-//! then every push, fast-forward, and move is held: a file that doesn't
+//! then every push, fast-forward, move, and rebase is held: a file that doesn't
 //! parse while a process has its pid, a `pidDomain` (machine id and pid
 //! namespace) other than the tool's own, where `/proc` can't speak for its
 //! pid, a file or dir that can't be read, `HOME` unset (Claude Code falls
@@ -143,7 +143,7 @@ pub enum SessionSource {
 }
 
 /// Why busy detection can't vouch for every live session — so every push,
-/// fast-forward, and move is held.
+/// fast-forward, move, and rebase is held.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Unavailable {

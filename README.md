@@ -172,8 +172,10 @@ unpushed).
 ### The `repos` tool
 
 A Rust CLI over the repos a `repos.toml` registry declares. It moves refs it
-didn't author — fetch, fast-forward, clone, push — and never commits, rebases,
-merges anything but a fast-forward, force-pushes, or pushes tags. It needs git
+didn't author — fetch, fast-forward, clone, push — and rebases a diverged
+registry branch onto its fetched upstream when its local commits replay
+without conflict. It never commits new content, resolves a conflict, merges
+anything but a fast-forward, force-pushes, or pushes tags. It needs git
 2.44 or newer, and Linux for its detection of live Claude Code sessions.
 
 ```bash

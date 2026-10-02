@@ -36,7 +36,7 @@ pub struct StatusReport {
     /// when this is true.
     pub fetched: bool,
     /// Busy detection: the live Claude Code sessions in no checkout, or why
-    /// they couldn't be vouched for (every push, fast-forward, and move is
+    /// they couldn't be vouched for (every push, fast-forward, move, and rebase is
     /// then held). Those in a checkout are on it, as its `busy`.
     pub sessions: Sessions,
     pub entries: Vec<EntryStatus>,
@@ -83,7 +83,7 @@ pub enum Sessions {
     /// entries' included). They never block.
     Available { unscoped: Vec<Session> },
     /// Some live session couldn't be vouched for: every push, fast-forward,
-    /// and move is held, as though every checkout were busy.
+    /// move, and rebase is held, as though every checkout were busy.
     Unavailable { reason: Unavailable },
 }
 
@@ -415,8 +415,9 @@ impl SyncReport {
     /// Whether anything failed — a fetch (one git ran and failed, or one
     /// the tool refused to run, its refspec unconfinable: either way the
     /// entry wasn't synced and a person must act), a probe, or an action (a
-    /// push the remote refused or couldn't be reached for included) — so
-    /// the run exits `1`. A hold, a person's call, or busy detection that
+    /// push the remote refused or couldn't be reached for included, a
+    /// rebase's among them) — so the run exits `1`. A hold, a person's call
+    /// — a rebase its replay refused among them — or busy detection that
     /// couldn't vouch for every session is the report's to say, not a
     /// failure.
     pub fn failed(&self) -> bool {
@@ -541,6 +542,21 @@ pub enum BranchOutcome {
     /// to `to`, the commit classified: a fast-forward. A push never creates
     /// a branch.
     Pushed { from: String, to: String },
+    /// Rebased: the branch's local-only commits, tip `from`, replayed onto
+    /// the fetched tip `onto`, and the branch — with the one clean checkout
+    /// it's on — moved to the replayed tip `to`. Then pushed as any branch
+    /// ahead is: `push` says how that went, the remote's branch moving from
+    /// `onto` to `to` when it did.
+    Rebased {
+        from: String,
+        to: String,
+        onto: String,
+        push: RebasePush,
+    },
+    /// The replay ran and found the rebase a person's (`why`): nothing
+    /// moved, and the branch stays diverged. Not a failure: the run's exit
+    /// is what a diverged branch left to a person makes it.
+    RebaseRefused { why: RebaseRefusal },
     /// The push reached for the remote and failed there: refused
     /// (`rejected`, a ruleset or hook's refusal), unreachable, timed out —
     /// classified as a fetch failure is. The run exits `1`.
@@ -551,10 +567,54 @@ pub enum BranchOutcome {
 }
 
 impl BranchOutcome {
-    /// Whether the action failed, so the run exits `1`.
+    /// Whether the action failed, so the run exits `1`: a rebase whose
+    /// push failed among them — the branch stays rebased, ahead, for the
+    /// next run to push.
     pub const fn failed(&self) -> bool {
-        matches!(self, Self::PushFailed { .. } | Self::Failed { .. })
+        matches!(
+            self,
+            Self::PushFailed { .. }
+                | Self::Failed { .. }
+                | Self::Rebased {
+                    push: RebasePush::PushFailed { .. } | RebasePush::Failed { .. },
+                    ..
+                }
+        )
     }
+}
+
+/// How the push that follows a rebase went (`BranchOutcome::Rebased`): the
+/// one push sync makes, of the replayed tip. Short of `Pushed`, the branch
+/// stays rebased and ahead, the next run's to push.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum RebasePush {
+    /// The remote's branch moved from the fetched tip to the replayed one.
+    Pushed,
+    /// The remote's branch already held the replayed tip.
+    AlreadyThere,
+    /// A re-check held the push, as it holds any (`changed` when the
+    /// remote's branch moved since the fetch).
+    Held { by: BranchSyncHold },
+    /// The push reached for the remote and failed there. The run exits `1`.
+    PushFailed { failure: RemoteFailure },
+    /// The push couldn't run, or git refused it. The run exits `1`.
+    Failed { message: String },
+}
+
+/// Why a replay left a diverged branch to a person
+/// (`BranchOutcome::RebaseRefused`). The tool resolves nothing: either
+/// stops the rebase whole.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum RebaseRefusal {
+    /// A local-only commit conflicts with what the upstream gained.
+    Conflicts,
+    /// The local-only commit `commit` changes nothing on top of the
+    /// upstream: its change is there already (cherry-picked, or merged
+    /// another way). A replay keeps it as an empty commit where `git
+    /// rebase` drops it, and the tool makes neither choice.
+    AlreadyUpstream { commit: String },
 }
 
 /// What held a branch's action in `sync` or `repos push`: the verdict's hold
@@ -587,8 +647,9 @@ pub enum BranchSyncHold {
     /// the probe read it — the checkout's HEAD left the branch, a shallow
     /// branch gained commits on no remote, a branch to move in place is
     /// checked out now, a branch to update in place became a symbolic ref,
-    /// a branch to push holds another commit or upstream than classified or
-    /// is no longer ahead of it — or the remote's branch moved or was
+    /// a branch to push or rebase holds another commit or upstream than
+    /// classified, is no longer ahead of it, or no longer diverged by the
+    /// commits counted — or the remote's branch moved or was
     /// deleted since the fetch, so the push's lease refused it (or, for a
     /// branch `repos push --new-branch` creates, created there since); or a
     /// partial clone's origin, read again as git resolves it right before

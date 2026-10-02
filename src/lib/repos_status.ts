@@ -41,7 +41,7 @@ import { z } from 'zod';
  * The `repos status --json` document's format version, Rust's
  * `STATUS_FORMAT_VERSION`: the one these schemas parse.
  */
-export const REPOS_STATUS_FORMAT_VERSION = 18;
+export const REPOS_STATUS_FORMAT_VERSION = 19;
 
 // u32 and u64 on the Rust side
 const Count = z.number().int().nonnegative();
@@ -186,13 +186,17 @@ export type ReposCloneVerdict = z.infer<typeof ReposCloneVerdict>;
 export const ReposSyncAction = z.discriminatedUnion('kind', [
 	z.strictObject({ kind: z.literal('push'), commits: Count }),
 	z.strictObject({ kind: z.literal('fast_forward'), commits: Count }),
-	z.strictObject({ kind: z.literal('move') })
+	z.strictObject({ kind: z.literal('move') }),
+	z.strictObject({ kind: z.literal('rebase'), ahead: Count, behind: Count })
 ]);
 export type ReposSyncAction = z.infer<typeof ReposSyncAction>;
 
 /** Why a branch is left to a person. */
 export const ReposBranchNeedsHuman = z.enum([
 	'diverged',
+	'diverged_published',
+	'diverged_merge',
+	'diverged_tagged',
 	'unmapped',
 	'archived_ahead',
 	'shallow_local_work',

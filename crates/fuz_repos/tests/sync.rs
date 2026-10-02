@@ -18,9 +18,9 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 use fuz_repos::classify::NeedsHuman;
 use fuz_repos::remote::RemoteFailure;
-use fuz_repos::report::{BranchOutcome, BranchSync, BranchSyncHold, FetchOutcome};
+use fuz_repos::report::{BranchOutcome, BranchSync, BranchSyncHold, FetchOutcome, RebasePush};
 use fuz_repos::sessions::{LiveSessions, SessionSource, Unavailable};
-use fuz_repos::state::{BranchHold, BranchNeedsHuman, Relation, SyncAction, Verdict};
+use fuz_repos::state::{BranchHold, Relation, SyncAction, Verdict};
 use support::busy::live_session;
 use support::sync::{outcome, outcomes};
 use support::{
@@ -467,27 +467,6 @@ fn a_fast_forward_never_replaces_an_ignored_file() {
         std::fs::read_to_string(app.join("secret.env")).unwrap(),
         "mine\n"
     );
-}
-
-#[test]
-fn a_diverged_branch_is_left_to_a_person() {
-    let mut ws = FixtureWorkspace::new();
-    let app = ws.owned_repo("app", &[]);
-    ws.commit(&app, "local");
-    ws.upstream_commit("app", "main");
-    ws.write_registry();
-    let before = ws.refs(&app);
-
-    let run = ws.sync();
-
-    assert_eq!(
-        outcome(&run, "app", "main"),
-        &BranchOutcome::NeedsHuman {
-            reason: BranchNeedsHuman::Diverged
-        }
-    );
-    assert_eq!(ws.refs(&app), ws.refs_after_fetch("app", &before, &[]));
-    ws.assert_track(&app, "main", "[ahead 1, behind 1]");
 }
 
 #[test]
@@ -959,9 +938,13 @@ fn outcomes_are_the_same_whatever_the_jobs() {
             BranchOutcome::FastForwarded { .. }
         ]
     ));
+    // diverged, the registry's branch: rebased and pushed
     assert!(matches!(
         kinds["other"][..],
-        [BranchOutcome::NeedsHuman { .. }]
+        [BranchOutcome::Rebased {
+            push: RebasePush::Pushed,
+            ..
+        }]
     ));
     assert!(matches!(
         kinds["third"][..],

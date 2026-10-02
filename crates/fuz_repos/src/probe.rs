@@ -177,7 +177,7 @@ pub struct RepoFacts {
     pub fetch_failed: bool,
     /// Where a push through `origin` goes (`read_push_urls`), read when sync
     /// may push a branch — owned, not pinned or archived, with an `origin`
-    /// URL, and a branch ahead; `None` otherwise.
+    /// URL, and a branch ahead or diverged; `None` otherwise.
     pub push_urls: Option<Vec<String>>,
 }
 
@@ -303,6 +303,16 @@ pub struct BranchFacts {
     /// In a shallow clone, whether the branch's unique commits sit on the
     /// fetched tip (its upstream is an ancestor); false elsewhere.
     pub on_fetched_tip: bool,
+    /// The merge commits among a diverged branch's local-only commits
+    /// (`<upstream>..<branch>`), which a rebase can't replay
+    /// (`diverged_facts`); counted only for a branch diverged from a
+    /// resolved upstream outside a shallow clone, else zero.
+    pub local_merges: u32,
+    /// Whether a tag points at one of a diverged branch's local-only
+    /// commits — a release made here, say — which a rebase would leave on a
+    /// commit the branch no longer holds; read where `local_merges` is,
+    /// else false.
+    pub local_tagged: bool,
 }
 
 /// Whether a branch might hold commits on no remote.
@@ -319,16 +329,24 @@ const fn could_carry_local_work(r: &RefFacts) -> bool {
 }
 
 /// Whether a branch may read ahead of its upstream, so sync may push it: a
-/// plain ref with a resolved upstream, ahead of it — or in a shallow clone,
-/// with commits on no remote on top of the fetched tip. Classify decides;
-/// this only spares reading the push URLs of an entry with nothing to push.
-const fn could_push(b: &BranchFacts, shallow: bool) -> bool {
+/// plain ref with a resolved upstream, ahead of it — or diverged from it,
+/// when it's `followed`, the branch the entry follows, the one sync may
+/// rebase (a rebase ends in a push; any other diverged branch is a
+/// person's, pushed by no run) — or in a shallow clone, with commits on no
+/// remote on top of the fetched tip. Classify decides; this only spares
+/// reading the push URLs of an entry with nothing to push, so a push URL
+/// elsewhere is a reason only where a push could go there.
+fn could_push(b: &BranchFacts, shallow: bool, followed: Option<&str>) -> bool {
     b.branch.symref.is_none()
         && b.branch.upstream_ref.is_some()
         && if shallow {
             b.unique_commits > 0 && b.on_fetched_tip
         } else {
-            matches!(b.branch.track, Track::Ahead(_))
+            match b.branch.track {
+                Track::Ahead(_) => true,
+                Track::Diverged { .. } => followed == Some(b.branch.name.as_str()),
+                _ => false,
+            }
         }
 }
 
@@ -461,7 +479,9 @@ fn probe_present(
     let push_urls = if syncs_owned(entry)
         && !entry.archived
         && config.origin_url().is_some()
-        && branches.iter().any(|b| could_push(b, layout.shallow))
+        && branches
+            .iter()
+            .any(|b| could_push(b, layout.shallow, entry.branch.as_deref()))
     {
         Some(
             read_push_urls(cx.git, dir, local)
@@ -772,14 +792,68 @@ fn probe_branches(
         } else {
             (0, false)
         };
+        let (local_merges, local_tagged) = diverged_facts(git, dir, &r, shallow_roots, local)?;
         branches.push(BranchFacts {
             branch: r,
             unique_commits,
             on_fetched_tip,
+            local_merges,
+            local_tagged,
         });
     }
     Ok(branches)
 }
+
+/// What decides whether sync may rebase a diverged branch
+/// (`SyncAction::Rebase`), read of its local-only commits — from its
+/// resolved upstream to the commit the branch was read at: the merge
+/// commits among them, and whether a tag points at one.
+///
+/// Two more git calls, for a diverged branch alone: none, unasked, for any
+/// other, for a symbolic ref, and in a shallow clone, where no branch reads
+/// diverged.
+fn diverged_facts(
+    git: &Git,
+    dir: &Path,
+    r: &RefFacts,
+    shallow_roots: &HashSet<String>,
+    opts: CallOptions<'_>,
+) -> Result<(u32, bool), ProbeError> {
+    let (Some(upstream), Track::Diverged { .. }, None, true) = (
+        &r.upstream_ref,
+        r.track,
+        &r.symref,
+        shallow_roots.is_empty(),
+    ) else {
+        return Ok((0, false));
+    };
+    let range = format!("{upstream}..{}", r.oid);
+    let n = git
+        .output_string(dir, &["rev-list", "--count", "--merges", &range], opts)
+        .map_err(|e| git_failure(&e))?;
+    let merges = n
+        .trim()
+        .parse()
+        .map_err(|_| unexpected_output(format!("rev-list --count --merges: `{}`", n.trim())))?;
+    let mut args = TAGGED_ARGS.to_vec();
+    args.extend([
+        "--merged",
+        r.oid.as_str(),
+        "--no-merged",
+        upstream,
+        "refs/tags",
+    ]);
+    let tags = git
+        .output_string(dir, &args, opts)
+        .map_err(|e| git_failure(&e))?;
+    Ok((merges, !tags.trim().is_empty()))
+}
+
+/// The call that names a tag on a commit one commit reaches and another
+/// doesn't, before `--merged <tip> --no-merged <base> refs/tags`: the
+/// first such tag, or nothing. A tag on anything but a commit is on no
+/// commit of the range.
+pub const TAGGED_ARGS: [&str; 3] = ["for-each-ref", "--count=1", "--format=%(refname)"];
 
 /// The repo's worktrees other than the primary (`probe_worktrees`), when
 /// it has a `<commondir>/worktrees/`; one that can't be read is recorded

@@ -420,7 +420,7 @@ pub enum BranchHold {
     Entry,
     /// A push through `origin` would reach somewhere other than the
     /// registry's repo over SSH (the entry's `push_url_mismatch` reason):
-    /// pushes only.
+    /// pushes only, and a rebase, which ends in one.
     PushUrl,
     /// The entry's fetch failed or was refused (its `fetch_error`), so its
     /// remote-tracking refs weren't refreshed and may not be origin's: no
@@ -430,9 +430,10 @@ pub enum BranchHold {
     /// just failed a fetch fails the push too. Only a run that fetches
     /// (`sync`, `status --fetch`) holds on it.
     FetchFailed,
-    /// The branch is checked out in a checkout with uncommitted changes, and
-    /// sync never touches a dirty working tree. Pushes aren't held: they only
-    /// move refs.
+    /// The branch is checked out in a checkout with uncommitted changes
+    /// (untracked files count), and sync never touches a dirty working
+    /// tree. Pushes aren't held: they only move refs. A rebase is: it moves
+    /// the checkout to the replayed commits.
     DirtyCheckout,
     /// The branch is checked out in a worktree that couldn't be probed (one
     /// of the entry's `unprobed_worktrees`), so whether it's clean is
@@ -508,14 +509,40 @@ pub enum SyncAction {
     },
     /// A shallow branch with nothing local, moved to the fetched tip.
     Move,
+    /// A diverged branch — the one the registry names, of an owned entry —
+    /// whose `ahead` local-only commits, each on no remote and none of them
+    /// a merge or tagged, are replayed onto the fetched tip (`behind` commits
+    /// on), the branch moved to the
+    /// replayed commits, and then pushed as `Push` pushes. A prediction
+    /// from the facts alone: only the replay itself finds a conflict, which
+    /// leaves the branch as it was (`BranchOutcome::RebaseRefused`).
+    Rebase {
+        ahead: u32,
+        behind: u32,
+    },
 }
 
 /// Why sync leaves a branch to a person. The counts are on its relation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum BranchNeedsHuman {
-    /// Placing it needs a force-push or a rebase, which sync never does.
+    /// Diverged, and not sync's to rebase (`SyncAction::Rebase`): a branch
+    /// other than the one the registry names (as likely a local rebase
+    /// awaiting a force-push, which the tool never makes), any branch of an
+    /// archived repo or a third-party reference, one whose upstream is
+    /// origin's branch under another name, or one in a partial clone.
     Diverged,
+    /// Diverged, and sync's to rebase but for a local-only commit another
+    /// remote-tracking ref holds — a feature branch pushed, then merged
+    /// here: a rebase rewrites only commits on no remote.
+    DivergedPublished,
+    /// Diverged, and sync's to rebase but for a merge commit among its
+    /// local-only commits: a replay carries no merge.
+    DivergedMerge,
+    /// Diverged, and sync's to rebase but for a tag on one of its
+    /// local-only commits (a release made here whose push was refused, say):
+    /// a rebase would leave the tag on a commit the branch no longer holds.
+    DivergedTagged,
     /// Its origin upstream lies outside the fetch refspec.
     Unmapped,
     /// Ahead on an archived repo, whose host refuses writes — or, in a push,

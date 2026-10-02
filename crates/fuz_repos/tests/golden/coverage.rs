@@ -17,8 +17,8 @@ use fuz_repos::registry::{CheckoutList, EntryKind, RegistryIssue, Visibility};
 use fuz_repos::remote::{RefGoneFix, RemoteFailure, UnreachableCause, VisibilityCheck};
 use fuz_repos::report::{
     BranchOutcome, BranchSyncHold, CloneOutcome, CloneSyncHold, ErrorReport, FetchOutcome,
-    NoUpstreamWhy, PushOutcome, PushReport, RepairBlock, Sessions, StatusReport, SyncReport,
-    UnregisteredKind,
+    NoUpstreamWhy, PushOutcome, PushReport, RebasePush, RebaseRefusal, RepairBlock, Sessions,
+    StatusReport, SyncReport, UnregisteredKind,
 };
 use fuz_repos::sessions::{Session, SessionSource, Unavailable};
 use fuz_repos::state::{
@@ -184,6 +184,7 @@ floor_index!(
         SyncAction::Push { .. },
         SyncAction::FastForward { .. },
         SyncAction::Move,
+        SyncAction::Rebase { .. },
     ]
 );
 floor_index!(
@@ -244,6 +245,9 @@ floor_index!(
     BranchNeedsHuman,
     [
         BranchNeedsHuman::Diverged,
+        BranchNeedsHuman::DivergedPublished,
+        BranchNeedsHuman::DivergedMerge,
+        BranchNeedsHuman::DivergedTagged,
         BranchNeedsHuman::Unmapped,
         BranchNeedsHuman::ArchivedAhead,
         BranchNeedsHuman::ShallowLocalWork,
@@ -767,8 +771,31 @@ floor_index!(
         BranchOutcome::FastForwarded { .. },
         BranchOutcome::Moved { .. },
         BranchOutcome::Pushed { .. },
+        BranchOutcome::Rebased { .. },
+        BranchOutcome::RebaseRefused { .. },
         BranchOutcome::PushFailed { .. },
         BranchOutcome::Failed { .. },
+    ]
+);
+floor_index!(
+    rebase_push,
+    REBASE_PUSH,
+    RebasePush,
+    [
+        RebasePush::Pushed,
+        RebasePush::AlreadyThere,
+        RebasePush::Held { .. },
+        RebasePush::PushFailed { .. },
+        RebasePush::Failed { .. },
+    ]
+);
+floor_index!(
+    rebase_refusal,
+    REBASE_REFUSAL,
+    RebaseRefusal,
+    [
+        RebaseRefusal::Conflicts,
+        RebaseRefusal::AlreadyUpstream { .. },
     ]
 );
 floor_index!(
@@ -843,7 +870,8 @@ floor_index!(
 );
 
 /// The sync document's every-variant floor: each outcome, fetch outcome,
-/// clone outcome, and hold appears at least once.
+/// clone outcome, and hold appears at least once, and each way a rebase's
+/// push and its replay's refusal can go.
 pub fn assert_sync_coverage(doc: &SyncReport) {
     let mut seen = Seen::default();
     for e in &doc.entries {
@@ -856,13 +884,24 @@ pub fn assert_sync_coverage(doc: &SyncReport) {
         }
         for b in &e.branches {
             seen.mark("branch_outcome", branch_outcome(&b.outcome));
-            if let BranchOutcome::Held { by, .. } = &b.outcome {
-                seen.mark("branch_sync_hold", branch_sync_hold(by));
+            match &b.outcome {
+                BranchOutcome::Held { by, .. } => {
+                    seen.mark("branch_sync_hold", branch_sync_hold(by));
+                }
+                BranchOutcome::Rebased { push, .. } => {
+                    seen.mark("rebase_push", rebase_push(push));
+                }
+                BranchOutcome::RebaseRefused { why } => {
+                    seen.mark("rebase_refusal", rebase_refusal(why));
+                }
+                _ => {}
             }
         }
     }
     seen.floor("clone_outcome", CLONE_OUTCOME, &[]);
     seen.floor("branch_outcome", BRANCH_OUTCOME, &[]);
+    seen.floor("rebase_push", REBASE_PUSH, &[]);
+    seen.floor("rebase_refusal", REBASE_REFUSAL, &[]);
     seen.floor("fetch_outcome", FETCH_OUTCOME, &[]);
     seen.floor("branch_sync_hold", BRANCH_SYNC_HOLD, &[]);
     seen.floor("clone_sync_hold", CLONE_SYNC_HOLD, &[]);

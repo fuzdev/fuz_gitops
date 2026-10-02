@@ -79,10 +79,14 @@ fn default_branch_in_sync_ahead_behind_and_diverged() {
         }
     );
     assert_eq!(diverged.unique_commits, 1);
+    // the registry's branch, clean: sync would rebase it
     assert_eq!(
         diverged.verdict,
-        Verdict::NeedsHuman {
-            reason: BranchNeedsHuman::Diverged
+        Verdict::Act {
+            action: SyncAction::Rebase {
+                ahead: 1,
+                behind: 1
+            }
         }
     );
 }

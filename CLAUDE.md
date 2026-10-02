@@ -63,8 +63,8 @@ pushes.
 | --- | --- | --- |
 | nothing in git | **observe** | `repos status` (local refs), `repos status --brief`; `gitops_analyze`, `gitops_plan`, `gitops_publish` (dry run), `gitops_validate`, `gitops_sync --check`, `gitops_run` with read-only commands |
 | remote-tracking refs only, plus the objects, `FETCH_HEAD`, and shallow boundary a fetch writes | **observe** (refreshed) | `repos status --fetch`; the fetch that starts `repos sync` and `repos push`, the readiness gate before `gitops_publish --wetrun`'s prompt and its re-check before each `gro publish`, and `gitops_sync`'s fetch before it writes its host's site data |
-| local branches, working trees, new clones | **converge** | `repos sync` (fast-forwards, shallow moves, clones of missing entries, references refreshed when named or under `--references`) |
-| remote branches, under policy | **gateway** | `repos push`, and the push step of `repos sync`: fast-forwards only, under a lease, to the registry's SSH URL, owned entries only, no tags or force; a new remote branch is `repos push --new-branch`, the user's |
+| local branches, working trees, new clones, and the commit objects a rebase replays | **converge** | `repos sync` (fast-forwards, shallow moves, a diverged registry branch's local-only commits replayed onto its fetched upstream, clones of missing entries, references refreshed when named or under `--references`) |
+| remote branches, under policy | **gateway** | `repos push`, and the push step of `repos sync` (a rebased branch's included): fast-forwards only, under a lease, to the registry's SSH URL, owned entries only, no tags or force; a new remote branch is `repos push --new-branch`, the user's |
 | releases: npm, git commits and tags, deploys | **publish** | `gitops_publish --wetrun`, and gro's own `publish` and `deploy` it runs — the user's |
 
 "Nothing in git" is exact for `repos status`; the TS observe tasks move no
@@ -88,7 +88,11 @@ changes discovered."
 
 `repos` moves refs it didn't author — it fetches, fast-forwards, moves
 shallow branches, clones, and pushes commits that already exist — and reports
-git state. The TS tasks and gro author content — commits, changesets, release
+git state. The one thing it rewrites is a diverged registry branch's
+local-only commits, which `repos sync` replays onto the fetched upstream:
+new commit objects carrying the same changes, messages, authors, and author
+dates, committed by whoever runs the tool, and no content of its own. The TS
+tasks and gro author content — commits, changesets, release
 tags — and own package meaning: npm, changesets, the dependency graph, the
 GitHub API, library analysis, the dashboard. Release pushes (`gro publish`'s
 push with `--follow-tags`, `gro deploy`'s push to the deploy branch) stay
@@ -100,10 +104,18 @@ Each is structural, in the code (the rustdoc of `sync.rs`, `push.rs`,
 `clone.rs`, `git.rs`, `probe.rs` (fetch confinement), and `busy.rs` and
 `sessions.rs` (busy detection) says how):
 
-- never `pull`s, rebases, merges anything but a fast-forward, or resolves a
-  conflict: anything history-changing stops and reports, so host repo rules
-  never need modelling
-- never creates a commit, a tag, or a changeset
+- never `pull`s, merges anything but a fast-forward, or resolves a conflict.
+  The one history change is `repos sync`'s rebase: it replays the local-only
+  commits of a diverged registry branch onto the fetched upstream (`git
+  replay`, in memory), stops on any conflict with nothing moved — no merge
+  driver settles one, the user's or git's `union` — and never rewrites a
+  commit a remote holds (a branch ahead by one any remote-tracking ref holds
+  is a person's) — so what it pushes is still a fast-forward of linear
+  history, and host repo rules never need modelling. Any other diverged
+  branch stops and reports
+- never creates a commit of new content, a tag, or a changeset: a rebase's
+  replayed commits are new objects with the changes, messages, and authors of
+  the ones they replace
 - never force-pushes: a push is a fast-forward of exactly the tip the fetch
   saw, under a lease, and sends no tags or push options; a remote branch is
   created only by the user's `repos push --new-branch`, refused in an agent's
@@ -111,8 +123,8 @@ Each is structural, in the code (the rustdoc of `sync.rs`, `push.rs`,
 - never deletes a branch, local or remote — the fetch's `--prune` deletes
   only remote-tracking refs gone upstream
 - never prunes or removes a worktree, and never switches a checkout to
-  another branch: a fast-forward or move in a checkout runs only after
-  reading it on that branch and clean (a switch by another hand in the
+  another branch: a fast-forward, move, or rebase in a checkout runs only
+  after reading it on that branch and clean (a switch by another hand in the
   instant between is the window left; `sync.rs` says what each action checks
   after)
 - never touches a pin once it's cloned, refreshes a third-party reference
@@ -124,7 +136,9 @@ Each is structural, in the code (the rustdoc of `sync.rs`, `push.rs`,
   clone of a missing entry still runs, since it only creates a dir
 - never runs hooks, an fsmonitor, or background maintenance; programs the
   user's own git config names (filter drivers, the gpg program, credential
-  helpers, SSH) run as in any git call
+  helpers, SSH) run as in any git call — but a merge driver, whose program
+  a rebase's replay never runs (git is handed a command that fails in its
+  place): merging a path is settling a conflict
 - never installs, builds, calls the GitHub API, or reads env files: git is
   the only program it runs (and `kill`, to stop a timed-out call), and it
   holds no credential of its own
@@ -170,7 +184,7 @@ The Rust side lives in this repo as one crate, `crates/fuz_repos` (a library
 plus the `repos` binary), and moves refs under the authoring rule above — git
 only, no API calls. `repos status` reports each entry's git state from local
 refs (`--fetch` refreshes them first), `repos sync` carries out the
-fast-forwards, moves, pushes, and clones `status` previews, and `repos push`,
+fast-forwards, moves, rebases, pushes, and clones `status` previews, and `repos push`,
 the gateway, pushes one checkout's branch through sync's own push — each in
 [docs/repos.md](docs/repos.md#commands).
 

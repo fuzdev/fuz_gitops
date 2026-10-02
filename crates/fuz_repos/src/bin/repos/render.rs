@@ -14,8 +14,8 @@ use fuz_repos::registry::{EntryKind, Visibility};
 use fuz_repos::remote::{RefGoneFix, RemoteFailure, UnreachableCause, VisibilityCheck};
 use fuz_repos::report::{
     BranchOutcome, BranchSyncHold, CheckoutPush, CloneOutcome, CloneSyncHold, EntryStatus,
-    EntrySync, FetchOutcome, NoUpstreamWhy, PushOutcome, PushReport, RepairBlock, Sessions,
-    StatusReport, SyncReport, UnregisteredClone, UnregisteredKind,
+    EntrySync, FetchOutcome, NoUpstreamWhy, PushOutcome, PushReport, RebasePush, RebaseRefusal,
+    RepairBlock, Sessions, StatusReport, SyncReport, UnregisteredClone, UnregisteredKind,
 };
 use fuz_repos::sessions::{Session, SessionSource, Unavailable};
 use fuz_repos::state::{
@@ -172,10 +172,9 @@ const PUSH_REF_GONE_HINT: &str = concat!(
 const BEHIND_HINT: &str =
     "repos sync fast-forwards a branch behind its upstream (and moves a stale shallow one)";
 
-/// A diverged branch: placing it needs a force-push or a rebase, which
-/// repos never does.
-const DIVERGED_HINT: &str =
-    "a diverged branch is resolved by hand; repos never force-pushes or rebases";
+/// A diverged branch `repos push` found: never the push's to place.
+const DIVERGED_HINT: &str = "repos push never rebases or force-pushes: repos sync rebases the \
+     registry's branch when its commits replay cleanly; any other is resolved by hand";
 
 /// A branch with no upstream on origin that `--new-branch` would create:
 /// none set, or a same-named one gone. The user's, never an agent's.

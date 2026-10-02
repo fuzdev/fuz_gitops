@@ -18,7 +18,8 @@
 //!
 //! **Never** a fast-forward, a move, a clone, or any branch but the one
 //! checked out at a target: a branch behind is `NotAhead` (sync's to
-//! fast-forward), a diverged one a person's. The policy is sync's, and
+//! fast-forward), a diverged one `NeedsHuman` (sync's to rebase when it's
+//! the registry's branch, else a person's). The policy is sync's, and
 //! structural: owned entries only (a third-party reference or a pin named
 //! is refused before anything runs, `check_pushable`), never a force or a
 //! tag, and a remote branch created only under `--new-branch`, below; a
@@ -423,6 +424,16 @@ fn target_outcome(
             action: SyncAction::Push { .. },
             by,
         } => PushOutcome::Held { by: (*by).into() },
+        // diverged, sync's to rebase, held or not: never the push's
+        Verdict::Act {
+            action: SyncAction::Rebase { .. },
+        }
+        | Verdict::Held {
+            action: SyncAction::Rebase { .. },
+            ..
+        } => PushOutcome::NeedsHuman {
+            reason: BranchNeedsHuman::Diverged,
+        },
         // behind, or a stale shallow pointer: sync's to move
         Verdict::Act { .. } | Verdict::Held { .. } => PushOutcome::NotAhead,
         Verdict::NeedsHuman { reason } => PushOutcome::NeedsHuman { reason: *reason },

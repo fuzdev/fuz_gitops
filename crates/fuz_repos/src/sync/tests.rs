@@ -173,6 +173,18 @@ fn a_third_party_push_fails_at_act_time_whatever_the_verdict() {
             message: "main is a third-party reference's, which is never pushed".into(),
         }
     );
+    // nor rebased, which ends in a push
+    let action = SyncAction::Rebase {
+        ahead: 1,
+        behind: 1,
+    };
+    assert_eq!(
+        actor.act(0, &facts, &b, action),
+        BranchOutcome::Failed {
+            action,
+            message: "main is a third-party reference's, which is never rebased".into(),
+        }
+    );
 }
 
 // the checks after the fact, driven from just past the re-checks: the

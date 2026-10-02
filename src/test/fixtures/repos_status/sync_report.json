@@ -1,7 +1,7 @@
 {
-	"version": 12,
+	"version": 13,
 	"status": {
-		"version": 18,
+		"version": 19,
 		"workspace": "/home/me/dev",
 		"registry": "/home/me/dev/repos.toml",
 		"fetched": true,
@@ -1340,6 +1340,587 @@
 				"unprobed_worktrees": [],
 				"fetch_error": null,
 				"visibility_check": null
+			},
+			{
+				"key": "fieldbook",
+				"kind": "repo",
+				"dir": "fieldbook",
+				"url": "https://github.com/me/fieldbook",
+				"writable": true,
+				"archived": false,
+				"visibility": "public",
+				"ci": true,
+				"branch": "main",
+				"pinned": false,
+				"refresh": null,
+				"presence": {
+					"kind": "present"
+				},
+				"clone": null,
+				"layout": {
+					"shallow": false,
+					"sparse": false,
+					"partial_filter": null
+				},
+				"checkouts": [
+					{
+						"path": "/home/me/dev/fieldbook",
+						"primary": true,
+						"head": {
+							"kind": "branch",
+							"name": "main"
+						},
+						"uncommitted": {
+							"staged": 0,
+							"unstaged": 0,
+							"untracked": 0,
+							"conflicted": 0
+						},
+						"in_progress": null,
+						"locked": false,
+						"linked": false,
+						"submodules": null,
+						"busy": []
+					}
+				],
+				"branches": [
+					{
+						"name": "main",
+						"upstream": "origin/main",
+						"worktree": "/home/me/dev/fieldbook",
+						"symref": null,
+						"unique_commits": 0,
+						"newest_commit_at": 1799827200,
+						"relation": {
+							"kind": "diverged",
+							"ahead": 2,
+							"behind": 3
+						},
+						"verdict": {
+							"kind": "act",
+							"action": {
+								"kind": "rebase",
+								"ahead": 2,
+								"behind": 3
+							}
+						}
+					}
+				],
+				"at_rest": {
+					"on_branch": true,
+					"clean": true,
+					"idle": true,
+					"followed": {
+						"kind": "diverged",
+						"ahead": 2,
+						"behind": 3
+					}
+				},
+				"stashes": 0,
+				"fetched_at": 1799913600,
+				"needs_human": [],
+				"probe_error": null,
+				"unprobed_worktrees": [],
+				"fetch_error": null,
+				"visibility_check": null
+			},
+			{
+				"key": "journal",
+				"kind": "repo",
+				"dir": "journal",
+				"url": "https://github.com/me/journal",
+				"writable": true,
+				"archived": false,
+				"visibility": "public",
+				"ci": true,
+				"branch": "main",
+				"pinned": false,
+				"refresh": null,
+				"presence": {
+					"kind": "present"
+				},
+				"clone": null,
+				"layout": {
+					"shallow": false,
+					"sparse": false,
+					"partial_filter": null
+				},
+				"checkouts": [
+					{
+						"path": "/home/me/dev/journal",
+						"primary": true,
+						"head": {
+							"kind": "branch",
+							"name": "main"
+						},
+						"uncommitted": {
+							"staged": 0,
+							"unstaged": 0,
+							"untracked": 0,
+							"conflicted": 0
+						},
+						"in_progress": null,
+						"locked": false,
+						"linked": false,
+						"submodules": null,
+						"busy": []
+					}
+				],
+				"branches": [
+					{
+						"name": "main",
+						"upstream": "origin/main",
+						"worktree": "/home/me/dev/journal",
+						"symref": null,
+						"unique_commits": 0,
+						"newest_commit_at": 1799827200,
+						"relation": {
+							"kind": "diverged",
+							"ahead": 2,
+							"behind": 3
+						},
+						"verdict": {
+							"kind": "act",
+							"action": {
+								"kind": "rebase",
+								"ahead": 2,
+								"behind": 3
+							}
+						}
+					}
+				],
+				"at_rest": {
+					"on_branch": true,
+					"clean": true,
+					"idle": true,
+					"followed": {
+						"kind": "diverged",
+						"ahead": 2,
+						"behind": 3
+					}
+				},
+				"stashes": 0,
+				"fetched_at": 1799913600,
+				"needs_human": [],
+				"probe_error": null,
+				"unprobed_worktrees": [],
+				"fetch_error": null,
+				"visibility_check": null
+			},
+			{
+				"key": "atlas",
+				"kind": "repo",
+				"dir": "atlas",
+				"url": "https://github.com/me/atlas",
+				"writable": true,
+				"archived": false,
+				"visibility": "public",
+				"ci": true,
+				"branch": "main",
+				"pinned": false,
+				"refresh": null,
+				"presence": {
+					"kind": "present"
+				},
+				"clone": null,
+				"layout": {
+					"shallow": false,
+					"sparse": false,
+					"partial_filter": null
+				},
+				"checkouts": [
+					{
+						"path": "/home/me/dev/atlas",
+						"primary": true,
+						"head": {
+							"kind": "branch",
+							"name": "main"
+						},
+						"uncommitted": {
+							"staged": 0,
+							"unstaged": 0,
+							"untracked": 0,
+							"conflicted": 0
+						},
+						"in_progress": null,
+						"locked": false,
+						"linked": false,
+						"submodules": null,
+						"busy": []
+					}
+				],
+				"branches": [
+					{
+						"name": "main",
+						"upstream": "origin/main",
+						"worktree": "/home/me/dev/atlas",
+						"symref": null,
+						"unique_commits": 0,
+						"newest_commit_at": 1799827200,
+						"relation": {
+							"kind": "diverged",
+							"ahead": 2,
+							"behind": 3
+						},
+						"verdict": {
+							"kind": "act",
+							"action": {
+								"kind": "rebase",
+								"ahead": 2,
+								"behind": 3
+							}
+						}
+					}
+				],
+				"at_rest": {
+					"on_branch": true,
+					"clean": true,
+					"idle": true,
+					"followed": {
+						"kind": "diverged",
+						"ahead": 2,
+						"behind": 3
+					}
+				},
+				"stashes": 0,
+				"fetched_at": 1799913600,
+				"needs_human": [],
+				"probe_error": null,
+				"unprobed_worktrees": [],
+				"fetch_error": null,
+				"visibility_check": null
+			},
+			{
+				"key": "ledger",
+				"kind": "repo",
+				"dir": "ledger",
+				"url": "https://github.com/me/ledger",
+				"writable": true,
+				"archived": false,
+				"visibility": "public",
+				"ci": true,
+				"branch": "main",
+				"pinned": false,
+				"refresh": null,
+				"presence": {
+					"kind": "present"
+				},
+				"clone": null,
+				"layout": {
+					"shallow": false,
+					"sparse": false,
+					"partial_filter": null
+				},
+				"checkouts": [
+					{
+						"path": "/home/me/dev/ledger",
+						"primary": true,
+						"head": {
+							"kind": "branch",
+							"name": "main"
+						},
+						"uncommitted": {
+							"staged": 0,
+							"unstaged": 0,
+							"untracked": 0,
+							"conflicted": 0
+						},
+						"in_progress": null,
+						"locked": false,
+						"linked": false,
+						"submodules": null,
+						"busy": []
+					}
+				],
+				"branches": [
+					{
+						"name": "main",
+						"upstream": "origin/main",
+						"worktree": "/home/me/dev/ledger",
+						"symref": null,
+						"unique_commits": 0,
+						"newest_commit_at": 1799827200,
+						"relation": {
+							"kind": "diverged",
+							"ahead": 2,
+							"behind": 3
+						},
+						"verdict": {
+							"kind": "act",
+							"action": {
+								"kind": "rebase",
+								"ahead": 2,
+								"behind": 3
+							}
+						}
+					}
+				],
+				"at_rest": {
+					"on_branch": true,
+					"clean": true,
+					"idle": true,
+					"followed": {
+						"kind": "diverged",
+						"ahead": 2,
+						"behind": 3
+					}
+				},
+				"stashes": 0,
+				"fetched_at": 1799913600,
+				"needs_human": [],
+				"probe_error": null,
+				"unprobed_worktrees": [],
+				"fetch_error": null,
+				"visibility_check": null
+			},
+			{
+				"key": "almanac",
+				"kind": "repo",
+				"dir": "almanac",
+				"url": "https://github.com/me/almanac",
+				"writable": true,
+				"archived": false,
+				"visibility": "public",
+				"ci": true,
+				"branch": "main",
+				"pinned": false,
+				"refresh": null,
+				"presence": {
+					"kind": "present"
+				},
+				"clone": null,
+				"layout": {
+					"shallow": false,
+					"sparse": false,
+					"partial_filter": null
+				},
+				"checkouts": [
+					{
+						"path": "/home/me/dev/almanac",
+						"primary": true,
+						"head": {
+							"kind": "branch",
+							"name": "main"
+						},
+						"uncommitted": {
+							"staged": 0,
+							"unstaged": 0,
+							"untracked": 0,
+							"conflicted": 0
+						},
+						"in_progress": null,
+						"locked": false,
+						"linked": false,
+						"submodules": null,
+						"busy": []
+					}
+				],
+				"branches": [
+					{
+						"name": "main",
+						"upstream": "origin/main",
+						"worktree": "/home/me/dev/almanac",
+						"symref": null,
+						"unique_commits": 0,
+						"newest_commit_at": 1799827200,
+						"relation": {
+							"kind": "diverged",
+							"ahead": 2,
+							"behind": 3
+						},
+						"verdict": {
+							"kind": "act",
+							"action": {
+								"kind": "rebase",
+								"ahead": 2,
+								"behind": 3
+							}
+						}
+					}
+				],
+				"at_rest": {
+					"on_branch": true,
+					"clean": true,
+					"idle": true,
+					"followed": {
+						"kind": "diverged",
+						"ahead": 2,
+						"behind": 3
+					}
+				},
+				"stashes": 0,
+				"fetched_at": 1799913600,
+				"needs_human": [],
+				"probe_error": null,
+				"unprobed_worktrees": [],
+				"fetch_error": null,
+				"visibility_check": null
+			},
+			{
+				"key": "cord",
+				"kind": "repo",
+				"dir": "cord",
+				"url": "https://github.com/me/cord",
+				"writable": true,
+				"archived": false,
+				"visibility": "public",
+				"ci": true,
+				"branch": "main",
+				"pinned": false,
+				"refresh": null,
+				"presence": {
+					"kind": "present"
+				},
+				"clone": null,
+				"layout": {
+					"shallow": false,
+					"sparse": false,
+					"partial_filter": null
+				},
+				"checkouts": [
+					{
+						"path": "/home/me/dev/cord",
+						"primary": true,
+						"head": {
+							"kind": "branch",
+							"name": "main"
+						},
+						"uncommitted": {
+							"staged": 0,
+							"unstaged": 0,
+							"untracked": 0,
+							"conflicted": 0
+						},
+						"in_progress": null,
+						"locked": false,
+						"linked": false,
+						"submodules": null,
+						"busy": []
+					}
+				],
+				"branches": [
+					{
+						"name": "main",
+						"upstream": "origin/main",
+						"worktree": "/home/me/dev/cord",
+						"symref": null,
+						"unique_commits": 0,
+						"newest_commit_at": 1799827200,
+						"relation": {
+							"kind": "diverged",
+							"ahead": 2,
+							"behind": 3
+						},
+						"verdict": {
+							"kind": "act",
+							"action": {
+								"kind": "rebase",
+								"ahead": 2,
+								"behind": 3
+							}
+						}
+					}
+				],
+				"at_rest": {
+					"on_branch": true,
+					"clean": true,
+					"idle": true,
+					"followed": {
+						"kind": "diverged",
+						"ahead": 2,
+						"behind": 3
+					}
+				},
+				"stashes": 0,
+				"fetched_at": 1799913600,
+				"needs_human": [],
+				"probe_error": null,
+				"unprobed_worktrees": [],
+				"fetch_error": null,
+				"visibility_check": null
+			},
+			{
+				"key": "dealt",
+				"kind": "repo",
+				"dir": "dealt",
+				"url": "https://github.com/me/dealt",
+				"writable": true,
+				"archived": false,
+				"visibility": "public",
+				"ci": true,
+				"branch": "main",
+				"pinned": false,
+				"refresh": null,
+				"presence": {
+					"kind": "present"
+				},
+				"clone": null,
+				"layout": {
+					"shallow": false,
+					"sparse": false,
+					"partial_filter": null
+				},
+				"checkouts": [
+					{
+						"path": "/home/me/dev/dealt",
+						"primary": true,
+						"head": {
+							"kind": "branch",
+							"name": "main"
+						},
+						"uncommitted": {
+							"staged": 0,
+							"unstaged": 0,
+							"untracked": 0,
+							"conflicted": 0
+						},
+						"in_progress": null,
+						"locked": false,
+						"linked": false,
+						"submodules": null,
+						"busy": []
+					}
+				],
+				"branches": [
+					{
+						"name": "main",
+						"upstream": "origin/main",
+						"worktree": "/home/me/dev/dealt",
+						"symref": null,
+						"unique_commits": 0,
+						"newest_commit_at": 1799827200,
+						"relation": {
+							"kind": "diverged",
+							"ahead": 2,
+							"behind": 3
+						},
+						"verdict": {
+							"kind": "act",
+							"action": {
+								"kind": "rebase",
+								"ahead": 2,
+								"behind": 3
+							}
+						}
+					}
+				],
+				"at_rest": {
+					"on_branch": true,
+					"clean": true,
+					"idle": true,
+					"followed": {
+						"kind": "diverged",
+						"ahead": 2,
+						"behind": 3
+					}
+				},
+				"stashes": 0,
+				"fetched_at": 1799913600,
+				"needs_human": [],
+				"probe_error": null,
+				"unprobed_worktrees": [],
+				"fetch_error": null,
+				"visibility_check": null
 			}
 		],
 		"unregistered": [
@@ -1705,6 +2286,148 @@
 			},
 			"clone": null,
 			"branches": []
+		},
+		{
+			"key": "fieldbook",
+			"fetch": {
+				"kind": "fetched"
+			},
+			"clone": null,
+			"branches": [
+				{
+					"name": "main",
+					"kind": "rebased",
+					"from": "1111111111111111111111111111111111111111",
+					"to": "2222222222222222222222222222222222222222",
+					"onto": "3333333333333333333333333333333333333333",
+					"push": {
+						"kind": "pushed"
+					},
+					"repeats": null
+				}
+			]
+		},
+		{
+			"key": "journal",
+			"fetch": {
+				"kind": "fetched"
+			},
+			"clone": null,
+			"branches": [
+				{
+					"name": "main",
+					"kind": "rebased",
+					"from": "1111111111111111111111111111111111111111",
+					"to": "2222222222222222222222222222222222222222",
+					"onto": "3333333333333333333333333333333333333333",
+					"push": {
+						"kind": "already_there"
+					},
+					"repeats": null
+				}
+			]
+		},
+		{
+			"key": "atlas",
+			"fetch": {
+				"kind": "fetched"
+			},
+			"clone": null,
+			"branches": [
+				{
+					"name": "main",
+					"kind": "rebased",
+					"from": "1111111111111111111111111111111111111111",
+					"to": "2222222222222222222222222222222222222222",
+					"onto": "3333333333333333333333333333333333333333",
+					"push": {
+						"kind": "held",
+						"by": "changed"
+					},
+					"repeats": null
+				}
+			]
+		},
+		{
+			"key": "ledger",
+			"fetch": {
+				"kind": "fetched"
+			},
+			"clone": null,
+			"branches": [
+				{
+					"name": "main",
+					"kind": "rebased",
+					"from": "1111111111111111111111111111111111111111",
+					"to": "2222222222222222222222222222222222222222",
+					"onto": "3333333333333333333333333333333333333333",
+					"push": {
+						"kind": "push_failed",
+						"failure": {
+							"kind": "rejected",
+							"reason": "protected branch hook declined",
+							"message": "GH006: Protected branch update failed for refs/heads/main."
+						}
+					},
+					"repeats": null
+				}
+			]
+		},
+		{
+			"key": "almanac",
+			"fetch": {
+				"kind": "fetched"
+			},
+			"clone": null,
+			"branches": [
+				{
+					"name": "main",
+					"kind": "rebased",
+					"from": "1111111111111111111111111111111111111111",
+					"to": "2222222222222222222222222222222222222222",
+					"onto": "3333333333333333333333333333333333333333",
+					"push": {
+						"kind": "failed",
+						"message": "git send-pack reported nothing for refs/heads/main"
+					},
+					"repeats": null
+				}
+			]
+		},
+		{
+			"key": "cord",
+			"fetch": {
+				"kind": "fetched"
+			},
+			"clone": null,
+			"branches": [
+				{
+					"name": "main",
+					"kind": "rebase_refused",
+					"why": {
+						"kind": "conflicts"
+					},
+					"repeats": null
+				}
+			]
+		},
+		{
+			"key": "dealt",
+			"fetch": {
+				"kind": "fetched"
+			},
+			"clone": null,
+			"branches": [
+				{
+					"name": "main",
+					"kind": "rebase_refused",
+					"why": {
+						"kind": "already_upstream",
+						"commit": "4444444444444444444444444444444444444444"
+					},
+					"repeats": null
+				}
+			]
 		}
 	]
 }

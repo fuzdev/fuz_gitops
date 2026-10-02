@@ -536,7 +536,10 @@ fn repos_status_reads_the_config_dirs_it_is_pointed_at() {
         )),
         "{text}"
     );
-    assert!(text.contains("every push, ff, and move held)"), "{text}");
+    assert!(
+        text.contains("every push, ff, move, and rebase held)"),
+        "{text}"
+    );
     assert_eq!(
         line(&text, "held"),
         "held          push app +1 (busy unknown)"

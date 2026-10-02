@@ -530,6 +530,7 @@ pub(crate) fn classify(
                 on: &on,
                 detection: sessions.detection,
             };
+            let rebasable = rebasable(entry, b, facts);
             // an alias never acts: git writes through it to its target,
             // unchecked (`BranchStatus::symref` says why nothing is lost)
             let verdict = if b.branch.symref.is_some() {
@@ -538,7 +539,7 @@ pub(crate) fn classify(
                 // any branch may be checked out in a worktree no one can
                 // see: deleting it would strand that worktree
                 let unseen = worktrees_unread || on.head_unknown;
-                match verdict(entry, b, relation, upstream.is_some(), &holds) {
+                match verdict(entry, b, relation, upstream.is_some(), rebasable, &holds) {
                     Verdict::Cleanup { .. } if unseen && b.unique_commits > 0 => Verdict::LocalOnly,
                     Verdict::Cleanup { .. } if unseen => Verdict::Quiet,
                     verdict => verdict,
@@ -814,24 +815,26 @@ struct Holds<'a, 'b> {
 }
 
 impl Holds<'_, '_> {
-    /// What holds `action`, if anything: a pin (whose pushes never get
-    /// here), an entry-level reason, a failed fetch, or a live session holds
-    /// every action; a dirty checkout, one that couldn't be probed, or a
-    /// branch on HEAD in several checkouts, all but a push, which only moves
-    /// refs and which the remote checks; a checkout that may be busy — busy
-    /// detection unavailable, which leaves every checkout in doubt, or one
-    /// on the branch whose path can't be resolved or that the probe didn't
-    /// find, or an unlisted git dir a session works through — holds every
-    /// action; and a push URL other than the registry's holds a push. A pin
-    /// names the hold before anything else, since clearing the rest never
-    /// releases it; otherwise the most specific reason names it.
+    /// What holds `action`, if anything: a pin (whose pushes and rebases
+    /// never get here), an entry-level reason, a failed fetch, or a live
+    /// session holds every action; a dirty checkout, one that couldn't be
+    /// probed, or a branch on HEAD in several checkouts, all but a push,
+    /// which only moves refs and which the remote checks; a checkout that
+    /// may be busy — busy detection unavailable, which leaves every checkout
+    /// in doubt, or one on the branch whose path can't be resolved or that
+    /// the probe didn't find, or an unlisted git dir a session works through
+    /// — holds every action; and a push URL other than the registry's holds
+    /// a push, and a rebase, which ends in one. A pin names the hold before
+    /// anything else, since clearing the rest never releases it; otherwise
+    /// the most specific reason names it.
     fn of(&self, action: SyncAction) -> Option<BranchHold> {
         let push = matches!(action, SyncAction::Push { .. });
+        let pushes = push || matches!(action, SyncAction::Rebase { .. });
         if self.pinned {
             Some(BranchHold::Pinned)
         } else if self.entry {
             Some(BranchHold::Entry)
-        } else if push && self.push_url {
+        } else if pushes && self.push_url {
             Some(BranchHold::PushUrl)
         } else if self.fetch_failed {
             Some(BranchHold::FetchFailed)
@@ -943,21 +946,83 @@ fn fold_checkouts_on<'a>(
     folded
 }
 
+/// Whether a diverged branch is sync's to rebase (`SyncAction::Rebase`):
+/// its local-only commits replayed onto the fetched tip, then pushed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Rebasable {
+    /// Sync's, whatever holds it.
+    Yes,
+    /// A person's (`BranchNeedsHuman::Diverged` says which branches are).
+    No,
+    /// Sync's but for a commit of its own that another remote-tracking ref
+    /// holds.
+    Published,
+    /// Sync's but for a merge commit among its local-only commits.
+    Merge,
+    /// Sync's but for a tag on one of its local-only commits.
+    Tagged,
+}
+
+/// Whether sync may rebase branch `b` of `entry`, should it read diverged.
+///
+/// Only the branch the registry names, in an owned entry that's neither
+/// archived nor pinned: any other diverged branch is as likely a local
+/// rebase awaiting a force-push, and a rebase ends in a push, which only
+/// such an entry takes. Its upstream is origin's branch of the same name
+/// (`push_target`), so the replay lands on the branch it's pushed to. Not
+/// in a partial clone, where a replay may need a blob the clone lacks and
+/// no local call fetches one. Every commit it's ahead by is on no
+/// remote-tracking ref (`BranchFacts::unique_commits`, counted over every
+/// remote, equals `ahead`): one that a pushed feature branch holds, merged
+/// here by fast-forward, would be rewritten under that branch, and a rebase
+/// never rewrites a commit a remote holds. And no merge among its
+/// local-only commits (`local_merges`), which a replay doesn't carry, nor a
+/// tag on one (`local_tagged`), which a rebase would leave on a commit the
+/// branch no longer holds — a release commit whose push was refused, say.
+/// A shallow clone's branch never reads diverged (`Relation::Shallow`).
+fn rebasable(entry: &Entry, b: &BranchFacts, facts: &RepoFacts) -> Rebasable {
+    let name = b.branch.name.as_str();
+    let Track::Diverged { ahead, .. } = b.branch.track else {
+        return Rebasable::No;
+    };
+    let same_named = push_target(&b.branch)
+        .and_then(|target| target.strip_prefix("refs/heads/"))
+        .is_some_and(|target| target == name);
+    let sync_rebases = entry.writable
+        && !entry.archived
+        && !entry.pinned
+        && entry.branch.as_deref() == Some(name)
+        && same_named
+        && facts.config.partial_filter.is_none();
+    if !sync_rebases {
+        Rebasable::No
+    } else if b.unique_commits != ahead {
+        Rebasable::Published
+    } else if b.local_merges > 0 {
+        Rebasable::Merge
+    } else if b.local_tagged {
+        Rebasable::Tagged
+    } else {
+        Rebasable::Yes
+    }
+}
+
 /// What sync does with a branch. `has_upstream` is whether any upstream is
-/// configured; `holds` what may hold its action back, including the
-/// checkouts it's on.
+/// configured; `rebasable`, whether a diverged one is sync's to rebase;
+/// `holds` what may hold its action back, including the checkouts it's on.
 ///
 /// A pin is left alone — never fetched, updated, pushed, or reported
 /// behind — so what its remote-tracking refs say of a branch is stale by
 /// contract: a branch in any relation but a fast-forward's or a move's
 /// reads `LocalOnly` when it has commits on no remote ref, else `Quiet`,
-/// never a push, cleanup, or needs-human. Its fast-forwards and moves are
-/// the pin's to hold.
+/// never a push, a rebase, cleanup, or needs-human. Its fast-forwards and
+/// moves are the pin's to hold.
 fn verdict(
     entry: &Entry,
     b: &BranchFacts,
     relation: Relation,
     has_upstream: bool,
+    rebasable: Rebasable,
     holds: &Holds<'_, '_>,
 ) -> Verdict {
     use std::ops::ControlFlow::{Break, Continue};
@@ -985,9 +1050,21 @@ fn verdict(
         Relation::Shallow => Break(Verdict::NeedsHuman {
             reason: BranchNeedsHuman::ShallowLocalWork,
         }),
-        Relation::Diverged { .. } => Break(Verdict::NeedsHuman {
-            reason: BranchNeedsHuman::Diverged,
-        }),
+        Relation::Diverged { ahead, behind } => match rebasable {
+            Rebasable::Yes => Continue(SyncAction::Rebase { ahead, behind }),
+            Rebasable::No => Break(Verdict::NeedsHuman {
+                reason: BranchNeedsHuman::Diverged,
+            }),
+            Rebasable::Published => Break(Verdict::NeedsHuman {
+                reason: BranchNeedsHuman::DivergedPublished,
+            }),
+            Rebasable::Merge => Break(Verdict::NeedsHuman {
+                reason: BranchNeedsHuman::DivergedMerge,
+            }),
+            Rebasable::Tagged => Break(Verdict::NeedsHuman {
+                reason: BranchNeedsHuman::DivergedTagged,
+            }),
+        },
         Relation::Unmapped => Break(Verdict::NeedsHuman {
             reason: BranchNeedsHuman::Unmapped,
         }),

@@ -30,13 +30,16 @@
 //!
 //! **What it writes.** The tool moves refs it didn't author and reports git
 //! state: it fetches, fast-forwards, moves shallow branches with no local
-//! commits, clones, and pushes commits that already exist. It never makes a
-//! commit or a tag, merges anything but a fast-forward, force-pushes,
+//! commits, clones, and pushes commits that already exist — and replays a
+//! diverged registry branch's local-only commits onto the fetched upstream
+//! (`sync`'s rebase), new commit objects carrying the same changes,
+//! messages, and authors. It never makes a commit of new content or a tag,
+//! resolves a conflict, merges anything but a fast-forward, force-pushes,
 //! deletes a branch, or prunes a worktree. `status` writes nothing, and
 //! `status --fetch`'s fetch writes remote-tracking refs and what a fetch
 //! needs behind them (objects, `FETCH_HEAD`, the shallow boundary) — never
 //! a tag; `sync` writes the branch it acts on, the checkout that branch is
-//! on, and new clones; a push writes one remote branch of an owned entry,
+//! on, the commits a rebase replays, and new clones; a push writes one remote branch of an owned entry,
 //! under a lease (on the fetched tip, or on none for `--new-branch`), then
 //! its remote-tracking ref (and, for `--new-branch`, the upstream config).
 //! Authoring content — commits, changesets,
@@ -72,14 +75,14 @@ mod url;
 /// The version of the `repos status --json` document. Bumped on any change
 /// to its shape, new fields and variants included: consumers parse it with
 /// strict objects and closed unions.
-pub const STATUS_FORMAT_VERSION: u32 = 18;
+pub const STATUS_FORMAT_VERSION: u32 = 19;
 
 /// The version of the `repos sync --json` document. Bumped on any change to
 /// its shape, the embedded status report's included (so with every
 /// `STATUS_FORMAT_VERSION` bump).
-pub const SYNC_FORMAT_VERSION: u32 = 12;
+pub const SYNC_FORMAT_VERSION: u32 = 13;
 
 /// The version of the `repos push --json` document. Bumped on any change to
 /// its shape, the embedded status report's included (so with every
 /// `STATUS_FORMAT_VERSION` bump).
-pub const PUSH_FORMAT_VERSION: u32 = 9;
+pub const PUSH_FORMAT_VERSION: u32 = 10;

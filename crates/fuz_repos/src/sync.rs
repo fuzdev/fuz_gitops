@@ -1,6 +1,6 @@
 //! `repos sync`: fetch, classify, and act on each branch's verdict — the
-//! fast-forwards, shallow moves, and pushes `status` previews — and on each
-//! missing entry's, cloning it.
+//! fast-forwards, shallow moves, rebases, and pushes `status` previews — and
+//! on each missing entry's, cloning it.
 //!
 //! Each action's git calls are in `sync/step.rs`; this doc says what they
 //! rely on and the races they leave.
@@ -18,26 +18,38 @@
 //! 2. Read the live sessions — after the fetches, which can take minutes,
 //!    so a session started meanwhile still holds — scope them to the
 //!    checkouts probed, and classify.
-//! 3. Act on each branch's verdict: an `act` fast-forward, move, or push is
-//!    made; everything else is reported as it stands. Entries sharing a repo
+//! 3. Act on each branch's verdict: an `act` fast-forward, move, rebase, or
+//!    push is made; everything else is reported as it stands. Entries sharing a repo
 //!    act together, one after another, each branch once; repos act in
 //!    parallel, and so do clones (`clone`), each its own entry's — entry
 //!    dirs are plain names under the root, no two alike, so no clone lands
 //!    in another's.
 //!
 //! **Never** a force-push, a tag pushed, a remote branch created (the
-//! user's `repos push --new-branch` alone creates one), a rebase,
-//! a merge that isn't a fast-forward, a clone over anything at an entry's
-//! path, a deleted branch, or a pruned worktree (the origin fetch's
+//! user's `repos push --new-branch` alone creates one), a conflict
+//! resolved, a commit of new content, a rewrite of a commit any remote
+//! holds, a merge that isn't a fast-forward, a clone over anything at an
+//! entry's path, a deleted branch, or a pruned worktree (the origin fetch's
 //! `--prune` deletes only remote-tracking refs gone upstream); a pin, once
 //! there, is never touched (its verdicts never act), and a third-party
 //! reference only when the run refreshes it — named as a target, or under
 //! `--references` — and then never pushed. An entry whose probe failed has
-//! no verdicts, so nothing in it acts. An agent's run pushes as a person's
-//! does — every branch ahead that nothing holds, busy detection keeping it
-//! off live sessions' checkouts — and `repos push` (the `push` module)
-//! pushes one checkout's branch through this module's one push
-//! (`Actor::push`).
+//! no verdicts, so nothing in it acts. An agent's run pushes and rebases as
+//! a person's does — every branch ahead or diverged that nothing holds, busy
+//! detection keeping it off live sessions' checkouts — and `repos push` (the
+//! `push` module) pushes one checkout's branch through this module's one
+//! push (`Actor::push`).
+//!
+//! **The one rewrite: a rebase.** A registry branch diverged from origin's
+//! — local-only commits here, new ones there, the everyday case of two
+//! machines committing to one `main` — has its local-only commits replayed
+//! onto the fetched tip and is then pushed, a fast-forward of linear
+//! history. Only commits no remote holds are replayed — a branch ahead by a
+//! commit any remote-tracking ref holds is a person's — as new commits with
+//! the same changes, messages, and authors, the committer the identity the
+//! one running the tool configured; nothing is resolved, by the tool or by
+//! a merge driver, so any conflict leaves the branch exactly as it was.
+//! Which branches: `classify`'s `rebasable`.
 //!
 //! **The verdict is a plan; git is the check.** Right before each action,
 //! sync re-reads the live sessions (a hold when busy detection has become
@@ -95,8 +107,77 @@
 //!   gets no entry from the switch, and is held (`changed`): the move
 //!   wasn't sync's.
 //!
+//! - **A rebase** is `git replay --onto <tip> <tip>..<b>`, the move of the
+//!   branch to what it made, and then the push below, of the replayed tip.
+//!   Right before, as a push re-reads: the checkout it's on still on the
+//!   branch and clean (untracked files count), the branch the same commit,
+//!   upstream, and ref on origin, no symbolic ref, and that commit still the
+//!   counted commits ahead of and behind the remote-tracking ref, each one
+//!   ahead still on no remote-tracking ref, with no merge among them and no
+//!   tag on one — else held (`dirty_checkout`, `changed`).
+//!
+//!   The replay merges in memory: it writes commit objects and nothing
+//!   else — no ref, index, working tree, or hook — so a conflict (exit `1`)
+//!   stops with nothing moved (`RebaseRefusal::Conflicts`), no rebase left
+//!   in progress. Nothing settles one: `rerere` is off, so no recorded
+//!   resolution is applied, and no merge driver runs — each one the config
+//!   defines is replaced, for the replay alone, by a command that fails,
+//!   git's built-in `union` too, and a path with no `merge` attribute takes
+//!   the plain text merge whatever `merge.default` says — so a path a
+//!   driver would have merged is a conflict like any other. A path marked
+//!   unmergeable, `-merge` or `binary`, still is: the attributes are read
+//!   from the tree of the commit replayed (`--attr-source`), with
+//!   `info/attributes` and `core.attributesFile` over it, never from the
+//!   checkout the replay runs in, which may be on another branch.
+//!   An attribute only the upstream's new commits add isn't in that tree:
+//!   a path they mark `-merge` is text-merged where `git rebase`, run in a
+//!   checkout at the upstream, would conflict. The committer is an
+//!   identity the user set (`user.useConfigOnly`): with no `user.name` and
+//!   `user.email`, in config or the environment, git refuses rather than
+//!   derive one from the login and host name, and the action fails saying
+//!   what to set. It prints the ref update it would make only for a ref
+//!   named in the range, so the branch is named by ref, and the old value
+//!   it prints must be the commit classified (`changed`). A git whose
+//!   replay updates refs itself unless told otherwise is told to print
+//!   (`--ref-action=print`, passed when its usage names the option, and the
+//!   config key of the same meaning, which a git without it ignores); the
+//!   branch must still hold the classified commit after, and one that
+//!   doesn't, with nothing printed, fails the action saying git moved it —
+//!   its checkout then reads changed, a person's to look at. A replay keeps
+//!   a commit whose change the
+//!   upstream already has as an empty commit, where `git rebase` drops it:
+//!   one that came out empty though its original wasn't stops the rebase
+//!   (`AlreadyUpstream`), the tool making neither choice. Objects a stopped
+//!   replay wrote are unreachable, git's to collect.
+//!
+//!   The move, for a branch no checkout has, is `git update-ref --no-deref
+//!   <b> <new> <old>` once it reads checked out nowhere and no symbolic
+//!   ref: a compare-and-swap on the commit replayed, so a commit landing
+//!   meanwhile is never dropped (held, `changed`), its reflog written
+//!   whatever the config says (`core.logAllRefUpdates`), as the switch's
+//!   is, so the commits replaced stay reachable. As a shallow move in
+//!   place, git checks no checkout for it: a checkout switching to the
+//!   branch in that instant, or a rebase of it begun in another worktree,
+//!   finds the branch moved under it — the old commit stays in the reflog.
+//!   For a checked-out branch it's the shallow move's `git switch -C <b>
+//!   <new>`, after the status check and the branch's commit are read again,
+//!   the replay done: it refuses local changes it would overwrite and an
+//!   ignored file it would replace (`reset --keep` replaces ignored files;
+//!   `merge --ff-only` can't follow a replay), and leaves the same window —
+//!   no compare-and-swap, so the reflog's previous value must be the commit
+//!   replayed, else the action fails naming the commit the reflog holds.
+//!   A HEAD switched away in the instant between the status and the switch
+//!   is switched back to the branch.
+//!
+//!   Then the push, with every re-check of its own, the sessions among
+//!   them. Short of pushed — held, or failed at the remote — the branch
+//!   stays rebased and ahead, the next run's to push (or, when origin moved
+//!   again, to rebase again). A partial clone's branch is never rebased
+//!   (`classify`), so no replay needs an object the clone lacks.
+//!
 //! - **A push** is `git send-pack` of the commit the branch held when
-//!   probed to its upstream's ref on origin (`push_target`: a branch, never
+//!   probed — or the tip a rebase just moved it to — to its upstream's ref
+//!   on origin (`push_target`: a branch, never
 //!   `refs/heads/HEAD`), so a commit landing after classifying is never
 //!   pushed unseen — sent to the registry's URL over SSH as written, never
 //!   through `origin` (`SEND_PACK_ARGS` says why: no rewrite or remote
@@ -157,8 +238,8 @@
 //! action reads it.
 //!
 //! **A partial clone** (a sparse reference, cloned `--filter=blob:none`)
-//! lacks the blobs a new tip's checkout needs: the two actions that
-//! rewrite a working tree fetch them on demand (`LazyFetch`), from origin
+//! lacks the blobs a new tip's checkout needs: the fast-forward and the
+//! move in a checkout fetch them on demand (`LazyFetch`), from origin
 //! alone over the transport its URL names as git resolves it — the URL the
 //! fetch connects to, `insteadOf` applied (`lazy_transport`) — writing
 //! objects and no ref; one resolving to neither SSH nor HTTPS is a
@@ -169,11 +250,11 @@
 //! keeps lazy fetching off.
 //!
 //! Each action moves one branch and touches at most the one checkout it's on
-//! (classify holds a fast-forward or move on several; a push touches none),
-//! re-reading what it relies on right before, so actions within a repo
-//! don't depend on their order. The two
-//! that rewrite a working tree run under `CHECKOUT_TIMEOUT`, not the local
-//! timeout: git killed mid-checkout leaves the files half-written.
+//! (classify holds a fast-forward, move, or rebase on several; a push
+//! touches none), re-reading what it relies on right before, so actions
+//! within a repo don't depend on their order. The ones that rewrite a
+//! working tree run under `CHECKOUT_TIMEOUT`, not the local timeout: git
+//! killed mid-checkout leaves the files half-written.
 //!
 //! **What runs.** The runner's hardening holds (the `git` module doc): no
 //! hook, fsmonitor, or alternate-refs command runs, so nothing a fetch or
@@ -182,7 +263,9 @@
 //! local config names — filter drivers such as Git LFS's smudge, the gpg
 //! program `merge.verifySignatures` calls, SSH as configured
 //! (`core.sshCommand`) — are the user's own and run as in any merge,
-//! checkout, or push they'd make.
+//! checkout, or push they'd make. A merge driver is the exception: a
+//! rebase's replay runs none, since one that merges a path settles a
+//! conflict, which the tool never does.
 
 use std::collections::HashMap;
 use std::path::Path;
@@ -200,7 +283,7 @@ use crate::registry::{Entry, RegistryDirs};
 use crate::remote::RemoteFailure;
 use crate::report::{
     BranchOutcome, BranchSync, BranchSyncHold, CloneOutcome, EntryStatus, EntrySync, FetchOutcome,
-    PushOutcome, Sessions, SyncReport, UnregisteredClone,
+    PushOutcome, RebasePush, Sessions, SyncReport, UnregisteredClone,
 };
 use crate::sessions::{LiveSessions, SessionsSource, read_live_sessions};
 use crate::state::{
@@ -549,7 +632,8 @@ impl Actor<'_> {
 
     /// Takes `action` on branch `b` of entry `i`, re-checking first — the
     /// one way sync acts: a push through `push`, a fast-forward or move
-    /// through `update`.
+    /// through `update`, a rebase through `rebase` and then the push of what
+    /// it made (`push_commit`).
     fn act(
         &self,
         i: usize,
@@ -568,6 +652,32 @@ impl Actor<'_> {
                     Ok(PushDone::Stopped(Stop::PushFailed(failure))) => {
                         BranchOutcome::PushFailed { failure }
                     }
+                    Err(message) => failed(message),
+                };
+            }
+            SyncAction::Rebase { ahead, behind } => {
+                return match self.rebase(i, facts, b, ahead, behind) {
+                    Ok(RebaseDone::Rebased { from, to, onto }) => {
+                        // ahead of the fetched tip now, by the commits
+                        // replayed: the one push, of the replayed tip
+                        let push = match self.push_commit(i, facts, b, Some(&to), ahead) {
+                            Ok(PushDone::Pushed { .. }) => RebasePush::Pushed,
+                            Ok(PushDone::AlreadyThere) => RebasePush::AlreadyThere,
+                            Ok(PushDone::Stopped(Stop::Held(by))) => RebasePush::Held { by },
+                            Ok(PushDone::Stopped(Stop::PushFailed(failure))) => {
+                                RebasePush::PushFailed { failure }
+                            }
+                            Err(message) => RebasePush::Failed { message },
+                        };
+                        BranchOutcome::Rebased {
+                            from,
+                            to,
+                            onto,
+                            push,
+                        }
+                    }
+                    Ok(RebaseDone::Held(by)) => held(by),
+                    Ok(RebaseDone::Refused(why)) => BranchOutcome::RebaseRefused { why },
                     Err(message) => failed(message),
                 };
             }
@@ -595,6 +705,21 @@ impl Actor<'_> {
         b: &BranchStatus,
         commits: u32,
     ) -> Result<PushDone, String> {
+        self.push_commit(i, facts, b, None, commits)
+    }
+
+    /// `push`, of `oid` — the tip a rebase just moved the branch to
+    /// (`rebase`), or with `None` the commit the branch held when probed —
+    /// `commits` ahead of the fetched tip. The branch must hold it when the
+    /// push re-reads it.
+    pub(crate) fn push_commit(
+        &self,
+        i: usize,
+        facts: &RepoFacts,
+        b: &BranchStatus,
+        oid: Option<&str>,
+        commits: u32,
+    ) -> Result<PushDone, String> {
         // classify never makes a third-party reference's verdict a push (it
         // reads local-only); a second line, before anything is read, should
         // that slip (`a_third_party_push_fails_at_act_time_whatever_the_verdict`)
@@ -617,13 +742,63 @@ impl Actor<'_> {
         step.push(
             Path::new(&facts.path),
             &Push {
-                oid: &ready.branch.oid,
+                oid: oid.unwrap_or(&ready.branch.oid),
                 upstream: ready.upstream,
                 target,
                 commits,
                 shallow: facts.layout.shallow,
                 url: &self.entries[i].url,
                 batch_ssh: facts.config.batch_ssh(self.git.env_configures_ssh()),
+            },
+        )
+    }
+
+    /// Rebases branch `b` of entry `i`, diverged `ahead` and `behind` as
+    /// classify counted: replays its local-only commits onto the fetched
+    /// tip and moves it there, in the one checkout it's on or in place,
+    /// re-checking first (`Step::rebase`). No push: the caller pushes the
+    /// tip it returns (`push_commit`), as sync does.
+    pub(crate) fn rebase(
+        &self,
+        i: usize,
+        facts: &RepoFacts,
+        b: &BranchStatus,
+        ahead: u32,
+        behind: u32,
+    ) -> Result<RebaseDone, String> {
+        // classify makes a rebase only an owned entry's verdict; a second
+        // line, as `push`'s: a rebase ends in a push
+        if !self.entries[i].writable {
+            return Err(format!(
+                "{} is a third-party reference's, which is never rebased",
+                b.name
+            ));
+        }
+        let ready = match self.ready(i, facts, b)? {
+            Ok(ready) => ready,
+            Err(by) => return Ok(RebaseDone::Held(by)),
+        };
+        let Some(target) = push_target(ready.branch) else {
+            return Err(format!("{}'s upstream isn't a branch on origin", b.name));
+        };
+        let checkout = match ready.on[..] {
+            [] => None,
+            [c] => Some(Path::new(c)),
+            // classify holds it; never a guess at which checkout
+            _ => return Err(format!("{} is checked out in several checkouts", b.name)),
+        };
+        // classify leaves a partial clone's branch to a person: no lazy
+        // fetch
+        let step = Step::new(self.git, self.root, &b.name, &facts.common_dir, None);
+        step.rebase(
+            Path::new(&facts.path),
+            checkout,
+            &Rebase {
+                oid: &ready.branch.oid,
+                upstream: ready.upstream,
+                target,
+                ahead,
+                behind,
             },
         )
     }
@@ -810,8 +985,8 @@ fn settled(verdict: &Verdict) -> BranchOutcome {
 }
 
 mod step;
-use step::{Creation, NewBranch, Push, Step, UpdateDone, lazy_fetch};
-pub(crate) use step::{NewBranchUpstream, PushDone, Stop};
+use step::{Creation, NewBranch, Push, Rebase, Step, UpdateDone, lazy_fetch};
+pub(crate) use step::{NewBranchUpstream, PushDone, RebaseDone, Stop};
 
 #[cfg(test)]
 mod tests;

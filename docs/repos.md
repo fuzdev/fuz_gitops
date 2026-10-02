@@ -35,7 +35,8 @@ cargo install --path crates/fuz_repos --locked # install the `repos` binary
 
 `rust-toolchain.toml` pins the toolchain (rustup fetches it on first build),
 and git must be 2.44 or newer (`GIT_NO_LAZY_FETCH` keeps a local `status` on
-a partial clone off the network). It's Unix-only, and busy detection reads
+a partial clone off the network; `git replay`, which sync's rebase runs, is
+as old). It's Unix-only, and busy detection reads
 `/proc`, so it works on Linux alone; elsewhere, with any session recorded, it
 fails closed.
 
@@ -51,7 +52,7 @@ repos status --fetch         # fetch owned entries (and references asked for) fr
 repos status --references    # preview refreshing every third-party reference, as sync --references would (no targets with it)
 repos status --jobs 4 --timings # parallelism (default 16), and per-phase timings on stderr
 repos status --brief [<path>] # one line on the checkout holding the path (default: the cwd), or nothing — a SessionStart hook's nudge
-repos sync                   # fetch as status --fetch does, then fast-forward, move, push, and clone what's safe; report outcomes
+repos sync                   # fetch as status --fetch does, then fast-forward, move, rebase, push, and clone what's safe; report outcomes
 repos sync gro --json        # narrowed to targets; --json prints the versioned outcome report
 repos sync --verbose         # plus a block per entry: the state sync acted on
 repos sync --jobs 4 --timings # as under status; push takes both too
@@ -99,7 +100,10 @@ alone skips the check too.
 origin, uncommitted work in each checkout (linked worktrees too), what needs a
 human, which checkouts another live Claude Code session is working in, and the
 clones at the workspace root the registry doesn't name, grouped by what to do
-next. It reads local refs alone; `--fetch` refreshes them first (see
+next: `sync would` lists what `repos sync` would do — `push`, `ff`, `move`,
+`rebase` (a diverged registry branch: see [`repos sync`](#repos-sync)),
+`clone` — `held` what it would but for a hold, and `needs human` what it
+leaves to a person, a diverged branch it doesn't rebase among them. It reads local refs alone; `--fetch` refreshes them first (see
 [Fetching](#fetching)). Without `--fetch` it writes nothing: optional locks
 are off (`GIT_OPTIONAL_LOCKS=0`), and so is lazy fetching.
 
@@ -283,8 +287,8 @@ The details live in the rustdoc of `sessions.rs` (the reader) and `busy.rs`
 
 `repos sync` is `status --fetch` followed by acting on each branch's verdict.
 Beyond the fetch, it writes the branch it acts on, the checkout that branch is
-on, the remote branch a push moves (and its remote-tracking ref), and new
-clones.
+on, the commit objects a rebase replays, the remote branch a push moves (and
+its remote-tracking ref), and new clones.
 
 **Fast-forwards and moves.** A branch behind is fast-forwarded — in place when
 no checkout has it (a confined `git fetch .` of the exact upstream commit, so
@@ -327,20 +331,92 @@ sync without a refetch. That write is best effort: a ref a fetch moved in the
 meantime stands, and one git can't write (a stale lock) leaves the outcome as
 it is and the branch reading ahead until a fetch can write it.
 
-**An agent's sync pushes as a person's does**: under `CLAUDECODE` (Claude
-Code's agent shells) nothing is held for being an agent's — every branch ahead
-that nothing else holds is pushed, commits other, finished sessions made
-included — and busy detection keeps it off the checkouts live sessions work
-in.
+**Rebases.** A registry branch diverged from origin's — local-only commits
+here, new commits there, as when two machines commit to the same `main` — is
+rebased, then pushed as any branch ahead is. `status` shows it under `sync
+would` as `rebase <key> +<ahead> −<behind>`.
+
+Only the branch the registry names, in an owned entry that's neither archived
+nor pinned, whose upstream is origin's branch of the same name, outside a
+partial clone, whose commits ahead are on no remote-tracking ref, with no
+merge commit among them and no tag on one. Any other diverged branch stays
+`needs human`, by why:
+
+- `diverged` — not the registry's branch, or its entry or upstream rules it
+  out: a diverged feature branch is as likely a local rebase waiting on a
+  force-push, which the tool never makes
+- `diverged_published` — a commit it's ahead by is on another remote branch
+  (a pushed `feat`, merged into `main` here by fast-forward): a rebase would
+  rewrite a commit a remote holds
+- `diverged_merge` — a merge commit among its local-only commits, which a
+  replay doesn't carry
+- `diverged_tagged` — a tag on one of them (a release whose push was refused,
+  say), which a rebase would leave on a commit the branch no longer holds
+
+Everything that holds a
+fast-forward holds a rebase — a dirty checkout (untracked files count), an
+unprobed worktree, a live session, an operation in progress, a failed fetch —
+and so does what holds a push (origin's push URL elsewhere).
+
+The rebase is `git replay --onto <fetched tip> <fetched tip>..<branch>`, a
+merge made in memory: it writes new commit objects — the same changes,
+messages, authors, and author dates, committed by whoever runs the tool
+(unsigned: a replay signs nothing, whatever `commit.gpgSign` says) — and no
+ref, index, or working tree, and runs no hook. The committer is the identity
+you configured: with no `user.name` and `user.email` (in config or the
+environment), the rebase fails, saying to set them, rather than commit as the
+login and host name git would guess.
+
+So a conflict moves nothing and leaves no rebase in progress: nothing is ever
+resolved — no merge strategy option, `rerere` off, and no merge driver, the
+ones your config defines and git's built-in `union` alike, so a path a
+`merge=` attribute would have merged conflicts like any other — and the
+branch stays `needs human`, reading `diverged +n −m, rebase conflicts`. A
+local commit whose change origin already has
+stops it the same way (`<commit> is already upstream`): a replay would keep it
+as an empty commit where `git rebase` drops it, and the tool makes neither
+choice. Only commits on no remote are replayed, so nothing published is
+rewritten.
+
+Then the branch moves to the replayed commits: in place by `update-ref`
+compare-and-swap on the commit replayed, or in its clean checkout by the
+shallow move's `switch -C --no-overwrite-ignore`, after the checkout and the
+branch are read again — git refuses an ignored file the upstream now tracks
+(`failed`, nothing moved). The old commits stay in the branch's reflog,
+written whatever `core.logAllRefUpdates` says. Then
+the push, with its own re-checks and lease: a fast-forward of linear history,
+never a force. When the push is held or fails (origin moved again since the
+fetch, a ruleset refused it), the branch stays rebased and ahead, and the next
+run pushes it, or rebases it again.
+
+`status` predicts a rebase from the facts alone and never runs a replay (it
+writes nothing), so `sync would rebase` means sync would try.
+
+**An agent's sync pushes and rebases as a person's does**: under `CLAUDECODE`
+(Claude Code's agent shells) nothing is held for being an agent's — every
+branch ahead or diverged that nothing else holds is pushed or rebased, commits
+other, finished sessions made included — and busy detection keeps it off the
+checkouts live sessions work in.
 
 **What it leaves.** A branch that's a symbolic ref never acts. It never
-rebases, merges anything but a fast-forward, deletes a branch, or prunes a
-worktree (the fetch prunes only remote-tracking refs gone upstream), and never
-touches a pin. A branch whose upstream is gone reads as cleanup, to delete by
-hand, except the branch the entry follows: its upstream gone (the remote's
-default renamed, say) needs a person. A failed fetch holds that entry's moves
-and pushes (its remote-tracking refs weren't refreshed), and a branch on HEAD
-in several checkouts holds its fast-forward or move.
+resolves a conflict, rewrites a commit a remote holds, merges anything but a
+fast-forward, deletes a branch, or prunes a worktree (the fetch prunes only
+remote-tracking refs gone upstream), and never touches a pin. A branch whose
+upstream is gone reads as cleanup, to delete by hand, except the branch the
+entry follows: its upstream gone (the remote's default renamed, say) needs a
+person. A failed fetch holds that entry's moves, rebases, and pushes (its
+remote-tracking refs weren't refreshed), and a branch on HEAD in several
+checkouts holds its fast-forward, move, or rebase.
+
+**Sync outcomes.** Exit `0` when the run acted or held as its report says;
+`1` when something failed — a fetch, a probe, an action git refused, or a push
+that failed at the remote, a rebased branch's included. A hold is no failure,
+and neither is a rebase its replay stopped (a conflict, a commit already
+upstream): the branch is a person's, as any diverged branch left alone.
+`--json` prints each branch's outcome; a rebase is `rebased` (`from`, `to`,
+`onto` the fetched tip, and `push`: `pushed`, `already_there`, `held`,
+`push_failed`, or `failed`) or `rebase_refused` (`why`: `conflicts`, or
+`already_upstream` with the `commit`).
 
 The rustdoc of `sync.rs` has the details.
 
@@ -357,8 +433,9 @@ the same fetch, a re-probe, the live sessions read (the caller's own
 excluded), classification — then acts on each checked-out branch's push
 verdict alone, through sync's own push (the lease, the direct URL, the
 compare-and-swap, every re-check right before). It never fast-forwards,
-moves, clones, or touches another branch: a branch behind is reported for
-`repos sync` to fast-forward, a diverged one left to a person.
+moves, rebases, clones, or touches another branch: a branch behind is
+reported for `repos sync` to fast-forward, and a diverged one reads `needs
+human` — `repos sync` rebases the registry's branch, any other is a person's.
 
 **Policy.** The policy is structural: owned entries only (a third-party
 reference or a pin named is a usage error), never a force or a tag; another
@@ -506,7 +583,8 @@ The rustdoc of `clone.rs` has the recipe.
 - `0` when the command ran — what the report says is data, not failure
 - `1` for a runtime failure: under `sync`, anything that failed (a fetch, git's
   failure or the tool's refusal to run one whose refspec it can't confine; a
-  probe; an action git refused); under `push`, any target whose branch didn't
+  probe; an action git refused — a rebase a conflict stopped is not one, see
+  [Sync outcomes](#repos-sync)); under `push`, any target whose branch didn't
   end in sync with its upstream ([Push outcomes](#push-outcomes)); or,
   under any command, a fatal I/O error
 - `2` when the caller must change something — usage, a missing or invalid
@@ -553,7 +631,7 @@ system config, fixed identities and dates) and no network:
   tests' own child processes
 
 The test files split by command and aspect: `status_*.rs`, `sync.rs` and
-`sync_*.rs`, `push_*.rs`, `cli_*.rs` (the binary's documents, text, and exit
+`sync_*.rs` (`sync_rebase.rs` the rebase), `push_*.rs`, `cli_*.rs` (the binary's documents, text, and exit
 codes), `targets.rs`, `registry_real.rs`, and `golden.rs` with its
 `golden/` modules. Helpers a family shares sit beside `support/mod.rs` in
 `support/` (`busy`, `cli`, `push`, `remote`, `sync`, `unregistered`,
@@ -592,6 +670,6 @@ variant of every closed enum the status report and its error document
 hold, in each place it can appear (each action's holds — a branch's, a
 refresh's, a clone's — their own enum), the sync and push documents
 every outcome of theirs, and the sync document every hold sync can
-report. Each enum's variants are listed once, a list an exhaustive
+report and every way a rebase's push and its replay's refusal can go. Each enum's variants are listed once, a list an exhaustive
 `match` checks, and the floor counts that list: a new variant fails to
 compile until it's listed, and fails the floor until a golden covers it.

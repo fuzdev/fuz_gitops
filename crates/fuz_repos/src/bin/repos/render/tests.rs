@@ -1555,7 +1555,7 @@ clean 0 · on branches 0 · pinned 0      ~/dev/repos.toml · fetched 3h ago
     assert_eq!(
         render_summary(&r, VIEW, false),
         "\
-failed        busy detection (~/.claude/sessions/9.json is from another machine or pid namespace (linux:abc:pid:[1]) — remove it if that session is gone; every push, ff, and move held)
+failed        busy detection (~/.claude/sessions/9.json is from another machine or pid namespace (linux:abc:pid:[1]) — remove it if that session is gone; every push, ff, move, and rebase held)
               app (probe: fatal: bad object)
 held          push app +1 (busy unknown)
 clean 0 · on branches 0 · pinned 0      ~/dev/repos.toml
@@ -3015,4 +3015,146 @@ fn home_paths() {
     assert_eq!(VIEW.show("/home/meadow/x"), "/home/meadow/x");
     let homeless = View { home: None, ..VIEW };
     assert_eq!(homeless.show("/x"), "/x");
+}
+
+#[test]
+fn rebases_read_as_what_sync_would_do_and_did() {
+    let rebase = |ahead, behind| SyncAction::Rebase { ahead, behind };
+    let diverged = |key: &str, ahead, behind, verdict| {
+        let mut e = entry(key, main(), "main");
+        e.branches = vec![branch(
+            "main",
+            Some("origin/main"),
+            Relation::Diverged { ahead, behind },
+            ahead,
+            verdict,
+        )];
+        e
+    };
+    let acting = |key: &str| diverged(key, 6, 16, act(rebase(6, 16)));
+    let mut dirty = diverged(
+        "dirty",
+        1,
+        4,
+        Verdict::Held {
+            action: rebase(1, 4),
+            by: BranchHold::DirtyCheckout,
+        },
+    );
+    dirty.checkouts[0].uncommitted.untracked = 1;
+    let r = report(vec![
+        acting("notes"),
+        dirty,
+        diverged("merged", 3, 1, needs(BranchNeedsHuman::DivergedMerge)),
+    ]);
+    let text = render_summary(&r, VIEW, false);
+    assert!(
+        text.starts_with(
+            "needs human   merged (diverged +3 −1, a merge among its commits)\n\
+             sync would    rebase notes +6 −16\n\
+             held          rebase dirty +1 −4 (dirty)\n\
+             uncommitted   dirty (1)\n"
+        ),
+        "{text}"
+    );
+    let block = render_entry(&r.entries[0], Path::new("/home/me/dev"), VIEW);
+    assert!(block.contains("diverged +6 −16"), "{block}");
+    assert!(block.contains("rebase"), "{block}");
+
+    // what sync did: rebased and pushed; rebased, its push held or failed;
+    // or the replay refused, the branch a person's
+    let oid = |c: char| c.to_string().repeat(40);
+    let rebased = |push| BranchOutcome::Rebased {
+        from: oid('a'),
+        to: oid('b'),
+        onto: oid('c'),
+        push,
+    };
+    let outcomes = vec![
+        ("pushed", rebased(RebasePush::Pushed)),
+        ("there", rebased(RebasePush::AlreadyThere)),
+        (
+            "raced",
+            rebased(RebasePush::Held {
+                by: BranchSyncHold::Changed,
+            }),
+        ),
+        (
+            "refused",
+            rebased(RebasePush::PushFailed {
+                failure: RemoteFailure::Failed {
+                    message: "fatal: the remote end hung up".into(),
+                },
+            }),
+        ),
+        (
+            "broke",
+            rebased(RebasePush::Failed {
+                message: "git send-pack reported nothing".into(),
+            }),
+        ),
+        (
+            "conflicted",
+            BranchOutcome::RebaseRefused {
+                why: RebaseRefusal::Conflicts,
+            },
+        ),
+        (
+            "picked",
+            BranchOutcome::RebaseRefused {
+                why: RebaseRefusal::AlreadyUpstream { commit: oid('d') },
+            },
+        ),
+        (
+            "moved",
+            BranchOutcome::Held {
+                action: rebase(6, 16),
+                by: BranchSyncHold::Changed,
+            },
+        ),
+        (
+            "ignored",
+            BranchOutcome::Failed {
+                action: rebase(6, 16),
+                message: "error: The following untracked working tree files would be \
+                          overwritten by checkout:"
+                    .into(),
+            },
+        ),
+    ];
+    let status = report(outcomes.iter().map(|(key, _)| acting(key)).collect());
+    let synced = SyncReport::new(
+        status,
+        outcomes
+            .into_iter()
+            .map(|(key, outcome)| EntrySync {
+                key: key.into(),
+                fetch: FetchOutcome::Fetched,
+                clone: None,
+                branches: vec![BranchSync {
+                    name: "main".into(),
+                    outcome,
+                    repeats: None,
+                }],
+            })
+            .collect(),
+    );
+    assert!(synced.failed());
+    let text = render_sync_summary(&synced, View { width: 300, ..VIEW }, false);
+    let lines: Vec<&str> = text.lines().collect();
+    assert_eq!(
+        lines[..4],
+        [
+            "failed        refused (push: fatal: the remote end hung up)  broke (push: git \
+             send-pack reported nothing)  ignored (rebase: error: The following untracked \
+             working tree files would be overwritten by checkout:)",
+            "needs human   conflicted (diverged +6 −16, rebase conflicts)  picked (diverged +6 \
+             −16, ddddddd is already upstream)",
+            "synced        rebase pushed +6 −16, there +6 −16, raced +6 −16, refused +6 −16, \
+             broke +6 −16",
+            "held          push raced +6 (changed since read, rerun) · rebase moved +6 −16 \
+             (changed since read, rerun)",
+        ],
+        "{text}"
+    );
 }

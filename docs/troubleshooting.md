@@ -57,7 +57,10 @@ nothing; each line names a repo, what's wrong, and the fix:
   before committing
 - **a rebase is in progress** (or merge, cherry-pick, …) — finish or abort it
 - **`main` is N commits behind origin** — `repos sync <key>` fast-forwards it
-- **`main` has diverged from origin** — rebase or merge by hand, then push
+- **`main` has diverged from origin** — `repos sync <key>` rebases it onto
+  origin and pushes it when its commits replay cleanly (no conflict, none of
+  them on another remote branch, no merge or tag among them, a clean
+  checkout); otherwise rebase or merge by hand, then push
 - **`main` tracks no upstream on origin**, **tracks an upstream gone from
   origin**, or **isn't compared with origin** — set or repoint its upstream;
   `repos status <key>` says what it found
@@ -161,8 +164,10 @@ publish` still succeeds: the version is on npm and the cascade carries on.
 Git's rejection in the output is the only sign. The release commit and its
 `vX.Y.Z` tag stay local, on a branch now diverged from origin, and the next
 publish's gate refuses it. Merge origin's branch in (a rebase would leave the
-tag on a commit the branch no longer holds), push the branch with `repos
-push`, and push the tag by hand, since `repos` never pushes tags.
+tag on a commit the branch no longer holds — which is why `repos sync` leaves
+a diverged branch with a tag on its local commits to a person), push the
+branch with `repos push`, and push the tag by hand, since `repos` never pushes
+tags.
 
 ### Uncommitted changes after a failed `changeset publish`
 
