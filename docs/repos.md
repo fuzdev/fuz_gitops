@@ -323,7 +323,9 @@ has commits on no remote); the remote's own refusal or an unreachable host is
 `push_failed`, exit `1`. After a push (or finding the commit already there,
 another hand's push since the fetch) the remote-tracking ref moves to the
 commit by compare-and-swap on the fetched tip, so `status` reads the branch in
-sync without a refetch.
+sync without a refetch. That write is best effort: a ref a fetch moved in the
+meantime stands, and one git can't write (a stale lock) leaves the outcome as
+it is and the branch reading ahead until a fetch can write it.
 
 **An agent's sync pushes as a person's does**: under `CLAUDECODE` (Claude
 Code's agent shells) nothing is held for being an agent's — every branch ahead

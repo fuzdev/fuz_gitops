@@ -18,7 +18,9 @@ use std::path::Path;
 use fuz_repos::report::{BranchSyncHold, NoUpstreamWhy, PushOutcome};
 use fuz_repos::state::Relation;
 use support::push::{ahead, feat_ahead, only, pushed, pushes_served, remote_refs, topic, with};
-use support::{FixtureWorkspace, branch, find_entry, git_env, reader_then, write_executable};
+use support::{
+    FixtureWorkspace, branch, find_entry, git_env, reader_then, write, write_executable,
+};
 
 #[test]
 fn a_remote_rewound_after_the_fetch_is_never_overwritten() {
@@ -196,12 +198,23 @@ fn a_commit_another_hand_pushed_meanwhile_reads_in_sync() {
     let bare = ws.bare("app");
     let url = format!("file://{}", bare.display());
     let refspec = format!("{tip}:refs/heads/main");
+    let fetched = ws.git(&app, &["rev-parse", "refs/remotes/origin/main"]);
+    assert_ne!(fetched, tip);
+    let built = std::sync::Mutex::new(Vec::new());
     // the very commit reaches origin after the re-checks' fetch, unfetched
     let read = reader_then(2, || {
         git_env(&env, &app, &["push", "-q", &url, &refspec]);
+        *built.lock().unwrap() = vec![
+            git_env(&env, &bare, &["rev-parse", "main"]),
+            git_env(&env, &app, &["rev-parse", "refs/remotes/origin/main"]),
+        ];
     });
 
     let run = ws.push_with(&["app"], &ws.root(), &read);
+
+    // as the push found it: origin at the commit, the remote-tracking ref
+    // still at the fetched tip
+    assert_eq!(*built.lock().unwrap(), [tip.clone(), fetched]);
 
     // git's `up to date`: nothing sent, the branch where it was asked
     assert_eq!(only(&run), (Some("main"), &PushOutcome::InSync));
@@ -216,6 +229,58 @@ fn a_commit_another_hand_pushed_meanwhile_reads_in_sync() {
     ws.assert_track(&app, "main", "");
     let e = find_entry(&ws.status(), "app").clone();
     assert_eq!(branch(&e, "main").relation, Relation::InSync);
+}
+
+#[test]
+fn a_remote_tracking_ref_that_cant_be_written_never_fails_the_push() {
+    const TRACKING: &str = "refs/remotes/origin/main";
+    // a stale lock on the remote-tracking ref, left after the fetch: git
+    // can't move it, whether the push sent the commit or found it there
+    for another_hand in [false, true] {
+        let case = if another_hand { "found there" } else { "sent" };
+        let mut ws = FixtureWorkspace::new();
+        let (app, tip) = ahead(&mut ws);
+        let fetched = ws.git(&app, &["rev-parse", TRACKING]);
+        assert_ne!(fetched, tip, "{case}");
+        let env = ws.env();
+        let bare = ws.bare("app");
+        let url = format!("file://{}", bare.display());
+        let refspec = format!("{tip}:refs/heads/main");
+        let lock = format!(".git/{TRACKING}.lock");
+        let read = reader_then(2, || {
+            if another_hand {
+                git_env(&env, &app, &["push", "-q", &url, &refspec]);
+            }
+            write(&app, &lock, "");
+        });
+
+        let run = ws.push_with(&["app"], &ws.root(), &read);
+
+        // the remote holds the commit, and the outcome says so
+        let want = if another_hand {
+            PushOutcome::InSync
+        } else {
+            pushed(&fetched, &tip)
+        };
+        assert_eq!(only(&run), (Some("main"), &want), "{case}");
+        assert_eq!(ws.git(&bare, &["rev-parse", "main"]), tip, "{case}");
+        assert_eq!(pushes_served(&ws).len(), 1, "{case}");
+        // the ref stayed at the fetched tip, so local refs read the branch
+        // ahead until a fetch
+        assert_eq!(ws.git(&app, &["rev-parse", TRACKING]), fetched, "{case}");
+        let e = find_entry(&ws.status(), "app").clone();
+        assert_eq!(
+            branch(&e, "main").relation,
+            Relation::Ahead { commits: 1 },
+            "{case}"
+        );
+        // which writes what origin holds
+        std::fs::remove_file(app.join(&lock)).unwrap();
+        ws.git(&app, &["fetch", "-q", "origin"]);
+        assert_eq!(ws.git(&app, &["rev-parse", TRACKING]), tip, "{case}");
+        let e = find_entry(&ws.status(), "app").clone();
+        assert_eq!(branch(&e, "main").relation, Relation::InSync, "{case}");
+    }
 }
 
 #[test]

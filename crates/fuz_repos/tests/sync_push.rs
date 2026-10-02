@@ -23,7 +23,7 @@ use fuz_repos::classify::NeedsHuman;
 use fuz_repos::remote::{RemoteFailure, UnreachableCause};
 use fuz_repos::report::{BranchOutcome, BranchSyncHold};
 use fuz_repos::sessions::{LiveSessions, Session, SessionSource};
-use fuz_repos::state::{BranchHold, BranchNeedsHuman, SyncAction, Verdict};
+use fuz_repos::state::{BranchHold, BranchNeedsHuman, Relation, SyncAction, Verdict};
 use support::busy::push;
 use support::push::{ahead, remote_refs, with};
 use support::sync::outcome;
@@ -279,6 +279,47 @@ fn a_remote_moved_since_the_fetch_refuses_the_push() {
         }
     );
     assert_eq!(ws.git(&ws.bare("app"), &["rev-parse", "main"]), moved);
+}
+
+#[test]
+fn a_commit_another_hand_pushed_since_the_fetch_is_recorded_as_pushed() {
+    const TRACKING: &str = "refs/remotes/origin/main";
+    let mut ws = FixtureWorkspace::new();
+    let (app, tip) = ahead(&mut ws);
+    let fetched = ws.git(&app, &["rev-parse", TRACKING]);
+    assert_ne!(fetched, tip);
+    let env = ws.env();
+    let bare = ws.bare("app");
+    let url = format!("file://{}", bare.display());
+    let refspec = format!("{tip}:refs/heads/main");
+    let built = std::sync::Mutex::new(Vec::new());
+    // the very commit reaches origin after sync's fetch, unfetched
+    let read = reader_then(2, || {
+        git_env(&env, &app, &["push", "-q", &url, &refspec]);
+        *built.lock().unwrap() = vec![
+            git_env(&env, &bare, &["rev-parse", "main"]),
+            git_env(&env, &app, &["rev-parse", TRACKING]),
+        ];
+    });
+
+    let run = ws.sync_with(4, &read);
+
+    // as the push found it: origin at the commit, the remote-tracking ref
+    // still at the fetched tip
+    assert_eq!(*built.lock().unwrap(), [tip.clone(), fetched]);
+    let e = find_entry(&run.entries, "app");
+    assert_eq!(branch(e, "main").verdict, Verdict::Act { action: push(1) });
+    // git's `up to date`: nothing sent, nothing moved on either side
+    assert_eq!(outcome(&run, "app", "main"), &BranchOutcome::Untouched);
+    assert_eq!(ws.git(&bare, &["rev-parse", "main"]), tip);
+    assert_eq!(ws.git(&app, &["rev-parse", "main"]), tip);
+    assert_eq!(ws.ssh_push_log().len(), 1);
+    // but the remote-tracking ref, moved to the commit as a push of sync's
+    // own would move it: in sync from local refs, no fetch
+    assert_eq!(ws.git(&app, &["rev-parse", TRACKING]), tip);
+    ws.assert_track(&app, "main", "");
+    let e = find_entry(&ws.status(), "app").clone();
+    assert_eq!(branch(&e, "main").relation, Relation::InSync);
 }
 
 #[test]

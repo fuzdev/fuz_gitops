@@ -5,7 +5,7 @@ mod support;
 
 use serde_json::Value;
 use support::cli::{parse, repos, stderr, stdout, workspace};
-use support::unregistered::{copy_dir, points_at};
+use support::unregistered::{assert_listed, copy_dir, gitdir_file, points_at};
 
 #[test]
 fn status_scans_for_unregistered_dirs_only_over_the_whole_workspace() {
@@ -65,12 +65,16 @@ fn a_gone_worktree_is_never_told_to_repair() {
     let app = ws.dir("app");
     // `wa` moved out of its dir by hand, and `wb` moved into it
     let wa = ws.outside("wa");
-    ws.add_worktree(&app, &wa, &["-b", "wa"]);
+    let wa_git_dir = ws.add_worktree(&app, &wa, &["-b", "wa"]);
     let wb = ws.dir("wb");
-    ws.add_worktree(&app, &wb, &["-b", "wb"]);
+    let wb_git_dir = ws.add_worktree(&app, &wb, &["-b", "wb"]);
     std::fs::rename(&wa, ws.outside("wa-old")).unwrap();
     std::fs::rename(&wb, &wa).unwrap();
     assert_eq!(points_at(&wa), "wb");
+    // each git dir still names the path its worktree was added at
+    let dot_git = |path: &std::path::Path| path.join(".git").to_str().unwrap().to_owned();
+    assert_eq!(gitdir_file(&wa_git_dir), dot_git(&wa));
+    assert_eq!(gitdir_file(&wb_git_dir), dot_git(&wb));
     ws.assert_head(&wa, Some("wb"));
     assert!(!wb.exists());
     // and a detached one deleted, which removing it would lose
@@ -102,10 +106,19 @@ fn a_gone_worktree_is_never_told_to_repair() {
         assert!(!text.contains("worktree repair"), "{text}");
     }
 
-    // the repair one might reach for, at `wb`'s new path: git's walk over
-    // the other worktree git dirs hands `wb`'s checkout to `wa`
+    // the repair one might reach for, at `wb`'s new path: git repoints
+    // `wb`'s git dir there, where `wa`'s still names its worktree, so two
+    // git dirs claim the one checkout
     ws.git(&app, &["worktree", "repair", wa.to_str().unwrap()]);
-    assert_eq!(points_at(&wa), "wa");
+    assert_eq!(gitdir_file(&wa_git_dir), dot_git(&wa));
+    assert_eq!(gitdir_file(&wb_git_dir), dot_git(&wa));
+    assert_listed(&ws, &app, &[(&wa, false), (&wa, false), (&spike, true)]);
+    // which of them the checkout's `.git` names now is the filesystem's:
+    // git walks `worktrees/` in the order it lists them, each git dir
+    // naming the path rewrites that `.git` in turn, and the last stays —
+    // when that's `wa`'s, `wb`'s checkout is handed to `wa`
+    let kept = points_at(&wa);
+    assert!(["wa", "wb"].contains(&kept.as_str()), "{kept}");
 }
 
 #[test]
