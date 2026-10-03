@@ -17,18 +17,18 @@ mod support;
 
 use std::ffi::OsString;
 use std::path::Path;
-use std::sync::atomic::{AtomicUsize, Ordering};
 
 use fuz_repos::classify::NeedsHuman;
 use fuz_repos::remote::{RemoteFailure, UnreachableCause};
-use fuz_repos::report::{BranchOutcome, BranchSyncHold, RebasePush};
+use fuz_repos::report::{BranchOutcome, BranchSyncHold, RebasePush, Rebased};
 use fuz_repos::sessions::{LiveSessions, Session, SessionSource};
 use fuz_repos::state::{BranchHold, BranchNeedsHuman, Relation, SyncAction, Verdict};
 use support::busy::push;
 use support::push::{ahead, remote_refs, with};
 use support::sync::outcome;
 use support::{
-    FixtureWorkspace, LiveChild, branch, find_entry, git_env, quiet, reader_then, write_executable,
+    FixtureWorkspace, LiveChild, ORIGIN_HEAD, TRACKING, arriving_after, branch, find_entry,
+    git_env, quiet, reader_then, write_executable,
 };
 
 const fn held(action: SyncAction, by: BranchSyncHold) -> BranchOutcome {
@@ -109,13 +109,7 @@ fn pushes_the_branch_ahead_and_nothing_else() {
     // (and `origin/HEAD`, the symref to it)
     assert_eq!(
         ws.refs(&app),
-        with(
-            &local_before,
-            &[
-                ("refs/remotes/origin/main", &tip),
-                ("refs/remotes/origin/HEAD", &tip)
-            ]
-        )
+        with(&local_before, &[(TRACKING, &tip), (ORIGIN_HEAD, &tip)])
     );
     ws.assert_track(&app, "main", "");
     // over SSH to the registry's repo, in batch mode, once
@@ -273,12 +267,12 @@ fn a_remote_moved_since_the_fetch_refuses_the_push() {
     // the rerun sees it diverged, the registry's branch: rebased onto the
     // commit that landed, and pushed on top of it
     let run = ws.sync();
-    let BranchOutcome::Rebased {
+    let BranchOutcome::Rebased(Rebased {
         from,
         to,
         onto,
         push: RebasePush::Pushed,
-    } = outcome(&run, "app", "main")
+    }) = outcome(&run, "app", "main")
     else {
         panic!("{:?}", run.outcomes);
     };
@@ -290,7 +284,6 @@ fn a_remote_moved_since_the_fetch_refuses_the_push() {
 
 #[test]
 fn a_commit_another_hand_pushed_since_the_fetch_is_recorded_as_pushed() {
-    const TRACKING: &str = "refs/remotes/origin/main";
     let mut ws = FixtureWorkspace::new();
     let (app, tip) = ahead(&mut ws);
     let fetched = ws.git(&app, &["rev-parse", TRACKING]);
@@ -478,6 +471,46 @@ fn a_push_url_other_than_the_registrys_is_refused() {
         assert_eq!(remote_refs(&ws, "other"), other_before, "{case}");
         assert_eq!(ws.ssh_push_log(), Vec::<String>::new(), "{case}");
     }
+}
+
+#[test]
+fn a_push_url_elsewhere_is_no_reason_for_a_diverged_feature_branch() {
+    // a diverged feature branch is a person's, pushed by no run: the push
+    // URL isn't read for it, and the entry gains no reason
+    let mut ws = FixtureWorkspace::new();
+    ws.remote("app", &[]);
+    ws.upstream_commit("app", "feat");
+    ws.declare_repo("app", "app", "");
+    let app = ws.clone_owned("app", "app", &[]);
+    ws.git(&app, &["branch", "-q", "--track", "feat", "origin/feat"]);
+    ws.git(&app, &["switch", "-q", "feat"]);
+    ws.commit(&app, "local");
+    ws.git(&app, &["switch", "-q", "main"]);
+    ws.upstream_commit("app", "feat");
+    ws.git(&app, &["fetch", "-q", "origin"]);
+    ws.assert_track(&app, "feat", "[ahead 1, behind 1]");
+    ws.assert_track(&app, "main", "");
+    ws.git(
+        &app,
+        &["config", "remote.origin.pushurl", "git@github.com:me/other"],
+    );
+    ws.write_registry();
+
+    let e = ws.entry("app");
+
+    assert_eq!(
+        branch(&e, "feat").verdict,
+        Verdict::NeedsHuman {
+            reason: BranchNeedsHuman::Diverged
+        }
+    );
+    assert!(
+        !e.needs_human
+            .iter()
+            .any(|r| matches!(r, NeedsHuman::PushUrlMismatch { .. })),
+        "{:?}",
+        e.needs_human
+    );
 }
 
 #[test]
@@ -767,20 +800,14 @@ fn a_session_arriving_before_the_push_holds_it() {
     let (app, _) = ahead(&mut ws);
     let remote_before = remote_refs(&ws, "app");
     let child = LiveChild::spawn();
-    let calls = AtomicUsize::new(0);
+    let live = LiveSessions::Known(vec![Session::at(
+        child.pid(),
+        child.proc_start().parse().unwrap(),
+        app.to_str().unwrap().to_owned(),
+        SessionSource::SessionFile,
+    )]);
     // none after the fetch; one in the checkout by the time sync pushes
-    let read = || {
-        if calls.fetch_add(1, Ordering::SeqCst) == 0 {
-            quiet()
-        } else {
-            LiveSessions::Known(vec![Session::at(
-                child.pid(),
-                child.proc_start().parse().unwrap(),
-                app.to_str().unwrap().to_owned(),
-                SessionSource::SessionFile,
-            )])
-        }
-    };
+    let read = arriving_after(1, live);
 
     let run = ws.sync_with(4, &read);
 

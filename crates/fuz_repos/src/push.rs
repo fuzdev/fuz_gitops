@@ -19,23 +19,21 @@
 //! says how).
 //!
 //! **A diverged branch is rebased, then pushed**, when it's one `sync`
-//! rebases (`classify`'s `rebasable`: the branch the registry names, in an
-//! owned entry neither archived nor pinned, its commits ahead on no remote,
-//! no merge or tag among them) — through `Actor::rebase_and_push`, the one
-//! rebase `sync` makes and the push after it, with the same guards and
-//! re-checks: its local-only commits replayed onto the fetched tip, the
-//! branch and the target's checkout moved to the replayed tip, and that
-//! tip pushed (`Rebased`). The target is a checkout, so the move is always
-//! the checked-out one (`git switch -C`, in the target's own checkout, a
-//! linked worktree's included; the replay itself runs in the repo and
-//! writes commit objects alone). A conflict, or a local commit whose change
-//! origin already has, stops it with nothing moved (`RebaseRefused`), and
-//! any other diverged branch is `NeedsHuman`, by its reason. A push the
-//! rebase's re-checks or the remote stop leaves the branch rebased and
-//! ahead, the next run's to push. The report says what moved — the tip
-//! replaced, the new one, the fetched tip under it — since commit ids read
-//! before the run name the commits replaced, and whatever was checked
-//! before it was checked on the old base.
+//! rebases (`classify`'s `rebase_blocker` says which) — through
+//! `Actor::rebase_and_push`, the one rebase `sync` makes and the push after
+//! it, with the same guards and re-checks: its local-only commits replayed
+//! onto the fetched tip, the branch and the target's checkout moved to the
+//! replayed tip, and that tip pushed (`Rebased`). The target is a checkout,
+//! so the move is always the checked-out one (`git switch -C`, in the
+//! target's own checkout, a linked worktree's included; the replay itself
+//! runs in the repo and writes commit objects alone). A conflict, or a
+//! local commit whose change origin already has, stops it with nothing
+//! moved (`RebaseRefused`), and any other diverged branch is `NeedsHuman`,
+//! by its reason. A push the rebase's re-checks or the remote stop leaves
+//! the branch rebased and ahead, the next run's to push. The report says
+//! what moved — the tip replaced, the new one, the fetched tip under it —
+//! since commit ids read before the run name the commits replaced, and
+//! whatever was checked before it was checked on the old base.
 //!
 //! **Never** a fast-forward, a shallow move, a clone, or any branch but the
 //! one checked out at a target: a branch behind is `NotAhead` (sync's to
@@ -563,17 +561,7 @@ fn pushed(result: std::result::Result<PushDone, String>) -> PushOutcome {
 /// `repos push` reports it.
 fn rebased(result: std::result::Result<RebasedPush, String>) -> PushOutcome {
     match result {
-        Ok(RebasedPush::Rebased {
-            from,
-            to,
-            onto,
-            push,
-        }) => PushOutcome::Rebased {
-            from,
-            to,
-            onto,
-            push,
-        },
+        Ok(RebasedPush::Rebased(rebased)) => PushOutcome::Rebased(rebased),
         Ok(RebasedPush::Held(by)) => PushOutcome::Held { by },
         Ok(RebasedPush::Refused(why)) => PushOutcome::RebaseRefused { why },
         Err(message) => PushOutcome::Failed { message },

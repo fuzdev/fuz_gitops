@@ -64,7 +64,7 @@ diverged.
 | --- | --- | --- |
 | nothing in git | **observe** | `repos status` (local refs), `repos status --brief`; `gitops_analyze`, `gitops_plan`, `gitops_publish` (dry run), `gitops_validate`, `gitops_sync --check`, `gitops_run` with read-only commands |
 | remote-tracking refs only, plus the objects, `FETCH_HEAD`, and shallow boundary a fetch writes | **observe** (refreshed) | `repos status --fetch`; the fetch that starts `repos sync` and `repos push`, the readiness gate before `gitops_publish --wetrun`'s prompt and its re-check before each `gro publish`, and `gitops_sync`'s fetch before it writes its host's site data |
-| local branches, working trees, new clones, and the commit objects a rebase replays | **converge** | `repos sync` (fast-forwards, shallow moves, a diverged registry branch's local-only commits replayed onto its fetched upstream, clones of missing entries, references refreshed when named or under `--references`); `repos push`, for the one branch checked out at a target and only when it diverged: the same rebase, in that checkout, clean — never a fast-forward, move, or clone |
+| local branches, working trees, new clones, and the commit objects a rebase replays | **converge** | `repos sync` (fast-forwards, shallow moves, a diverged registry branch's local-only commits replayed onto its fetched upstream, clones of missing entries, references refreshed when named or under `--references`); `repos push` only rebases, and only the branch checked out at a target when it diverged and that checkout is clean; it never fast-forwards, moves, or clones |
 | remote branches, under policy | **gateway** | `repos push`, and the push step of `repos sync` (a rebased branch's included, under either): fast-forwards only, under a lease, to the registry's SSH URL, owned entries only, no tags or force; a new remote branch is `repos push --new-branch`, the user's |
 | releases: npm, git commits and tags, deploys | **publish** | `gitops_publish --wetrun`, and gro's own `publish` and `deploy` it runs — the user's |
 
@@ -107,18 +107,17 @@ Each is structural, in the code (the rustdoc of `sync.rs`, `push.rs`,
 `sessions.rs` (busy detection) says how):
 
 - never `pull`s, merges anything but a fast-forward, or resolves a conflict.
-  The one history change is a rebase, `repos sync`'s and — of the branch it
-  was asked to push — `repos push`'s: it replays the local-only
-  commits of a diverged registry branch onto the fetched upstream (`git
-  replay`, in memory), stops on any conflict with nothing moved — no merge
-  driver settles one, the user's or git's `union` — and never rewrites a
-  commit a remote holds (a branch ahead by one any remote-tracking ref holds
-  is a person's) — so what it pushes is still a fast-forward of linear
-  history, and host repo rules never need modelling. Any other diverged
-  branch stops and reports
+  The one history change is a rebase (`repos sync`'s, and `repos push`'s for
+  the branch it's asked to push): a diverged registry branch's local-only
+  commits are replayed onto the fetched upstream (`git replay`, in memory).
+  Any conflict stops it with nothing moved, and no merge driver settles one,
+  the user's or git's `union`. It never rewrites a commit a remote holds (a
+  branch ahead by one any remote-tracking ref holds is a person's), so what
+  it pushes is still a fast-forward of linear history, and host repo rules
+  never need modelling. Any other diverged branch stops and reports
 - never creates a commit of new content, a tag, or a changeset: a rebase's
-  replayed commits are new objects with the changes, messages, and authors of
-  the ones they replace
+  replayed commits are new objects with the changes, messages, authors, and
+  author dates of the ones they replace
 - never force-pushes: a push is a fast-forward of exactly the tip the fetch
   saw, under a lease, and sends no tags or push options; a remote branch is
   created only by the user's `repos push --new-branch`, refused in an agent's
@@ -139,11 +138,11 @@ Each is structural, in the code (the rustdoc of `sync.rs`, `push.rs`,
   session working (busy — [what it can't see](docs/repos.md#busy-detection)),
   and holds every branch action when it can't vouch for the sessions — a
   clone of a missing entry still runs, since it only creates a dir
-- never runs hooks, an fsmonitor, or background maintenance; programs the
+- never runs hooks, an fsmonitor, or background maintenance. Programs the
   user's own git config names (filter drivers, the gpg program, credential
-  helpers, SSH) run as in any git call — but a merge driver, whose program
-  a rebase's replay never runs (git is handed a command that fails in its
-  place): merging a path is settling a conflict
+  helpers, SSH) run as in any git call, with one exception: a rebase's
+  replay runs no merge driver — git is handed a command that fails in its
+  place — since merging a path is settling a conflict
 - never installs, builds, calls the GitHub API, or reads env files: git is
   the only program it runs (and `kill`, to stop a timed-out call), and it
   holds no credential of its own

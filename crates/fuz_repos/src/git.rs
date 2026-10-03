@@ -20,7 +20,9 @@
 //!   `merge.verifySignatures` calls, SSH as configured. Only the user, or
 //!   something already running as them, writes that config, and dropping
 //!   them would check out pointer files or skip a verification the user
-//!   asked for.
+//!   asked for. A merge driver is the one exception, and only in a
+//!   rebase's replay, which runs none: merging a path there would settle a
+//!   conflict (the `sync` module doc says how).
 //!
 //! Optional locks are off too, so observing never rewrites another
 //! session's index, and lazy fetching is off, so a local call on a partial

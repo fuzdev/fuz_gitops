@@ -177,7 +177,8 @@ pub struct RepoFacts {
     pub fetch_failed: bool,
     /// Where a push through `origin` goes (`read_push_urls`), read when sync
     /// may push a branch — owned, not pinned or archived, with an `origin`
-    /// URL, and a branch ahead or diverged; `None` otherwise.
+    /// URL, and a branch ahead, or the followed branch diverged
+    /// (`could_push`); `None` otherwise.
     pub push_urls: Option<Vec<String>>,
 }
 
@@ -809,8 +810,8 @@ fn probe_branches(
 /// resolved upstream to the commit the branch was read at: the merge
 /// commits among them, and whether a tag points at one.
 ///
-/// Two more git calls, for a diverged branch alone: none, unasked, for any
-/// other, for a symbolic ref, and in a shallow clone, where no branch reads
+/// Its git calls are made for a diverged branch alone: none for any other,
+/// for a symbolic ref, or in a shallow clone, where no branch reads
 /// diverged.
 fn diverged_facts(
     git: &Git,
@@ -829,31 +830,42 @@ fn diverged_facts(
     };
     let range = format!("{upstream}..{}", r.oid);
     let n = git
-        .output_string(dir, &["rev-list", "--count", "--merges", &range], opts)
+        .output_string(dir, &merges_args(&range), opts)
         .map_err(|e| git_failure(&e))?;
     let merges = n
         .trim()
         .parse()
         .map_err(|_| unexpected_output(format!("rev-list --count --merges: `{}`", n.trim())))?;
-    let mut args = TAGGED_ARGS.to_vec();
-    args.extend([
-        "--merged",
-        r.oid.as_str(),
-        "--no-merged",
-        upstream,
-        "refs/tags",
-    ]);
     let tags = git
-        .output_string(dir, &args, opts)
+        .output_string(dir, &tagged_args(upstream, &r.oid), opts)
         .map_err(|e| git_failure(&e))?;
     Ok((merges, !tags.trim().is_empty()))
 }
 
-/// The call that names a tag on a commit one commit reaches and another
-/// doesn't, before `--merged <tip> --no-merged <base> refs/tags`: the
-/// first such tag, or nothing. A tag on anything but a commit is on no
-/// commit of the range.
-pub const TAGGED_ARGS: [&str; 3] = ["for-each-ref", "--count=1", "--format=%(refname)"];
+/// The call that counts the merge commits in `range` (`<base>..<tip>`): a
+/// diverged branch's local-only commits, read when classifying
+/// (`diverged_facts`) and again right before a rebase.
+pub const fn merges_args(range: &str) -> [&str; 4] {
+    ["rev-list", "--count", "--merges", range]
+}
+
+/// The call that names a tag on a commit `tip` reaches and `base` doesn't
+/// (`base..tip`, the range `merges_args` reads): the first such tag, or
+/// nothing. A tag on anything but a commit is on no commit of the range.
+/// Read when classifying (`diverged_facts`) and again right before a
+/// rebase.
+pub const fn tagged_args<'a>(base: &'a str, tip: &'a str) -> [&'a str; 8] {
+    [
+        "for-each-ref",
+        "--count=1",
+        "--format=%(refname)",
+        "--merged",
+        tip,
+        "--no-merged",
+        base,
+        "refs/tags",
+    ]
+}
 
 /// The repo's worktrees other than the primary (`probe_worktrees`), when
 /// it has a `<commondir>/worktrees/`; one that can't be read is recorded

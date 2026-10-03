@@ -7,8 +7,6 @@
 
 mod support;
 
-use std::sync::atomic::{AtomicUsize, Ordering};
-
 use fuz_repos::classify::NeedsHuman;
 use fuz_repos::report::{BranchSyncHold, NoUpstreamWhy, PushOutcome};
 use fuz_repos::sessions::{LiveSessions, Session, SessionSource};
@@ -18,7 +16,7 @@ use support::push::{
     assert_tracks_origin, feat_ahead, only, pushed, pushes_served, remote_refs, topic, with,
 };
 use support::{
-    FixtureWorkspace, LiveChild, branch, find_entry, owned_origin, quiet, write_executable,
+    FixtureWorkspace, LiveChild, arriving_after, branch, find_entry, owned_origin, write_executable,
 };
 
 #[test]
@@ -501,14 +499,7 @@ fn new_branch_is_held_as_a_push_is() {
         SessionSource::SessionFile,
     )]);
     // arriving after the fetch, re-read right before the creation
-    let calls = AtomicUsize::new(0);
-    let read = || {
-        if calls.fetch_add(1, Ordering::SeqCst) == 0 {
-            quiet()
-        } else {
-            live.clone()
-        }
-    };
+    let read = arriving_after(1, live);
     let run = ws.push_full(&["app"], &ws.root(), &read, true);
     assert_eq!(
         only(&run),

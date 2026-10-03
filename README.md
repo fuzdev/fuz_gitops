@@ -173,8 +173,9 @@ unpushed).
 
 A Rust CLI over the repos a `repos.toml` registry declares. It moves refs it
 didn't author — fetch, fast-forward, clone, push — and rebases a diverged
-registry branch onto its fetched upstream when its local commits replay
-without conflict. It never commits new content, resolves a conflict, merges
+registry branch onto its fetched upstream where that's safe
+([docs/repos.md](docs/repos.md#repos-sync) says when), stopping on any
+conflict. It never commits new content, resolves a conflict, merges
 anything but a fast-forward, force-pushes, or pushes tags. It needs git
 2.44 or newer, and Linux for its detection of live Claude Code sessions.
 
@@ -182,7 +183,7 @@ anything but a fast-forward, force-pushes, or pushes tags. It needs git
 cargo install --path crates/fuz_repos --locked # install the `repos` binary
 repos status          # git state of every entry, from local refs
 repos status --fetch  # fetch from origin first (remote-tracking refs only)
-repos sync            # fetch, then fast-forward, push, and clone what's safe
+repos sync            # fetch, then fast-forward, rebase, push, and clone what's safe
 repos push            # push the branch checked out here, as a fast-forward (rebased first if it diverged)
 ```
 

@@ -223,14 +223,14 @@ fn a_third_party_push_fails_at_act_time_whatever_the_verdict() {
 
 /// A repo in a tempdir, no global or system config, reflogs off — so
 /// what a branch's reflog holds, sync wrote.
-struct Repo {
-    tmp: tempfile::TempDir,
-    dir: PathBuf,
-    env: Vec<(std::ffi::OsString, std::ffi::OsString)>,
+pub(super) struct Repo {
+    pub(super) tmp: tempfile::TempDir,
+    pub(super) dir: PathBuf,
+    pub(super) env: Vec<(std::ffi::OsString, std::ffi::OsString)>,
 }
 
 impl Repo {
-    fn new() -> Self {
+    pub(super) fn new() -> Self {
         let tmp = tempfile::tempdir().unwrap();
         let dir = tmp.path().join("app");
         let mut env: Vec<(std::ffi::OsString, std::ffi::OsString)> = vec![
@@ -250,7 +250,7 @@ impl Repo {
         repo
     }
 
-    fn git(&self, args: &[&str]) -> String {
+    pub(super) fn git(&self, args: &[&str]) -> String {
         let out = std::process::Command::new("git")
             .env_clear()
             .envs(self.env.iter().map(|(k, v)| (k, v)))
@@ -267,7 +267,7 @@ impl Repo {
     }
 
     /// Commits a new file `name` on HEAD.
-    fn commit(&self, name: &str) -> String {
+    pub(super) fn commit(&self, name: &str) -> String {
         std::fs::write(self.dir.join(name), name).unwrap();
         self.git(&["add", name]);
         self.git(&["commit", "-q", "-m", name]);
@@ -276,12 +276,12 @@ impl Repo {
 
     /// A commit on `parent`'s tree with `parent` as its parent, made
     /// without touching HEAD or the files.
-    fn child_of(&self, parent: &str) -> String {
+    pub(super) fn child_of(&self, parent: &str) -> String {
         let tree = format!("{parent}^{{tree}}");
         self.git(&["commit-tree", &tree, "-p", parent, "-m", "upstream"])
     }
 
-    fn runner(&self) -> Git {
+    pub(super) fn runner(&self) -> Git {
         Git::with_clean_env(self.env.clone())
     }
 }
@@ -292,7 +292,7 @@ impl Repo {
 /// open here keeps a copy of it until the child execs (`O_CLOEXEC`
 /// closes it only then), and an exec of the file meanwhile fails with
 /// `ETXTBSY` ("Text file busy"). The child's fds are its own.
-fn write_executable(path: &Path, content: &str) {
+pub(super) fn write_executable(path: &Path, content: &str) {
     use std::io::Write as _;
     let mut child = std::process::Command::new("sh")
         .args(["-c", "cat > \"$1\" && chmod 755 \"$1\"", "sh"])
@@ -313,7 +313,7 @@ fn write_executable(path: &Path, content: &str) {
     );
 }
 
-fn step<'a>(git: &'a Git, branch: &'a str, common_dir: &'a Path) -> Step<'a> {
+pub(super) fn step<'a>(git: &'a Git, branch: &'a str, common_dir: &'a Path) -> Step<'a> {
     Step::new(git, Path::new("/"), branch, common_dir, None)
 }
 

@@ -36,8 +36,8 @@ pub struct StatusReport {
     /// when this is true.
     pub fetched: bool,
     /// Busy detection: the live Claude Code sessions in no checkout, or why
-    /// they couldn't be vouched for (every push, fast-forward, move, and rebase is
-    /// then held). Those in a checkout are on it, as its `busy`.
+    /// they couldn't be vouched for (every push, fast-forward, move, and
+    /// rebase is then held). Those in a checkout are on it, as its `busy`.
     pub sessions: Sessions,
     pub entries: Vec<EntryStatus>,
     /// The workspace root's children holding a `.git` that no registry
@@ -542,17 +542,8 @@ pub enum BranchOutcome {
     /// to `to`, the commit classified: a fast-forward. A push never creates
     /// a branch.
     Pushed { from: String, to: String },
-    /// Rebased: the branch's local-only commits, tip `from`, replayed onto
-    /// the fetched tip `onto`, and the branch — with the one clean checkout
-    /// it's on — moved to the replayed tip `to`. Then pushed as any branch
-    /// ahead is: `push` says how that went, the remote's branch moving from
-    /// `onto` to `to` when it did.
-    Rebased {
-        from: String,
-        to: String,
-        onto: String,
-        push: RebasePush,
-    },
+    /// Rebased, then pushed as any branch ahead is (`Rebased`).
+    Rebased(Rebased),
     /// The replay ran and found the rebase a person's (`why`): nothing
     /// moved, and the branch stays diverged. Not a failure: the run's exit
     /// is what a diverged branch left to a person makes it.
@@ -575,12 +566,29 @@ impl BranchOutcome {
             self,
             Self::PushFailed { .. }
                 | Self::Failed { .. }
-                | Self::Rebased {
+                | Self::Rebased(Rebased {
                     push: RebasePush::PushFailed { .. } | RebasePush::Failed { .. },
                     ..
-                }
+                })
         )
     }
+}
+
+/// A rebase that moved its branch (`BranchOutcome::Rebased`,
+/// `PushOutcome::Rebased`).
+///
+/// The branch's local-only commits, tip `from`, replayed onto the fetched
+/// tip `onto`, and the branch — with its one clean checkout, when it's
+/// checked out — moved to the replayed tip `to`. New commits, so `from` and
+/// every commit id read before the run name the ones replaced. Then pushed
+/// as any branch ahead is: `push` says how that went, the remote's branch
+/// moving from `onto` to `to` when it did.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct Rebased {
+    pub from: String,
+    pub to: String,
+    pub onto: String,
+    pub push: RebasePush,
 }
 
 /// How the push that follows a rebase went (`BranchOutcome::Rebased`,
@@ -778,22 +786,13 @@ pub enum PushOutcome {
     /// fetched from the registry's repo, or found already there when pushed
     /// (another hand's push since the fetch).
     InSync,
-    /// Diverged, and rebased as `sync` rebases (`BranchOutcome::Rebased`):
-    /// the branch's local-only commits, tip `from`, replayed onto the
-    /// fetched tip `onto`, and the branch and the target's checkout moved
-    /// to the replayed tip `to` — new commits, so `from` and every commit
-    /// id read before the run name the ones replaced. Then pushed: `push`
-    /// says how that went, the remote's branch moving from `onto` to `to`
-    /// when it did. Short of that, the branch stays rebased and ahead, the
-    /// next run's to push. The commits replayed and the upstream's they
-    /// were replayed onto are counted on the branch's relation, in the
-    /// status entry (`diverged`: `ahead`, `behind`).
-    Rebased {
-        from: String,
-        to: String,
-        onto: String,
-        push: RebasePush,
-    },
+    /// Diverged, and rebased as `sync` rebases, the target's checkout
+    /// moved with the branch, then pushed (`Rebased`). Short of pushed, the
+    /// branch stays rebased and ahead, the next run's to push. The commits
+    /// replayed and the upstream's they were replayed onto are counted on
+    /// the branch's relation, in the status entry (`diverged`: `ahead`,
+    /// `behind`).
+    Rebased(Rebased),
     /// Diverged, and the rebase's replay found it a person's (`why`):
     /// nothing moved, nothing pushed.
     RebaseRefused { why: RebaseRefusal },
@@ -865,10 +864,10 @@ impl PushOutcome {
             Self::Pushed { .. }
                 | Self::Created { .. }
                 | Self::InSync
-                | Self::Rebased {
+                | Self::Rebased(Rebased {
                     push: RebasePush::Pushed | RebasePush::AlreadyThere,
                     ..
-                }
+                })
         )
     }
 }

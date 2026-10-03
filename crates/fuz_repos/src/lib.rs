@@ -33,20 +33,21 @@
 //! commits, clones, and pushes commits that already exist — and replays a
 //! diverged registry branch's local-only commits onto the fetched upstream
 //! (the rebase `sync` makes, and `push` of the branch it's asked to push),
-//! new commit objects carrying the same changes, messages, and authors. It
-//! never makes a commit of new content or a tag, resolves a conflict,
-//! merges anything but a fast-forward, force-pushes, deletes a branch, or
-//! prunes a worktree. `status` writes nothing, and `status --fetch`'s fetch
-//! writes remote-tracking refs and what a fetch needs behind them (objects,
-//! `FETCH_HEAD`, the shallow boundary) — never a tag; `sync` writes the
-//! branch it acts on, the checkout that branch is on, the commits a rebase
-//! replays, and new clones; `push` writes those of one branch's rebase when
-//! the branch it's asked to push diverged, and nothing local otherwise; a
-//! push writes one remote branch of an owned entry, under a lease (on the
-//! fetched tip, or on none for `--new-branch`), then its remote-tracking
-//! ref (and, for `--new-branch`, the upstream config). Authoring content —
-//! commits, changesets, release tags — and package meaning (npm, the
-//! dependency graph, the GitHub API) are left to the tools around it.
+//! new commit objects carrying the same changes, messages, authors, and
+//! author dates. It never makes a commit of new content or a tag, resolves
+//! a conflict, merges anything but a fast-forward, force-pushes, deletes a
+//! branch, or prunes a worktree. `status` writes nothing, and `status
+//! --fetch`'s fetch writes remote-tracking refs and what a fetch needs
+//! behind them (objects, `FETCH_HEAD`, the shallow boundary) — never a
+//! tag; `sync` writes the branch it acts on, the checkout that branch is
+//! on, the commits a rebase replays, and new clones. `push` writes, beyond
+//! its fetch, only one branch's rebase — when the branch it's asked to push
+//! diverged — and then the push. A push, `sync`'s or `push`'s, writes one
+//! remote branch of an owned entry, under a lease (on the fetched tip, or
+//! on none for `--new-branch`), then its remote-tracking ref (and, for
+//! `--new-branch`, the upstream config). Authoring content — commits,
+//! changesets, release tags — and package meaning (npm, the dependency
+//! graph, the GitHub API) are left to the tools around it.
 //!
 //! Unix-only: it takes git's paths as raw bytes, as git does. Busy
 //! detection reads `/proc`, so it works on Linux alone; elsewhere, with any

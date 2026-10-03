@@ -352,12 +352,7 @@ describe('run_gitops_publish report masking', () => {
 
 	test('--format json carries each failure message, masked', async () => {
 		const report = JSON.parse(await run_failing('json'));
-		assert.isAbove(report.failed.length, 0);
-		for (const failure of report.failed as Array<{ name: string; error: unknown }>) {
-			assert.isString(failure.name);
-			assert.isString(failure.error);
-		}
-		assert.include(report.failed[0].error, 'SECRET_NPM_TOKEN=[redacted]');
+		assert.deepEqual(report.failed, [{ name: 'a', error: 'failed: SECRET_NPM_TOKEN=[redacted]' }]);
 		assert.notInclude(JSON.stringify(report), 'hunter2');
 	});
 

@@ -93,8 +93,14 @@ pub const OWNER: &str = "me";
 pub const THIRD_PARTY: &str = "them";
 /// The fixture clock's start, in unix seconds.
 pub const CLOCK_START: u64 = 1_700_000_000;
+
 /// How far the clock moves per git call.
 const TICK: u64 = 60;
+
+/// A clone's remote-tracking ref for origin's `main`.
+pub const TRACKING: &str = "refs/remotes/origin/main";
+/// Origin's `HEAD`, a symbolic ref to `TRACKING`: `refs` reads it through.
+pub const ORIGIN_HEAD: &str = "refs/remotes/origin/HEAD";
 
 /// The fixture's `ssh`, first on `PATH`: serves
 /// `git@github.com:<OWNER>/<name>` from the local bare remote `<name>.git`
@@ -1594,6 +1600,20 @@ pub fn reader_then(at: usize, then: impl Fn() + Sync) -> impl Fn() -> LiveSessio
             then();
         }
         quiet()
+    }
+}
+
+/// A reader that finds no session for its first `quiet_calls` calls, then
+/// `live` on every one after — a session arriving, or detection lost,
+/// right before the action whose re-check is call `quiet_calls + 1`.
+pub fn arriving_after(quiet_calls: usize, live: LiveSessions) -> impl Fn() -> LiveSessions + Sync {
+    let calls = AtomicUsize::new(0);
+    move || {
+        if calls.fetch_add(1, Ordering::SeqCst) < quiet_calls {
+            quiet()
+        } else {
+            live.clone()
+        }
     }
 }
 

@@ -166,9 +166,8 @@ impl PushGroups {
             _ => "push",
         };
         match &p.outcome {
-            PushOutcome::Rebased { from, to, push, .. } => {
+            PushOutcome::Rebased(Rebased { from, to, push, .. }) => {
                 self.hints.push(PushHint::Rebased);
-                let short = |oid: &str| oid.get(..7).unwrap_or(oid).to_owned();
                 let onto = match relation {
                     Some(Relation::Diverged { behind, .. }) => format!(
                         "onto {behind} new upstream commit{}, ",
@@ -178,25 +177,22 @@ impl PushGroups {
                 };
                 self.rebased.push(format!(
                     "{label}{ahead} ({onto}now {}, was {})",
-                    short(to),
-                    short(from)
+                    short_oid(to),
+                    short_oid(from)
                 ));
                 // the replayed commits, ahead of the fetched tip: pushed as
                 // any branch ahead, or not
+                self.problems
+                    .failed
+                    .extend(rebased_push_failed(&label, push));
                 match push {
                     RebasePush::Pushed => self.pushed.push(format!("{label}{ahead}")),
                     RebasePush::AlreadyThere => self.in_sync.push(label),
                     RebasePush::Held { by } => {
                         self.held.push(format!("{label}{ahead}{}", hold_note(*by)));
                     }
-                    RebasePush::PushFailed { failure } => self
-                        .problems
-                        .failed
-                        .push(format!("{label} (push: {})", failure.words(false))),
-                    RebasePush::Failed { message } => self
-                        .problems
-                        .failed
-                        .push(format!("{label} (push: {})", first_line(message))),
+                    // failed, above
+                    RebasePush::PushFailed { .. } | RebasePush::Failed { .. } => {}
                 }
             }
             PushOutcome::RebaseRefused { why } => {
@@ -211,10 +207,9 @@ impl PushGroups {
             PushOutcome::Created { .. } => self.pushed.push(format!("{label} (new branch)")),
             PushOutcome::RemoteBranchExists { at } => {
                 self.hints.push(PushHint::Exists);
-                self.problems.needs_human.push(format!(
-                    "{label} (on origin already, at {})",
-                    at.get(..7).unwrap_or(at)
-                ));
+                self.problems
+                    .needs_human
+                    .push(format!("{label} (on origin already, at {})", short_oid(at)));
             }
             PushOutcome::InSync => self.in_sync.push(label),
             PushOutcome::Held { by } => {
@@ -959,24 +954,18 @@ impl Groups {
             }
             // rebased, and what its push came to short of pushing: held or
             // failed as any push of a branch ahead by the commits replayed
-            Some(BranchOutcome::Rebased { push, .. }) => {
+            Some(BranchOutcome::Rebased(Rebased { push, .. })) => {
                 self.act.add(action, label, "");
                 let pushing = match action {
                     SyncAction::Rebase { ahead, .. } => SyncAction::Push { commits: ahead },
                     action => action,
                 };
-                match push {
-                    RebasePush::Pushed | RebasePush::AlreadyThere => {}
-                    RebasePush::Held { by } => self.held.add(pushing, label, hold_note(*by)),
-                    RebasePush::PushFailed { failure } => self
-                        .problems
-                        .failed
-                        .push(format!("{label} (push: {})", failure.words(false))),
-                    RebasePush::Failed { message } => self
-                        .problems
-                        .failed
-                        .push(format!("{label} (push: {})", first_line(message))),
+                if let RebasePush::Held { by } = push {
+                    self.held.add(pushing, label, hold_note(*by));
                 }
+                self.problems
+                    .failed
+                    .extend(rebased_push_failed(label, push));
             }
             Some(BranchOutcome::RebaseRefused { why }) => {
                 self.problems.needs_human.push(format!(
@@ -1034,9 +1023,27 @@ fn rebase_refusal_label(why: &RebaseRefusal) -> String {
     match why {
         RebaseRefusal::Conflicts => "rebase conflicts".to_owned(),
         RebaseRefusal::AlreadyUpstream { commit } => {
-            format!("{} is already upstream", commit.get(..7).unwrap_or(commit))
+            format!("{} is already upstream", short_oid(commit))
         }
     }
+}
+
+/// The failed line for rebased branch `label` whose push failed — at the
+/// remote, or before it reached one — or `None` when it didn't. The rebase
+/// itself went through.
+fn rebased_push_failed(label: &str, push: &RebasePush) -> Option<String> {
+    let why = match push {
+        RebasePush::PushFailed { failure } => failure.words(false),
+        RebasePush::Failed { message } => first_line(message).to_owned(),
+        RebasePush::Pushed | RebasePush::AlreadyThere | RebasePush::Held { .. } => return None,
+    };
+    Some(format!("{label} (push: {why})"))
+}
+
+/// The short form of a commit id the summary names: its first seven hex
+/// digits.
+fn short_oid(oid: &str) -> &str {
+    oid.get(..7).unwrap_or(oid)
 }
 
 /// A branch of `e` as the summary names it: the entry's key alone for the

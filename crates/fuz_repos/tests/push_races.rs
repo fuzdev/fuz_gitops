@@ -19,7 +19,7 @@ use fuz_repos::report::{BranchSyncHold, NoUpstreamWhy, PushOutcome};
 use fuz_repos::state::Relation;
 use support::push::{ahead, feat_ahead, only, pushed, pushes_served, remote_refs, topic, with};
 use support::{
-    FixtureWorkspace, branch, find_entry, git_env, reader_then, write, write_executable,
+    FixtureWorkspace, TRACKING, branch, find_entry, git_env, reader_then, write, write_executable,
 };
 
 #[test]
@@ -29,10 +29,7 @@ fn a_remote_rewound_after_the_fetch_is_never_overwritten() {
     let base = ws.git(&app, &["rev-parse", "main"]);
     let fetched = ws.upstream_commit("app", "main");
     ws.git(&app, &["fetch", "-q", "origin"]);
-    ws.git(
-        &app,
-        &["merge", "-q", "--ff-only", "refs/remotes/origin/main"],
-    );
+    ws.git(&app, &["merge", "-q", "--ff-only", TRACKING]);
     assert_eq!(ws.git(&app, &["rev-parse", "main"]), fetched);
     let tip = ws.commit(&app, "local");
     ws.assert_track(&app, "main", "[ahead 1]");
@@ -59,10 +56,7 @@ fn a_remote_rewound_after_the_fetch_is_never_overwritten() {
     // the lease refused it, at the remote: reached, and left rewound
     assert_eq!(ws.git(&bare, &["rev-parse", "main"]), base);
     assert_eq!(pushes_served(&ws).len(), 1);
-    assert_eq!(
-        ws.git(&app, &["rev-parse", "refs/remotes/origin/main"]),
-        fetched
-    );
+    assert_eq!(ws.git(&app, &["rev-parse", TRACKING]), fetched);
     assert_eq!(ws.git(&app, &["rev-parse", "main"]), tip);
 }
 
@@ -198,7 +192,7 @@ fn a_commit_another_hand_pushed_meanwhile_reads_in_sync() {
     let bare = ws.bare("app");
     let url = format!("file://{}", bare.display());
     let refspec = format!("{tip}:refs/heads/main");
-    let fetched = ws.git(&app, &["rev-parse", "refs/remotes/origin/main"]);
+    let fetched = ws.git(&app, &["rev-parse", TRACKING]);
     assert_ne!(fetched, tip);
     let built = std::sync::Mutex::new(Vec::new());
     // the very commit reaches origin after the re-checks' fetch, unfetched
@@ -206,7 +200,7 @@ fn a_commit_another_hand_pushed_meanwhile_reads_in_sync() {
         git_env(&env, &app, &["push", "-q", &url, &refspec]);
         *built.lock().unwrap() = vec![
             git_env(&env, &bare, &["rev-parse", "main"]),
-            git_env(&env, &app, &["rev-parse", "refs/remotes/origin/main"]),
+            git_env(&env, &app, &["rev-parse", TRACKING]),
         ];
     });
 
@@ -222,10 +216,7 @@ fn a_commit_another_hand_pushed_meanwhile_reads_in_sync() {
     assert_eq!(pushes_served(&ws).len(), 1);
     // the remote-tracking ref moved to it as a push of its own would: in
     // sync from local refs, no fetch
-    assert_eq!(
-        ws.git(&app, &["rev-parse", "refs/remotes/origin/main"]),
-        tip
-    );
+    assert_eq!(ws.git(&app, &["rev-parse", TRACKING]), tip);
     ws.assert_track(&app, "main", "");
     let e = find_entry(&ws.status(), "app").clone();
     assert_eq!(branch(&e, "main").relation, Relation::InSync);
@@ -233,7 +224,6 @@ fn a_commit_another_hand_pushed_meanwhile_reads_in_sync() {
 
 #[test]
 fn a_remote_tracking_ref_that_cant_be_written_never_fails_the_push() {
-    const TRACKING: &str = "refs/remotes/origin/main";
     // a stale lock on the remote-tracking ref, left after the fetch: git
     // can't move it, whether the push sent the commit or found it there
     for another_hand in [false, true] {

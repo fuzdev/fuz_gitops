@@ -9,14 +9,13 @@
 mod support;
 
 use std::path::Path;
-use std::sync::atomic::{AtomicUsize, Ordering};
 
 use fuz_repos::report::{BranchSyncHold, FetchOutcome, NoUpstreamWhy, PushOutcome};
 use fuz_repos::sessions::{LiveSessions, Session, SessionSource};
 use fuz_repos::state::{BranchNeedsHuman, Relation, SyncAction, Verdict};
 use support::cli::{repos, stderr, stdout};
 use support::push::{ahead, feat_ahead, only, pushed, pushes_served, remote_refs, with};
-use support::{FixtureWorkspace, LiveChild, branch, find_entry, quiet};
+use support::{FixtureWorkspace, LiveChild, arriving_after, branch, find_entry};
 
 // --- what's pushed ---
 
@@ -297,14 +296,7 @@ fn a_busy_checkout_holds_the_push() {
     assert_eq!(remote_refs(&ws, "app"), remote_before);
 
     // one arriving after the fetch holds it too, re-read right before
-    let calls = AtomicUsize::new(0);
-    let read = || {
-        if calls.fetch_add(1, Ordering::SeqCst) == 0 {
-            quiet()
-        } else {
-            live.clone()
-        }
-    };
+    let read = arriving_after(1, live);
     let run = ws.push_with(&["app"], &ws.root(), &read);
     let e = find_entry(&run.entries, "app");
     assert_eq!(

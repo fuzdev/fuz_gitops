@@ -546,12 +546,12 @@ fn a_rebase_reads_as_what_moved_and_how_its_push_went() {
     let rebased = |key: &str, push| {
         target(
             key,
-            PushOutcome::Rebased {
+            PushOutcome::Rebased(Rebased {
                 from: "a".repeat(40),
                 to: "b".repeat(40),
                 onto: "c".repeat(40),
                 push,
-            },
+            }),
         )
     };
     let pushed = PushReport::new(
@@ -3207,17 +3207,24 @@ fn rebases_read_as_what_sync_would_do_and_did() {
         "{text}"
     );
     let block = render_entry(&r.entries[0], Path::new("/home/me/dev"), VIEW);
-    assert!(block.contains("diverged +6 −16"), "{block}");
-    assert!(block.contains("rebase"), "{block}");
+    assert!(
+        block
+            .lines()
+            .any(|l| l.trim()
+                == "branch    main  origin/main  diverged +6 −16 · 6 unique · 2d → rebase"),
+        "{block}"
+    );
 
     // what sync did: rebased and pushed; rebased, its push held or failed;
     // or the replay refused, the branch a person's
     let oid = |c: char| c.to_string().repeat(40);
-    let rebased = |push| BranchOutcome::Rebased {
-        from: oid('a'),
-        to: oid('b'),
-        onto: oid('c'),
-        push,
+    let rebased = |push| {
+        BranchOutcome::Rebased(Rebased {
+            from: oid('a'),
+            to: oid('b'),
+            onto: oid('c'),
+            push,
+        })
     };
     let outcomes = vec![
         ("pushed", rebased(RebasePush::Pushed)),

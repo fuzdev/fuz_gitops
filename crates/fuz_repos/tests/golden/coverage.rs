@@ -17,8 +17,8 @@ use fuz_repos::registry::{CheckoutList, EntryKind, RegistryIssue, Visibility};
 use fuz_repos::remote::{RefGoneFix, RemoteFailure, UnreachableCause, VisibilityCheck};
 use fuz_repos::report::{
     BranchOutcome, BranchSyncHold, CloneOutcome, CloneSyncHold, ErrorReport, FetchOutcome,
-    NoUpstreamWhy, PushOutcome, PushReport, RebasePush, RebaseRefusal, RepairBlock, Sessions,
-    StatusReport, SyncReport, UnregisteredKind,
+    NoUpstreamWhy, PushOutcome, PushReport, RebasePush, RebaseRefusal, Rebased, RepairBlock,
+    Sessions, StatusReport, SyncReport, UnregisteredKind,
 };
 use fuz_repos::sessions::{Session, SessionSource, Unavailable};
 use fuz_repos::state::{
@@ -771,7 +771,7 @@ floor_index!(
         BranchOutcome::FastForwarded { .. },
         BranchOutcome::Moved { .. },
         BranchOutcome::Pushed { .. },
-        BranchOutcome::Rebased { .. },
+        BranchOutcome::Rebased(Rebased { .. }),
         BranchOutcome::RebaseRefused { .. },
         BranchOutcome::PushFailed { .. },
         BranchOutcome::Failed { .. },
@@ -854,7 +854,7 @@ floor_index!(
         PushOutcome::Unread,
         PushOutcome::Created { .. },
         PushOutcome::RemoteBranchExists { .. },
-        PushOutcome::Rebased { .. },
+        PushOutcome::Rebased(Rebased { .. }),
         PushOutcome::RebaseRefused { .. },
     ]
 );
@@ -890,7 +890,7 @@ pub fn assert_sync_coverage(doc: &SyncReport) {
                 BranchOutcome::Held { by, .. } => {
                     seen.mark("branch_sync_hold", branch_sync_hold(by));
                 }
-                BranchOutcome::Rebased { push, .. } => {
+                BranchOutcome::Rebased(Rebased { push, .. }) => {
                     seen.mark("rebase_push", rebase_push(push));
                 }
                 BranchOutcome::RebaseRefused { why } => {
@@ -921,7 +921,7 @@ pub fn assert_push_coverage(doc: &PushReport) {
             PushOutcome::NoUpstream { why } => {
                 seen.mark("no_upstream_why", no_upstream_why(why));
             }
-            PushOutcome::Rebased { push, .. } => {
+            PushOutcome::Rebased(Rebased { push, .. }) => {
                 seen.mark("rebase_push", rebase_push(push));
             }
             PushOutcome::RebaseRefused { why } => {

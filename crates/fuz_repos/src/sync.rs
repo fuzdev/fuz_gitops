@@ -20,11 +20,11 @@
 //!    so a session started meanwhile still holds — scope them to the
 //!    checkouts probed, and classify.
 //! 3. Act on each branch's verdict: an `act` fast-forward, move, rebase, or
-//!    push is made; everything else is reported as it stands. Entries sharing a repo
-//!    act together, one after another, each branch once; repos act in
-//!    parallel, and so do clones (`clone`), each its own entry's — entry
-//!    dirs are plain names under the root, no two alike, so no clone lands
-//!    in another's.
+//!    push is made; everything else is reported as it stands. Entries
+//!    sharing a repo act together, one after another, each branch once;
+//!    repos act in parallel, and so do clones (`clone`), each its own
+//!    entry's — entry dirs are plain names under the root, no two alike, so
+//!    no clone lands in another's.
 //!
 //! **Never** a force-push, a tag pushed, a remote branch created (the
 //! user's `repos push --new-branch` alone creates one), a conflict
@@ -48,10 +48,10 @@
 //! onto the fetched tip and is then pushed, a fast-forward of linear
 //! history. Only commits no remote holds are replayed — a branch ahead by a
 //! commit any remote-tracking ref holds is a person's — as new commits with
-//! the same changes, messages, and authors, the committer the identity the
-//! one running the tool configured; nothing is resolved, by the tool or by
-//! a merge driver, so any conflict leaves the branch exactly as it was.
-//! Which branches: `classify`'s `rebasable`.
+//! the same changes, messages, authors, and author dates, the committer the
+//! identity the one running the tool configured; nothing is resolved, by
+//! the tool or by a merge driver, so any conflict leaves the branch exactly
+//! as it was. Which branches: `classify`'s `rebase_blocker`.
 //!
 //! **The verdict is a plan; git is the check.** Right before each action,
 //! sync re-reads the live sessions (a hold when busy detection has become
@@ -146,11 +146,11 @@
 //!   branch must still hold the classified commit after, and one that
 //!   doesn't, with nothing printed, fails the action saying git moved it —
 //!   its checkout then reads changed, a person's to look at. A replay keeps
-//!   a commit whose change the
-//!   upstream already has as an empty commit, where `git rebase` drops it:
-//!   one that came out empty though its original wasn't stops the rebase
-//!   (`AlreadyUpstream`), the tool making neither choice. Objects a stopped
-//!   replay wrote are unreachable, git's to collect.
+//!   a commit whose change the upstream already has as an empty commit,
+//!   where `git rebase` drops it: one that came out empty though its
+//!   original wasn't stops the rebase (`AlreadyUpstream`), the tool making
+//!   neither choice. Objects a stopped replay wrote are unreachable, git's
+//!   to collect. A replay signs nothing, whatever `commit.gpgSign` says.
 //!
 //!   The move, for a branch no checkout has, is `git update-ref --no-deref
 //!   <b> <new> <old>` once it reads checked out nowhere and no symbolic
@@ -179,20 +179,20 @@
 //!
 //! - **A push** is `git send-pack` of the commit the branch held when
 //!   probed — or the tip a rebase just moved it to — to its upstream's ref
-//!   on origin (`push_target`: a branch, never
-//!   `refs/heads/HEAD`), so a commit landing after classifying is never
-//!   pushed unseen — sent to the registry's URL over SSH as written, never
-//!   through `origin` (`SEND_PACK_ARGS` says why: no rewrite or remote
-//!   config reaches it). Right before, sync re-reads the branch — the same
-//!   commit, upstream, and ref on origin, no symbolic ref, else `changed` —
-//!   re-reads where a push through origin would go (`git remote get-url
-//!   --push --all`, `pushurl` and `pushInsteadOf` applied: exactly one URL,
-//!   the registry's repo over SSH as `push_urls_match` reads it — the host
-//!   git connects to and the path there, never the URL's text — else held
-//!   `push_url`: origin pushing elsewhere is a person's to sort out, even
-//!   though the push itself never reads it), and re-counts the commits
-//!   ahead of the remote-tracking ref (the same count, the ref an ancestor,
-//!   else `changed`). The push is under a lease on that fetched tip
+//!   on origin (`push_target`: a branch, never `refs/heads/HEAD`), so a
+//!   commit landing after classifying is never pushed unseen — sent to the
+//!   registry's URL over SSH as written, never through `origin`
+//!   (`SEND_PACK_ARGS` says why: no rewrite or remote config reaches it).
+//!   Right before, sync re-reads the branch — the same commit, upstream,
+//!   and ref on origin, no symbolic ref, else `changed` — re-reads where a
+//!   push through origin would go (`git remote get-url --push --all`,
+//!   `pushurl` and `pushInsteadOf` applied: exactly one URL, the registry's
+//!   repo over SSH as `push_urls_match` reads it — the host git connects to
+//!   and the path there, never the URL's text — else held `push_url`:
+//!   origin pushing elsewhere is a person's to sort out, even though the
+//!   push itself never reads it), and re-counts the commits ahead of the
+//!   remote-tracking ref (the same count, the ref an ancestor, else
+//!   `changed`). The push is under a lease on that fetched tip
 //!   (`--force-with-lease=<ref>:<fetched>`), a compare-and-swap: git
 //!   refuses unless the remote's branch is exactly what the fetch saw, and
 //!   the remote updates it only from the value it advertised. A lease lifts
@@ -204,17 +204,17 @@
 //!   but the fetched tip — fails the lease and is held (`changed`) for a
 //!   rerun, which reclassifies it: a deleted branch reads `gone`, so no
 //!   push recreates one (the user's `repos push --new-branch` alone does,
-//!   and only while it has commits on no remote). The push sends nothing but the one ref — no
-//!   tags, no push options, no push certificate — with git's own remote
-//!   command, over SSH only (`GIT_ALLOW_PROTOCOL=ssh`), batch-mode as the
-//!   fetch. The remote's own refusal (a ruleset, a hook) or a host
-//!   unreachable fails (`push_failed`, classified). Once pushed — or
-//!   found there already, another hand's push of the very commit since the
-//!   fetch — the remote-tracking ref moves to the commit by compare-and-swap
-//!   on the fetched tip (`record_push`), so `status` reads the branch in
-//!   sync without a refetch; a fetch that moved it meanwhile wins. A failed
-//!   or refused fetch holds every push, so that ref is one the fetch
-//!   confined.
+//!   and only while it has commits on no remote). The push sends nothing
+//!   but the one ref — no tags, no push options, no push certificate — with
+//!   git's own remote command, over SSH only (`GIT_ALLOW_PROTOCOL=ssh`),
+//!   batch-mode as the fetch. The remote's own refusal (a ruleset, a hook)
+//!   or a host unreachable fails (`push_failed`, classified). Once pushed —
+//!   or found there already, another hand's push of the very commit since
+//!   the fetch — the remote-tracking ref moves to the commit by
+//!   compare-and-swap on the fetched tip (`record_push`), so `status` reads
+//!   the branch in sync without a refetch; a fetch that moved it meanwhile
+//!   wins. A failed or refused fetch holds every push, so that ref is one
+//!   the fetch confined.
 //!
 //! - **A new remote branch** is `repos push --new-branch`'s alone (sync
 //!   never creates one): the same send-pack to the registry's URL, of the
@@ -285,7 +285,7 @@ use crate::registry::{Entry, RegistryDirs};
 use crate::remote::RemoteFailure;
 use crate::report::{
     BranchOutcome, BranchSync, BranchSyncHold, CloneOutcome, EntryStatus, EntrySync, FetchOutcome,
-    PushOutcome, RebasePush, RebaseRefusal, Sessions, SyncReport, UnregisteredClone,
+    PushOutcome, RebasePush, RebaseRefusal, Rebased, Sessions, SyncReport, UnregisteredClone,
 };
 use crate::sessions::{LiveSessions, SessionsSource, read_live_sessions};
 use crate::state::{
@@ -660,17 +660,7 @@ impl Actor<'_> {
             }
             SyncAction::Rebase { ahead, behind } => {
                 return match self.rebase_and_push(i, facts, b, ahead, behind) {
-                    Ok(RebasedPush::Rebased {
-                        from,
-                        to,
-                        onto,
-                        push,
-                    }) => BranchOutcome::Rebased {
-                        from,
-                        to,
-                        onto,
-                        push,
-                    },
+                    Ok(RebasedPush::Rebased(rebased)) => BranchOutcome::Rebased(rebased),
                     Ok(RebasedPush::Held(by)) => held(by),
                     Ok(RebasedPush::Refused(why)) => BranchOutcome::RebaseRefused { why },
                     Err(message) => failed(message),
@@ -728,12 +718,12 @@ impl Actor<'_> {
             Ok(PushDone::Stopped(Stop::PushFailed(failure))) => RebasePush::PushFailed { failure },
             Err(message) => RebasePush::Failed { message },
         };
-        Ok(RebasedPush::Rebased {
+        Ok(RebasedPush::Rebased(Rebased {
             from,
             to,
             onto,
             push,
-        })
+        }))
     }
 
     /// `push`, of `oid` — the tip a rebase just moved the branch to
@@ -979,15 +969,8 @@ impl Actor<'_> {
 /// failing (`Actor::rebase_and_push`).
 #[derive(Debug)]
 pub(crate) enum RebasedPush {
-    /// The branch moved from `from` to `to`, its local-only commits
-    /// replayed onto `onto`, the fetched tip; `push` is how the push of
-    /// `to` went.
-    Rebased {
-        from: String,
-        to: String,
-        onto: String,
-        push: RebasePush,
-    },
+    /// The branch moved, and how the push of its replayed tip went.
+    Rebased(Rebased),
     /// A re-check held the rebase; nothing moved.
     Held(BranchSyncHold),
     /// The replay found it a person's; nothing moved.

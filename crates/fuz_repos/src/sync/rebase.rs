@@ -7,7 +7,7 @@ use std::path::Path;
 
 use super::step::{CHECKOUT_TIMEOUT, Step, UpdateDone, first_message};
 use crate::git::CallOptions;
-use crate::probe::TAGGED_ARGS;
+use crate::probe::{merges_args, tagged_args};
 use crate::report::{BranchSyncHold, RebaseRefusal};
 
 /// The variable `Step::merge_driver_overrides`'s `--config-env` reads each
@@ -200,14 +200,11 @@ impl Step<'_> {
         // counted, none, so this is reached only should those ever let a
         // changed range through
         let range = format!("{onto}..{}", r.oid);
-        let merges =
-            self.output_string(dir, &["rev-list", "--count", "--merges", &range], self.opts)?;
+        let merges = self.output_string(dir, &merges_args(&range), self.opts)?;
         if merges.trim() != "0" {
             return Ok(false);
         }
-        let mut args = TAGGED_ARGS.to_vec();
-        args.extend(["--merged", r.oid, "--no-merged", onto, "refs/tags"]);
-        let tags = self.output_string(dir, &args, self.opts)?;
+        let tags = self.output_string(dir, &tagged_args(onto, r.oid), self.opts)?;
         Ok(tags.trim().is_empty())
     }
 
@@ -490,3 +487,6 @@ impl Step<'_> {
         self.switch_reset(checkout, from, to)
     }
 }
+
+#[cfg(test)]
+mod tests;

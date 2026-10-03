@@ -24,7 +24,8 @@ use fuz_repos::sync::SyncRun;
 use support::busy::live_session;
 use support::sync::outcomes;
 use support::{
-    FixtureWorkspace, LiveChild, OWNER, THIRD_PARTY, files, find_entry, quiet, root_listing, write,
+    FixtureWorkspace, LiveChild, OWNER, THIRD_PARTY, arriving_after, files, find_entry, quiet,
+    root_listing, write,
 };
 
 fn cloned(run: &SyncRun, key: &str) -> CloneOutcome {
@@ -617,14 +618,7 @@ fn a_session_at_the_missing_path_holds_its_clone() {
     assert!(!ws.dir("app").exists());
 
     // found right before cloning
-    let calls = AtomicUsize::new(0);
-    let read = || {
-        if calls.fetch_add(1, Ordering::SeqCst) == 0 {
-            quiet()
-        } else {
-            live.clone()
-        }
-    };
+    let read = arriving_after(1, live);
     let run = ws.sync_with(4, &read);
     assert_eq!(
         find_entry(&run.entries, "app").clone,

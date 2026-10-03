@@ -342,9 +342,10 @@ partial clone, whose commits ahead are on no remote-tracking ref, with no
 merge commit among them and no tag on one. Any other diverged branch stays
 `needs human`, by why:
 
-- `diverged` — not the registry's branch, or its entry or upstream rules it
-  out: a diverged feature branch is as likely a local rebase waiting on a
-  force-push, which the tool never makes
+- `diverged` — not the registry's branch, or its entry (archived, pinned,
+  third-party), its upstream (another name on origin), or a partial clone
+  rules it out: a diverged feature branch is as likely a local rebase
+  waiting on a force-push, which the tool never makes
 - `diverged_published` — a commit it's ahead by is on another remote branch
   (a pushed `feat`, merged into `main` here by fast-forward): a rebase would
   rewrite a commit a remote holds
@@ -353,10 +354,10 @@ merge commit among them and no tag on one. Any other diverged branch stays
 - `diverged_tagged` — a tag on one of them (a release whose push was refused,
   say), which a rebase would leave on a commit the branch no longer holds
 
-Everything that holds a
-fast-forward holds a rebase — a dirty checkout (untracked files count), an
-unprobed worktree, a live session, an operation in progress, a failed fetch —
-and so does what holds a push (origin's push URL elsewhere).
+A rebase is held by whatever holds a fast-forward (a dirty checkout —
+untracked files count — an unprobed worktree, a live session, an operation in
+progress, a failed fetch) and by whatever holds a push (origin's push URL
+elsewhere).
 
 The rebase is `git replay --onto <fetched tip> <fetched tip>..<branch>`, a
 merge made in memory: it writes new commit objects — the same changes,
@@ -370,24 +371,23 @@ login and host name git would guess.
 So a conflict moves nothing and leaves no rebase in progress: nothing is ever
 resolved — no merge strategy option, `rerere` off, and no merge driver, the
 ones your config defines and git's built-in `union` alike, so a path a
-`merge=` attribute would have merged conflicts like any other — and the
-branch stays `needs human`, reading `diverged +n −m, rebase conflicts`. A
-local commit whose change origin already has
-stops it the same way (`<commit> is already upstream`): a replay would keep it
-as an empty commit where `git rebase` drops it, and the tool makes neither
-choice. Only commits on no remote are replayed, so nothing published is
-rewritten.
+`merge=` attribute would have merged conflicts like any other — and the branch
+stays `needs human`, reading `diverged +n −m, rebase conflicts`. A local
+commit whose change origin already has stops it the same way (`<commit> is
+already upstream`): a replay would keep it as an empty commit where `git
+rebase` drops it, and the tool makes neither choice. Only commits on no remote
+are replayed, so nothing published is rewritten.
 
 Then the branch moves to the replayed commits: in place by `update-ref`
 compare-and-swap on the commit replayed, or in its clean checkout by the
 shallow move's `switch -C --no-overwrite-ignore`, after the checkout and the
 branch are read again — git refuses an ignored file the upstream now tracks
 (`failed`, nothing moved). The old commits stay in the branch's reflog,
-written whatever `core.logAllRefUpdates` says. Then
-the push, with its own re-checks and lease: a fast-forward of linear history,
-never a force. When the push is held or fails (origin moved again since the
-fetch, a ruleset refused it), the branch stays rebased and ahead, and the next
-run pushes it, or rebases it again.
+written whatever `core.logAllRefUpdates` says. Then the push, with its own
+re-checks and lease: a fast-forward of linear history, never a force. When the
+push is held or fails (origin moved again since the fetch, a ruleset refused
+it), the branch stays rebased and ahead, and the next run pushes it, or
+rebases it again.
 
 `status` predicts a rebase from the facts alone and never runs a replay (it
 writes nothing), so `sync would rebase` means sync would try.
@@ -416,10 +416,10 @@ upstream): the branch is a person's, as any diverged branch left alone.
 `--json` prints the entries after the fetch — the state sync acted on, not
 the state it left: a branch `rebased`, `pushed`, or `fast_forwarded` still
 reads `diverged`, `ahead`, or `behind` there — and each branch's outcome; a
-rebase is `rebased` (`from`, `to`,
-`onto` the fetched tip, and `push`: `pushed`, `already_there`, `held`,
-`push_failed`, or `failed`) or `rebase_refused` (`why`: `conflicts`, or
-`already_upstream` with the `commit`).
+rebase is `rebased` (`from`, `to`, `onto` the fetched tip, and `push`:
+`pushed`, `already_there`, `held`, `push_failed`, or `failed`) or
+`rebase_refused` (`why`: `conflicts`, or `already_upstream` with the
+`commit`).
 
 The rustdoc of `sync.rs` has the details.
 
@@ -441,26 +441,24 @@ never fast-forwards, moves a shallow branch, clones, or touches a branch
 other than the one checked out at a target: a branch behind is reported for
 `repos sync` to fast-forward.
 
-**A diverged branch is rebased, then pushed**, when it's one
-[sync rebases](#repos-sync): the branch the registry names, in an owned entry
-that's neither archived nor pinned, its commits ahead on no remote, with no
-merge or tag among them. It's the same action, with the same guards and
-re-checks: the local-only commits are replayed onto the fetched tip, the
-branch and the target's checkout move to the replayed commits (`switch -C
---no-overwrite-ignore`, in the target's own checkout — a linked worktree's
-too), and the new tip is pushed under the lease. Any other diverged branch
-reads `needs human`, by the same reasons (`diverged`, `diverged_published`,
-`diverged_merge`, `diverged_tagged`), and a conflict — or a local commit whose
-change origin already has — stops the rebase with nothing moved. A rebase is
-all `repos push` ever writes locally beyond its fetch and the remote-tracking
-ref a push records: the commit objects the replay makes, that one branch, and
-the checkout it's on.
+**A diverged branch is rebased, then pushed**, when it's one [sync
+rebases](#repos-sync) — the same branches, by the same rules. It's the same
+action, with the same guards and re-checks: the local-only commits are
+replayed onto the fetched tip, the branch and the target's checkout move to
+the replayed commits (`switch -C --no-overwrite-ignore`, in the target's own
+checkout — a linked worktree's too), and the new tip is pushed under the
+lease. Any other diverged branch reads `needs human`, by the same reasons
+(`diverged`, `diverged_published`, `diverged_merge`, `diverged_tagged`), and a
+conflict — or a local commit whose change origin already has — stops the
+rebase with nothing moved. A rebase is all `repos push` ever writes locally
+beyond its fetch and the remote-tracking ref a push records: the commit
+objects the replay makes, that one branch, and the checkout it's on.
 
 A rebase changes what the caller knew: the branch's commits are new ones, so
 commit ids read before the push are stale, and whatever was checked before it
 (tests, a build) was checked on the old base. The report says what moved —
-the text's `rebased` line carries the upstream commits the branch now sits on,
-its new tip, and the tip replaced; the JSON's `rebased` outcome carries
+the text's `rebased` line says how many upstream commits the branch now sits
+on, its new tip, and the tip replaced; the JSON's `rebased` outcome carries
 `from`, `to`, and `onto` — and when the push that follows is held or fails
 (origin moved again since the fetch, a ruleset refused it), the branch stays
 rebased and ahead, and the next `repos push` pushes it, or rebases it again.
@@ -688,7 +686,8 @@ system config, fixed identities and dates) and no network:
   tests' own child processes
 
 The test files split by command and aspect: `status_*.rs`, `sync.rs` and
-`sync_*.rs` (`sync_rebase.rs` the rebase), `push_*.rs` (`push_rebase.rs` a
+`sync_*.rs` (`sync_rebase*.rs` the rebase: its outcomes, its races, and
+what the replay writes and refuses), `push_*.rs` (`push_rebase*.rs` a
 push's rebase), `cli_*.rs` (the binary's documents, text, and exit
 codes), `targets.rs`, `registry_real.rs`, and `golden.rs` with its
 `golden/` modules. Helpers a family shares sit beside `support/mod.rs` in

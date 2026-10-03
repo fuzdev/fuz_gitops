@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 
 use super::FixtureWorkspace;
 use fuz_repos::push::PushRun;
-use fuz_repos::report::PushOutcome;
+use fuz_repos::report::{BranchSyncHold, PushOutcome};
 
 /// The one target's outcome, and the branch it names.
 pub fn only(run: &PushRun) -> (Option<&str>, &PushOutcome) {
@@ -20,6 +20,11 @@ pub fn pushed(from: &str, to: &str) -> PushOutcome {
         from: from.to_owned(),
         to: to.to_owned(),
     }
+}
+
+/// A target's push or rebase, held by `by`: nothing moved.
+pub const fn held(by: BranchSyncHold) -> PushOutcome {
+    PushOutcome::Held { by }
 }
 
 /// The remote's refs: every ref of `name`'s bare remote, tags included, and

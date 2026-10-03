@@ -304,8 +304,11 @@ describe('serialize_repos_json', () => {
 	const json_response = (body: unknown): Response =>
 		new Response(JSON.stringify(body), { headers: { 'content-type': 'application/json' } });
 
-	/** The document written for one repo whose open pull requests are `pulls`. */
-	const write_and_read = async (pulls: Array<unknown>): Promise<Array<RepoJson>> => {
+	/**
+	 * The document written for one repo whose open pull requests are `pulls`,
+	 * or whose pull request fetch fails with `null`.
+	 */
+	const write_and_read = async (pulls: Array<unknown> | null): Promise<Array<RepoJson>> => {
 		const repo = create_mock_repo({ name: 'a' });
 		repo.package_json = { ...repo.package_json, private: false, files: [] };
 		const repos_json = await fetch_repo_data({
@@ -313,7 +316,9 @@ describe('serialize_repos_json', () => {
 			delay: 0,
 			fetch: async (input) =>
 				String(input instanceof Request ? input.url : input).endsWith('/pulls')
-					? json_response(pulls)
+					? pulls
+						? json_response(pulls)
+						: new Response('', { status: 500 })
 					: json_response({ total_count: 0, check_runs: [] })
 		});
 		return JSON.parse(serialize_repos_json(repos_json));
@@ -331,12 +336,30 @@ describe('serialize_repos_json', () => {
 	test('no open pull requests stays an empty array, apart from a failed fetch', async () => {
 		const [written] = await write_and_read([]);
 		assert.deepEqual(written!.pull_requests, []);
+		const [failed] = await write_and_read(null);
+		assert.strictEqual(failed!.pull_requests, null);
 	});
 
 	test('the package.json keeps its false values and empty arrays', async () => {
 		const [written] = await write_and_read([]);
 		assert.strictEqual(written!.package_json.private, false);
 		assert.deepEqual(written!.package_json.files, []);
+	});
+
+	test('a package.json object the library data shares stays whole', () => {
+		const repo = create_mock_repo({ name: 'a' });
+		// `pkg_json_from_package_json` picks shallowly, so `exports` is one object in both
+		const exports = { './a.ts': { svelte: false, default: './a.js' }, './b.ts': [] };
+		const package_json = { ...repo.package_json, exports };
+		const library_json = {
+			...repo.library.library_json,
+			pkg_json: { ...repo.library.library_json.pkg_json, exports }
+		};
+		const [written] = JSON.parse(
+			serialize_repos_json([{ library_json, package_json, check_runs: null, pull_requests: null }])
+		);
+		assert.deepEqual(written.package_json.exports, exports);
+		assert.deepEqual(written.library_json.pkg_json.exports, { './a.ts': { default: './a.js' } });
 	});
 
 	test('the library data stays compact', () => {

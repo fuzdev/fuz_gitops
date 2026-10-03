@@ -18,13 +18,16 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 use fuz_repos::classify::NeedsHuman;
 use fuz_repos::remote::RemoteFailure;
-use fuz_repos::report::{BranchOutcome, BranchSync, BranchSyncHold, FetchOutcome, RebasePush};
-use fuz_repos::sessions::{LiveSessions, SessionSource, Unavailable};
+use fuz_repos::report::{
+    BranchOutcome, BranchSync, BranchSyncHold, EntrySync, FetchOutcome, RebasePush, Rebased,
+};
+use fuz_repos::sessions::{LiveSessions, Unavailable};
 use fuz_repos::state::{BranchHold, Relation, SyncAction, Verdict};
-use support::busy::live_session;
+use support::busy::live_in;
 use support::sync::{outcome, outcomes};
 use support::{
-    FixtureWorkspace, LiveChild, branch, ff, find_entry, git_env, quiet, reader_then, write,
+    FixtureWorkspace, LiveChild, arriving_after, branch, ff, find_entry, git_env, quiet,
+    reader_then, write,
 };
 
 fn moved(from: &str, to: &str) -> BranchOutcome {
@@ -190,7 +193,7 @@ fn a_busy_checkout_holds_its_branch() {
     let (app, _, feat_tip) = behind_twice(&mut ws);
     let before = ws.refs(&app);
     let child = LiveChild::spawn();
-    let live = LiveSessions::Known(vec![live_session(&child, &app, SessionSource::SessionFile)]);
+    let live = live_in(&child, &app);
 
     let run = ws.sync_with(4, &|| live.clone());
 
@@ -238,7 +241,7 @@ fn sessions_are_read_after_the_fetch_and_again_before_acting() {
             main_tip,
             "read {n} came before the fetch"
         );
-        LiveSessions::Known(vec![live_session(&child, &app, SessionSource::SessionFile)])
+        live_in(&child, &app)
     };
     let run = ws.sync_with(1, &read);
     assert_eq!(
@@ -259,7 +262,7 @@ fn sessions_are_read_after_the_fetch_and_again_before_acting() {
     let (app, _, feat_tip) = behind_twice(&mut ws);
     let before = ws.refs(&app);
     let calls = AtomicUsize::new(0);
-    let late = LiveSessions::Known(vec![live_session(&child, &app, SessionSource::SessionFile)]);
+    let late = live_in(&child, &app);
     let read = || {
         if calls.fetch_add(1, Ordering::SeqCst) == 0 {
             quiet()
@@ -312,14 +315,7 @@ fn unavailable_busy_detection_fetches_only() {
     let mut ws = FixtureWorkspace::new();
     let (app, _, _) = behind_twice(&mut ws);
     let before = ws.refs(&app);
-    let calls = AtomicUsize::new(0);
-    let read = || {
-        if calls.fetch_add(1, Ordering::SeqCst) == 0 {
-            quiet()
-        } else {
-            LiveSessions::Unavailable(Unavailable::HomeUnknown)
-        }
-    };
+    let read = arriving_after(1, LiveSessions::Unavailable(Unavailable::HomeUnknown));
     let run = ws.sync_with(4, &read);
     for name in ["main", "feat"] {
         assert_eq!(
@@ -920,7 +916,22 @@ fn outcomes_are_the_same_whatever_the_jobs() {
     let (one, many) = (build(), build());
     let serial = one.sync_with(1, &quiet);
     let parallel = many.sync_with(16, &quiet);
-    assert_eq!(serial.outcomes, parallel.outcomes);
+    // a replayed commit's id holds its committer date, the wall clock's
+    // (the runner's env carries no fixture clock), which the two runs
+    // needn't share to the second
+    let replayed_unnamed = |outcomes: &[EntrySync]| {
+        let mut outcomes = outcomes.to_vec();
+        for b in outcomes.iter_mut().flat_map(|e| e.branches.iter_mut()) {
+            if let BranchOutcome::Rebased(r) = &mut b.outcome {
+                r.to = "replayed".into();
+            }
+        }
+        outcomes
+    };
+    assert_eq!(
+        replayed_unnamed(&serial.outcomes),
+        replayed_unnamed(&parallel.outcomes)
+    );
     let kinds: BTreeMap<&str, Vec<&BranchOutcome>> = serial
         .outcomes
         .iter()
@@ -941,10 +952,10 @@ fn outcomes_are_the_same_whatever_the_jobs() {
     // diverged, the registry's branch: rebased and pushed
     assert!(matches!(
         kinds["other"][..],
-        [BranchOutcome::Rebased {
+        [BranchOutcome::Rebased(Rebased {
             push: RebasePush::Pushed,
             ..
-        }]
+        })]
     ));
     assert!(matches!(
         kinds["third"][..],

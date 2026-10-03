@@ -172,7 +172,11 @@ export const task: Task<Args> = {
  * is compacted with svelte-docinfo's `compactReplacer`, the format its schema
  * reads back: the replacer drops every `false` and empty array, which outside
  * the library data would strip a pull request's `draft: false`, an empty
- * `pull_requests`, and `package.json` fields like `private: false`.
+ * `pull_requests`, and `package.json` fields like `private: false`. The
+ * library data round-trips on its own rather than in one replacer pass:
+ * `pkg_json` shares its nested objects (`exports`, `repository`) with the full
+ * `package_json`, so a replacer keyed on object identity would compact those
+ * there too.
  *
  * @param repos_json - the repos' data, in order
  * @returns unformatted JSON

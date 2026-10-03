@@ -9,7 +9,7 @@ use fuz_repos::remote::{RefGoneFix, RemoteFailure, UnreachableCause, VisibilityC
 use fuz_repos::report::{
     BranchOutcome, BranchSync, BranchSyncHold, CheckoutPush, CloneOutcome, CloneSyncHold,
     EntryStatus, EntrySync, FetchOutcome, NoUpstreamWhy, PushOutcome, PushReport, RebasePush,
-    RebaseRefusal, RepairBlock, Sessions, StatusReport, SyncReport, UnregisteredClone,
+    RebaseRefusal, Rebased, RepairBlock, Sessions, StatusReport, SyncReport, UnregisteredClone,
     UnregisteredKind,
 };
 use fuz_repos::sessions::{Session, SessionSource, Unavailable};
@@ -433,12 +433,12 @@ pub fn push_report_doc() -> PushReport {
             path(key),
             Some("main"),
             FetchOutcome::Fetched,
-            PushOutcome::Rebased {
+            PushOutcome::Rebased(Rebased {
                 from: oid('1'),
                 to: oid('2'),
                 onto: oid('3'),
                 push,
-            },
+            }),
         )
     };
     let refused_replay = |key: &str, why| {
@@ -1063,12 +1063,12 @@ pub fn sync_report_doc() -> SyncReport {
         behind: 3,
     };
     let rebased = |key: &str, push| {
-        let outcome = BranchOutcome::Rebased {
+        let outcome = BranchOutcome::Rebased(Rebased {
             from: oid('1'),
             to: oid('2'),
             onto: oid('3'),
             push,
-        };
+        });
         one(
             &diverged(key, 2, 3, act(rebase)),
             Relation::Diverged {

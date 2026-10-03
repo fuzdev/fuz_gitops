@@ -511,11 +511,11 @@ pub enum SyncAction {
     Move,
     /// A diverged branch — the one the registry names, of an owned entry —
     /// whose `ahead` local-only commits, each on no remote and none of them
-    /// a merge or tagged, are replayed onto the fetched tip (`behind` commits
-    /// on), the branch moved to the
-    /// replayed commits, and then pushed as `Push` pushes. A prediction
-    /// from the facts alone: only the replay itself finds a conflict, which
-    /// leaves the branch as it was (`BranchOutcome::RebaseRefused`).
+    /// a merge or tagged, are replayed onto the fetched tip (`behind`
+    /// commits on), the branch moved to the replayed commits, and then
+    /// pushed as `Push` pushes. A prediction from the facts alone: only the
+    /// replay itself finds a conflict, which leaves the branch as it was
+    /// (`BranchOutcome::RebaseRefused`).
     Rebase {
         ahead: u32,
         behind: u32,

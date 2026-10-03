@@ -530,7 +530,6 @@ pub(crate) fn classify(
                 on: &on,
                 detection: sessions.detection,
             };
-            let rebasable = rebasable(entry, b, facts);
             // an alias never acts: git writes through it to its target,
             // unchecked (`BranchStatus::symref` says why nothing is lost)
             let verdict = if b.branch.symref.is_some() {
@@ -539,7 +538,8 @@ pub(crate) fn classify(
                 // any branch may be checked out in a worktree no one can
                 // see: deleting it would strand that worktree
                 let unseen = worktrees_unread || on.head_unknown;
-                match verdict(entry, b, relation, upstream.is_some(), rebasable, &holds) {
+                let partial = facts.config.partial_filter.is_some();
+                match verdict(entry, b, relation, upstream.is_some(), partial, &holds) {
                     Verdict::Cleanup { .. } if unseen && b.unique_commits > 0 => Verdict::LocalOnly,
                     Verdict::Cleanup { .. } if unseen => Verdict::Quiet,
                     verdict => verdict,
@@ -946,24 +946,13 @@ fn fold_checkouts_on<'a>(
     folded
 }
 
-/// Whether a diverged branch is sync's to rebase (`SyncAction::Rebase`):
-/// its local-only commits replayed onto the fetched tip, then pushed.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Rebasable {
-    /// Sync's, whatever holds it.
-    Yes,
-    /// A person's (`BranchNeedsHuman::Diverged` says which branches are).
-    No,
-    /// Sync's but for a commit of its own that another remote-tracking ref
-    /// holds.
-    Published,
-    /// Sync's but for a merge commit among its local-only commits.
-    Merge,
-    /// Sync's but for a tag on one of its local-only commits.
-    Tagged,
-}
-
-/// Whether sync may rebase branch `b` of `entry`, should it read diverged.
+/// What keeps sync from rebasing branch `b` of `entry`, diverged and
+/// `ahead` by its local-only commits (`SyncAction::Rebase`: those commits
+/// replayed onto the fetched tip, then pushed): `None` when nothing does,
+/// whatever holds it, else why it's a person's — `Diverged` for a branch
+/// that isn't sync's to rebase at all, or the one thing that keeps a branch
+/// that is from being rebased (`DivergedPublished`, `DivergedMerge`,
+/// `DivergedTagged`). `partial` is whether the repo is a partial clone.
 ///
 /// Only the branch the registry names, in an owned entry that's neither
 /// archived nor pinned: any other diverged branch is as likely a local
@@ -980,11 +969,13 @@ enum Rebasable {
 /// tag on one (`local_tagged`), which a rebase would leave on a commit the
 /// branch no longer holds — a release commit whose push was refused, say.
 /// A shallow clone's branch never reads diverged (`Relation::Shallow`).
-fn rebasable(entry: &Entry, b: &BranchFacts, facts: &RepoFacts) -> Rebasable {
+fn rebase_blocker(
+    entry: &Entry,
+    b: &BranchFacts,
+    ahead: u32,
+    partial: bool,
+) -> Option<BranchNeedsHuman> {
     let name = b.branch.name.as_str();
-    let Track::Diverged { ahead, .. } = b.branch.track else {
-        return Rebasable::No;
-    };
     let same_named = push_target(&b.branch)
         .and_then(|target| target.strip_prefix("refs/heads/"))
         .is_some_and(|target| target == name);
@@ -993,23 +984,24 @@ fn rebasable(entry: &Entry, b: &BranchFacts, facts: &RepoFacts) -> Rebasable {
         && !entry.pinned
         && entry.branch.as_deref() == Some(name)
         && same_named
-        && facts.config.partial_filter.is_none();
+        && !partial;
     if !sync_rebases {
-        Rebasable::No
+        Some(BranchNeedsHuman::Diverged)
     } else if b.unique_commits != ahead {
-        Rebasable::Published
+        Some(BranchNeedsHuman::DivergedPublished)
     } else if b.local_merges > 0 {
-        Rebasable::Merge
+        Some(BranchNeedsHuman::DivergedMerge)
     } else if b.local_tagged {
-        Rebasable::Tagged
+        Some(BranchNeedsHuman::DivergedTagged)
     } else {
-        Rebasable::Yes
+        None
     }
 }
 
 /// What sync does with a branch. `has_upstream` is whether any upstream is
-/// configured; `rebasable`, whether a diverged one is sync's to rebase;
-/// `holds` what may hold its action back, including the checkouts it's on.
+/// configured; `partial`, whether the repo is a partial clone, whose
+/// diverged branches are never sync's to rebase (`rebase_blocker`); `holds`
+/// what may hold its action back, including the checkouts it's on.
 ///
 /// A pin is left alone — never fetched, updated, pushed, or reported
 /// behind — so what its remote-tracking refs say of a branch is stale by
@@ -1022,7 +1014,7 @@ fn verdict(
     b: &BranchFacts,
     relation: Relation,
     has_upstream: bool,
-    rebasable: Rebasable,
+    partial: bool,
     holds: &Holds<'_, '_>,
 ) -> Verdict {
     use std::ops::ControlFlow::{Break, Continue};
@@ -1050,21 +1042,10 @@ fn verdict(
         Relation::Shallow => Break(Verdict::NeedsHuman {
             reason: BranchNeedsHuman::ShallowLocalWork,
         }),
-        Relation::Diverged { ahead, behind } => match rebasable {
-            Rebasable::Yes => Continue(SyncAction::Rebase { ahead, behind }),
-            Rebasable::No => Break(Verdict::NeedsHuman {
-                reason: BranchNeedsHuman::Diverged,
+        Relation::Diverged { ahead, behind } => rebase_blocker(entry, b, ahead, partial)
+            .map_or(Continue(SyncAction::Rebase { ahead, behind }), |reason| {
+                Break(Verdict::NeedsHuman { reason })
             }),
-            Rebasable::Published => Break(Verdict::NeedsHuman {
-                reason: BranchNeedsHuman::DivergedPublished,
-            }),
-            Rebasable::Merge => Break(Verdict::NeedsHuman {
-                reason: BranchNeedsHuman::DivergedMerge,
-            }),
-            Rebasable::Tagged => Break(Verdict::NeedsHuman {
-                reason: BranchNeedsHuman::DivergedTagged,
-            }),
-        },
         Relation::Unmapped => Break(Verdict::NeedsHuman {
             reason: BranchNeedsHuman::Unmapped,
         }),

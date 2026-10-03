@@ -35,6 +35,11 @@ pub fn live_session(child: &LiveChild, cwd: &Path, source: SessionSource) -> Ses
     )
 }
 
+/// What a reader finds with one session, `child`'s, recorded in `cwd`.
+pub fn live_in(child: &LiveChild, cwd: &Path) -> LiveSessions {
+    LiveSessions::Known(vec![live_session(child, cwd, SessionSource::SessionFile)])
+}
+
 /// `live_session` for a child spawned where the test runs
 /// (`LiveChild::spawn`): its process's cwd.
 pub fn child_session(child: &LiveChild, cwd: &Path, source: SessionSource) -> Session {

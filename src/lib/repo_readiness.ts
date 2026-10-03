@@ -497,7 +497,7 @@ const format_followed = (
 		case 'diverged':
 			return {
 				what: `${b} has diverged from origin (${relation.ahead} ahead, ${relation.behind} behind)`,
-				fix: `\`${repos} sync ${key}\` rebases it onto origin and pushes it when its commits replay cleanly; otherwise rebase or merge it by hand, then push`
+				fix: `\`${repos} sync ${key}\` rebases it onto origin and pushes it when it's sync's to rebase (\`${repos} status ${key}\` says) and its commits replay cleanly; otherwise rebase or merge it by hand, then push`
 			};
 		case 'shallow':
 			return {

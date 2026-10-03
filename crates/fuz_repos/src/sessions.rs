@@ -44,10 +44,10 @@
 //!
 //! **Fail closed.** No sessions dir means nothing is live. But a live
 //! session the reader can't vouch for makes detection `Unavailable`, and
-//! then every push, fast-forward, move, and rebase is held: a file that doesn't
-//! parse while a process has its pid, a `pidDomain` (machine id and pid
-//! namespace) other than the tool's own, where `/proc` can't speak for its
-//! pid, a file or dir that can't be read, `HOME` unset (Claude Code falls
+//! then every push, fast-forward, move, and rebase is held: a file that
+//! doesn't parse while a process has its pid, a `pidDomain` (machine id and
+//! pid namespace) other than the tool's own, where `/proc` can't speak for
+//! its pid, a file or dir that can't be read, `HOME` unset (Claude Code falls
 //! back to the passwd entry's home, which the tool doesn't read, so a
 //! `CLAUDE_CONFIG_DIR` alone isn't every dir), a config dir given as a
 //! relative path (which the tool's cwd would resolve, not the session's), a

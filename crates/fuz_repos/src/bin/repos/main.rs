@@ -6,15 +6,14 @@
 //! refspec it can't confine: the entry went unsynced and a person must
 //! act), a probe, or an action git refused (a rebase stopped by a conflict
 //! is no failure: the branch stays diverged, a person's, as the report
-//! says) — and under `push` for any
-//! target whose branch didn't end in sync with its upstream (held, not
-//! ahead, a person's, a rebase its replay stopped or whose push didn't
-//! land, no upstream, a remote branch in the way, detached, unread, or a
-//! push that failed), as `git push` exits on a rejected ref;
-//! `2` when the caller must change something — usage, a missing or invalid
-//! registry, git missing or too old, an unknown target, and under `push`
-//! the cwd in no entry's checkout, a third-party or pinned target, or
-//! `--new-branch` in an agent's shell.
+//! says) — and under `push` for any target whose branch didn't end in sync
+//! with its upstream (held, not ahead, a person's, a rebase its replay
+//! stopped or whose push didn't land, no upstream, a remote branch in the
+//! way, detached, unread, or a push that failed), as `git push` exits on a
+//! rejected ref; `2` when the caller must change something — usage, a
+//! missing or invalid registry, git missing or too old, an unknown target,
+//! and under `push` the cwd in no entry's checkout, a third-party or pinned
+//! target, or `--new-branch` in an agent's shell.
 //!
 //! A fatal error prints `error: …` and `hint: …` on stderr; under `--json`
 //! it also prints one `ErrorReport` document on stdout, in place of the
@@ -159,10 +158,10 @@ struct StatusArgs {
 /// push each one ahead, rebase a diverged registry branch onto its fetched
 /// upstream and push it (stopping on any conflict, nothing moved), and clone
 /// each missing entry, where safe; report what was done and what was held.
-/// Never force-pushes, merges, resolves a conflict, or deletes.
-/// Third-party references are left as they are unless named or under
-/// --references; pins, and references whose origin isn't the registry's
-/// repo, always are.
+/// Never force-pushes, merges anything but a fast-forward, resolves a
+/// conflict, or deletes. Third-party references are left as they are
+/// unless named or under --references; pins, and references whose origin
+/// isn't the registry's repo, always are.
 // A flat bundle of CLI switches, not domain state.
 #[allow(clippy::struct_excessive_bools)]
 #[derive(FromArgs, Debug)]
